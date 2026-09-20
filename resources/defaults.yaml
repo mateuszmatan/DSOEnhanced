@@ -51,11 +51,13 @@ defaults:
     onlyDirectDependencies: true   # only libraries declared directly by the application
     minThreatLevel:         2      # Nexus IQ threat level: 2+ medium (moderate), 4+ high (severe), 8+ critical
     ecosystems:             [maven, npm, pypi]
-    goldenVersionTypes:            # Nexus IQ Golden Version, used as is when Nexus IQ offers it (Maven)
+    goldenVersionTypes:            # Nexus IQ remediation types reported as the Golden Version (Maven)
       - recommended-non-breaking-with-dependencies
       - recommended-non-breaking
-                                   # without a Golden Version the library takes the nearest higher version
-                                   # offered by Nexus IQ: backward compatible first, then without violations
+                                   # the version is chosen by two rules, in this order:
+                                   # 1. only the patch version may change, x.y stays as it is
+                                   # 2. of those, the newest one without known vulnerabilities
+                                   # with no patch level offer the newest clean version of any level is used
     commitAuthorName:  "DevSecOps GoldenFix"
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default

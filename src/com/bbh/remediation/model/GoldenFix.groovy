@@ -17,8 +17,9 @@ class GoldenFix implements Serializable {
     @NonCPS
     static Map create(String ecosystem, String group, String name, String currentVersion, String targetVersion,
                       String remediationType, String packageUrl, int threatLevel, Boolean direct, String application,
-                      boolean golden = false) {
+                      boolean golden = false, Boolean nonBreaking = null) {
         return [
+                nonBreaking    : nonBreaking == null ? patchLevelChange(currentVersion, targetVersion) : nonBreaking,
                 ecosystem      : ecosystem,
                 group          : group ?: '',
                 name           : name,
@@ -61,34 +62,106 @@ class GoldenFix implements Serializable {
         for (def candidate : (candidates ?: [])) {
             String version = (candidate?.version ?: '') as String
             if (version && isUpgrade(currentVersion, version)) {
-                upgrades << [type: (candidate.type ?: '') as String, version: version]
+                upgrades << [type: (candidate.type ?: '') as String, version: version,
+                             issues: issueCount(candidate)]
             }
         }
         if (upgrades.isEmpty()) return null
 
-        List goldenTypes = (goldenVersionTypes ?: defaultGoldenVersionTypes()) as List
-        for (def goldenType : goldenTypes) {
-            for (Map upgrade : upgrades) {
-                if (upgrade.type == goldenType) {
-                    return [type: upgrade.type, version: upgrade.version, golden: true]
-                }
-            }
+        List patchOnly = []
+        for (Map upgrade : upgrades) {
+            if (patchLevelChange(currentVersion, upgrade.version as String)) patchOnly << upgrade
+        }
+        if (!patchOnly.isEmpty()) {
+            Map picked = newestCleanest(patchOnly)
+            return [type: picked.type, version: picked.version, golden: isGoldenType(picked.type as String, goldenVersionTypes),
+                    nonBreaking: true, issues: picked.issues]
         }
 
-        Map best = null
-        for (Map upgrade : upgrades) {
-            if (best == null || preferredOver(upgrade, best, currentVersion)) best = upgrade
+        Map fallback = newestCleanest(upgrades)
+        return [type: fallback.type, version: fallback.version, golden: isGoldenType(fallback.type as String, goldenVersionTypes),
+                nonBreaking: false, issues: fallback.issues]
+    }
+
+    @NonCPS
+    static Map newestCleanest(List upgrades) {
+        List ordered = sortNewestFirst(upgrades)
+        for (Map upgrade : ordered) {
+            if (isClean(upgrade)) return upgrade
         }
-        return [type: best.type, version: best.version, golden: false]
+        Map best = null
+        for (Map upgrade : ordered) {
+            if (best == null) {
+                best = upgrade
+            } else {
+                int candidateIssues = (upgrade.issues ?: -1) as int
+                int bestIssues = (best.issues ?: -1) as int
+                if (candidateIssues >= 0 && bestIssues >= 0 && candidateIssues < bestIssues) best = upgrade
+            }
+        }
+        return best
+    }
+
+    @NonCPS
+    static List sortNewestFirst(List upgrades) {
+        List source = []
+        source.addAll(upgrades ?: [])
+        List ordered = []
+        List taken = []
+        for (int n = 0; n < source.size(); n++) {
+            int bestIdx = -1
+            for (int i = 0; i < source.size(); i++) {
+                if (taken.contains(i)) continue
+                if (bestIdx < 0 || compare((source.get(i) as Map).version as String, (source.get(bestIdx) as Map).version as String) > 0) {
+                    bestIdx = i
+                }
+            }
+            if (bestIdx < 0) break
+            ordered << source.get(bestIdx)
+            taken << bestIdx
+        }
+        return ordered
+    }
+
+    @NonCPS
+    static boolean isClean(Map upgrade) {
+        int issues = (upgrade?.issues ?: -1) as int
+        if (issues >= 0) return issues == 0
+        return ((upgrade?.type ?: '') as String).contains('no-violations')
+    }
+
+    @NonCPS
+    static boolean isGoldenType(String type, List goldenVersionTypes) {
+        List types = (goldenVersionTypes ?: defaultGoldenVersionTypes()) as List
+        return types.contains(type ?: '')
+    }
+
+    @NonCPS
+    static int issueCount(def candidate) {
+        def value = candidate?.issues
+        if (value == null) return -1
+        return (value as int)
+    }
+
+    @NonCPS
+    static boolean patchLevelChange(String current, String target) {
+        List a = numericPrefix(current)
+        List b = numericPrefix(target)
+        if (a.size() < 2 || b.size() < 2) return false
+        return a[0] == b[0] && a[1] == b[1]
     }
 
     @NonCPS
     static String selectionLabel(Map fix) {
         String type = (fix?.remediationType ?: '') as String
-        if (fix?.golden) return type ? "Nexus IQ Golden Version (${type})".toString() : 'Nexus IQ Golden Version'
-        if (!type) return ''
-        String reason = type.contains('no-violations') ? 'nearest version without violations' : 'nearest version offered by Nexus IQ'
-        return "${reason} (${type})".toString()
+        String scope = (fix?.nonBreaking == false)
+                ? 'changes more than the patch version, no patch-level upgrade is offered'
+                : 'newest patch-level version'
+        String clean = type.contains('no-violations') ? ', no known vulnerabilities' : ''
+        if (fix?.golden) {
+            return type ? "${scope}${clean}, Nexus IQ Golden Version (${type})".toString() : "${scope}${clean}".toString()
+        }
+        return type ? "${scope}${clean} (${type})".toString() : scope
     }
 
     @NonCPS

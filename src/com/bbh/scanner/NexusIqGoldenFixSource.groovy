@@ -45,26 +45,33 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
             script.echo "[GOLDENFIX] ${application}: ${candidates.size()} violating ${onlyDirect ? 'direct ' : ''}component(s) eligible for GoldenFix (threat level >= ${minThreat})"
 
             String remediationUrl = "${server}/api/v2/components/remediation/application/${RestClient.urlEncode(internalId)}?stageId=${RestClient.urlEncode(stageId)}"
+            List requests = []
             for (int i = 0; i < candidates.size(); i++) {
                 Map c = candidates[i]
-                try {
-                    def payload = c.componentIdentifier ? [componentIdentifier: c.componentIdentifier] : [packageUrl: c.packageUrl]
-                    def remediation = rest.postJson(remediationUrl, payload, auth, "Nexus IQ: remediation for ${c.displayName}")
-                    Map pick = GoldenFix.selectRemediation(candidateVersions(remediation), c.version as String, goldenTypes)
-                    if (pick) {
-                        Map fix = GoldenFix.create(c.ecosystem as String, c.group as String, c.name as String, c.version as String,
-                                pick.version as String, pick.type as String, c.packageUrl as String, c.threatLevel as int,
-                                c.direct as Boolean, application, pick.golden as boolean)
-                        fixes << fix
-                        script.echo "[GOLDENFIX]   ${c.displayName} ${c.version} -> ${pick.version}: ${GoldenFix.selectionLabel(fix)}"
-                    } else {
-                        script.echo "[GOLDENFIX]   ${c.displayName} ${c.version}: Nexus IQ offers no remediation version"
-                    }
-                } catch (Exception e) {
-                    if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-                    script.echo "[GOLDENFIX]   ${c.displayName} ${c.version}: remediation lookup failed - ${e.message}"
-                }
+                requests << [url: remediationUrl, payload: c.componentIdentifier ? [componentIdentifier: c.componentIdentifier] : [packageUrl: c.packageUrl]]
             }
+            List responses = rest.postJsonBatch(requests, auth, "Nexus IQ: remediation for ${requests.size()} component(s)")
+
+            List lines = []
+            for (int i = 0; i < candidates.size(); i++) {
+                Map c = candidates[i]
+                Map response = (i < responses.size() ? responses[i] : [:]) as Map
+                if (!response.ok) {
+                    lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: remediation lookup failed - HTTP ${response.status ?: 0} ${response.error ?: ''}".toString()
+                    continue
+                }
+                Map pick = GoldenFix.selectRemediation(candidateVersions(response.json), c.version as String, goldenTypes)
+                if (!pick) {
+                    lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: Nexus IQ offers no remediation version".toString()
+                    continue
+                }
+                Map fix = GoldenFix.create(c.ecosystem as String, c.group as String, c.name as String, c.version as String,
+                        pick.version as String, pick.type as String, c.packageUrl as String, c.threatLevel as int,
+                        c.direct as Boolean, application, pick.golden as boolean, pick.nonBreaking as Boolean)
+                fixes << fix
+                lines << "[GOLDENFIX]   ${c.displayName} ${c.version} -> ${pick.version}: ${GoldenFix.selectionLabel(fix)}".toString()
+            }
+            if (lines) script.echo lines.join('\n')
         }
         return fixes
     }
@@ -134,9 +141,18 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
             def component = change?.data?.component
             String version = component?.componentIdentifier?.coordinates?.version as String
             if (!version) version = versionFromPurl(component?.packageUrl as String)
-            if (version) out << [type: (change?.type ?: '') as String, version: version]
+            if (version) out << [type: (change?.type ?: '') as String, version: version, issues: issuesOf(component)]
         }
         return out
+    }
+
+    @NonCPS
+    static Integer issuesOf(def component) {
+        def issues = component?.securityData?.securityIssues
+        if (issues instanceof List) return (issues as List).size()
+        def counts = component?.securityData?.securityIssueCount
+        if (counts instanceof Number) return (counts as int)
+        return null
     }
 
     @NonCPS

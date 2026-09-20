@@ -1160,12 +1160,14 @@ devSecOpsPipeline(
 <p>Fetches the violating components of the evaluation from Nexus IQ (<code>/api/v2/applications/{app}/reports/{scanId}/policy</code>) and keeps only <strong>direct dependencies</strong> with a non-waived violation of at least medium threat level.</p>
 </li>
 <li>
-<p>Asks the Component Remediation API (<code>/api/v2/components/remediation/application/{id}</code>) for every version Nexus IQ proposes and picks one of them:
-   - the <strong>Golden Version</strong> when Nexus IQ offers it (<code>recommended-non-breaking-with-dependencies</code> or <code>recommended-non-breaking</code>, in practice Maven only, configurable in <code>goldenFix.goldenVersionTypes</code>),
-   - otherwise the <strong>nearest higher version</strong> among the proposals, in this order: <strong>backward compatible first</strong> (same major version, and for a <code>0.x</code> version also the same minor), then <strong>without known vulnerabilities</strong> (<code>next-no-violations*</code>), then the smallest upgrade.</p>
+<p>Asks the Component Remediation API (<code>/api/v2/components/remediation/application/{id}</code>) for every version Nexus IQ proposes, for <strong>all eligible components of a project in one shell step</strong> with up to eight requests in flight at a time, and picks one of the proposals by two rules, in this order:</p>
 </li>
+<li>
+<p><strong>Do not break the build: only the patch version may change.</strong> For <code>x.y.z</code> the major <code>x</code> and the minor <code>y</code> have to stay as they are, so <code>2.13.4</code> may become <code>2.13.5</code> but never <code>2.15.4</code>. A two-part version behaves the same way: <code>1.9</code> may become <code>1.9.1</code> but not <code>1.10.0</code>.</p>
+</li>
+<li><strong>Among those, take the newest one that carries no known vulnerabilities.</strong> The proposals are walked from the newest downwards, and the first one Nexus IQ reports as free of violations wins. When none of them is clean, the one with the fewest known issues is taken, and if Nexus IQ reports no counts, the newest one.</li>
 </ol>
-<p>The pull request table names the rule that picked each version, so a reviewer sees whether it is the Golden Version or the nearest compatible upgrade.
+<p>A Golden Version that changes more than the patch version therefore loses to a plain patch upgrade. Only when Nexus IQ proposes no patch-level version at all does the library fall back to the newest clean proposal of any level; the pull request and the console then say that the upgrade <code>changes more than the patch version, no patch-level upgrade is offered</code>, so a reviewer sees it has to be checked by hand.
 3. Searches the whole source tree (multi-module projects included, <code>node_modules</code>, <code>target</code>, <code>build</code>, virtualenvs skipped) and updates:
    - Maven: <code>pom.xml</code> dependencies, dependencyManagement and the <code>&lt;properties&gt;</code> they reference (also in parent POMs)
    - Gradle: <code>build.gradle</code>, <code>build.gradle.kts</code>, <code>gradle.properties</code>, <code>ext</code>/<code>val</code> version variables, version catalogs <code>*.versions.toml</code>
@@ -2001,7 +2003,7 @@ devSecOpsPipeline(
 </tr>
 <tr>
 <td><code>test/sandbox/SandboxScenarios.groovy</code></td>
-<td>Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the GoldenFix version choice follows the Golden Version and nearest compatible rules; GoldenFix patches a real <code>pom.xml</code>, <code>build.gradle</code>, <code>gradle.properties</code>, <code>package.json</code>, <code>requirements.txt</code> and <code>pubspec.yaml</code>; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports</td>
+<td>Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real <code>pom.xml</code>, <code>build.gradle</code>, <code>gradle.properties</code>, <code>package.json</code>, <code>requirements.txt</code> and <code>pubspec.yaml</code>; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports</td>
 </tr>
 <tr>
 <td><code>test/sandbox/PipelineScenarios.groovy</code></td>

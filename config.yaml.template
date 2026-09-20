@@ -113,8 +113,8 @@ projects:
 
     goldenFix:
       enabled: true                        # on Nexus IQ policy violation raise PR GoldenFix-YYYYMMDDHHMM
-                                           # version choice: the Nexus IQ Golden Version, otherwise the nearest
-                                           # higher version, backward compatible first, then without violations
+                                           # version choice: only the patch version changes (x.y stays),
+                                           # and of those the newest one without known vulnerabilities
 
     deploy:
       vm:

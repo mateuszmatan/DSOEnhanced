@@ -267,24 +267,35 @@ pickHarness.run {
         Map picked = model.selectRemediation(candidates.collect { List c -> [type: c[0], version: c[1]] }, current, null) as Map
         return picked == null ? 'none' : "${picked.version}${picked.golden ? ' (golden)' : ''}".toString()
     }
+    Closure choiceWithIssues = { String current, List<List> candidates ->
+        Map picked = model.selectRemediation(candidates.collect { List c -> [type: c[0], version: c[1], issues: c[2]] }, current, null) as Map
+        return picked == null ? 'none' : "${picked.version}".toString()
+    }
     Closure expect = { String name, String actual, String wanted ->
         if (actual != wanted) pickProblems << "${name}: chose ${actual}, expected ${wanted}".toString()
     }
-    expect('Golden Version wins over every other offer', choice('1.9', [['next-no-violations', '1.9.1'],
-            ['recommended-non-breaking', '1.10.0'], ['next-non-failing', '1.9.2']]), '1.10.0 (golden)')
-    expect('backward compatible beats a clean major upgrade', choice('1.2.3', [['next-non-failing', '1.2.4'],
+    expect('only the patch changes, so a minor bump never wins', choice('1.2.3', [['next-non-failing', '1.2.4'],
+            ['next-no-violations', '1.3.0']]), '1.2.4')
+    expect('a patch upgrade beats the Golden Version when the Golden Version changes the minor',
+            choice('1.9', [['next-no-violations', '1.9.1'], ['recommended-non-breaking', '1.10.0'],
+                           ['next-non-failing', '1.9.2']]), '1.9.1')
+    expect('among patch versions the newest one without vulnerabilities wins', choice('1.2.0',
+            [['next-non-failing', '1.2.9'], ['next-no-violations', '1.2.5'], ['next-no-violations', '1.2.2']]), '1.2.5')
+    expect('the newest patch wins when every offer is clean', choice('1.2.3', [['next-no-violations', '1.2.4'],
+            ['next-no-violations', '1.2.9']]), '1.2.9')
+    expect('with no clean patch offer the fewest vulnerabilities win', choiceWithIssues('1.2.3',
+            [['next-non-failing', '1.2.9', 4], ['next-non-failing', '1.2.7', 1], ['next-non-failing', '1.2.5', 3]]), '1.2.7')
+    expect('a patch upgrade beats a clean major upgrade', choice('1.2.3', [['next-non-failing', '1.2.4'],
             ['next-no-violations', '2.0.0']]), '1.2.4')
-    expect('within the same major the version without violations wins', choice('1.2.3', [['next-non-failing', '1.2.4'],
-            ['next-no-violations', '1.3.0']]), '1.3.0')
-    expect('without a compatible offer the clean one wins', choice('1.2.3', [['next-non-failing', '2.0.0'],
-            ['next-no-violations', '3.1.0']]), '3.1.0')
-    expect('the nearest one wins when both are compatible and clean', choice('1.2.3', [['next-no-violations', '1.9.0'],
-            ['next-no-violations', '1.4.0']]), '1.4.0')
-    expect('a 0.x minor bump is not backward compatible', choice('0.13.4', [['next-non-failing', '0.13.6'],
+    expect('a 0.x minor bump changes more than the patch', choice('0.13.4', [['next-non-failing', '0.13.6'],
             ['next-no-violations', '0.14.0']]), '0.13.6')
+    expect('without any patch offer the newest clean version is proposed instead', choice('1.2.3',
+            [['next-no-violations', '1.9.0'], ['next-no-violations', '1.4.0']]), '1.9.0')
+    expect('without any patch offer a clean major upgrade is still proposed', choice('1.2.3',
+            [['next-non-failing', '2.0.0'], ['next-no-violations', '3.1.0']]), '3.1.0')
     expect('nothing is chosen when every offer is older', choice('2.0.0', [['next-no-violations', '1.9.0']]), 'none')
 }
-check('GoldenFix: the version is the Nexus IQ Golden Version, otherwise the nearest compatible one without violations',
+check('GoldenFix: the upgrade only changes the patch version, and is the newest such version without vulnerabilities',
         pickProblems.isEmpty(), pickProblems.join('\n      '))
 
 SandboxHarness scaleHarness = new SandboxHarness(srcDir, stubDir)
@@ -390,6 +401,7 @@ Map iqRemediations = [
         'netty-codec-http': [['next-no-violations-with-dependencies', '4.1.108.Final']],
         'snakeyaml'       : [['next-no-violations', '2.2']]
 ]
+Closure iqRespond
 Closure goldenFixSh = { FakeScript s, Map a, List<String> calls ->
     String text = String.valueOf(a.script ?: '')
     String label = String.valueOf(a.label ?: '')
@@ -397,6 +409,24 @@ Closure goldenFixSh = { FakeScript s, Map a, List<String> calls ->
     if (text.contains('date +%Y%m%d%H%M')) return gfStamp + '\n'
     if (label == 'GoldenFix: find dependency manifests') return gfManifests.keySet().sort().join('\n') + '\n'
     if (label == 'GoldenFix: commit changes') return 'c0ffee1d2e3f40516273849a5b6c7d8e9f001122\n'
+    if (text.contains('run_one() {')) {
+        StringBuilder batch = new StringBuilder()
+        int batched = 0
+        def counter = (text =~ /(?m)^run_one (\d+) '([^']+)' &$/)
+        while (counter.find()) batched++
+        calls << "BATCH sh with ${batched} request(s)".toString()
+        def calls2 = (text =~ /(?m)^run_one (\d+) '([^']+)' &$/)
+        while (calls2.find()) {
+            int index = calls2.group(1) as int
+            String batchUrl = calls2.group(2)
+            def body = (text =~ /(?s)cat > body-${index}\.json <<'DEVSECOPS_BODY_${index}'\n(.*?)\nDEVSECOPS_BODY_${index}\n/)
+            def parsedBody = body.find() ? new groovy.json.JsonSlurper().parseText(body.group(1)) : null
+            calls << "POST ${batchUrl}".toString()
+            batch.append("===DEVSECOPS-RESPONSE ${index}===\n")
+            batch.append(iqRespond('POST', batchUrl, parsedBody, calls)).append('\n')
+        }
+        return batch.toString()
+    }
     def curl = text =~ /(?m)curl -sS -X '(\w+)'.*'(https?:\/\/[^']+)'\s*$/
     if (!curl.find()) return null
     String method = curl.group(1)
@@ -404,6 +434,10 @@ Closure goldenFixSh = { FakeScript s, Map a, List<String> calls ->
     def bodyFile = text =~ /@'([^']+\.json)'/
     def payload = bodyFile.find() ? s.jsonFiles[bodyFile.group(1)] : null
     calls << "${method} ${url}".toString()
+    return iqRespond(method, url, payload, calls)
+}
+
+iqRespond = { String method, String url, def payload, List calls ->
     if (url.contains('/api/v2/applications?publicId=')) {
         String app = url.substring(url.indexOf('publicId=') + 9)
         return groovy.json.JsonOutput.toJson([applications: [[id: '7d3b2c1a9e8f4a6b8c0d1e2f3a4b5c6d', publicId: app, name: app]]]) + '\n200'
@@ -687,11 +721,15 @@ scenarios.each { Map spec ->
         check("${spec.name}: GoldenFix runs through the production wiring and raises the pull request", gui.status == 'PR_CREATED'
                 && gui.prTitle == "GoldenFix-${gfStamp}".toString() && gui.targetBranch == 'develop' && gui.prUrl == gfPullRequestUrl,
                 "${gui.status}: ${gui.message}")
+        check("${spec.name}: every Nexus IQ remediation lookup of a project is one sh step, not one per component",
+                calls.count { it.startsWith('BATCH sh with ') } == 1 && calls.contains('BATCH sh with 4 request(s)'),
+                calls.findAll { it.startsWith('BATCH sh with ') })
         check("${spec.name}: GoldenFix asks Nexus IQ for the application, the policy report and a remediation per eligible component",
                 calls.count { it.startsWith('GET https://tools.bbh.com/IQ/api/v2/applications?publicId=') } >= 1
                         && calls.count { it.startsWith('POST https://tools.bbh.com/IQ/api/v2/components/remediation/application/') } == 4, calls.join('\n      '))
-        check("${spec.name}: GoldenFix upgrades build.gradle and the version property in gradle.properties", gradle.contains("'org.apache.commons:commons-text:1.10.0'")
-                && gradle.contains('"com.fasterxml.jackson.core:jackson-databind:2.15.4"') && gradle.contains('netty-codec-http:\${nettyVersion}')
+        check("${spec.name}: GoldenFix upgrades build.gradle to the patch version and the version property in gradle.properties",
+                gradle.contains("'org.apache.commons:commons-text:1.10.0'")
+                && gradle.contains('"com.fasterxml.jackson.core:jackson-databind:2.13.5"') && gradle.contains('netty-codec-http:\${nettyVersion}')
                 && properties.contains('nettyVersion=4.1.108.Final') && properties.contains('org.gradle.jvmargs=-Xmx2g'), gradle + properties)
         check("${spec.name}: GoldenFix lists the BOM managed component as not applied", ((gui.unresolved ?: []) as List).any { it.component == 'org.yaml:snakeyaml' }, gui.unresolved)
         check("${spec.name}: GoldenFix prepares the worktree, commits, pushes, opens the pull request and removes the worktree",

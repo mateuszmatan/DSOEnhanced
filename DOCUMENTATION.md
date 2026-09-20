@@ -743,11 +743,12 @@ Downloads and unpacks SAClientUtil (the AppScan CLI), logs in with the ASoC key 
 When the Nexus IQ policy is violated (critical, high or medium findings above the limits) the library:
 
 1. Fetches the violating components of the evaluation from Nexus IQ (`/api/v2/applications/{app}/reports/{scanId}/policy`) and keeps only **direct dependencies** with a non-waived violation of at least medium threat level.
-2. Asks the Component Remediation API (`/api/v2/components/remediation/application/{id}`) for every version Nexus IQ proposes and picks one of them:
-   - the **Golden Version** when Nexus IQ offers it (`recommended-non-breaking-with-dependencies` or `recommended-non-breaking`, in practice Maven only, configurable in `goldenFix.goldenVersionTypes`),
-   - otherwise the **nearest higher version** among the proposals, in this order: **backward compatible first** (same major version, and for a `0.x` version also the same minor), then **without known vulnerabilities** (`next-no-violations*`), then the smallest upgrade.
+2. Asks the Component Remediation API (`/api/v2/components/remediation/application/{id}`) for every version Nexus IQ proposes, for **all eligible components of a project in one shell step** with up to eight requests in flight at a time, and picks one of the proposals by two rules, in this order:
 
-   The pull request table names the rule that picked each version, so a reviewer sees whether it is the Golden Version or the nearest compatible upgrade.
+   1. **Do not break the build: only the patch version may change.** For `x.y.z` the major `x` and the minor `y` have to stay as they are, so `2.13.4` may become `2.13.5` but never `2.15.4`. A two-part version behaves the same way: `1.9` may become `1.9.1` but not `1.10.0`.
+   2. **Among those, take the newest one that carries no known vulnerabilities.** The proposals are walked from the newest downwards, and the first one Nexus IQ reports as free of violations wins. When none of them is clean, the one with the fewest known issues is taken, and if Nexus IQ reports no counts, the newest one.
+
+   A Golden Version that changes more than the patch version therefore loses to a plain patch upgrade. Only when Nexus IQ proposes no patch-level version at all does the library fall back to the newest clean proposal of any level; the pull request and the console then say that the upgrade `changes more than the patch version, no patch-level upgrade is offered`, so a reviewer sees it has to be checked by hand.
 3. Searches the whole source tree (multi-module projects included, `node_modules`, `target`, `build`, virtualenvs skipped) and updates:
    - Maven: `pom.xml` dependencies, dependencyManagement and the `<properties>` they reference (also in parent POMs)
    - Gradle: `build.gradle`, `build.gradle.kts`, `gradle.properties`, `ext`/`val` version variables, version catalogs `*.versions.toml`
@@ -1283,7 +1284,7 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | `test/checks/vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
 | `test/checks/no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
 | compilation | `src` and `vars` compile with the sandbox compiler configuration |
-| `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the GoldenFix version choice follows the Golden Version and nearest compatible rules; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml`; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports |
+| `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml`; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports |
 | `test/sandbox/PipelineScenarios.groovy` | The four entry points run end to end under the real sandbox, green and orange, including the report, the release gate, the metrics and the deployments |
 
 The sandbox tests execute the library inside `GroovySandbox.runInSandbox` with the real `script-security` whitelists and a fake Jenkins (`test/sandbox/harness`), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.
