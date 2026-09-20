@@ -1804,7 +1804,41 @@ pipeline {
 <h3>A stage is orange and the build is UNSTABLE</h3>
 <p>That is the normal reaction to a policy violation or a failed test job. The stage box in the report carries a <strong>Reason</strong> line with the failed step, the vulnerability counts and the sentence that the Nexus release and the QC deployment stay blocked. The pipeline continues with every remaining stage.</p>
 <h3>GoldenFix pull request was not raised</h3>
-<p>The GoldenFix card shows the status. <code>NOT_CONFIGURED</code> means <code>scm.bitbucket.url</code> or <code>scm.bitbucket.credentialsId</code> is missing. <code>NO_FIXES</code> means Nexus IQ offered no remediation version for the violating direct dependencies. <code>NO_MANIFEST_CHANGES</code> means the vulnerable versions are not declared in any supported manifest, typically because a parent POM or a BOM manages them. <code>ERROR</code> means the <code>[GOLDENFIX]</code> lines in the console hold the reason, usually Nexus IQ or Bitbucket permissions.</p>
+<p>The GoldenFix card explains the outcome in plain language, so that a reader who does not work on the pipeline can act on it. The wording follows the internal status:</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>What the card says, and what to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PR_CREATED</code> / <code>PR_UPDATED</code></td>
+<td>The upgrade is waiting for review, with a link to the pull request</td>
+</tr>
+<tr>
+<td><code>NOT_CONFIGURED</code></td>
+<td>The upgrades are ready but the repository address is missing. Fill in <code>scm.bitbucket.url</code> with the repository link and <code>scm.bitbucket.credentialsId</code> with the Jenkins credentials allowed to write to it, and the pull request is raised on the next run</td>
+</tr>
+<tr>
+<td><code>NO_FIXES</code></td>
+<td>The supplier has published no safe version yet, so the components have to be replaced or the risk accepted</td>
+</tr>
+<tr>
+<td><code>NO_MANIFEST_CHANGES</code></td>
+<td>The vulnerable versions are not chosen by this project. They arrive through another library, typically managed by a parent POM or a BOM, so the upgrade belongs there</td>
+</tr>
+<tr>
+<td><code>SKIPPED</code></td>
+<td>Automatic upgrades are switched off for this project</td>
+</tr>
+<tr>
+<td><code>ERROR</code></td>
+<td>The run stopped before it could propose anything and the repository was not touched. The card names it as a fault in the pipeline run and carries the technical detail for the DevSecOps team; the <code>[GOLDENFIX]</code> lines in the console hold the full context, usually Nexus IQ or Bitbucket permissions</td>
+</tr>
+</tbody>
+</table>
 <h3>DAST PDF report is missing in the pipeline report</h3>
 <p>The stage downloads the report as HTML and as PDF and archives both. When only the HTML link is present, look for <code>[DAST] PDF report not found</code> in the console; the PDF generation in ASoC may have taken longer than the download window.</p>
 <h3>Hundreds of smoke jobs</h3>
@@ -1879,6 +1913,7 @@ devSecOpsPipeline(
 <h3>Step 7 – Run the pipeline</h3>
 <p>Click <strong>Build Now</strong>. Select <code>DEPLOY_HIGHER_ENV</code> only when you want the QC deployment; it happens only when every stage is green.</p>
 <h3>Step 8 – Read the report</h3>
+<p>The severity counts shown for SAST and DAST are the ones printed in the AppScan HTML and PDF report: the pipeline reads the <strong>Summary of security issues</strong> table of that report, and only counts the individual issue blocks when a report carries no summary. The counts are verified once more while the report is written, against the report file archived with the build. When the archived report disagrees with what was recorded during the scan, the stage box, the Security Gates table and the release gate all follow the archived report, and the console carries a <code>[REPORT]</code> line naming both numbers.</p>
 <p>Open <strong>Pipeline Report</strong> in the build sidebar:</p>
 <ul>
 <li>the stage flow with one box per stage and per project, green when the stage passed and orange when it broke the policy,</li>

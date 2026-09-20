@@ -3,6 +3,7 @@ package com.bbh.report
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
+import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.BuildUtils
 import com.cloudbees.groovy.cps.NonCPS
 
@@ -151,20 +152,61 @@ class HtmlReportService implements Serializable {
     }
 
     protected void parseAllAppScanReports(Map vulnCountsLocal) {
-        reportsToParse.each { k ->
-            def path   = policy.reportPath(k)
-            def parsed = parseAppScanReport(path)
-            if (parsed?.parsed) {
-                def counts = [
-                        critical: (parsed.critical ?: 0) as int,
-                        high:     (parsed.high     ?: 0) as int,
-                        medium:   (parsed.medium   ?: 0) as int,
-                        low:      (parsed.low      ?: 0) as int
-                ]
-                state.vulnCounts[k] = counts
-                vulnCountsLocal[k]  = counts
+        for (def k : (reportsToParse ?: [])) {
+            String scanner = k as String
+            Map counts = parseScannerReport(scanner, policy.reportPath(scanner))
+            if (counts != null) {
+                state.vulnCounts[scanner] = counts
+                vulnCountsLocal[scanner]  = counts
             }
+            reconcileProjects(scanner)
         }
+    }
+
+    protected Map parseScannerReport(String scanner, String path) {
+        def parsed = parseAppScanReport(path)
+        if (!parsed?.parsed) return null
+        return [
+                critical: (parsed.critical ?: 0) as int,
+                high:     (parsed.high     ?: 0) as int,
+                medium:   (parsed.medium   ?: 0) as int,
+                low:      (parsed.low      ?: 0) as int
+        ]
+    }
+
+    protected void reconcileProjects(String scanner) {
+        for (def entry : (state.projectsScanResults ?: [:]).entrySet()) {
+            String project = entry.key as String
+            Map projScan = (entry.value ?: [:]) as Map
+            String file = (projScan.get("${scanner}_file".toString()) ?: '') as String
+            if (!file) continue
+            Map counts = parseScannerReport(scanner, "${script.env.WORKSPACE}/${file}")
+            if (counts == null) continue
+            applyReconciled(project, scanner, projScan, counts)
+        }
+    }
+
+    protected void applyReconciled(String project, String scanner, Map projScan, Map counts) {
+        Map recorded = ((state.projectsVulnCounts[project] ?: [:]) as Map).get(scanner) as Map
+        if (recorded != null && sameCounts(recorded, counts)) return
+        if (!state.projectsVulnCounts[project]) state.projectsVulnCounts[project] = [:]
+        state.projectsVulnCounts[project][scanner] = counts
+        String status = computePolicy(counts, (state.policyLimits[scanner] ?: [:]) as Map)
+        if (projScan.get(scanner) != 'NOT_REQUIRED') projScan[scanner] = status
+        script.echo "[REPORT] ${project} ${scanner.toUpperCase()}: the downloaded report lists " +
+                "Critical=${counts.critical} High=${counts.high} Medium=${counts.medium} Low=${counts.low}" +
+                (recorded != null ? " instead of Critical=${recorded.critical ?: 0} High=${recorded.high ?: 0} " +
+                        "Medium=${recorded.medium ?: 0} Low=${recorded.low ?: 0} recorded during the scan" : '') +
+                " - the report and the release gate use the numbers from the report (policy ${status})."
+    }
+
+    @NonCPS protected boolean sameCounts(Map a, Map b) {
+        List keys = ['critical', 'high', 'medium', 'low']
+        for (int i = 0; i < keys.size(); i++) {
+            String k = keys.get(i) as String
+            if (((a?.get(k) ?: 0) as int) != ((b?.get(k) ?: 0) as int)) return false
+        }
+        return true
     }
 
     protected Map parseAppScanReport(String path) {
@@ -249,51 +291,7 @@ class HtmlReportService implements Serializable {
 
     @NonCPS
     protected Map parseHclAppScanHtml(String html) {
-        if (!html) return [parsed: false]
-        def n = maybeUnescape(html)
-        n = n.replaceAll(/(?is)<script[^>]*>.*?<\/script>/, ' ').replaceAll(/(?is)<style[^>]*>.*?<\/style>/, ' ')
-        def counts = [critical: null, high: null, medium: null, low: null, total: null]
-        def tbl = extractSummaryTable(n)
-        if (tbl) {
-            def sev = extractSevCountsFromTable(tbl)
-            counts.critical = sev.critical; counts.high = sev.high; counts.medium = sev.medium; counts.low = sev.low
-            counts.total = extractTotalFromTable(tbl)
-        }
-        if (counts.total == null) counts.total = extractTotalFromExec(n)
-        def fb = countSevFromHeaders(n)
-        ['critical', 'high', 'medium', 'low'].each { k -> if (counts[k] == null) counts[k] = (fb[k] ?: 0) }
-        if (counts.total == null) counts.total = (counts.critical as int) + (counts.high as int) + (counts.medium as int) + (counts.low as int)
-        counts.parsed = true
-        return counts
-    }
-
-    @NonCPS protected String maybeUnescape(String s) {
-        if (!s || !(s.contains('&lt;') && s.contains('&gt;'))) return s
-        return s.replace('&lt;','<').replace('&gt;','>').replace('&quot;','"').replace('&#39;',"'").replace('&nbsp;',' ').replace('&amp;','&')
-    }
-    @NonCPS protected String extractSummaryTable(String html) {
-        def m = (html =~ /(?is)<h3\b[^>]*>\s*Summary\s+of\s+security\s+issues\s*<\/h3>/); if (!m.find()) return null
-        def t = (html.substring(m.end()) =~ /(?is)<table\b[^>]*>(.*?)<\/table>/); return t.find() ? "<table>${t.group(1)}</table>" : null
-    }
-    @NonCPS protected Map extractSevCountsFromTable(String tbl) {
-        def out = [critical: null, high: null, medium: null, low: null]
-        def m = (tbl =~ /(?is)<tr\b[^>]*>\s*<td\b[^>]*>\s*(Critical|High|Medium|Low)\s+severity\s+issues\s*:\s*<\/td>\s*<td\b[^>]*>\s*(\d+)\s*<\/td>\s*<\/tr>/)
-        while (m.find()) { def sev = m.group(1).toLowerCase(); def val = m.group(2) as int; if (out.containsKey(sev)) out[sev] = val }
-        return out
-    }
-    @NonCPS protected Integer extractTotalFromTable(String tbl) {
-        def m = (tbl =~ /(?is)<td\b[^>]*>\s*Total\s+security\s+issues\s*:\s*<\/td>\s*<td\b[^>]*>\s*(\d+)\s*<\/td>/)
-        return m.find() ? (m.group(1) as int) : null
-    }
-    @NonCPS protected Integer extractTotalFromExec(String html) {
-        def m = (html =~ /(?is)Total\s+security\s+issues\s*:\s*<span\b[^>]*class\s*=\s*["']count["'][^>]*>\s*(\d+)\s*<\/span>/)
-        return m.find() ? (m.group(1) as int) : null
-    }
-    @NonCPS protected Map countSevFromHeaders(String html) {
-        def out = [critical: 0, high: 0, medium: 0, low: 0]
-        def m = (html =~ /(?is)<div\b[^>]*class\s*=\s*["']name["'][^>]*>\s*Severity:\s*<\/div>\s*<div\b[^>]*class\s*=\s*["']value["'][^>]*>.*?<span\b[^>]*>\s*(Critical|High|Medium|Low)\s*<\/span>/)
-        while (m.find()) { def sev = m.group(1).toLowerCase(); if (out.containsKey(sev)) out[sev] = (out[sev] as int) + 1 }
-        return out
+        return AppScanReportParser.counts(html)
     }
 
     @NonCPS protected String esc(String s) {
@@ -535,10 +533,49 @@ class HtmlReportService implements Serializable {
         if (goldenFixHasPr(gf)) {
             def count = ((gf.get('changes') ?: []) as List).size()
             def prLink = "<a href='${esc(gf.get('prUrl') as String)}' target='_blank' style='color:${LINK_COLOR};'>${esc(gf.get('prTitle') as String)}</a>"
-            return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:${OK_COLOR};font-weight:600;'>Pull request raised with GoldenFix: ${prLink} (${count} change(s))</div>"
+            return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:${OK_COLOR};font-weight:600;'>Automatic dependency upgrade proposed for review: ${prLink} (${count} change(s))</div>"
         }
+        Map plain = goldenFixPlainText(gf)
         def color = gf.get('status') == 'ERROR' ? BAD_COLOR : '#64748b'
-        return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:${color};'>GoldenFix: ${esc(gf.get('message') as String)}</div>"
+        return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:${color};'><b>${esc(plain.headline as String)}</b> ${esc(plain.explanation as String)}</div>"
+    }
+
+    @NonCPS protected Map goldenFixPlainText(Map gf) {
+        String status = (gf?.get('status') ?: '') as String
+        int available = ((gf?.get('fixes') ?: []) as List).size()
+        if (status == 'NOT_CONFIGURED') {
+            return [headline   : 'No upgrade request was opened - the repository address is missing.',
+                    explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
+                            'Bitbucket repository is, so it had nowhere to propose them. Someone with access to config.yaml has to fill in ' +
+                            'scm.bitbucket.url with the repository link and scm.bitbucket.credentialsId with the Jenkins credentials that may ' +
+                            'write to it. The upgrades are then proposed automatically on the next run.']
+        }
+        if (status == 'NO_FIXES') {
+            return [headline   : 'No upgrade is available yet.',
+                    explanation: 'The supplier of the vulnerable components has not published a safe version, so there is nothing to upgrade to ' +
+                            'automatically. The components have to be replaced or the risk accepted by the security team.']
+        }
+        if (status == 'NO_MANIFEST_CHANGES') {
+            return [headline   : 'Nothing could be upgraded in this project.',
+                    explanation: "The vulnerable versions are not chosen by this project. They arrive through another library that this project " +
+                            'depends on, so the upgrade has to be made in that library first.']
+        }
+        if (status == 'SKIPPED') {
+            return [headline   : 'Automatic upgrades are switched off for this project.',
+                    explanation: goldenFixDetail(gf)]
+        }
+        if (status == 'ERROR') {
+            return [headline   : 'The automatic upgrade could not be finished.',
+                    explanation: 'The pipeline stopped before it could propose the upgrade, so nothing was changed in the repository and the ' +
+                            'vulnerabilities above are still there. This is a fault in the pipeline run itself, not in the application - pass ' +
+                            'the technical detail below to the DevSecOps team. Technical detail: ' + goldenFixDetail(gf)]
+        }
+        return [headline: 'Automatic dependency upgrade', explanation: goldenFixDetail(gf)]
+    }
+
+    @NonCPS protected String goldenFixDetail(Map gf) {
+        String message = (gf?.get('message') ?: '') as String
+        return message ?: 'no further detail was reported.'
     }
     @NonCPS protected String goldenFixCardHtml(Map projectsGoldenFix, boolean isMulti) {
         if (!projectsGoldenFix) return ''
@@ -560,8 +597,9 @@ class HtmlReportService implements Serializable {
             return "<div style='background:${OK_BG};border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:${OK_COLOR};margin-bottom:8px;'><b>A pull request with GoldenFix upgrades was raised:</b> ${prLink}${details}</div>"
         }
         boolean error = gf.get('status') == 'ERROR'
+        Map plain = goldenFixPlainText(gf)
         def style = "background:${error ? '#fef2f2' : '#f8fafc'};border:1px solid ${error ? '#fca5a5' : '#e2e8f0'};padding:8px 12px;font-size:0.82rem;color:${error ? BAD_COLOR : '#475569'};margin-bottom:8px;"
-        return "<div style='${style}'><b>${esc(gf.get('status') as String)}</b>: ${esc(gf.get('message') as String)}</div>"
+        return "<div style='${style}'><b>${esc(plain.headline as String)}</b><div style='margin-top:3px;font-size:0.78rem;line-height:1.5;'>${esc(plain.explanation as String)}</div></div>"
     }
     @NonCPS protected String goldenFixChangesTable(List changes) {
         if (!changes) return ''
@@ -985,7 +1023,7 @@ class HtmlReportService implements Serializable {
         def color = met ? '#16a34a' : '#d97706'
         def label = pct != null ? "${pct}%" : 'not measured'
         def note = met ? '' : "<span style='font-size:0.68rem;color:#92400e;font-weight:700;'>below the required level</span>"
-        return "<div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:${color};'>${label}</span><span style='font-size:0.72rem;color:#64748b;'>line coverage &bull; required&nbsp;<b>${minRequired as int}%</b> (library policy)</span>${note}</div>"
+        return "<div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:${color};'>${label}</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; required&nbsp;<b>${minRequired as int}%</b> &bull; BBH SLDC policy</span>${note}</div>"
     }
     @NonCPS protected String nexusIqLimitLine(Map counts, Map limits) {
         Map lim = limits ?: [maxCritical: 0, maxHigh: 0, maxMedium: 0]

@@ -45,7 +45,28 @@ curl -sS -X '${method}' ${authArgs(auth)} -H 'Accept: application/json' ${bodyAr
 
     def parseJson(String text) {
         if (!text?.trim()) return null
-        return script.readJSON(text: text)
+        return withoutJsonNulls(script.readJSON(text: text))
+    }
+
+    @NonCPS
+    static def withoutJsonNulls(def value) {
+        if (value == null) return null
+        if (value.getClass().getName() == 'net.sf.json.JSONNull') return null
+        if (value instanceof Map) {
+            Map out = [:]
+            for (def entry : ((Map) value).entrySet()) {
+                out[entry.key] = withoutJsonNulls(entry.value)
+            }
+            return out
+        }
+        if (value instanceof List) {
+            List out = []
+            for (def item : ((List) value)) {
+                out << withoutJsonNulls(item)
+            }
+            return out
+        }
+        return value
     }
 
     void ensureSuccess(Map response, String label) {

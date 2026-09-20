@@ -5,6 +5,7 @@ import com.bbh.build.BuildService
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
+import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.BuildUtils
 
 class AppScanService implements Serializable {
@@ -572,38 +573,13 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     }
 
     Map parseHtmlCounts(String htmlFile, String type) {
-        String result = script.readFile(htmlFile).trim()
+        Map counts = AppScanReportParser.severities(script.readFile(htmlFile))
+        int crit = counts.critical as int
+        int high = counts.high as int
+        int med  = counts.medium as int
+        int low  = counts.low as int
 
-        Map<String, Integer> counts = [:]
-        String[] parts = result.split(/(?i)Issue\s*ID\s*:/)
-        for (int i = 1; i < parts.length; i++) {
-            String text = parts[i]
-                    .replaceAll(/(?s)<[^>]+>/, ' ')
-                    .replaceAll(/\s+/, ' ')
-                    .trim()
-
-            def severityMatcher = text =~ /(?i)Severity\s*:?\s*(Critical|High|Medium|Low)/
-            def statusMatcher = text =~ /(?i)Status\s*:?\s*(Open|New|In\s*Progress|Passed|Noise|Fixed)/
-            if (!severityMatcher.find()) continue
-
-            if (statusMatcher.find()) {
-                String status = statusMatcher.group(1)
-                if (!status.contains("Open") && !status.contains("New")) continue
-            }
-
-            String severity = severityMatcher
-                    .group(1)
-                    .replaceAll(/\s+/, ' ')
-                    .trim()
-                    .toLowerCase()
-
-            counts[severity] = (counts[severity] ?: 0) + 1
-        }
-        int crit = counts['critical'] ?: 0
-        int high = counts['high'] ?: 0
-        int med  = counts['medium'] ?: 0
-        int low  = counts['low'] ?: 0
-
+        script.echo "[${type.toUpperCase()}] Report counts: Critical=${crit} High=${high} Medium=${med} Low=${low}"
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/${type}-${script.env.APPSCAN_SCAN_NAME}-critical.count", text: "${crit}"
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/${type}-${script.env.APPSCAN_SCAN_NAME}-high.count",     text: "${high}"
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/${type}-${script.env.APPSCAN_SCAN_NAME}-medium.count",   text: "${med}"

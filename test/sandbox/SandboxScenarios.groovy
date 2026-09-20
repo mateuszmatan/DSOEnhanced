@@ -131,6 +131,49 @@ if (!sameCommands) new File(baselineFile.parentFile, 'appscan-commands.actual.tx
 check('AppScan service: generated shell and REST commands match the baseline', sameCommands,
         'compare test/sandbox/baseline/appscan-commands.txt with appscan-commands.actual.txt')
 
+SandboxHarness parserHarness = new SandboxHarness(srcDir, stubDir)
+String hclSummaryReport = '''<html><body><h3>Summary of security issues</h3><table>
+<tr><td>Total security issues:</td><td>7</td></tr>
+<tr><td>Critical severity issues:</td><td>0</td></tr>
+<tr><td>High severity issues:</td><td>2</td></tr>
+<tr><td>Medium severity issues:</td><td>3</td></tr>
+<tr><td>Low severity issues:</td><td>2</td></tr>
+</table></body></html>'''
+Map summaryCounts = parserHarness.run { parserHarness.type('com.bbh.utils.AppScanReportParser').severities(hclSummaryReport) } as Map
+Map escapedCounts = parserHarness.run { parserHarness.type('com.bbh.utils.AppScanReportParser').severities(hclSummaryReport.replace('<', '&lt;').replace('>', '&gt;')) } as Map
+String hclIssueReport = '''<html><body><div>Issue ID: 1</div><div>Severity: High</div><div>Status: Open</div>
+<div>Issue ID: 2</div><div>Severity: High</div><div>Status: Open</div>
+<div>Issue ID: 3</div><div>Severity: Medium</div><div>Status: Fixed</div></body></html>'''
+Map issueCounts = parserHarness.run { parserHarness.type('com.bbh.utils.AppScanReportParser').severities(hclIssueReport) } as Map
+check('AppScan report parser: the severity totals of the HTML report are the ones the pipeline reports',
+        summaryCounts.high == 2 && summaryCounts.medium == 3 && summaryCounts.low == 2 && summaryCounts.critical == 0
+                && escapedCounts.high == 2 && issueCounts.high == 2 && issueCounts.medium == 0,
+        "summary ${summaryCounts}, escaped ${escapedCounts}, issue blocks ${issueCounts}")
+
+def jsonNull = Class.forName('net.sf.json.JSONNull').getInstance()
+Map iqReportWithNulls = [components: [
+        [componentIdentifier: jsonNull, packageUrl: 'pkg:generic/unknown', violations: [[policyThreatLevel: 9]]],
+        [componentIdentifier: [format: 'maven', coordinates: [groupId: 'org.yaml', artifactId: 'snakeyaml', version: '1.30']],
+         dependencyData     : jsonNull, violations: [[policyThreatLevel: 7]], packageUrl: 'pkg:maven/org.yaml/snakeyaml@1.30']]]
+String rawFailure = ''
+try {
+    parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(iqReportWithNulls, 2, false, ['maven', 'npm', 'pypi']) }
+} catch (Throwable t) {
+    rawFailure = t.message ?: t.getClass().simpleName
+}
+List cleanedCandidates = []
+String cleanedFailure = ''
+try {
+    def cleaned = parserHarness.run { parserHarness.type('com.bbh.utils.RestClient').withoutJsonNulls(iqReportWithNulls) }
+    cleanedCandidates = parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(cleaned, 2, false, ['maven', 'npm', 'pypi']) } as List
+} catch (Throwable t) {
+    cleanedFailure = t.message ?: t.getClass().simpleName
+}
+check('GoldenFix: a Nexus IQ report carrying JSON nulls still yields the components to upgrade',
+        rawFailure.contains('JSONNull') && !cleanedFailure && cleanedCandidates.size() == 1
+                && cleanedCandidates[0].name == 'snakeyaml',
+        "without normalisation: '${rawFailure}', with normalisation: '${cleanedFailure}' ${cleanedCandidates}")
+
 File fixturesDir = new File(root, 'test/sandbox/fixtures')
 SandboxHarness gfHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
 FakeScript gfScript = new FakeScript()
@@ -657,7 +700,7 @@ scenarios.each { Map spec ->
                 calls.join('\n      '))
         check("${spec.name}: GoldenFix pull request is linked in the report", html.contains('pull-requests/318') && html.contains("GoldenFix-${gfStamp}")
                 && html.contains('nettyVersion') && html.contains('org.yaml:snakeyaml'), 'GoldenFix card incomplete')
-        check("${spec.name}: the GoldenFix pull request is shown only for the project that raised it", html.count('Pull request raised with GoldenFix') == 1, html.count('Pull request raised with GoldenFix'))
+        check("${spec.name}: the GoldenFix pull request is shown only for the project that raised it", html.count('Automatic dependency upgrade proposed for review') == 1, html.count('Automatic dependency upgrade proposed for review'))
     }
     if (r.unhandled) println "      note: steps not emulated by the fake Jenkins: ${r.unhandled}"
 }

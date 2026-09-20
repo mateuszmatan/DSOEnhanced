@@ -1149,7 +1149,17 @@ That is the normal reaction to a policy violation or a failed test job. The stag
 
 ### GoldenFix pull request was not raised
 
-The GoldenFix card shows the status. `NOT_CONFIGURED` means `scm.bitbucket.url` or `scm.bitbucket.credentialsId` is missing. `NO_FIXES` means Nexus IQ offered no remediation version for the violating direct dependencies. `NO_MANIFEST_CHANGES` means the vulnerable versions are not declared in any supported manifest, typically because a parent POM or a BOM manages them. `ERROR` means the `[GOLDENFIX]` lines in the console hold the reason, usually Nexus IQ or Bitbucket permissions.
+The GoldenFix card explains the outcome in plain language, so that a reader who does not work on the pipeline can act on it. The wording follows the internal status:
+
+| Status | What the card says, and what to do |
+|--------|------------------------------------|
+| `PR_CREATED` / `PR_UPDATED` | The upgrade is waiting for review, with a link to the pull request |
+| `NOT_CONFIGURED` | The upgrades are ready but the repository address is missing. Fill in `scm.bitbucket.url` with the repository link and `scm.bitbucket.credentialsId` with the Jenkins credentials allowed to write to it, and the pull request is raised on the next run |
+| `NO_FIXES` | The supplier has published no safe version yet, so the components have to be replaced or the risk accepted |
+| `NO_MANIFEST_CHANGES` | The vulnerable versions are not chosen by this project. They arrive through another library, typically managed by a parent POM or a BOM, so the upgrade belongs there |
+| `SKIPPED` | Automatic upgrades are switched off for this project |
+| `ERROR` | The run stopped before it could propose anything and the repository was not touched. The card names it as a fault in the pipeline run and carries the technical detail for the DevSecOps team; the `[GOLDENFIX]` lines in the console hold the full context, usually Nexus IQ or Bitbucket permissions |
+
 
 ### DAST PDF report is missing in the pipeline report
 
@@ -1215,6 +1225,9 @@ A Pipeline job with **Pipeline script from SCM**, your Git repository, your bran
 Click **Build Now**. Select `DEPLOY_HIGHER_ENV` only when you want the QC deployment; it happens only when every stage is green.
 
 ### Step 8 – Read the report
+
+The severity counts shown for SAST and DAST are the ones printed in the AppScan HTML and PDF report: the pipeline reads the **Summary of security issues** table of that report, and only counts the individual issue blocks when a report carries no summary. The counts are verified once more while the report is written, against the report file archived with the build. When the archived report disagrees with what was recorded during the scan, the stage box, the Security Gates table and the release gate all follow the archived report, and the console carries a `[REPORT]` line naming both numbers.
+
 
 Open **Pipeline Report** in the build sidebar:
 
