@@ -87,6 +87,7 @@ class HtmlReportService implements Serializable {
     }
 
     protected void generateFullReport() {
+        warnAboutEmptyState()
         def buildResult  = script.currentBuild.result ?: (script.currentBuild.currentResult ?: 'IN_PROGRESS')
         def now          = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())
         def buildUrl     = ((script.env.BUILD_URL ?: '').replaceAll('/+$', '')) + '/'
@@ -131,6 +132,13 @@ class HtmlReportService implements Serializable {
         script.sh "mkdir -p ${script.env.WORKSPACE}/report"
         script.writeFile file: "${script.env.WORKSPACE}/report/pipeline-report.html", text: html
         script.echo "[REPORT] Pipeline report written to pipeline-report.html"
+    }
+
+    protected void warnAboutEmptyState() {
+        if (state.stageResults) return
+        script.echo "[REPORT] WARNING: no stage result was recorded, so every stage will be reported as SKIP."
+        script.echo "[REPORT] WARNING: if the stages did run, the report is reading a different devSecOpsApi " +
+                "instance than they wrote to - every entry point must hand its own devSecOpsApi to devSecOpsSteps."
     }
 
     protected def getNexusIqResults() {

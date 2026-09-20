@@ -27,57 +27,57 @@ def call(Map config = [:]) {
 
         stages {
             stage('Monitor source changes (download sources)') {
-                steps { script { devSecOpsSteps.monitorSources() } }
+                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi) } }
             }
 
             stage('Unit tests') {
-                steps { script { devSecOpsSteps.unitTests() } }
+                steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
             }
 
             stage('Dependencies scan (Nexus IQ)') {
-                steps { script { devSecOpsSteps.dependenciesScan() } }
+                steps { script { devSecOpsSteps.dependenciesScan(devSecOpsApi) } }
             }
 
             stage('SAST - Static Application Security Tests - HCL AppScan') {
-                steps { script { devSecOpsSteps.sast() } }
+                steps { script { devSecOpsSteps.sast(devSecOpsApi) } }
             }
 
             stage('SCA (SonarQube)') {
-                steps { script { devSecOpsSteps.sonarQube() } }
+                steps { script { devSecOpsSteps.sonarQube(devSecOpsApi) } }
             }
 
             stage('Nexus delivery (Static analysis passed)') {
-                steps { script { devSecOpsSteps.nexusSnapshotDelivery() } }
+                steps { script { devSecOpsSteps.nexusSnapshotDelivery(devSecOpsApi) } }
             }
 
             stage('Lower test region deployment') {
-                steps { script { devSecOpsSteps.lowerRegionDeployment('dod') } }
+                steps { script { devSecOpsSteps.lowerRegionDeployment(devSecOpsApi, 'dod') } }
             }
 
             stage('Regression tests (>60% user stories coverage)') {
-                steps { script { devSecOpsSteps.regressionTests() } }
+                steps { script { devSecOpsSteps.regressionTests(devSecOpsApi) } }
             }
 
             stage('Smoke tests') {
-                steps { script { devSecOpsSteps.smokeTests() } }
+                steps { script { devSecOpsSteps.smokeTests(devSecOpsApi) } }
             }
 
             stage('Performance tests') {
-                steps { script { devSecOpsSteps.performanceTests() } }
+                steps { script { devSecOpsSteps.performanceTests(devSecOpsApi) } }
             }
 
             stage('DAST - Dynamic Application Security Tests - HCL AppScan') {
-                steps { script { devSecOpsSteps.dast() } }
+                steps { script { devSecOpsSteps.dast(devSecOpsApi) } }
             }
 
             stage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
                 when { expression { return devSecOpsApi.releaseAllowed('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') } }
-                steps { script { devSecOpsSteps.nexusReleaseDelivery() } }
+                steps { script { devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi) } }
             }
 
             stage('Higher test environment deployment') {
                 when { expression { return params.DEPLOY_HIGHER_ENV && devSecOpsApi.releaseAllowed('Higher test environment deployment') } }
-                steps { script { devSecOpsSteps.higherEnvironmentDeployment() } }
+                steps { script { devSecOpsSteps.higherEnvironmentDeployment(devSecOpsApi) } }
             }
         }
 

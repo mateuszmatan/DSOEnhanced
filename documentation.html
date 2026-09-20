@@ -177,7 +177,7 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
 </tbody>
 </table>
 <h3>Which pipeline to use</h3>
-<p>The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in <code>vars/devSecOpsSteps.groovy</code>.</p>
+<p>The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in <code>vars/devSecOpsSteps.groovy</code>. Each stage method takes the <code>devSecOpsApi</code> instance of its entry point as the first argument, for the reason explained in <a href="#12-advanced-using-library-methods-directly">one devSecOpsApi instance per build</a>.</p>
 <table>
 <thead>
 <tr>
@@ -1333,7 +1333,18 @@ devSecOpsPipeline(
 
 <div class="section" id="12-advanced-using-library-methods-directly">
   <h2><span class="num">12</span> Advanced: using library methods directly</h2>
-<p>If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use <code>devSecOpsApi</code>, the global variable that holds the services and every helper method. The four entry points are thin declarative skeletons built on top of it and on <code>devSecOpsSteps</code>, which carries one method per stage.</p>
+<h3>One devSecOpsApi instance per build</h3>
+<p>Jenkins keeps a library global in the binding of the script that first reads it, and every script under <code>vars/</code> owns a private binding. A <code>vars</code> script that reads <code>devSecOpsApi</code> therefore does not get the instance the Jenkinsfile holds, it gets a second one, with its own empty <code>PipelineState</code>.</p>
+<p>That is why the stage methods take the instance as an argument instead of reading the global. When they read it instead, the build looks healthy in the log, because the stages run and report their result against the copy they created, while the entry point keeps reading its own untouched state. The visible result is a pipeline where:</p>
+<ul>
+<li>every box in the report is a grey <code>SKIP</code> and the coverage reads <code>not measured</code>, even though the stages ran,</li>
+<li>the Security Gates table has no counts and no report links,</li>
+<li><code>release-gate.json</code> says <code>allowed: true</code> with no violations, so a build with findings above the policy is never blocked,</li>
+<li><code>when { expression { devSecOpsApi.releaseAllowed(...) } }</code> lets the release and QC stages through,</li>
+<li>the security pipeline never triggers the extended pipeline, because the configuration it reads is empty.</li>
+</ul>
+<p>The rule to follow when adding a stage or an entry point: the entry point resolves <code>devSecOpsApi</code> once and hands it to <code>devSecOpsSteps</code>, and nothing under <code>vars/</code> other than the entry points reads the global. <code>test/checks/vars-api.sh</code> fails the build when that rule is broken, and the pipeline scenarios in <code>test/sandbox/PipelineScenarios.groovy</code> resolve globals the way Jenkins does, so a second instance shows up there as a report full of grey boxes.</p>
+<p>If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use <code>devSecOpsApi</code>, the global variable that holds the services and every helper method. The four entry points are thin declarative skeletons built on top of it and on <code>devSecOpsSteps</code>, which carries one method per stage. <code>devSecOpsSteps</code> holds no state of its own: every one of its methods takes the <code>devSecOpsApi</code> instance to work with, so a custom pipeline calls <code>devSecOpsSteps.sast(devSecOpsApi)</code>, never <code>devSecOpsSteps.sast()</code>.</p>
 <pre><code>@Library(&#x27;DevSecOpsJenkinsLibrary&#x27;) _
 
 pipeline {

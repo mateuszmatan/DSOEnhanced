@@ -35,14 +35,11 @@ class SandboxHarness {
     }
 
     Map<String, Object> loadVars(File varsDir, FakeScript jenkins) {
-        Map<String, Object> globals = [:]
+        VarRegistry registry = new VarRegistry(jenkins: jenkins, harness: this)
         varsDir.listFiles().findAll { File f -> f.name.endsWith('.groovy') }.sort { File f -> f.name }.each { File f ->
-            Class type = loader.parseClass(f)
-            FakeCpsScript var = (FakeCpsScript) run { type.newInstance() }
-            var.attach(jenkins, globals)
-            globals[f.name - '.groovy'] = var
+            registry.types[f.name - '.groovy'] = loader.parseClass(f)
         }
-        return globals
+        return new VarBinding(registry)
     }
 
     Class type(String name) {

@@ -317,3 +317,61 @@ class LibraryClassesWhitelist extends Whitelist {
 
     boolean permitsStaticFieldSet(Field field, Object value) { library(field.declaringClass) }
 }
+
+/**
+ * The library globals of one build. Jenkins keeps a global in the binding of the script that first
+ * reads it, and every vars script owns a private binding, so the same name resolves to a different
+ * instance depending on who asks. The registry reproduces that: {@code create} always hands out a
+ * fresh script, while {@code shared} holds the globals contributed by plugins, which resolve from
+ * the Run and are therefore the same object everywhere.
+ */
+class VarRegistry implements Serializable {
+
+    Map<String, Class> types = [:]
+    Map<String, Object> shared = [:]
+    FakeScript jenkins
+    SandboxHarness harness
+
+    boolean knows(String name) { types.containsKey(name) }
+
+    Object create(String name) {
+        Class type = types.get(name)
+        if (type == null) return null
+        FakeCpsScript var = (FakeCpsScript) harness.run { type.newInstance() }
+        var.attach(jenkins, this)
+        return var
+    }
+}
+
+/**
+ * The binding of the Jenkinsfile itself: it caches the globals the Jenkinsfile reads, and anything
+ * put into it stands for a plugin global and is visible to every script of the build.
+ */
+class VarBinding extends LinkedHashMap<String, Object> {
+
+    VarRegistry registry
+
+    VarBinding(VarRegistry registry) {
+        super()
+        this.registry = registry
+    }
+
+    @Override
+    Object get(Object key) {
+        String name = key == null ? null : key.toString()
+        if (super.containsKey(name)) return super.get(name)
+        if (registry.shared.containsKey(name)) return registry.shared.get(name)
+        if (registry.knows(name)) {
+            Object created = registry.create(name)
+            super.put(name, created)
+            return created
+        }
+        return null
+    }
+
+    @Override
+    Object put(String key, Object value) {
+        registry.shared.put(key, value)
+        return super.put(key, value)
+    }
+}

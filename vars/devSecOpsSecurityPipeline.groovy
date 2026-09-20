@@ -27,27 +27,27 @@ def call(Map config = [:]) {
 
         stages {
             stage('Monitor source changes (download sources)') {
-                steps { script { devSecOpsSteps.monitorSources() } }
+                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi) } }
             }
 
             stage('Unit tests') {
-                steps { script { devSecOpsSteps.unitTests() } }
+                steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
             }
 
             stage('Dependencies scan (Nexus IQ)') {
-                steps { script { devSecOpsSteps.dependenciesScan() } }
+                steps { script { devSecOpsSteps.dependenciesScan(devSecOpsApi) } }
             }
 
             stage('SAST - Static Application Security Tests - HCL AppScan') {
-                steps { script { devSecOpsSteps.sast() } }
+                steps { script { devSecOpsSteps.sast(devSecOpsApi) } }
             }
 
             stage('SCA (SonarQube)') {
-                steps { script { devSecOpsSteps.sonarQube() } }
+                steps { script { devSecOpsSteps.sonarQube(devSecOpsApi) } }
             }
 
             stage('Nexus delivery (Static analysis passed)') {
-                steps { script { devSecOpsSteps.nexusSnapshotDelivery() } }
+                steps { script { devSecOpsSteps.nexusSnapshotDelivery(devSecOpsApi) } }
             }
         }
 

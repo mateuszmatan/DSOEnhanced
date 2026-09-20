@@ -1,147 +1,147 @@
-def monitorSources(Map options = [:]) {
-    devSecOpsApi.runStage('Monitor source changes (download sources)') {
+def monitorSources(def api, Map options = [:]) {
+    api.runStage('Monitor source changes (download sources)') {
         if (options.checkoutScm) {
             checkout scm
         }
         if (options.setupJava) {
-            devSecOpsApi.setupJavaVersion()
+            api.setupJavaVersion()
         }
         String upstream = (options.copyArtifactsFrom ?: '') as String
         if (upstream) {
             copyArtifacts(projectName: upstream, filter: 'config.yaml,release-gate.json', selector: lastSuccessful())
         }
-        devSecOpsApi.initialize()
+        api.initialize()
     }
 }
 
-def unitTests() {
-    devSecOpsApi.runStage('Unit tests') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.buildArtifact()
-            devSecOpsApi.unitTests()
-            devSecOpsApi.checkCoverage()
-        }
-    }
-}
-
-def dependenciesScan() {
-    devSecOpsApi.runStage('Dependencies scan (Nexus IQ)') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.depVulnScan()
+def unitTests(def api) {
+    api.runStage('Unit tests') {
+        api.eachProject {
+            api.buildArtifact()
+            api.unitTests()
+            api.checkCoverage()
         }
     }
 }
 
-def sast() {
-    devSecOpsApi.runStage('SAST - Static Application Security Tests - HCL AppScan') {
-        Map config = devSecOpsApi.pipelineConfig()
-        devSecOpsApi.appscanSetup()
-        devSecOpsApi.eachProject {
-            devSecOpsApi.appscanResolveSourceDir()
-        }
-        devSecOpsApi.appscanLogin()
-        devSecOpsApi.eachProject {
-            devSecOpsApi.appscanGenerateIRX()
-            devSecOpsApi.appscanQueue(config)
-        }
-        devSecOpsApi.eachProject {
-            devSecOpsApi.appscanWait()
-            devSecOpsApi.appscanDownloadReports()
-            devSecOpsApi.appscanRenameSastReport()
-            devSecOpsApi.appscanEnforcePolicy()
+def dependenciesScan(def api) {
+    api.runStage('Dependencies scan (Nexus IQ)') {
+        api.eachProject {
+            api.depVulnScan()
         }
     }
 }
 
-def sonarQube() {
-    devSecOpsApi.runStage('SCA (SonarQube)') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.codeQualityScan()
-            devSecOpsApi.sonarscanEnforcePolicy()
+def sast(def api) {
+    api.runStage('SAST - Static Application Security Tests - HCL AppScan') {
+        Map config = api.pipelineConfig()
+        api.appscanSetup()
+        api.eachProject {
+            api.appscanResolveSourceDir()
+        }
+        api.appscanLogin()
+        api.eachProject {
+            api.appscanGenerateIRX()
+            api.appscanQueue(config)
+        }
+        api.eachProject {
+            api.appscanWait()
+            api.appscanDownloadReports()
+            api.appscanRenameSastReport()
+            api.appscanEnforcePolicy()
         }
     }
 }
 
-def nexusSnapshotDelivery() {
-    devSecOpsApi.runStage('Nexus delivery (Static analysis passed)') {
-        devSecOpsApi.eachProject { String projectName ->
-            devSecOpsApi.reportArtifactBuild()
-            devSecOpsApi.reportUnitTests()
-            if (devSecOpsApi.deployTarget() == 'openshift') {
-                devSecOpsApi.buildDockerImage(projectName)
-                devSecOpsApi.copyImageToNexus()
+def sonarQube(def api) {
+    api.runStage('SCA (SonarQube)') {
+        api.eachProject {
+            api.codeQualityScan()
+            api.sonarscanEnforcePolicy()
+        }
+    }
+}
+
+def nexusSnapshotDelivery(def api) {
+    api.runStage('Nexus delivery (Static analysis passed)') {
+        api.eachProject { String projectName ->
+            api.reportArtifactBuild()
+            api.reportUnitTests()
+            if (api.deployTarget() == 'openshift') {
+                api.buildDockerImage(projectName)
+                api.copyImageToNexus()
             } else {
-                devSecOpsApi.pushToNexus(projectName)
+                api.pushToNexus(projectName)
             }
         }
     }
 }
 
-def lowerRegionDeployment(String vmMode = 'ssh') {
-    devSecOpsApi.runStage('Lower test region deployment') {
-        devSecOpsApi.eachProject {
-            if (devSecOpsApi.deployTarget() == 'openshift') {
-                devSecOpsApi.checkDeploymentRepo()
-                devSecOpsApi.deployOpenshift('rd')
+def lowerRegionDeployment(def api, String vmMode = 'ssh') {
+    api.runStage('Lower test region deployment') {
+        api.eachProject {
+            if (api.deployTarget() == 'openshift') {
+                api.checkDeploymentRepo()
+                api.deployOpenshift('rd')
             } else if (vmMode == 'dod') {
-                devSecOpsApi.deployDvWithDodPlugin()
+                api.deployDvWithDodPlugin()
             } else {
-                devSecOpsApi.deployRD()
+                api.deployRD()
             }
         }
     }
 }
 
-def regressionTests() {
-    devSecOpsApi.runStage('Regression tests (>60% user stories coverage)') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.regressionTests()
+def regressionTests(def api) {
+    api.runStage('Regression tests (>60% user stories coverage)') {
+        api.eachProject {
+            api.regressionTests()
         }
     }
 }
 
-def smokeTests() {
-    devSecOpsApi.runStage('Smoke tests') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.smokeTests()
+def smokeTests(def api) {
+    api.runStage('Smoke tests') {
+        api.eachProject {
+            api.smokeTests()
         }
     }
 }
 
-def performanceTests() {
-    devSecOpsApi.runStage('Performance tests') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.performanceTests()
+def performanceTests(def api) {
+    api.runStage('Performance tests') {
+        api.eachProject {
+            api.performanceTests()
         }
     }
 }
 
-def dast(Map options = [:]) {
-    devSecOpsApi.runStage('DAST - Dynamic Application Security Tests - HCL AppScan') {
+def dast(def api, Map options = [:]) {
+    api.runStage('DAST - Dynamic Application Security Tests - HCL AppScan') {
         if (options.setupTools) {
-            devSecOpsApi.appscanSetup()
+            api.appscanSetup()
         }
-        devSecOpsApi.eachProject {
-            devSecOpsApi.dastScan()
-        }
-    }
-}
-
-def nexusReleaseDelivery() {
-    devSecOpsApi.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
-        devSecOpsApi.eachProject {
-            devSecOpsApi.publishArtifactQC()
+        api.eachProject {
+            api.dastScan()
         }
     }
 }
 
-def higherEnvironmentDeployment() {
-    devSecOpsApi.runStage('Higher test environment deployment') {
-        devSecOpsApi.eachProject {
-            if (devSecOpsApi.deployTarget() == 'openshift') {
-                devSecOpsApi.deployOpenshift('qc')
+def nexusReleaseDelivery(def api) {
+    api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
+        api.eachProject {
+            api.publishArtifactQC()
+        }
+    }
+}
+
+def higherEnvironmentDeployment(def api) {
+    api.runStage('Higher test environment deployment') {
+        api.eachProject {
+            if (api.deployTarget() == 'openshift') {
+                api.deployOpenshift('qc')
             } else {
-                devSecOpsApi.deployQC()
+                api.deployQC()
             }
         }
     }

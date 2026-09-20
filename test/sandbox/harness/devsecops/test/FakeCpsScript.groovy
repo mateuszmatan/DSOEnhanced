@@ -4,6 +4,7 @@ abstract class FakeCpsScript extends Script {
 
     FakeScript jenkins
     Map<String, Object> globals = [:]
+    VarRegistry registry
     Map model
     Map currentStage
     boolean whenResult = true
@@ -13,9 +14,10 @@ abstract class FakeCpsScript extends Script {
     List<String> postFailures = []
     List<String> postConditions = []
 
-    void attach(FakeScript fake, Map<String, Object> vars) {
+    void attach(FakeScript fake, VarRegistry vars) {
         this.@jenkins = fake
-        this.@globals = vars
+        this.@globals = [:]
+        this.@registry = vars
     }
 
     def getEnv() { this.@jenkins.env }
@@ -26,9 +28,22 @@ abstract class FakeCpsScript extends Script {
 
     def getScm() { this.@jenkins.scm }
 
+    // Mirrors UserDefinedGlobalVariable.getValue: a library global is instantiated once per
+    // *binding*, and every vars script owns a private binding. A script that reaches for another
+    // global therefore gets its own copy of it, never the one the Jenkinsfile holds. Globals that
+    // plugins contribute (env, openshift, ...) stay shared, because their getValue() reads the Run.
     Object getProperty(String name) {
         Map<String, Object> vars = this.@globals
         if (vars != null && vars.containsKey(name)) return vars.get(name)
+        VarRegistry reg = this.@registry
+        if (reg != null) {
+            if (reg.shared.containsKey(name)) return reg.shared.get(name)
+            if (reg.knows(name)) {
+                Object created = reg.create(name)
+                if (vars != null) vars.put(name, created)
+                return created
+            }
+        }
         return super.getProperty(name)
     }
 

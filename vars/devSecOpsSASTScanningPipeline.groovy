@@ -21,11 +21,11 @@ def call(Map config = [:]) {
 
         stages {
             stage('Monitor source changes (download sources)') {
-                steps { script { devSecOpsSteps.monitorSources(checkoutScm: true, setupJava: true) } }
+                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [checkoutScm: true, setupJava: true]) } }
             }
 
             stage('SAST - Static Application Security Tests - HCL AppScan') {
-                steps { script { devSecOpsSteps.sast() } }
+                steps { script { devSecOpsSteps.sast(devSecOpsApi) } }
             }
         }
 

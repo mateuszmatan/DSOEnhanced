@@ -240,6 +240,19 @@ specs.each { Map spec ->
             && !log.any { it.contains('Full report could not be built') || it.startsWith('[WARN] Could not') }
             && j.calls.any { it.startsWith('archiveArtifacts') && it.contains('report/pipeline-report.html') } && j.calls.contains('publishHTML pipeline-report.html'),
             log.findAll { it.contains('[REPORT]') || it.startsWith('[WARN]') }.join('\n      '))
+    // The symptom of a split devSecOpsApi instance: the template renders, but the stage flow is
+    // built from an untouched PipelineState, so every box is grey SKIP and the coverage is unknown.
+    String flow = html.contains('<h2>Pipeline Stages</h2>') && html.contains("<div style='flex:1.4;min-width:620px;'>")
+            ? html.substring(html.indexOf('<h2>Pipeline Stages</h2>'), html.indexOf("<div style='flex:1.4;min-width:620px;'>"))
+            : ''
+    int greyBoxes = flow.split('>SKIP<', -1).length - 1
+    // Only a stage that never started may stay grey, and a blocked or skipped one is amber or red,
+    // so the bound holds from both sides: a state that was never filled turns every box grey.
+    int expectedGrey = (spec.skipped as List).size() * 2
+    check("${name}: the stage flow shows what the stages collected, not empty grey boxes",
+            flow && greyBoxes <= expectedGrey && flow.contains('&#9201;')
+                    && (!spec.executed.contains(UNIT) || !flow.contains('not measured')),
+            "grey SKIP boxes ${greyBoxes} (at most ${expectedGrey}), any stage duration ${flow.contains('&#9201;')}, coverage not measured ${flow.contains('not measured')}")
     check("${name}: release gate verdict written for the downstream pipeline", j.jsonFiles.containsKey('release-gate.json')
             && ((j.jsonFiles['release-gate.json'] as Map).allowed as boolean) == (spec.result == 'SUCCESS' && !spec.failedStage),
             j.jsonFiles['release-gate.json'])

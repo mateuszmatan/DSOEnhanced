@@ -21,6 +21,22 @@ for f in sorted(glob.glob('vars/*.groovy')):
     for m in re.finditer(r'\bdevSecOpsSteps\.(\w+)\s*\(', src):
         if m.group(1) not in steps:
             problems.append("%s:%d calls devSecOpsSteps.%s() which is not declared" % (f, src[:m.start()].count('\n') + 1, m.group(1)))
+        if not re.match(r'\s*devSecOpsApi\b', src[m.end():].split(',')[0].split(')')[0]):
+            problems.append("%s:%d calls devSecOpsSteps.%s() without passing devSecOpsApi, so the stage would "
+                            "fill a second copy of the state and the report would stay empty"
+                            % (f, src[:m.start()].count('\n') + 1, m.group(1)))
+
+# devSecOpsSteps reaches the library through the instance it is handed, so those calls are checked
+# against the same API surface as the direct devSecOpsApi.* calls of the entry points.
+steps_src = open('vars/devSecOpsSteps.groovy').read()
+for m in re.finditer(r'\bapi\.(\w+)\s*\(', steps_src):
+    if m.group(1) not in api:
+        problems.append("vars/devSecOpsSteps.groovy:%d calls api.%s() which devSecOpsApi does not declare"
+                        % (steps_src[:m.start()].count('\n') + 1, m.group(1)))
+steps_code = re.sub(r'(?m)//.*$', '', steps_src)
+if re.search(r'\bdevSecOpsApi\b', steps_code):
+    problems.append("vars/devSecOpsSteps.groovy reads the devSecOpsApi global: a vars script owns a private "
+                    "binding, so that builds a second instance - take the instance as an argument instead")
 
 monitor = 'Monitor source changes (download sources)'
 security = [monitor, 'Unit tests', 'Dependencies scan (Nexus IQ)',
