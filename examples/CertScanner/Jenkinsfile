@@ -1,0 +1,6 @@
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent', 'windows-agent']
+)

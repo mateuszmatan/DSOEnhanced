@@ -1,0 +1,61 @@
+defaults:
+  buildTool:    gradle
+  deployTarget: vm
+  sourceDir:    "."
+  coverage:
+    minLine: 60                      # required line coverage, projects cannot override it
+
+  tools:
+    sonar:
+      qualityGate:
+        waitForQualityGate: true
+        timeoutMinutes:     5
+    nexusIq:
+      maxCritical: 0
+      maxHigh:     0
+      maxMedium:   0
+
+  sast:
+    maxCritical:       0
+    maxHigh:           0
+    maxMedium:         0
+    prepareTimeoutMin: 120
+    pollTimeoutMin:    50
+    pollIntervalSec:   30
+
+  sca:
+    enabled:         true
+    maxCritical:     0
+    maxHigh:         0
+    maxMedium:       0
+    pollTimeoutMin:  40
+    pollIntervalSec: 30
+
+  dast:
+    maxCritical:     0
+    maxHigh:         0
+    maxMedium:       0
+    pollTimeoutMin:  60
+    pollIntervalSec: 60
+
+  tests:
+    maxParallel: 20                # max test jobs (smoke/regression/performance) running at the same time
+
+  releaseGate:                     # a stage that breaks the policy above turns orange and blocks these two stages
+    scanners:        [sast, sca, niq, dast]
+    requireCoverage: true          # line coverage must reach coverage.minLine of this file
+    stateFile:       release-gate.json
+
+  goldenFix:
+    enabled:                true
+    onlyDirectDependencies: true   # only libraries declared directly by the application
+    minThreatLevel:         2      # Nexus IQ threat level: 2+ medium (moderate), 4+ high (severe), 8+ critical
+    ecosystems:             [maven, npm, pypi]
+    goldenVersionTypes:            # Nexus IQ Golden Version, used as is when Nexus IQ offers it (Maven)
+      - recommended-non-breaking-with-dependencies
+      - recommended-non-breaking
+                                   # without a Golden Version the library takes the nearest higher version
+                                   # offered by Nexus IQ: backward compatible first, then without violations
+    commitAuthorName:  "DevSecOps GoldenFix"
+    commitAuthorEmail: "devsecops-goldenfix@noreply.local"
+    timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default

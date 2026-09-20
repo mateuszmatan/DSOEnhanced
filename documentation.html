@@ -1,0 +1,2018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevSecOpsJenkinsLibrary — Documentation</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; line-height: 1.55; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+.header { background: linear-gradient(135deg,#1d4ed8,#3b82f6); color: #fff; border-radius: 6px; padding: 24px; margin-bottom: 20px; }
+.header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; }
+.header p { margin-top: 6px; opacity: 0.9; font-size: 0.9rem; }
+.section { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.section h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.section h3 { font-size: 0.92rem; color: #1e293b; margin: 18px 0 8px; }
+.section h4 { font-size: 0.85rem; color: #334155; margin: 14px 0 6px; }
+.num { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; background: #1e293b; color: #f8fafc; border-radius: 4px; font-size: 0.78rem; font-weight: 700; }
+p, li { font-size: 0.87rem; }
+p { margin: 8px 0; }
+ul, ol { margin: 8px 0 8px 22px; }
+li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 10px 0; }
+th { background: #f8fafc; text-align: left; padding: 8px 10px; border-bottom: 2px solid #e2e8f0; color: #374151; font-weight: 600; }
+td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 3px; padding: 0 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+pre { background: #0f172a; border-radius: 5px; padding: 14px 16px; overflow-x: auto; margin: 10px 0; }
+pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size: 0.78rem; line-height: 1.5; white-space: pre; }
+.k { color: #7dd3fc; } .v { color: #fbbf24; } .s { color: #86efac; } .c { color: #64748b; font-style: italic; } .kw { color: #c4b5fd; }
+.callout { border-radius: 4px; padding: 10px 14px; margin: 12px 0; font-size: 0.85rem; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+.toc ol { columns: 2; column-gap: 32px; }
+.footer { text-align: center; color: #64748b; font-size: 0.78rem; padding: 18px 0; }
+@media (max-width: 720px) { .toc ol { columns: 1; } .section { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>DevSecOpsJenkinsLibrary</h1>
+  <p>Jenkins Shared Library implementing a full DevSecOps pipeline: build, unit tests, dependency scan (Nexus IQ), code quality (SonarQube), SAST (HCL AppScan), deployment (VM/OpenShift), smoke/regression/performance tests, DAST (HCL AppScan), HTML report, and InfluxDB metrics.</p>
+</div>
+
+<div class="section toc" id="table-of-contents">
+  <h2>Table of contents</h2>
+<ol>
+<li>
+<p><a href="#1-what-the-library-provides">What the library provides</a></p>
+</li>
+<li>
+<p><a href="#2-application-requirements">Application requirements</a></p>
+</li>
+<li>
+<p><a href="#3-architecture-overview">Architecture overview</a></p>
+</li>
+<li>
+<p><a href="#4-prerequisites">Prerequisites</a></p>
+</li>
+<li>
+<p><a href="#5-step-1--register-the-library-in-jenkins">Step 1 – Register the library in Jenkins</a></p>
+</li>
+<li>
+<p><a href="#6-step-2--add-two-files-to-your-project-repository">Step 2 – Add two files to your project repository</a></p>
+</li>
+<li>
+<p><a href="#7-step-3--configure-the-jenkins-job">Step 3 – Configure the Jenkins job</a></p>
+</li>
+<li>
+<p><a href="#8-step-4--first-run">Step 4 – First run</a></p>
+</li>
+<li>
+<p><a href="#9-configyaml-reference">config.yaml reference</a></p>
+</li>
+<li>
+<p><a href="#10-pipeline-stages">Pipeline stages</a></p>
+</li>
+<li>
+<p><a href="#11-policy-thresholds">Policy thresholds</a></p>
+</li>
+<li>
+<p><a href="#12-advanced-using-library-methods-directly">Advanced: using library methods directly</a></p>
+</li>
+<li>
+<p><a href="#13-supported-build-tools">Supported build tools</a></p>
+</li>
+<li>
+<p><a href="#14-supported-deployment-targets">Supported deployment targets</a></p>
+</li>
+<li>
+<p><a href="#15-troubleshooting">Troubleshooting</a></p>
+</li>
+<li>
+<p><a href="#16-selfservice--onboard-a-project-step-by-step">SelfService – onboard a project step by step</a></p>
+</li>
+<li><a href="#17-library-development-and-tests">Library development and tests</a></li>
+</ol>
+</div>
+
+<div class="section" id="1-what-the-library-provides">
+  <h2><span class="num">1</span> What the library provides</h2>
+<p>The library executes the following pipeline automatically when you call <code>devSecOpsPipeline()</code> from your Jenkinsfile:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Stage</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Monitor source changes</td>
+<td>Checkout, AppScan setup, IRX generation per project</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Unit tests</td>
+<td>Build tool tests plus JaCoCo/lcov line coverage check against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Dependencies scan (Nexus IQ)</td>
+<td>Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request</td>
+</tr>
+<tr>
+<td>4</td>
+<td>SAST – HCL AppScan</td>
+<td>Static Application Security Testing, queued per project</td>
+</tr>
+<tr>
+<td>5</td>
+<td>SCA (SonarQube)</td>
+<td>Static code analysis and quality gate</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Nexus delivery (static analysis passed)</td>
+<td>Publish the snapshot artifact, always, even when an earlier stage is orange</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Lower test region deployment</td>
+<td>Deploy to the lower test region: VM with UrbanCode Deploy (<code>devSecOpsPipeline</code>) or over SSH (<code>devSecOpsExtendedPipeline</code>), or OpenShift</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Regression tests</td>
+<td>Trigger regression jobs, at least one job must be configured</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Smoke tests</td>
+<td>Trigger smoke jobs, at least one job must be configured</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Performance tests</td>
+<td>Trigger performance jobs, at least one job must be configured</td>
+</tr>
+<tr>
+<td>11</td>
+<td>DAST – HCL AppScan</td>
+<td>Dynamic Application Security Testing, HTML report, HCL console link and PDF report</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Nexus delivery (safe artifact)</td>
+<td>Publish the release artifact, blocked when any earlier stage is orange</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Higher test environment deployment</td>
+<td>Deploy to QC, only when every earlier stage is green and the checkbox is selected</td>
+</tr>
+</tbody>
+</table>
+<h3>Which pipeline to use</h3>
+<p>The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in <code>vars/devSecOpsSteps.groovy</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>Runs</th>
+<th>Use it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>devSecOpsPipeline</code></td>
+<td>All thirteen stages in one build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment</td>
+<td>One job should cover the whole flow</td>
+</tr>
+<tr>
+<td><code>devSecOpsSecurityPipeline</code></td>
+<td>Unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives <code>config.yaml</code> and the release gate verdict, and triggers the extended job when <code>RUN_EXTENDED_PIPELINE</code> is selected</td>
+<td>The static part runs on every commit and the rest is a separate job</td>
+</tr>
+<tr>
+<td><code>devSecOpsExtendedPipeline</code></td>
+<td>RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment</td>
+<td>Downstream of the security pipeline; name that job in <code>securityPipeline:</code> and it inherits the release verdict through the copied <code>release-gate.json</code></td>
+</tr>
+<tr>
+<td><code>devSecOpsSASTScanningPipeline</code></td>
+<td>Monitor sources and SAST only</td>
+<td>A job that runs just the AppScan static scan; its report shows only the SAST stage and the SAST findings</td>
+</tr>
+</tbody>
+</table>
+<p>After all stages, the library always:</p>
+<ul>
+<li>Generates an HTML pipeline report with the stage flow, vulnerability counts, policy status, SonarQube badges and coverage</li>
+<li>Adds a <strong>Smoke tests</strong> table with one row per executed job and a link to each build</li>
+<li>Adds a <strong>Nexus IQ GoldenFix</strong> card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically</li>
+<li>Adds a <strong>Release policy</strong> card stating whether the artifact may be released to Nexus and deployed to QC</li>
+<li>Archives the HTML reports, the DAST PDF report and the release gate verdict (<code>release-gate.json</code>) as build artifacts</li>
+<li>Sends DORA metrics to InfluxDB (if configured)</li>
+</ul>
+</div>
+
+<div class="section" id="2-application-requirements">
+  <h2><span class="num">2</span> Application requirements</h2>
+<p>Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:</p>
+<ul>
+<li>
+<p><strong>Git repository accessible from Jenkins.</strong>
+  The project must live in a Git repository that the Jenkins controller can clone. The <code>Jenkinsfile</code> and <code>config.yaml</code> must be committed at the repository root and pushed to the branch configured in the Jenkins job.</p>
+</li>
+<li>
+<p><strong>Supported build tool: Gradle, Maven, or Flutter.</strong>
+  The codebase must use one of the three supported build systems. Gradle wrapper (<code>gradlew</code>) and Maven wrapper (<code>mvnw</code>) are preferred and must be executable and committed to the repository. The build tool is either declared in <code>config.yaml</code> or auto-detected.</p>
+</li>
+<li>
+<p><strong>Code must compile successfully.</strong>
+  The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless <code>asoc.doCompile: false</code>. The compile command comes from <code>asoc.gradle</code> / <code>asoc.maven</code>, or from the <code>build</code> section when <code>asoc</code> has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.</p>
+</li>
+<li>
+<p><strong>Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).</strong>
+  The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from <code>resources/defaults.yaml</code> only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the <code>--coverage</code> flag which produces <code>coverage/lcov.info</code>.</p>
+</li>
+<li>
+<p><strong>A JDK on the agent, named in the configuration.</strong>
+  Set <code>javaPath</code> in the project configuration to the JDK the build and the tests must use, or set <code>buildToolAutoSetup: true</code> to let the library detect the required Java version from <code>pom.xml</code> or <code>build.gradle</code> and pick a matching JDK from the agent. Without either, the Unit tests stage stops with <em>JAVA_HOME parameter is not specified</em>, unless the agent already exports <code>HAS_BUILD_TOOL_INSTALLED=true</code>.</p>
+</li>
+<li>
+<p><strong>HCL AppScan on Cloud (ASoC) application registered.</strong>
+  The application must be registered in ASoC and have a known application ID (UUID). An API key pair (<code>keyId</code> + <code>keySecret</code>) must be obtained from the ASoC portal and placed in <code>config.yaml</code>. Both SAST and DAST scans are uploaded to this application.</p>
+</li>
+<li>
+<p><strong>SonarQube project registered.</strong>
+  A project must exist in SonarQube with a unique <code>projectKey</code>. A badge token (<code>badgeToken</code>) is required for SonarQube metric badges to appear in the HTML pipeline report. The SonarQube server must be reachable from the Jenkins agent.</p>
+</li>
+<li>
+<p><strong>Nexus IQ application registered.</strong>
+  The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the configured <code>scanPatterns</code> in <code>config.yaml</code>. The Nexus IQ server must be reachable from the Jenkins agent.</p>
+</li>
+<li>
+<p><strong>Build artifacts produced in expected locations.</strong>
+  Gradle projects must produce artifacts under <code>build/libs/</code>. Maven projects under <code>target/</code>. These paths must match the <code>scanPatterns</code> configured for Nexus IQ and be valid artifact outputs for publishing.</p>
+</li>
+<li>
+<p><strong>Deployment script and version file (VM deployment over SSH).</strong>
+  For SSH deployment, the repository must contain a zero-downtime deployment shell script and a <code>version.properties</code> file with an <code>APP_VERSION=&lt;version&gt;</code> entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.</p>
+</li>
+<li>
+<p><strong>UrbanCode Deploy application (VM deployment in <code>devSecOpsPipeline</code>).</strong>
+  The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so <code>deploy.vm.dod</code> must name the site, the application and at least one component. The UrbanCode Deploy plugin (<code>UCDeployPublisher</code>) and the configured site must exist in Jenkins.</p>
+</li>
+<li>
+<p><strong>OpenShift templates and a Dockerfile (OpenShift deployment).</strong>
+  For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by <code>deploy.openshift.rd.buildConfigPath</code>, <code>dockerFilePath</code>, <code>deployConfigPath</code> and <code>configPathR</code>. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with <code>skopeo</code>, so the agent needs <code>skopeo</code>, <code>oc</code> and the authfile named in <code>deploy.openshift.rd.nexus.authfile</code>.</p>
+</li>
+<li>
+<p><strong>Test jobs exist in Jenkins.</strong>
+  Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured in <code>config.yaml</code>. All three test types require at least one job entry — placeholder entries with <code>job: ""</code> are allowed initially and will show <code>NOT_CONFIGURED</code> without failing.</p>
+</li>
+<li>
+<p><strong>DAST target accessible from Jenkins agent (DAST only).</strong>
+  When <code>dast.enabled: true</code>, the configured <code>dast.targetUrl</code> must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in <code>dast.presenceId</code>.</p>
+</li>
+<li>
+<p><strong>InfluxDB endpoint accessible (optional).</strong>
+  If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.</p>
+</li>
+</ul>
+</div>
+
+<div class="section" id="3-architecture-overview">
+  <h2><span class="num">3</span> Architecture overview</h2>
+<pre><code>DevSecOpsJenkinsLibrary/           &lt;- library repository root
+├── DOCUMENTATION.md               &lt;- this file
+├── documentation.html             &lt;- the same documentation as a single HTML page, generated from it
+├── config.yaml.template           &lt;- copy into your project and fill in
+├── grafana-queries.md             &lt;- Flux queries for Grafana dashboards (InfluxDB metrics)
+├── resources/
+│   └── defaults.yaml              &lt;- embedded non-overridable defaults (read via libraryResource)
+├── vars/                          &lt;- Jenkins global variables: the entry points and the composition root
+│   ├── devSecOpsPipeline.groovy               &lt;- entry point: all thirteen stages
+│   ├── devSecOpsSecurityPipeline.groovy       &lt;- entry point: static analysis part
+│   ├── devSecOpsExtendedPipeline.groovy       &lt;- entry point: deployment and test part
+│   ├── devSecOpsSASTScanningPipeline.groovy   &lt;- entry point: SAST only
+│   ├── devSecOpsSteps.groovy      &lt;- one method per stage, included by every entry point
+│   └── devSecOpsApi.groovy        &lt;- composition root: builds every service and exposes the helper methods
+├── src/com/bbh/
+│   ├── core/                               &lt;- the domain core, no Jenkins plugin knowledge
+│   │   ├── PipelineState.groovy            &lt;- everything the stages record: results, counts, coverage, links
+│   │   ├── PolicyEngine.groovy             &lt;- library policy, orange stages and the stage result log
+│   │   ├── ReleaseGate.groovy              &lt;- blocks the Nexus release and the QC deployment when a stage is not green
+│   │   └── OsHelper.groovy
+│   ├── config/ConfigLoader.groovy          &lt;- config.yaml + defaults.yaml -&gt; PipelineState
+│   ├── build/
+│   │   ├── BuildService.groovy             &lt;- build, unit tests, coverage, remote test jobs
+│   │   └── BuildRunner.groovy              &lt;- one runner for the Gradle and Maven commands
+│   ├── scanner/                            &lt;- adapters for the scanners
+│   │   ├── AppScanService.groovy           &lt;- HCL AppScan SAST and DAST
+│   │   ├── NexusIqService.groovy           &lt;- Nexus IQ scan, calls the remediation port on a violation
+│   │   ├── NexusIqGoldenFixSource.groovy   &lt;- adapter: Nexus IQ report + Component Remediation REST API
+│   │   └── SonarService.groovy
+│   ├── remediation/                        &lt;- GoldenFix, ports and adapters
+│   │   ├── GoldenFixService.groovy         &lt;- application service: fetch -&gt; patch manifests -&gt; commit/push -&gt; pull request
+│   │   ├── model/GoldenFix.groovy          &lt;- the remediation domain: the fix record, version semantics and the version choice
+│   │   ├── port/DependencyRemediation.groovy  &lt;- inbound port used by NexusIqService
+│   │   ├── port/GoldenFixSource.groovy        &lt;- outbound port: where the proposed versions come from
+│   │   ├── port/SourceRepository.groovy       &lt;- outbound port: source tree, commit, push
+│   │   ├── port/PullRequestPublisher.groovy   &lt;- outbound port: pull request
+│   │   ├── port/ManifestUpdater.groovy        &lt;- outbound port: one build manifest format
+│   │   └── updater/                        &lt;- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater
+│   ├── scm/                                &lt;- adapters: GitSourceRepository (git worktree), Bitbucket pull requests
+│   ├── deploy/                             &lt;- adapters: VmDeployService (SSH, UrbanCode Deploy), OpenshiftService
+│   ├── metrics/InfluxDbService.groovy      &lt;- adapter: DORA metrics
+│   ├── report/HtmlReportService.groovy     &lt;- one report template, the variant only selects the stage layout
+│   └── utils/                              &lt;- RestClient (curl JSON client), BuildUtils, FlutterUtils
+├── tools/build-documentation-html.py       &lt;- renders DOCUMENTATION.md into documentation.html
+├── test/                          &lt;- the library test suite, see section 17
+│   ├── run-all.sh                 &lt;- one command: static checks, compilation, sandbox scenarios, demo reports
+│   ├── checks/                    &lt;- static checks of the sources
+│   └── sandbox/                   &lt;- the library running under the real Jenkins script sandbox
+└── examples/
+    ├── README.md                  &lt;- how to split the pipeline into a static and an extended job
+    ├── CertScanner/               &lt;- a complete two project example: Jenkinsfile and config.yaml
+    └── reports/                   &lt;- generated demo reports, one HTML page per pipeline and outcome
+</code></pre>
+<p><strong>How the parts fit together (hexagonal):</strong> <code>core</code> holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in <code>remediation</code> talks only to the ports in <code>remediation/port</code>, the domain rules (which version to take, how versions compare) live in <code>remediation/model</code>, and the adapters sit in <code>scanner</code> (Nexus IQ), <code>scm</code> (git, Bitbucket) and <code>remediation/updater</code> (one per manifest format). <code>vars/devSecOpsApi.groovy</code> is the single composition root that assembles every service; the services in <code>scanner</code>, <code>build</code>, <code>deploy</code>, <code>metrics</code> and <code>report</code> are adapters around the core, each receiving the pipeline script object and translating between the tools and the state. A check in the test suite enforces these dependency directions.</p>
+<p><strong>How the parts fit together (hexagonal):</strong> <code>core</code> holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in <code>remediation</code> talks only to the ports in <code>remediation/port</code>, and the adapters live in <code>scanner</code> (Nexus IQ), <code>scm</code> (git, Bitbucket) and <code>remediation/updater</code> (manifest formats). <code>vars/devSecOpsApi.groovy</code> and <code>wiring/GoldenFixFactory.groovy</code> are the composition roots that assemble the services; the remaining services in <code>scanner</code>, <code>build</code>, <code>deploy</code>, <code>metrics</code> and <code>report</code> are adapters around the core, each of them receiving the pipeline script object and translating between the tools and the state.</p>
+<p><strong>Config split:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Who controls it</th>
+<th>Contains</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resources/defaults.yaml</code> (inside library)</td>
+<td>Library team only</td>
+<td>Security thresholds, required coverage, timeouts, tool defaults</td>
+</tr>
+<tr>
+<td><code>config.yaml</code> in your project repo</td>
+<td>Project team</td>
+<td>Project-specific settings (appId, servers, test jobs, deploy targets)</td>
+</tr>
+</tbody>
+</table>
+<p>Projects <strong>cannot</strong> override the <code>defaults</code> – they are embedded in the library. Thresholds for SAST, SCA, Nexus IQ, DAST and the required line coverage exist in one place only, <code>resources/defaults.yaml</code>. To change one, the library must be updated and redeployed.</p>
+</div>
+
+<div class="section" id="4-prerequisites">
+  <h2><span class="num">4</span> Prerequisites</h2>
+<p>The Jenkins controller and build agents must have the following installed and configured:</p>
+<h3>Jenkins plugins (required)</h3>
+<table>
+<thead>
+<tr>
+<th>Plugin</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pipeline</td>
+<td>Core declarative pipeline support</td>
+</tr>
+<tr>
+<td>Pipeline: Shared Groovy Libraries</td>
+<td>Load this shared library</td>
+</tr>
+<tr>
+<td>Git</td>
+<td>Source checkout</td>
+</tr>
+<tr>
+<td>HTML Publisher</td>
+<td>Publish HTML pipeline report</td>
+</tr>
+<tr>
+<td>JUnit</td>
+<td>Publish unit test results</td>
+</tr>
+<tr>
+<td>SonarQube Scanner</td>
+<td>SonarQube integration</td>
+</tr>
+<tr>
+<td>Nexus Platform</td>
+<td>Nexus IQ integration (<code>nexusPolicyEvaluation</code>)</td>
+</tr>
+<tr>
+<td>Parameterized Remote Trigger</td>
+<td>Remote smoke, regression and performance jobs (also by full URL)</td>
+</tr>
+<tr>
+<td>Pipeline Utility Steps</td>
+<td><code>readYaml</code>, <code>readJSON</code>, <code>writeFile</code></td>
+</tr>
+<tr>
+<td>Credentials Binding</td>
+<td><code>withCredentials</code> for Nexus IQ, ASoC, Bitbucket, remote Jenkins</td>
+</tr>
+<tr>
+<td>Copy Artifact</td>
+<td>Passing <code>config.yaml</code> and <code>release-gate.json</code> to the extended pipeline</td>
+</tr>
+<tr>
+<td>OpenShift Client (optional)</td>
+<td>OpenShift <code>openshift.withCluster()</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Steps the library calls</h3>
+<p>Besides the standard pipeline steps, the library calls the following. A missing one fails the stage that uses it, so check them when onboarding a new Jenkins instance.</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Provided by</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nexusPolicyEvaluation</code>, <code>selectedApplication</code></td>
+<td>Nexus Platform plugin</td>
+<td>Dependency scan</td>
+</tr>
+<tr>
+<td><code>withSonarQubeEnv</code>, <code>waitForQualityGate</code></td>
+<td>SonarQube Scanner plugin</td>
+<td>SonarQube analysis and quality gate</td>
+</tr>
+<tr>
+<td><code>triggerRemoteJob</code></td>
+<td>Parameterized Remote Trigger plugin</td>
+<td>Remote smoke, regression and performance jobs</td>
+</tr>
+<tr>
+<td><code>copyArtifacts</code>, <code>lastSuccessful</code></td>
+<td>Copy Artifact plugin</td>
+<td>Passing <code>config.yaml</code> and the release gate verdict downstream</td>
+</tr>
+<tr>
+<td><code>publishHTML</code></td>
+<td>HTML Publisher plugin</td>
+<td>Publishing the pipeline report</td>
+</tr>
+<tr>
+<td><code>junit</code></td>
+<td>JUnit plugin</td>
+<td>Unit test results</td>
+</tr>
+<tr>
+<td><code>readYaml</code>, <code>readJSON</code>, <code>writeJSON</code>, <code>findFiles</code></td>
+<td>Pipeline Utility Steps plugin</td>
+<td>Configuration and report state</td>
+</tr>
+<tr>
+<td><code>openshift</code></td>
+<td>OpenShift Client plugin</td>
+<td>OpenShift deployment</td>
+</tr>
+<tr>
+<td><code>sshagent</code></td>
+<td>SSH Agent plugin</td>
+<td>Pushing the GoldenFix branch</td>
+</tr>
+<tr>
+<td><code>git</code>, <code>checkout</code></td>
+<td>Git plugin</td>
+<td>Source checkout</td>
+</tr>
+<tr>
+<td><code>reportBuild</code>, <code>reportUnitTest</code>, <code>reportSurefireTest</code>, <code>addSonarBadgesToDescription</code></td>
+<td><strong>Global steps of the BBH Jenkins installation</strong></td>
+<td>Build reporting and SonarQube badges</td>
+</tr>
+</tbody>
+</table>
+<p>The last row is not a public plugin. Those four steps must exist as global variables in the Jenkins instance, otherwise the Nexus delivery and SonarQube stages fail.</p>
+<h3>Agent tools</h3>
+<ul>
+<li>Java JDK (for Gradle/Maven builds)</li>
+<li>Gradle or Maven wrapper (or system-installed)</li>
+<li>Flutter SDK (if building Flutter applications)</li>
+<li><code>curl</code>, <code>python3</code>, <code>ssh</code>, <code>scp</code> (Linux agents)</li>
+<li>PowerShell (Windows agents)</li>
+</ul>
+<h3>Script security</h3>
+<p>The library runs inside the Jenkins script sandbox and uses no construct that requires an administrator to approve a signature. Collections are built from literals, JSON is read and written with the <code>readJSON</code> and <code>writeJSON</code> steps, and regular expressions use the Groovy operators. Nothing has to be approved under <em>Manage Jenkins, In-process Script Approval</em> to onboard a new project.</p>
+<p>Every class of the library is loaded and every pipeline is executed under the real script-security sandbox by the test suite before a release, so a rejected signature is found in the test run and never in your build. Section 17 lists the rules this imposes on the library code.</p>
+<h3>Jenkins global configuration</h3>
+<ol>
+<li>
+<p><strong>SonarQube server</strong> must be registered in <em>Manage Jenkins → Configure System → SonarQube servers</em> with the name <code>SonarQube</code>.</p>
+</li>
+<li>
+<p><strong>Nexus IQ server</strong> must be registered in <em>Manage Jenkins → Configure System → Sonatype Nexus Platform</em>.</p>
+</li>
+<li>The following credentials must exist in Jenkins Credentials Store:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Credential ID</th>
+<th>Type</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nexusiqP</code></td>
+<td>Username/Password</td>
+<td>Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions)</td>
+</tr>
+<tr>
+<td><code>scm.bitbucket.credentialsId</code></td>
+<td>Username/Password (or Secret text with <code>authType: bearer</code>)</td>
+<td>GoldenFix: push of branch <code>GoldenFix-YYYYMMDDHHMM</code> and pull request creation (repository write permission)</td>
+</tr>
+<tr>
+<td><code>tests.*.jobs[].credentialsId</code> (optional)</td>
+<td>Username/Password (user + API token)</td>
+<td>Triggering remote test jobs referenced by full URL</td>
+</tr>
+<tr>
+<td><code>openshift-rd-token</code></td>
+<td>Secret text</td>
+<td>OpenShift RD cluster token</td>
+</tr>
+<tr>
+<td><code>openshift-qc-token</code></td>
+<td>Secret text</td>
+<td>OpenShift QC cluster token</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="section" id="5-step-1-register-the-library-in-jenkins">
+  <h2><span class="num">5</span> Step 1 – Register the library in Jenkins</h2>
+<ol>
+<li>
+<p>Open Jenkins → <strong>Manage Jenkins</strong> → <strong>Configure System</strong>.</p>
+</li>
+<li>
+<p>Scroll to <strong>Global Pipeline Libraries</strong> → click <strong>Add</strong>.</p>
+</li>
+<li>Fill in:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Name</td>
+<td><code>DevSecOpsJenkinsLibrary</code></td>
+</tr>
+<tr>
+<td>Default version</td>
+<td><code>main</code> (or your release branch)</td>
+</tr>
+<tr>
+<td>Load implicitly</td>
+<td>unchecked</td>
+</tr>
+<tr>
+<td>Allow default version override</td>
+<td>unchecked</td>
+</tr>
+<tr>
+<td>Retrieval method</td>
+<td><strong>Modern SCM</strong></td>
+</tr>
+<tr>
+<td>Source Code Management</td>
+<td><strong>Git</strong></td>
+</tr>
+<tr>
+<td>Project Repository</td>
+<td>URL to this repository</td>
+</tr>
+<tr>
+<td>Credentials</td>
+<td>credentials to the library repo (if private)</td>
+</tr>
+</tbody>
+</table>
+<ol start="4">
+<li>Click <strong>Save</strong>.</li>
+</ol>
+<p>That is all you need to do in Jenkins for the library. You do not need to configure anything else globally.</p>
+</div>
+
+<div class="section" id="6-step-2-add-two-files-to-your-project-repository">
+  <h2><span class="num">6</span> Step 2 – Add two files to your project repository</h2>
+<p>Your project repository needs exactly <strong>two files</strong>:</p>
+<h3>File 1: <code>Jenkinsfile</code> (at repository root)</h3>
+<p>The simplest possible Jenkinsfile:</p>
+<pre><code>@Library(&#x27;DevSecOpsJenkinsLibrary&#x27;) _
+
+devSecOpsPipeline(
+    projectNames: &#x27;my-app&#x27;,
+    agentNames:   [&#x27;linux-agent&#x27;]
+)
+</code></pre>
+<p>Replace <code>my-app</code> with the key name(s) you will use in <code>config.yaml</code>, and <code>agentNames</code> with the Jenkins agent labels your builds may run on. Both entries are required: <code>agentNames</code> fills the <code>AGENT_NAME</code> build parameter.</p>
+<p>For multiple projects (e.g. a monorepo with GUI and API):</p>
+<pre><code>@Library(&#x27;DevSecOpsJenkinsLibrary&#x27;) _
+
+devSecOpsPipeline(
+    projectNames: &#x27;gui,backend-api&#x27;,
+    agentNames:   [&#x27;linux-agent&#x27;, &#x27;windows-agent&#x27;]
+)
+</code></pre>
+<h3>File 2: <code>config.yaml</code> (at repository root)</h3>
+<p>This file contains ONLY the <code>projects:</code> section. You do not need to specify <code>defaults:</code> — the library provides non-overridable defaults automatically.</p>
+<p>Minimal example (single project, VM deployment):</p>
+<pre><code><span class=<span class="s">"k"</span>>projects</span>:
+
+  <span class=<span class="s">"k"</span>>my-app</span>:
+    <span class=<span class="s">"k"</span>>appId</span>:     <span class="v">&quot;xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx&quot;</span>
+    <span class=<span class="s">"k"</span>>buildTool</span>: <span class="v">gradle</span>
+    <span class=<span class="s">"k"</span>>javaPath</span>:  <span class="v">/usr/lib/jvm/java-17-openjdk</span><span class="c">     # JDK for the build and the tests</span>
+
+    <span class=<span class="s">"k"</span>>asoc</span>:
+      <span class=<span class="s">"k"</span>>keyId</span>:     <span class="v">&quot;bbh_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&quot;</span>
+      <span class=<span class="s">"k"</span>>keySecret</span>: <span class="v">&quot;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&quot;</span>
+
+    <span class=<span class="s">"k"</span>>tools</span>:
+      <span class=<span class="s">"k"</span>>sonar</span>:
+        <span class=<span class="s">"k"</span>>projectName</span>: <span class="v">&quot;My Application&quot;</span>
+        <span class=<span class="s">"k"</span>>projectKey</span>:  <span class="v">&quot;my-application&quot;</span>
+        <span class=<span class="s">"k"</span>>serverUrl</span>:   <span class="v">&quot;https://tools.bbh.com/sonar&quot;</span>
+        <span class=<span class="s">"k"</span>>badgeToken</span>:  <span class="v">&quot;sqb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&quot;</span>
+      <span class=<span class="s">"k"</span>>nexusIq</span>:
+        <span class=<span class="s">"k"</span>>application</span>:        <span class="v">&quot;My-Application&quot;</span>
+        <span class=<span class="s">"k"</span>>serverUrl</span>:          <span class="v">&quot;https://tools.bbh.com/IQ&quot;</span>
+        <span class=<span class="s">"k"</span>>credentialsId</span>:      <span class="v">&quot;nexusiqP&quot;</span>
+        <span class=<span class="s">"k"</span>>scanPatterns</span>:       <span class="v">[&quot;**/build/libs/*.jar&quot;]</span>
+        <span class=<span class="s">"k"</span>>stage</span>:              <span class="v">&quot;build&quot;</span>
+        <span class=<span class="s">"k"</span>>failOnNetworkError</span>: <span class="v">false</span>
+
+    <span class=<span class="s">"k"</span>>dast</span>:
+      <span class=<span class="s">"k"</span>>enabled</span>:   <span class="v">true</span>
+      <span class=<span class="s">"k"</span>>targetUrl</span>: <span class="v">&quot;http://my-rd-server.example.com&quot;</span>
+
+    <span class=<span class="s">"k"</span>>tests</span>:
+      <span class=<span class="s">"k"</span>>smoke</span>:
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;My App - smoke&quot;</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;my-app/smoke-tests&quot;</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">15</span>
+      <span class=<span class="s">"k"</span>>regression</span>:
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;My App - regression&quot;</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;my-app/regression-tests&quot;</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">60</span>
+      <span class=<span class="s">"k"</span>>performance</span>:
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;My App - performance&quot;</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;my-app/performance-tests&quot;</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">120</span>
+
+    <span class=<span class="s">"k"</span>>deploy</span>:
+      <span class=<span class="s">"k"</span>>vm</span>:
+        <span class=<span class="s">"k"</span>>dod</span>:<span class="c">                                   # lower test region of devSecOpsPipeline (UrbanCode Deploy)</span>
+          <span class=<span class="s">"k"</span>>siteName</span>:      <span class="v">&quot;deploy.bbh.com&quot;</span>
+          <span class=<span class="s">"k"</span>>deployProcess</span>: <span class="v">&quot;tomcat-app-process&quot;</span>
+          <span class=<span class="s">"k"</span>>applications</span>:
+            - <span class=<span class="s">"k"</span>>applicationName</span>: <span class="v">&quot;My-App&quot;</span>
+              <span class=<span class="s">"k"</span>>components</span>:
+                - <span class=<span class="s">"k"</span>>componentName</span>:       <span class="v">&quot;My-App-app&quot;</span>
+                  <span class=<span class="s">"k"</span>>baseDir</span>:             <span class="v">&quot;build/libs&quot;</span>
+                  <span class=<span class="s">"k"</span>>fileIncludePatterns</span>: <span class="v">&quot;*.jar&quot;</span>
+        <span class=<span class="s">"k"</span>>rd</span>:<span class="c">                                    # lower test region of devSecOpsExtendedPipeline (SSH)</span>
+          <span class=<span class="s">"k"</span>>host</span>:         <span class="v">&quot;rdserver.example.com&quot;</span>
+          <span class=<span class="s">"k"</span>>user</span>:         <span class="v">&quot;deploy&quot;</span>
+          <span class=<span class="s">"k"</span>>deployDir</span>:    <span class="v">&quot;/opt/app/deployment&quot;</span>
+          <span class=<span class="s">"k"</span>>deployScript</span>: <span class="v">&quot;scripts/deployment/deploy.sh&quot;</span>
+          <span class=<span class="s">"k"</span>>versionFile</span>:  <span class="v">&quot;scripts/deployment/version.properties&quot;</span>
+        <span class=<span class="s">"k"</span>>qc</span>:
+          <span class=<span class="s">"k"</span>>host</span>:         <span class="v">&quot;qcserver.example.com&quot;</span>
+          <span class=<span class="s">"k"</span>>user</span>:         <span class="v">&quot;deploy&quot;</span>
+          <span class=<span class="s">"k"</span>>deployDir</span>:    <span class="v">&quot;/opt/app/deployment&quot;</span>
+          <span class=<span class="s">"k"</span>>deployScript</span>: <span class="v">&quot;scripts/deployment/deploy.sh&quot;</span>
+          <span class=<span class="s">"k"</span>>versionFile</span>:  <span class="v">&quot;scripts/deployment/version.properties&quot;</span>
+</code></pre>
+<div class="callout"><strong>Important:</strong> <code>asoc.keyId</code> and <code>asoc.keySecret</code> are required in every project. These are credentials for HCL AppScan on Cloud (ASoC). Obtain them from the ASoC portal under your organization's API key settings.</div>
+</div>
+
+<div class="section" id="7-step-3-configure-the-jenkins-job">
+  <h2><span class="num">7</span> Step 3 – Configure the Jenkins job</h2>
+<ol>
+<li>
+<p>Create a new <strong>Pipeline</strong> job in Jenkins.</p>
+</li>
+<li>
+<p>In <strong>Pipeline</strong> section, select <strong>Pipeline script from SCM</strong>.</p>
+</li>
+<li>
+<p>Set <strong>SCM</strong> to <strong>Git</strong> and enter your project repository URL.</p>
+</li>
+<li>
+<p>Set <strong>Branch Specifier</strong> to your default branch (e.g. <code>*/main</code>).</p>
+</li>
+<li>
+<p>Set <strong>Script Path</strong> to <code>Jenkinsfile</code>.</p>
+</li>
+<li>
+<p>Click <strong>Save</strong>.</p>
+</li>
+</ol>
+<p>No environment variables need to be configured in the job definition. The library reads everything from <code>config.yaml</code>.</p>
+<h3>Optional: expose parameters in the job</h3>
+<p>The entry points declare their build parameters, so they appear in the Jenkins UI after the first run:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Declared by</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AGENT_NAME</code></td>
+<td>every entry point</td>
+<td>first entry of <code>agentNames</code></td>
+<td>The agent label the build runs on, taken from <code>agentNames</code> of the Jenkinsfile call.</td>
+</tr>
+<tr>
+<td><code>DEPLOY_HIGHER_ENV</code></td>
+<td><code>devSecOpsPipeline</code>, <code>devSecOpsExtendedPipeline</code></td>
+<td><code>false</code></td>
+<td>When <code>true</code>, the pipeline deploys to the QC environment, provided every earlier stage is green.</td>
+</tr>
+<tr>
+<td><code>RUN_EXTENDED_PIPELINE</code></td>
+<td><code>devSecOpsSecurityPipeline</code></td>
+<td><code>false</code></td>
+<td>When <code>true</code>, the static pipeline starts the job named in <code>jenkins.pipeline.extendedPipeline</code> after the report is published.</td>
+</tr>
+</tbody>
+</table>
+<p>A policy violation never fails the pipeline. The stage turns orange, the build is marked UNSTABLE and keeps running, and the Nexus release plus the QC deployment stay blocked until the findings are fixed. There is no override parameter and no project threshold.</p>
+<p>These appear in the Jenkins UI automatically after the first successful run.</p>
+</div>
+
+<div class="section" id="8-step-4-first-run">
+  <h2><span class="num">8</span> Step 4 – First run</h2>
+<ol>
+<li>
+<p>Open your pipeline job in Jenkins.</p>
+</li>
+<li>
+<p>Click <strong>Build Now</strong> (or <strong>Build with Parameters</strong> if parameters have already been discovered).</p>
+</li>
+<li>
+<p>Watch the <strong>Stage View</strong> – each stage turns green on success or red on failure.</p>
+</li>
+<li>
+<p>After the build finishes, click <strong>Pipeline Report</strong> in the left sidebar to view the HTML security report.</p>
+</li>
+</ol>
+<h3>What to expect on first run</h3>
+<ul>
+<li><strong>Stage 1</strong> reads your <code>config.yaml</code> after the declarative checkout. If the file is missing or malformed, the stage fails with a clear error message.</li>
+<li><strong>Stage 2 (Unit tests)</strong> turns orange instead of red when the tests fail or the coverage is below the required value, and the build carries on.</li>
+<li><strong>Stage 4 (SAST)</strong> compiles the project, uploads it to ASoC and waits for the results. This typically takes 20–50 minutes.</li>
+<li><strong>Stage 11 (DAST)</strong> is skipped for projects where <code>dast.enabled: false</code>.</li>
+<li><strong>Stage 12</strong> is skipped when any earlier stage is orange.</li>
+<li><strong>Stage 13</strong> only runs when <code>DEPLOY_HIGHER_ENV=true</code> is selected at build time and every earlier stage is green.</li>
+<li>Orange stages do not stop the run: every stage from unit tests to DAST is executed on every build.</li>
+</ul>
+</div>
+
+<div class="section" id="9-configyaml-reference">
+  <h2><span class="num">9</span> config.yaml reference</h2>
+<p>The <code>config.yaml</code> in your project must contain only a <code>projects:</code> top-level key. Below is the full reference with all available fields and their defaults (coming from the library):</p>
+<pre><code><span class=<span class="s">"k"</span>>projects</span>:
+
+  &lt;project-name&gt;:<span class="c">                    # arbitrary key, must match projectNames in Jenkinsfile</span>
+
+    <span class=<span class="s">"k"</span>>appId</span>:        <span class="v">&quot;&quot;</span><span class="c">                 # HCL AppScan application ID (UUID)</span>
+    <span class=<span class="s">"k"</span>>buildTool</span>:    <span class="v">gradle</span><span class="c">             # gradle | maven | flutter  [default: gradle]</span>
+    <span class=<span class="s">"k"</span>>deployTarget</span>: <span class="v">vm</span><span class="c">                 # vm | openshift            [default: vm]</span>
+    <span class=<span class="s">"k"</span>>sourceDir</span>:    <span class="v">&quot;.&quot;</span><span class="c">                # source root for IRX generation [default: .]</span>
+    <span class=<span class="s">"k"</span>>javaPath</span>:     <span class="v">&quot;&quot;</span><span class="c">                 # JDK used for the build and the tests (exported as JAVA_HOME)</span>
+    <span class=<span class="s">"k"</span>>buildToolAutoSetup</span>: <span class="v">false</span><span class="c">        # true: detect the required Java version from pom.xml / build.gradle instead</span>
+    <span class=<span class="s">"k"</span>>includedDirs</span>: <span class="v">&quot;&quot;</span><span class="c">                 # optional: comma separated folders to scan (SAST)</span>
+    <span class=<span class="s">"k"</span>>excludedDirs</span>: <span class="v">&quot;&quot;</span><span class="c">                 # optional: comma separated folders to skip (SAST)</span>
+
+    <span class=<span class="s">"k"</span>>jenkins</span>:
+      <span class=<span class="s">"k"</span>>pipeline</span>:
+        <span class=<span class="s">"k"</span>>extendedPipeline</span>: <span class="v">&quot;&quot;</span><span class="c">         # job started by devSecOpsSecurityPipeline when RUN_EXTENDED_PIPELINE is selected</span>
+
+    <span class=<span class="s">"k"</span>>asoc</span>:<span class="c">                            # HCL AppScan on Cloud (required)</span>
+      <span class=<span class="s">"k"</span>>url</span>:         <span class="v">&quot;https://bbh.cloud.appscan.com&quot;</span>
+      <span class=<span class="s">"k"</span>>keyId</span>:       <span class="v">&quot;&quot;</span>
+      <span class=<span class="s">"k"</span>>keySecret</span>:   <span class="v">&quot;&quot;</span>
+      <span class=<span class="s">"k"</span>>token</span>:       <span class="v">&quot;&quot;</span><span class="c">                # optional: Jenkins Secret text credential holding the key secret</span>
+      <span class=<span class="s">"k"</span>>insecureTls</span>: <span class="v">false</span><span class="c">             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false</span>
+      <span class=<span class="s">"k"</span>>doCompile</span>:   <span class="v">true</span><span class="c">              # compile the project before the IRX is generated</span>
+      <span class=<span class="s">"k"</span>>sourceCodeOnly</span>: <span class="v">false</span><span class="c">          # true: -sco, no compiled classes in the IRX</span>
+      <span class=<span class="s">"k"</span>>useAppScanConfig</span>: <span class="v">false</span><span class="c">        # true: use appscan-config.xml from the repository</span>
+      <span class=<span class="s">"k"</span>>gradle</span>:<span class="c">                        # optional compile command for the IRX; the build section is used when absent</span>
+        <span class=<span class="s">"k"</span>>tasks</span>: [&#x27;classes&#x27;, &#x27;testClasses&#x27;]
+      <span class=<span class="s">"k"</span>>maven</span>:
+        <span class=<span class="s">"k"</span>>goals</span>: [&#x27;clean&#x27;, &#x27;compile&#x27;]
+
+    <span class=<span class="s">"k"</span>>influx</span>:<span class="c">                          # InfluxDB DORA metrics (optional)</span>
+      <span class=<span class="s">"k"</span>>enabled</span>:   <span class="v">false</span>
+      <span class=<span class="s">"k"</span>>project</span>:   <span class="v">&quot;&quot;</span><span class="c">                  # measurement tag [default: tools.sonar.projectName]</span>
+      <span class=<span class="s">"k"</span>>env</span>:       <span class="v">&quot;dev&quot;</span><span class="c">               # measurement tag</span>
+      <span class=<span class="s">"k"</span>>url</span>:       <span class="v">&quot;&quot;</span><span class="c">                  # InfluxDB v2 write endpoint</span>
+      <span class=<span class="s">"k"</span>>token</span>:     <span class="v">&quot;&quot;</span><span class="c">                  # InfluxDB auth token</span>
+      <span class=<span class="s">"k"</span>>credentialsId</span>: <span class="v">&quot;&quot;</span><span class="c">              # alternatively: Jenkins credential ID for the token</span>
+
+    <span class=<span class="s">"k"</span>>coverage</span>:
+      <span class=<span class="s">"k"</span>>reportPath</span>: <span class="v">&quot;&quot;</span><span class="c">                 # custom JaCoCo XML path (optional, auto-detected if empty)</span>
+<span class="c">                                     # the required 60% comes from the library defaults and cannot be set here</span>
+
+    <span class=<span class="s">"k"</span>>tools</span>:
+      <span class=<span class="s">"k"</span>>sonar</span>:
+        <span class=<span class="s">"k"</span>>projectName</span>:      <span class="v">&quot;&quot;</span><span class="c">         # display name in SonarQube</span>
+        <span class=<span class="s">"k"</span>>projectKey</span>:       <span class="v">&quot;&quot;</span><span class="c">         # unique project key in SonarQube</span>
+        <span class=<span class="s">"k"</span>>serverUrl</span>:        <span class="v">&quot;https://tools.bbh.com/sonar&quot;</span>
+        <span class=<span class="s">"k"</span>>installationName</span>: <span class="v">&quot;SonarQube&quot;</span><span class="c">  # SonarQube installation registered in Jenkins</span>
+        <span class=<span class="s">"k"</span>>credentialsId</span>:    <span class="v">&quot;&quot;</span><span class="c">         # Jenkins credential with the SonarQube token</span>
+        <span class=<span class="s">"k"</span>>authToken</span>:        <span class="v">&quot;&quot;</span><span class="c">         # alternative: credential ID used for the REST queries of the report</span>
+        <span class=<span class="s">"k"</span>>badgeToken</span>:       <span class="v">&quot;&quot;</span><span class="c">         # token for the SonarQube badges in the HTML report</span>
+        <span class=<span class="s">"k"</span>>addBadges</span>:        <span class="v">false</span><span class="c">      # add the badges to the build description</span>
+        <span class=<span class="s">"k"</span>>fullBadges</span>:       <span class="v">false</span><span class="c">      # all badges instead of the quality gate badge only</span>
+      <span class=<span class="s">"k"</span>>nexusIq</span>:
+        <span class=<span class="s">"k"</span>>application</span>:        <span class="v">&quot;&quot;</span><span class="c">       # application public ID in Nexus IQ</span>
+        <span class=<span class="s">"k"</span>>serverUrl</span>:          <span class="v">&quot;https://tools.bbh.com/IQ&quot;</span>
+        <span class=<span class="s">"k"</span>>credentialsId</span>:      <span class="v">&quot;nexusiqP&quot;</span>
+        <span class=<span class="s">"k"</span>>scanPatterns</span>:       <span class="v">[]</span><span class="c">       # list of Ant patterns, e.g. [&quot;**/build/libs/*.jar&quot;]</span>
+        <span class=<span class="s">"k"</span>>stage</span>:              <span class="v">&quot;build&quot;</span>
+        <span class=<span class="s">"k"</span>>failOnNetworkError</span>: <span class="v">false</span>
+
+    <span class=<span class="s">"k"</span>>sast</span>:
+      <span class=<span class="s">"k"</span>>scanName</span>: <span class="v">&quot;&quot;</span><span class="c">                   # AppScan scan name (auto-generated from sonar.projectName if empty)</span>
+
+    <span class=<span class="s">"k"</span>>sca</span>:
+      <span class=<span class="s">"k"</span>>scanName</span>: <span class="v">&quot;&quot;</span><span class="c">                   # name shown for the SonarQube findings in the report</span>
+
+    <span class=<span class="s">"k"</span>>dast</span>:
+      <span class=<span class="s">"k"</span>>enabled</span>:    <span class="v">false</span><span class="c">              # set true to run DAST</span>
+      <span class=<span class="s">"k"</span>>targetUrl</span>:  <span class="v">&quot;&quot;</span><span class="c">                 # URL to scan</span>
+      <span class=<span class="s">"k"</span>>presenceId</span>: <span class="v">&quot;&quot;</span><span class="c">                 # AppScan Presence ID (for internal networks, optional)</span>
+
+    <span class=<span class="s">"k"</span>>build</span>:<span class="c">                           # how the artifact is built (stage 2)</span>
+      <span class=<span class="s">"k"</span>>buildPath</span>: <span class="v">&quot;&quot;</span><span class="c">                  # artifact path or glob, e.g. &quot;build/libs/*.jar&quot; or &quot;target/*.jar&quot;</span>
+      <span class=<span class="s">"k"</span>>gradle</span>:
+        <span class=<span class="s">"k"</span>>tasks</span>:  [&#x27;clean&#x27;, &#x27;build&#x27;]
+        <span class=<span class="s">"k"</span>>flags</span>:  [&#x27;--refresh-dependencies&#x27;]
+        <span class=<span class="s">"k"</span>>dir</span>:    <span class="v">&quot;&quot;</span><span class="c">                   # optional subdirectory to build in</span>
+        <span class=<span class="s">"k"</span>>env</span>: <span class="v">{}</span><span class="c">                      # optional environment variables for the build</span>
+      <span class=<span class="s">"k"</span>>maven</span>:
+        <span class=<span class="s">"k"</span>>goals</span>:    [&#x27;clean&#x27;, &#x27;package&#x27;]
+        <span class=<span class="s">"k"</span>>flags</span>:    [&#x27;-B&#x27;, &#x27;-U&#x27;]
+        <span class=<span class="s">"k"</span>>mvnPath</span>:  <span class="v">&quot;&quot;</span><span class="c">                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn</span>
+        <span class=<span class="s">"k"</span>>javaPath</span>: <span class="v">&quot;&quot;</span><span class="c">                 # optional JDK for this command only</span>
+        <span class=<span class="s">"k"</span>>env</span>:
+          <span class=<span class="s">"k"</span>>MAVEN_OPTS</span>: <span class="v">&quot;-Xms512m -Xmx1g&quot;</span>
+
+    <span class=<span class="s">"k"</span>>delivery</span>:<span class="c">                        # Maven upload of the snapshot artifact (deployTarget: vm, buildTool: maven)</span>
+      <span class=<span class="s">"k"</span>>maven</span>:
+        <span class=<span class="s">"k"</span>>goals</span>: [&#x27;deploy:deploy-file&#x27;]
+        <span class=<span class="s">"k"</span>>flags</span>: [&#x27;-DrepositoryId=bbh-snapshots&#x27;, &#x27;-Durl=https://tools.bbh.com/nexus/repository/snapshots&#x27;,
+                &#x27;-DgroupId=com.bbh.myapp&#x27;, &#x27;-DartifactId=myapp&#x27;, &#x27;-DgeneratePom=true&#x27;]
+
+    <span class=<span class="s">"k"</span>>scm</span>:
+      <span class=<span class="s">"k"</span>>bitbucket</span>:<span class="c">                     # required to raise GoldenFix pull requests</span>
+        <span class=<span class="s">"k"</span>>url</span>:           <span class="v">&quot;&quot;</span><span class="c">            # repository link: https://&lt;host&gt;/projects/KEY/repos/slug, .../scm/key/slug.git or https://bitbucket.org/ws/slug</span>
+        <span class=<span class="s">"k"</span>>credentialsId</span>: <span class="v">&quot;&quot;</span><span class="c">            # Jenkins credentials: Username with password (or HTTP access token as password)</span>
+        <span class=<span class="s">"k"</span>>authType</span>:      <span class="v">basic</span><span class="c">         # basic | bearer (Secret text with an HTTP access token)</span>
+        <span class=<span class="s">"k"</span>>type</span>:          <span class="v">&quot;&quot;</span><span class="c">            # server | cloud  [auto-detected from url]</span>
+        <span class=<span class="s">"k"</span>>targetBranch</span>:  <span class="v">&quot;&quot;</span><span class="c">            # PR target branch  [default: branch that triggered the build]</span>
+        <span class=<span class="s">"k"</span>>cloneUrl</span>:      <span class="v">&quot;&quot;</span><span class="c">            # push URL override  [default: derived from url]</span>
+        <span class=<span class="s">"k"</span>>reviewers</span>:     <span class="v">[]</span><span class="c">            # Bitbucket user names (server) / account UUIDs (cloud)</span>
+
+    <span class=<span class="s">"k"</span>>goldenFix</span>:<span class="c">                       # library defaults shown, project values override them</span>
+      <span class=<span class="s">"k"</span>>enabled</span>:                <span class="v">true</span>
+      <span class=<span class="s">"k"</span>>onlyDirectDependencies</span>: <span class="v">true</span>
+      <span class=<span class="s">"k"</span>>minThreatLevel</span>:         <span class="v">2</span><span class="c">      # 2+ medium, 4+ high, 8+ critical</span>
+      <span class=<span class="s">"k"</span>>ecosystems</span>:             <span class="v">[maven, npm, pypi, pub]</span>
+      <span class=<span class="s">"k"</span>>goldenVersionTypes</span>:<span class="c">            # Nexus IQ remediation types taken as they are (the Golden Version)</span>
+        - recommended-non-breaking-with-dependencies
+        - recommended-non-breaking
+      <span class=<span class="s">"k"</span>>excludeDirs</span>:            <span class="v">[]</span><span class="c">     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]</span>
+      <span class=<span class="s">"k"</span>>commitAuthorName</span>:       <span class="v">&quot;DevSecOps GoldenFix&quot;</span>
+      <span class=<span class="s">"k"</span>>commitAuthorEmail</span>:      <span class="v">&quot;devsecops-goldenfix@noreply.local&quot;</span>
+      <span class=<span class="s">"k"</span>>timeZone</span>:               <span class="v">&quot;&quot;</span><span class="c">     # time zone of the GoldenFix-YYYYMMDDHHMM name</span>
+
+    <span class=<span class="s">"k"</span>>tests</span>:
+      <span class=<span class="s">"k"</span>>maxParallel</span>: <span class="v">20</span><span class="c">                # [library default] max jobs of one test stage running at the same time</span>
+      <span class=<span class="s">"k"</span>>unitTests</span>:<span class="c">                     # stage 2: the test command and where the results are</span>
+        <span class=<span class="s">"k"</span>>gradle</span>:
+          <span class=<span class="s">"k"</span>>tasks</span>: [&#x27;test&#x27;, &#x27;jacocoTestReport&#x27;]
+        <span class=<span class="s">"k"</span>>maven</span>:
+          <span class=<span class="s">"k"</span>>goals</span>: [&#x27;test&#x27;, &#x27;jacoco:report&#x27;]
+        <span class=<span class="s">"k"</span>>unitTestResult</span>:    <span class="v">&quot;&quot;</span><span class="c">        # JUnit results pattern [default: **/build/test-results/test/*.xml]</span>
+        <span class=<span class="s">"k"</span>>rootDir</span>:           <span class="v">&quot;.&quot;</span><span class="c">       # Maven: root of the module scan for surefire reports</span>
+        <span class=<span class="s">"k"</span>>reportOutDir</span>:      <span class="v">&quot;surefire-reports&quot;</span><span class="c">   # Maven: collected surefire reports</span>
+        <span class=<span class="s">"k"</span>>allowEmptyResults</span>: <span class="v">false</span><span class="c">     # Maven: accept a module without test results</span>
+      <span class=<span class="s">"k"</span>>smoke</span>:
+        <span class=<span class="s">"k"</span>>maxParallel</span>: <span class="v">20</span><span class="c">              # optional per-stage override</span>
+        <span class=<span class="s">"k"</span>>defaults</span>: <span class="v">{}</span><span class="c">                 # optional: fields merged into every job entry</span>
+        <span class=<span class="s">"k"</span>>urls</span>: <span class="v">[]</span><span class="c">                     # optional shorthand: list of remote job URLs</span>
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;&quot;</span><span class="c">           # display name (derived from the URL when empty)</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span><span class="c">        # local | remote  [default: remote when job/url is a full URL]</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;&quot;</span><span class="c">           # Jenkins job path (&quot;folder/job-name&quot;) or full job URL</span>
+            <span class=<span class="s">"k"</span>>url</span>:        <span class="v">&quot;&quot;</span><span class="c">           # alias of job for full remote job URLs</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">15</span>
+            <span class=<span class="s">"k"</span>>parameters</span>: <span class="v">&quot;&quot;</span><span class="c">           # optional, key=value lines</span>
+            <span class=<span class="s">"k"</span>>remoteJenkins</span>: <span class="v">&quot;&quot;</span><span class="c">        # Remote Jenkins name from global config (not needed with a full URL)</span>
+            <span class=<span class="s">"k"</span>>remoteJenkinsUrl</span>: <span class="v">&quot;&quot;</span><span class="c">     # optional remote Jenkins base URL override</span>
+            <span class=<span class="s">"k"</span>>credentialsId</span>: <span class="v">&quot;&quot;</span><span class="c">        # optional: credentials (user + API token) for the remote Jenkins</span>
+          - &quot;https://jenkins.example.com/job/smoke/job/login&quot;<span class="c">   # an entry can also be just the job URL</span>
+      <span class=<span class="s">"k"</span>>regression</span>:
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">60</span>
+      <span class=<span class="s">"k"</span>>performance</span>:
+        <span class=<span class="s">"k"</span>>jobs</span>:
+          - <span class=<span class="s">"k"</span>>name</span>:       <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>type</span>:       <span class="v">local</span>
+            <span class=<span class="s">"k"</span>>job</span>:        <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>timeoutMin</span>: <span class="v">120</span>
+
+    <span class=<span class="s">"k"</span>>deploy</span>:
+      <span class=<span class="s">"k"</span>>vm</span>:<span class="c">                            # used when deployTarget: vm</span>
+        <span class=<span class="s">"k"</span>>dod</span>:<span class="c">                         # UrbanCode Deploy, used by devSecOpsPipeline for the lower test region</span>
+          <span class=<span class="s">"k"</span>>siteName</span>:      <span class="v">&quot;deploy.bbh.com&quot;</span><span class="c">        # UrbanCode Deploy site configured in Jenkins</span>
+          <span class=<span class="s">"k"</span>>deployProcess</span>: <span class="v">&quot;tomcat-app-process&quot;</span>
+          <span class=<span class="s">"k"</span>>skipWait</span>:            <span class="v">false</span>
+          <span class=<span class="s">"k"</span>>deployWithSnapshot</span>:  <span class="v">true</span>
+          <span class=<span class="s">"k"</span>>updateSnapshotComp</span>:  <span class="v">false</span>
+          <span class=<span class="s">"k"</span>>includeOnlyDeployVersions</span>: <span class="v">true</span>
+          <span class=<span class="s">"k"</span>>deployOnlyChanged</span>:   <span class="v">false</span>
+          <span class=<span class="s">"k"</span>>deployDescription</span>:   <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>requestProperties</span>:   <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>applications</span>:<span class="c">                          # one entry per UrbanCode application</span>
+            - <span class=<span class="s">"k"</span>>applicationName</span>: <span class="v">&quot;&quot;</span>
+              <span class=<span class="s">"k"</span>>order</span>:        <span class="v">1</span><span class="c">                    # optional deployment order</span>
+              <span class=<span class="s">"k"</span>>environments</span>: [&#x27;DV&#x27;, &#x27;RD&#x27;, &#x27;QC&#x27;]<span class="c">   # optional filter, empty means every environment</span>
+              <span class=<span class="s">"k"</span>>snapshotName</span>: <span class="v">&quot;&quot;</span><span class="c">                   # [default: &lt;applicationName&gt;_snapshot]</span>
+              <span class=<span class="s">"k"</span>>components</span>:
+                - <span class=<span class="s">"k"</span>>componentName</span>:       <span class="v">&quot;&quot;</span>
+                  <span class=<span class="s">"k"</span>>baseDir</span>:             <span class="v">&quot;build/libs&quot;</span>
+                  <span class=<span class="s">"k"</span>>fileIncludePatterns</span>: <span class="v">&quot;*.jar&quot;</span>
+                  <span class=<span class="s">"k"</span>>fileExcludePatterns</span>: <span class="v">&quot;&quot;</span>
+                  <span class=<span class="s">"k"</span>>versionPrefix</span>:       <span class="v">&quot;&quot;</span><span class="c">        # [default: fileIncludePatterns]</span>
+                  <span class=<span class="s">"k"</span>>version</span>:             <span class="v">&quot;&quot;</span><span class="c">        # [default: &lt;versionPrefix&gt;_&lt;BUILD_ID&gt;]</span>
+                  <span class=<span class="s">"k"</span>>incrementalVersion</span>:  <span class="v">true</span>
+        <span class=<span class="s">"k"</span>>rd</span>:<span class="c">                          # lower test environment over SSH (devSecOpsExtendedPipeline)</span>
+          <span class=<span class="s">"k"</span>>host</span>:         <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>user</span>:         <span class="v">&quot;taadmin&quot;</span>
+          <span class=<span class="s">"k"</span>>deployDir</span>:    <span class="v">&quot;&quot;</span><span class="c">           # remote directory for deployment scripts</span>
+          <span class=<span class="s">"k"</span>>deployScript</span>: <span class="v">&quot;scripts/deployment/zero-downtime-deployment.sh&quot;</span>
+          <span class=<span class="s">"k"</span>>versionFile</span>:  <span class="v">&quot;scripts/deployment/version.properties&quot;</span>
+        <span class=<span class="s">"k"</span>>qc</span>:<span class="c">                          # higher test environment over SSH</span>
+          <span class=<span class="s">"k"</span>>host</span>:         <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>user</span>:         <span class="v">&quot;taadmin&quot;</span>
+          <span class=<span class="s">"k"</span>>deployDir</span>:    <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>deployScript</span>: <span class="v">&quot;scripts/deployment/zero-downtime-deployment.sh&quot;</span>
+          <span class=<span class="s">"k"</span>>versionFile</span>:  <span class="v">&quot;scripts/deployment/version.properties&quot;</span>
+      <span class=<span class="s">"k"</span>>openshift</span>:<span class="c">                     # used when deployTarget: openshift</span>
+        <span class=<span class="s">"k"</span>>rd</span>:
+          <span class=<span class="s">"k"</span>>projectBuildR</span>:      <span class="v">&quot;&quot;</span><span class="c">     # namespace where the image is built</span>
+          <span class=<span class="s">"k"</span>>buildConfigPath</span>:    <span class="v">&quot;&quot;</span><span class="c">     # BuildConfig template in the repository</span>
+          <span class=<span class="s">"k"</span>>dockerFilePath</span>:     <span class="v">&quot;&quot;</span><span class="c">     # Dockerfile in the repository</span>
+          <span class=<span class="s">"k"</span>>buildContext</span>:       <span class="v">&quot;&quot;</span><span class="c">     # directory prepared for the binary build</span>
+          <span class=<span class="s">"k"</span>>addFile</span>:            <span class="v">&quot;&quot;</span><span class="c">     # optional extra file copied into the build context</span>
+          <span class=<span class="s">"k"</span>>qcDockerRepoPush</span>:   <span class="v">&quot;&quot;</span><span class="c">     # Nexus docker repository the image is pushed to</span>
+          <span class=<span class="s">"k"</span>>qcDockerRepoPull</span>:   <span class="v">&quot;&quot;</span><span class="c">     # docker repository the deployment pulls from</span>
+          <span class=<span class="s">"k"</span>>openshiftCertDir</span>:   <span class="v">&quot;&quot;</span><span class="c">     # certificate directory for skopeo</span>
+          <span class=<span class="s">"k"</span>>nexus</span>:
+            <span class=<span class="s">"k"</span>>authfile</span>:         <span class="v">&quot;&quot;</span><span class="c">     # docker authfile used by skopeo</span>
+          <span class=<span class="s">"k"</span>>projectDeploymentR</span>: <span class="v">&quot;&quot;</span><span class="c">     # namespace of the deployment</span>
+          <span class=<span class="s">"k"</span>>deployConfigPath</span>:   <span class="v">&quot;&quot;</span><span class="c">     # deployment template in the repository</span>
+          <span class=<span class="s">"k"</span>>configPathR</span>:        <span class="v">&quot;&quot;</span><span class="c">     # config template applied before the deployment</span>
+          <span class=<span class="s">"k"</span>>skipConfigDeploy</span>:   <span class="v">false</span>
+          <span class=<span class="s">"k"</span>>healthCheckUrl</span>:     <span class="v">&quot;&quot;</span><span class="c">     # optional HEALTH_URL template parameter</span>
+          <span class=<span class="s">"k"</span>>routeHostnameR</span>:     <span class="v">&quot;&quot;</span><span class="c">     # optional ROUTE_HOST template parameter</span>
+          <span class=<span class="s">"k"</span>>deploymentPath</span>:     <span class="v">&quot;&quot;</span><span class="c">     # optional: directory the deployment repository is cloned into</span>
+          <span class=<span class="s">"k"</span>>deploymentRepo</span>:
+            <span class=<span class="s">"k"</span>>url</span>:         <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>branch</span>:      <span class="v">&quot;&quot;</span>
+            <span class=<span class="s">"k"</span>>credentials</span>: <span class="v">&quot;&quot;</span>
+        <span class=<span class="s">"k"</span>>qc</span>:<span class="c">                          # the same keys; buildTag defaults to the image built in this run</span>
+          <span class=<span class="s">"k"</span>>projectDeploymentR</span>: <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>qcDockerRepoPull</span>:   <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>deployConfigPath</span>:   <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>configPathR</span>:        <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>healthCheckUrl</span>:     <span class="v">&quot;&quot;</span>
+          <span class=<span class="s">"k"</span>>routeHostnameR</span>:     <span class="v">&quot;&quot;</span>
+
+    <span class=<span class="s">"k"</span>>appName</span>:      <span class="v">&quot;&quot;</span><span class="c">                 # OpenShift application name (BuildConfig, deployment, image stream)</span>
+    <span class=<span class="s">"k"</span>>artifactName</span>: <span class="v">&quot;&quot;</span><span class="c">                 # OpenShift: artifact file name copied into the build context</span>
+    <span class=<span class="s">"k"</span>>baseArtifactName</span>: <span class="v">&quot;&quot;</span><span class="c">             # OpenShift: original artifact name, renamed to artifactName when set</span>
+
+    <span class=<span class="s">"k"</span>>flutter</span>:<span class="c">                         # Flutter-specific settings (only when buildTool: flutter)</span>
+      <span class=<span class="s">"k"</span>>platform</span>: <span class="v">apk</span><span class="c">                  # apk | appbundle | ios | macos | linux | windows | web</span>
+</code></pre>
+<h3>Which fields are required</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>asoc.keyId</code></td>
+<td>YES</td>
+<td>Pipeline fails at init without it</td>
+</tr>
+<tr>
+<td><code>asoc.keySecret</code></td>
+<td>YES</td>
+<td>Pipeline fails at init without it</td>
+</tr>
+<tr>
+<td><code>appId</code></td>
+<td>YES</td>
+<td>Needed for AppScan SAST and DAST</td>
+</tr>
+<tr>
+<td><code>tools.sonar.projectKey</code></td>
+<td>Recommended</td>
+<td>SonarQube scan is skipped silently without it</td>
+</tr>
+<tr>
+<td><code>tools.nexusIq.application</code></td>
+<td>Recommended</td>
+<td>Nexus IQ scan is skipped silently without it</td>
+</tr>
+<tr>
+<td><code>dast.targetUrl</code></td>
+<td>Only if <code>dast.enabled: true</code></td>
+<td>Pipeline fails at DAST stage without it</td>
+</tr>
+<tr>
+<td><code>javaPath</code> or <code>buildToolAutoSetup: true</code></td>
+<td>YES</td>
+<td>Without one of them the Unit tests stage stops with <em>JAVA_HOME parameter is not specified</em></td>
+</tr>
+<tr>
+<td><code>deploy.vm.dod</code></td>
+<td>Only if <code>deployTarget: vm</code> and you use <code>devSecOpsPipeline</code></td>
+<td>The lower test region deployment of the full pipeline uses UrbanCode Deploy</td>
+</tr>
+<tr>
+<td><code>deploy.vm.rd</code>, <code>deploy.vm.qc</code></td>
+<td>Only if <code>deployTarget: vm</code></td>
+<td>SSH deployment of the extended pipeline and of the QC stage</td>
+</tr>
+<tr>
+<td><code>deploy.openshift.*</code></td>
+<td>Only if <code>deployTarget: openshift</code></td>
+<td><code>appName</code> and <code>artifactName</code> are required as well</td>
+</tr>
+<tr>
+<td><code>delivery.maven</code></td>
+<td>Only if <code>deployTarget: vm</code> and <code>buildTool: maven</code></td>
+<td>Snapshot upload of the artifact to Nexus</td>
+</tr>
+<tr>
+<td><code>jenkins.pipeline.extendedPipeline</code></td>
+<td>Only for <code>devSecOpsSecurityPipeline</code></td>
+<td>The job it starts when <code>RUN_EXTENDED_PIPELINE</code> is selected; it may be set in any project of the file</td>
+</tr>
+<tr>
+<td><code>scm.bitbucket.url</code></td>
+<td>Only for GoldenFix</td>
+<td>Without it the fixes are listed in the report but no pull request is raised</td>
+</tr>
+<tr>
+<td><code>scm.bitbucket.credentialsId</code></td>
+<td>Only for GoldenFix</td>
+<td>Needs push rights and permission to create pull requests</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="section" id="10-pipeline-stages">
+  <h2><span class="num">10</span> Pipeline stages</h2>
+<h3>Stage 1: Monitor source changes (download sources)</h3>
+<p>Performs:</p>
+<ul>
+<li>Reads <code>config.yaml</code> (the declarative pipeline has already checked out the repository) and merges every project with the library defaults</li>
+<li>Applies the library policy to the state, so every later stage compares against the same thresholds</li>
+<li>Detects the agent operating system and makes <code>gradlew</code> executable</li>
+<li>Sets the tool environment: ASoC URLs, proxy host, port and user, and the AppScan working directories</li>
+<li><code>devSecOpsSASTScanningPipeline</code> also runs <code>checkout scm</code> and pins <code>JAVA_HOME</code> before this</li>
+</ul>
+<p>Fails if:</p>
+<ul>
+<li><code>config.yaml</code> is missing or has no <code>projects:</code> section</li>
+<li>a name from <code>projectNames</code> is not a key of the <code>projects:</code> section</li>
+<li><code>asoc.keyId</code> is empty</li>
+</ul>
+<h3>Stage 2: Unit tests</h3>
+<p>Performs, once per project:</p>
+<ul>
+<li>Builds the artifact with the command of the <code>build</code> section</li>
+<li>Runs the unit tests with the command of <code>tests.unitTests</code> and collects coverage (JaCoCo for Gradle/Maven, lcov for Flutter)</li>
+<li>Compares the line coverage of that project with <code>coverage.minLine</code> of <code>resources/defaults.yaml</code> (60 %)</li>
+</ul>
+<p>The stage never fails the pipeline. Below the required value the stage turns <strong>orange</strong>, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always the one from <code>resources/defaults.yaml</code>, so changing it there changes both the check and the report.</p>
+<p>A compilation error of the artifact build is a real failure and stops the pipeline, because nothing can be scanned or deployed without an artifact.</p>
+<h3>Stage 3: Dependencies scan (Nexus IQ)</h3>
+<p>Runs <code>nexusPolicyEvaluation</code> with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds (<code>tools.nexusIq.max*</code> of <code>resources/defaults.yaml</code>, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.</p>
+<h3>Stage 4: SAST – HCL AppScan</h3>
+<p>Downloads and unpacks SAClientUtil (the AppScan CLI), logs in with the ASoC key pair, compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. The HTML report of each project is downloaded and parsed, and the counts are compared with <code>sast.maxCritical</code>, <code>sast.maxHigh</code> and <code>sast.maxMedium</code> of <code>resources/defaults.yaml</code> (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.</p>
+<h4>GoldenFix remediation (automatic pull request)</h4>
+<p>When the Nexus IQ policy is violated (critical, high or medium findings above the limits) the library:</p>
+<ol>
+<li>
+<p>Fetches the violating components of the evaluation from Nexus IQ (<code>/api/v2/applications/{app}/reports/{scanId}/policy</code>) and keeps only <strong>direct dependencies</strong> with a non-waived violation of at least medium threat level.</p>
+</li>
+<li>
+<p>Asks the Component Remediation API (<code>/api/v2/components/remediation/application/{id}</code>) for every version Nexus IQ proposes and picks one of them:
+   - the <strong>Golden Version</strong> when Nexus IQ offers it (<code>recommended-non-breaking-with-dependencies</code> or <code>recommended-non-breaking</code>, in practice Maven only, configurable in <code>goldenFix.goldenVersionTypes</code>),
+   - otherwise the <strong>nearest higher version</strong> among the proposals, in this order: <strong>backward compatible first</strong> (same major version, and for a <code>0.x</code> version also the same minor), then <strong>without known vulnerabilities</strong> (<code>next-no-violations*</code>), then the smallest upgrade.</p>
+</li>
+</ol>
+<p>The pull request table names the rule that picked each version, so a reviewer sees whether it is the Golden Version or the nearest compatible upgrade.
+3. Searches the whole source tree (multi-module projects included, <code>node_modules</code>, <code>target</code>, <code>build</code>, virtualenvs skipped) and updates:
+   - Maven: <code>pom.xml</code> dependencies, dependencyManagement and the <code>&lt;properties&gt;</code> they reference (also in parent POMs)
+   - Gradle: <code>build.gradle</code>, <code>build.gradle.kts</code>, <code>gradle.properties</code>, <code>ext</code>/<code>val</code> version variables, version catalogs <code>*.versions.toml</code>
+   - npm: <code>package.json</code> dependencies, devDependencies, peerDependencies, optionalDependencies (range operator preserved)
+   - pip: <code>requirements*.txt</code>, <code>constraints*.txt</code>, <code>pyproject.toml</code> (PEP 621 and Poetry)
+   - Flutter: <code>pubspec.yaml</code> dependencies and dev_dependencies (the <code>^</code> constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
+4. Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch <code>GoldenFix-YYYYMMDDHHMM</code> and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.</p>
+<ol start="5">
+<li>The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the <strong>Nexus IQ GoldenFix</strong> card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).</li>
+</ol>
+<p>A version is only written when the manifest declares a plain version that is lower than the target; ranges, hash pinned requirements and versions managed by a BOM are listed under "not applied automatically" instead.</p>
+<p>GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange on the policy violation, and a GoldenFix error is only reported. Lock files (<code>package-lock.json</code>, <code>poetry.lock</code>, pinned requirements) are not regenerated. Requires <code>scm.bitbucket.url</code> and <code>scm.bitbucket.credentialsId</code> and a Linux/macOS agent with git.</p>
+<h3>Stage 5: SCA (SonarQube)</h3>
+<p>Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open <strong>vulnerabilities</strong> of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above <code>sca.maxCritical</code>, <code>sca.maxHigh</code> and <code>sca.maxMedium</code> of <code>resources/defaults.yaml</code> (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.</p>
+<h3>Stages 6–10: Delivery and tests</h3>
+<p>Stage 6 publishes the snapshot artifact and stage 7 deploys to the lower test region. Both always run, even when an earlier stage is orange, so developers always get a build on the lower test region.</p>
+<p>What stage 6 does depends on the project: a Maven project on a VM is uploaded to the Nexus snapshot repository with the <code>delivery.maven</code> command and the delivered version is written back into <code>config.yaml</code>; an OpenShift project has its image built in the build namespace and copied to the Nexus docker registry with <code>skopeo</code>; a Gradle project on a VM reports the build and the unit test results, and is published to Nexus by the release delivery (<code>./gradlew publish</code>). Stage 7 deploys with UrbanCode Deploy (<code>devSecOpsPipeline</code>, <code>deploy.vm.dod</code>), over SSH (<code>devSecOpsExtendedPipeline</code>, <code>deploy.vm.rd</code>) or to OpenShift (<code>deploy.openshift.rd</code>).</p>
+<p>Then the tests run in the order regression, smoke, performance, followed by DAST. Each test stage needs at least one configured job.</p>
+<p>Every test stage runs <strong>all</strong> configured jobs, even when some of them fail, and then turns orange with a summary of the failed jobs. A stage may contain any number of jobs (e.g. 200 smoke tests on different remote Jenkins instances). At most <code>tests.maxParallel</code> (default 20, per-stage override <code>tests.&lt;type&gt;.maxParallel</code>) jobs run at the same time. Remote jobs can be referenced by full job URL (<code>url:</code> or <code>job: https://...</code>) without a Remote Jenkins global configuration; <code>credentialsId</code> provides user + API token. The HTML report shows per-project counters (total / passed / failed / not configured), the failed jobs, a collapsible list of all jobs and a <strong>Smoke tests</strong> table with a build link for every job.</p>
+<h3>Stage 11: DAST – HCL AppScan</h3>
+<p>Runs only for projects with <code>dast.enabled: true</code>. Queues a DAST scan against <code>dast.targetUrl</code>. Uses optional <code>dast.presenceId</code> for scanning internal (non-internet-accessible) environments.</p>
+<p>The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as <strong>PDF</strong>. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the <strong>HCL AppScan</strong> console page of the scan and the PDF report. Above the DAST thresholds of <code>resources/defaults.yaml</code> the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.</p>
+<h3>Stage 12: Nexus delivery (safe artifact)</h3>
+<p>This is the second delivery to Nexus, into the release repository. It is skipped as soon as <strong>any</strong> earlier stage is orange, so a build with open findings, failed tests or missing coverage is never released.</p>
+<h3>Stage 13: Higher test environment deployment</h3>
+<p>Runs only when <code>DEPLOY_HIGHER_ENV=true</code> is selected <strong>and</strong> every earlier stage is green.</p>
+<h3>How a failure is reported: orange stages and the release gate</h3>
+<p>No security or test finding stops the pipeline. Every stage from the unit tests to DAST is executed on every build. A stage that breaks the library policy is marked <strong>orange</strong> (<code>WARN</code>), the build becomes UNSTABLE, and the reason printed in the console and shown in the report names the failed step, the counts behind it and the consequence.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>On a policy violation</th>
+<th>Consequence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit tests</td>
+<td>Orange, with the measured and required line coverage, or with the exit code of a failed test run</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>Dependencies scan (Nexus IQ)</td>
+<td>Orange, with critical / high / medium counts, GoldenFix pull request raised</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>SAST</td>
+<td>Orange, with critical / high / medium counts</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>SCA (SonarQube)</td>
+<td>Orange, with the quality gate status</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>Nexus delivery (snapshot)</td>
+<td>Always runs</td>
+<td>–</td>
+</tr>
+<tr>
+<td>Lower test region deployment (RD)</td>
+<td>Always runs</td>
+<td>–</td>
+</tr>
+<tr>
+<td>Regression, smoke, performance</td>
+<td>Orange, with the failed jobs</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>DAST</td>
+<td>Orange, with critical / high / medium counts</td>
+<td>Release and QC blocked</td>
+</tr>
+<tr>
+<td>Nexus delivery (release)</td>
+<td>Skipped when anything above is orange</td>
+<td>No release artifact</td>
+</tr>
+<tr>
+<td>Higher test environment deployment (QC)</td>
+<td>Skipped unless everything is green and the checkbox is selected</td>
+<td>No QC deployment</td>
+</tr>
+</tbody>
+</table>
+<p>The <strong>release gate</strong> collects the verdict. It blocks the second Nexus delivery and the QC deployment when any stage is not green, when a scanner count exceeds the library policy, or when the line coverage is below the required 60 %. The HTML report shows a <strong>Release policy</strong> card listing every violation, for example <code>gui Dependencies (Nexus IQ) critical 1 &gt; 0</code> or <code>line coverage 41.0% below the required 60%</code>.</p>
+<p>Each pipeline evaluates the results it owns and hands its verdict to the next one through the archived <code>release-gate.json</code>, so a security pipeline with an orange stage also blocks the release in the extended pipeline.</p>
+</div>
+
+<div class="section" id="11-policy-thresholds">
+  <h2><span class="num">11</span> Policy thresholds</h2>
+<p>All thresholds live in <code>resources/defaults.yaml</code> inside the library. A project <strong>cannot</strong> change any of them in <code>config.yaml</code>: a value put there is ignored. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.</p>
+<table>
+<thead>
+<tr>
+<th>Scanner</th>
+<th>Metric</th>
+<th>Library policy</th>
+<th>Overridable by a project</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAST</td>
+<td>maxCritical / maxHigh / maxMedium</td>
+<td>0</td>
+<td>no</td>
+</tr>
+<tr>
+<td>SCA (SonarQube)</td>
+<td>maxCritical / maxHigh / maxMedium</td>
+<td>0</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Dependencies (Nexus IQ)</td>
+<td>maxCritical / maxHigh / maxMedium</td>
+<td>0</td>
+<td>no</td>
+</tr>
+<tr>
+<td>DAST</td>
+<td>maxCritical / maxHigh / maxMedium</td>
+<td>0</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Coverage</td>
+<td>minLine</td>
+<td>60 %</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Test jobs</td>
+<td>maxParallel</td>
+<td>20</td>
+<td>yes, per stage in <code>tests.*.maxParallel</code></td>
+</tr>
+<tr>
+<td>SAST IRX generation</td>
+<td>prepareTimeoutMin</td>
+<td>120 min</td>
+<td>no</td>
+</tr>
+<tr>
+<td>SAST result polling</td>
+<td>pollTimeoutMin / pollIntervalSec</td>
+<td>50 min / 30 s</td>
+<td>no</td>
+</tr>
+<tr>
+<td>DAST result polling</td>
+<td>pollTimeoutMin / pollIntervalSec</td>
+<td>60 min / 60 s</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>The required coverage is shown in the report exactly as configured in <code>resources/defaults.yaml</code>, so raising or lowering it there immediately changes the value the report checks against and displays.</p>
+</div>
+
+<div class="section" id="12-advanced-using-library-methods-directly">
+  <h2><span class="num">12</span> Advanced: using library methods directly</h2>
+<p>If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use <code>devSecOpsApi</code>, the global variable that holds the services and every helper method. The four entry points are thin declarative skeletons built on top of it and on <code>devSecOpsSteps</code>, which carries one method per stage.</p>
+<pre><code>@Library(&#x27;DevSecOpsJenkinsLibrary&#x27;) _
+
+pipeline {
+    agent any
+
+    environment {
+        SA_LINUX_URL       = &#x27;https://tools.bbh.com/nexus/repository/releases/...&#x27;
+        PROXY_HOST         = &#x27;tstproxy.bbh.com&#x27;
+        PROXY_PORT         = &#x27;9090&#x27;
+        PROXY_USER         = &#x27;PROXY_ASOCJenk&#x27;
+        APPSCAN_HOST       = &#x27;bbh.cloud.appscan.com&#x27;
+        APPSCAN_SERVER_URL = &#x27;https://bbh.cloud.appscan.com&#x27;
+        APPSCAN_TOOLS_DIR  = &quot;${WORKSPACE}/.appscan-tools&quot;
+        APPSCAN_LOG_DIR    = &quot;${WORKSPACE}/.appscan-logs&quot;
+        APPSCAN_HOME_DIR   = &quot;${WORKSPACE}/.appscan-home&quot;
+        APPSCAN_BIN_DIR    = &quot;${WORKSPACE}/.appscan-bin&quot;
+    }
+
+    stages {
+        stage(&#x27;Init&#x27;) {
+            steps {
+                script {
+                    checkout scm
+                    devSecOpsApi.initialize()
+                    devSecOpsApi.appscanSetup()
+                    <span class="kw">def</span> projects = devSecOpsApi.getProjects()
+                    <span class="kw">for</span> (p in projects) {
+                        devSecOpsApi.switchProject(p)
+                        devSecOpsApi.appscanResolveSourceDir()
+                        devSecOpsApi.appscanGenerateIRX()
+                    }
+                    devSecOpsApi.appscanLogin()
+                }
+            }
+        }
+
+        stage(&#x27;Build and test&#x27;) {
+            steps {
+                script {
+                    devSecOpsApi.buildArtifact()
+                    devSecOpsApi.unitTests()
+                    devSecOpsApi.checkCoverage()
+                    devSecOpsApi.depVulnScan()
+                    devSecOpsApi.codeQualityScan()
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                devSecOpsApi.generateHtmlReport()
+                devSecOpsApi.feedInfluxDB()
+            }
+        }
+    }
+}
+</code></pre>
+<p>The tool environment variables such as <code>APPSCAN_SERVER_URL</code> or the proxy settings are set by <code>initialize()</code>, so the <code>environment</code> block above is needed only when you want different values.</p>
+<h3>Complete method reference</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>initialize()</code></td>
+<td>Set the tool environment variables, load config, apply the library policy, detect OS</td>
+</tr>
+<tr>
+<td><code>configure(String variant, Map config)</code></td>
+<td>Select the report variant (<code>full</code>, <code>security</code>, <code>extended</code>, <code>sast</code>) and keep the entry point configuration</td>
+</tr>
+<tr>
+<td><code>runStage(String name, Closure body)</code></td>
+<td>Run a stage body with the bookkeeping: start, result, duration, and a red stage on an exception</td>
+</tr>
+<tr>
+<td><code>eachProject(Closure body)</code></td>
+<td>Run the body once per configured project, switching the project context first</td>
+</tr>
+<tr>
+<td><code>finishPipeline(Map options)</code></td>
+<td>Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call</td>
+</tr>
+<tr>
+<td><code>deployTarget()</code></td>
+<td><code>vm</code> or <code>openshift</code> for the current project</td>
+</tr>
+<tr>
+<td><code>appscanSetup()</code></td>
+<td>Download and extract SAClientUtil</td>
+</tr>
+<tr>
+<td><code>appscanLogin()</code></td>
+<td>Authenticate the AppScan CLI</td>
+</tr>
+<tr>
+<td><code>appscanResolveSourceDir(String path = null)</code></td>
+<td>Set the IRX source directory</td>
+</tr>
+<tr>
+<td><code>appscanGenerateIRX(int timeoutMin = 120)</code></td>
+<td>Compile and generate the IRX archive</td>
+</tr>
+<tr>
+<td><code>appscanQueue(Map config)</code></td>
+<td>Queue the SAST scan for the current project</td>
+</tr>
+<tr>
+<td><code>appscanWait()</code></td>
+<td>Poll ASoC until the SAST scan completes</td>
+</tr>
+<tr>
+<td><code>appscanDownloadReports()</code></td>
+<td>Download the SAST report and parse the counts</td>
+</tr>
+<tr>
+<td><code>appscanRenameSastReport()</code></td>
+<td>Rename the SAST report with the scan name</td>
+</tr>
+<tr>
+<td><code>appscanRenameDastReport()</code></td>
+<td>Rename the DAST HTML and PDF reports with the scan name</td>
+</tr>
+<tr>
+<td><code>appscanEnforcePolicy()</code></td>
+<td>Check the SAST findings against the library policy, returns critical + high + medium</td>
+</tr>
+<tr>
+<td><code>sonarscanEnforcePolicy()</code></td>
+<td>Enforce the SonarQube quality gate</td>
+</tr>
+<tr>
+<td><code>dastScan()</code></td>
+<td>Full DAST run, downloads the HTML and PDF reports, returns the count</td>
+</tr>
+<tr>
+<td><code>buildArtifact()</code></td>
+<td>Build with Gradle, Maven or Flutter</td>
+</tr>
+<tr>
+<td><code>unitTests()</code></td>
+<td>Run unit tests with coverage collection</td>
+</tr>
+<tr>
+<td><code>checkCoverage()</code></td>
+<td>Compare the line coverage with the required value of <code>resources/defaults.yaml</code></td>
+</tr>
+<tr>
+<td><code>depVulnScan()</code></td>
+<td>Nexus IQ scan; raises the GoldenFix pull request on a violation</td>
+</tr>
+<tr>
+<td><code>codeQualityScan()</code></td>
+<td>SonarQube analysis</td>
+</tr>
+<tr>
+<td><code>reportArtifactBuild()</code>, <code>reportUnitTests()</code></td>
+<td>BBH build reporting</td>
+</tr>
+<tr>
+<td><code>smokeTests()</code>, <code>regressionTests()</code>, <code>performanceTests()</code></td>
+<td>Run all configured jobs with the configured parallelism</td>
+</tr>
+<tr>
+<td><code>releaseAllowed(String stageName)</code></td>
+<td>Release gate check; marks the stage <code>BLOCKED</code> and the build UNSTABLE when an earlier stage is not green</td>
+</tr>
+<tr>
+<td><code>publishReleaseGate()</code></td>
+<td>Write <code>release-gate.json</code> so the downstream pipeline inherits the verdict</td>
+</tr>
+<tr>
+<td><code>deployRD()</code></td>
+<td>Deploy to the lower test region over SSH (<code>deploy.vm.rd</code>)</td>
+</tr>
+<tr>
+<td><code>deployDvWithDodPlugin()</code></td>
+<td>Deploy to the lower test region with UrbanCode Deploy (<code>deploy.vm.dod</code>)</td>
+</tr>
+<tr>
+<td><code>deployQC()</code></td>
+<td>Deploy to the QC environment</td>
+</tr>
+<tr>
+<td><code>deployOpenshift(String env)</code></td>
+<td>Deploy to OpenShift, env <code>rd</code> or <code>qc</code></td>
+</tr>
+<tr>
+<td><code>publishArtifactQC()</code></td>
+<td>Release delivery: <code>./gradlew publish</code> or <code>mvn deploy</code></td>
+</tr>
+<tr>
+<td><code>pushToNexus(String projectName)</code></td>
+<td>Snapshot delivery of a Maven or Flutter artifact with the <code>delivery</code> command</td>
+</tr>
+<tr>
+<td><code>vulnerabilitySummary()</code></td>
+<td>One line with the SAST and DAST findings above the policy severity</td>
+</tr>
+<tr>
+<td><code>runExtendedPipeline()</code></td>
+<td>Start the job of <code>jenkins.pipeline.extendedPipeline</code> when <code>RUN_EXTENDED_PIPELINE</code> is selected</td>
+</tr>
+<tr>
+<td><code>nexusDelivery(String env)</code></td>
+<td>Tag the image in the registry</td>
+</tr>
+<tr>
+<td><code>buildDockerImage(String projectName)</code>, <code>copyImageToNexus()</code>, <code>checkDeploymentRepo()</code></td>
+<td>OpenShift image build and promotion</td>
+</tr>
+<tr>
+<td><code>bumpVersion(String file, String version)</code></td>
+<td>Update <code>APP_VERSION</code> in version.properties</td>
+</tr>
+<tr>
+<td><code>generateHtmlReport()</code></td>
+<td>Generate the HTML pipeline report</td>
+</tr>
+<tr>
+<td><code>feedInfluxDB(String pipelineType)</code></td>
+<td>Send DORA metrics to InfluxDB</td>
+</tr>
+<tr>
+<td><code>getProjects()</code>, <code>getCFG()</code></td>
+<td>Project names and the current project config</td>
+</tr>
+<tr>
+<td><code>switchProject(String name)</code></td>
+<td>Switch the project context</td>
+</tr>
+<tr>
+<td><code>stageStart/stageDone/stagePass/stageFail/stageWarn/stageError</code></td>
+<td>Stage bookkeeping for the report</td>
+</tr>
+<tr>
+<td><code>finishStage(String name)</code></td>
+<td>Close a stage: green unless the stage already recorded an orange or red result</td>
+</tr>
+<tr>
+<td><code>failStage(String name)</code></td>
+<td>Close a stage as failed and log the result</td>
+</tr>
+<tr>
+<td><code>logStageResult(String name, String status)</code></td>
+<td>Print the stage result and the scanner summary</td>
+</tr>
+<tr>
+<td><code>section(String text)</code>, <code>startSection(String text)</code>, <code>endSection(String text)</code></td>
+<td>Console separators</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="section" id="13-supported-build-tools">
+  <h2><span class="num">13</span> Supported build tools</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Build</th>
+<th>Unit tests</th>
+<th>Coverage</th>
+<th>Release publish</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gradle</td>
+<td><code>./gradlew</code> + <code>build.gradle.tasks</code> and <code>flags</code></td>
+<td><code>./gradlew</code> + <code>tests.unitTests.gradle.tasks</code></td>
+<td>JaCoCo XML</td>
+<td><code>./gradlew publish</code></td>
+</tr>
+<tr>
+<td>Maven</td>
+<td><code>mvn</code> + <code>build.maven.goals</code> and <code>flags</code></td>
+<td><code>mvn</code> + <code>tests.unitTests.maven.goals</code></td>
+<td>JaCoCo XML</td>
+<td><code>mvn deploy</code></td>
+</tr>
+<tr>
+<td>Flutter</td>
+<td><code>flutter build &lt;platform&gt;</code></td>
+<td><code>flutter test --coverage --machine</code></td>
+<td>lcov</td>
+<td>Nexus upload of the APK/IPA</td>
+</tr>
+</tbody>
+</table>
+<p>Every command comes from <code>config.yaml</code>; the table shows where the library reads it. The build tool is auto-detected from <code>buildTool</code> in config or by file existence (<code>pubspec.yaml</code> → Flutter, <code>pom.xml</code> → Maven, <code>build.gradle</code> → Gradle).</p>
+<p>Gradle always runs through the <code>./gradlew</code> wrapper, which the library makes executable. Maven uses the installation of <code>build.maven.mvnPath</code> when it is set, otherwise <code>./mvnw</code> when the wrapper is committed, otherwise the <code>mvn</code> on the agent <code>PATH</code>.</p>
+<p>The JDK comes from <code>javaPath</code> of the project, which the library exports as <code>JAVA_HOME</code> and prepends to <code>PATH</code>. With <code>buildToolAutoSetup: true</code> the library instead reads the required Java version from <code>pom.xml</code> or <code>build.gradle</code> and searches the agent for a matching JDK.</p>
+<p>A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.</p>
+<h3>JaCoCo report auto-detection (Gradle)</h3>
+<p>Searched in order:</p>
+<ol>
+<li><code>build/jacoco/jacoco.xml</code></li>
+<li>
+<p><code>build/reports/jacoco/test/jacocoTestReport.xml</code></p>
+</li>
+<li>
+<p><code>build/reports/jacoco/jacocoTestReport.xml</code></p>
+</li>
+<li><code>coverage.reportPath</code> from <code>config.yaml</code> (custom path)</li>
+</ol>
+<h3>JaCoCo report auto-detection (Maven)</h3>
+<p>Searched in order:</p>
+<ol>
+<li><code>target/site/jacoco/jacoco.xml</code></li>
+<li>
+<p><code>target/jacoco/jacoco.xml</code></p>
+</li>
+<li>
+<p><code>coverage.reportPath</code> from <code>config.yaml</code> (custom path)</p>
+</li>
+</ol>
+</div>
+
+<div class="section" id="14-supported-deployment-targets">
+  <h2><span class="num">14</span> Supported deployment targets</h2>
+<h3>VM deployment over SSH</h3>
+<p>Used by <code>devSecOpsExtendedPipeline</code> for the lower test region and by every pipeline for the QC deployment. Set <code>deployTarget: vm</code> (the default) and fill in <code>deploy.vm.rd</code> and <code>deploy.vm.qc</code>.</p>
+<p>The library connects over SSH and:</p>
+<ol>
+<li>Verifies connectivity (<code>ssh ... uptime</code>)</li>
+<li>
+<p>Creates the deploy directory on the remote host</p>
+</li>
+<li>
+<p>Copies <code>deployScript</code> and <code>versionFile</code> with <code>scp</code></p>
+</li>
+<li>Executes <code>deployScript</code> on the remote host</li>
+</ol>
+<p>For this to work:</p>
+<ul>
+<li>The Jenkins agent must have key-based SSH access to the deployment host</li>
+<li><code>deployScript</code> must exist in your project and be executable</li>
+<li><code>versionFile</code> must contain <code>APP_VERSION=&lt;version&gt;</code></li>
+</ul>
+<h3>VM deployment with UrbanCode Deploy</h3>
+<p>Used by <code>devSecOpsPipeline</code> for the lower test region (environment <code>DV</code>). Fill in <code>deploy.vm.dod</code>.</p>
+<p>For every application of <code>deploy.vm.dod.applications</code>, ordered by <code>order</code>, the library:</p>
+<ol>
+<li>Checks that each component has files matching <code>fileIncludePatterns</code> under <code>baseDir</code></li>
+<li>
+<p>Publishes every component as a new version named <code>&lt;versionPrefix&gt;_&lt;BUILD_ID&gt;</code> (<code>UCDeployPublisher</code> push)</p>
+</li>
+<li>
+<p>Creates the snapshot <code>&lt;applicationName&gt;_snapshot_&lt;BUILD_ID&gt;</code> and starts <code>deployProcess</code> on the environment</p>
+</li>
+</ol>
+<p>For this to work:</p>
+<ul>
+<li>The UrbanCode Deploy plugin must be installed and the site of <code>siteName</code> configured in Jenkins</li>
+<li>The artifact must exist under <code>baseDir</code> when the stage runs</li>
+</ul>
+<h3>OpenShift deployment</h3>
+<p>Set <code>deployTarget: openshift</code> and fill in <code>deploy.openshift.rd</code> (and <code>qc</code>). The library uses the OpenShift Client plugin (<code>openshift.withCluster()</code>).</p>
+<p>The snapshot stage:</p>
+<ol>
+<li>Copies the artifact and the Dockerfile into <code>buildContext</code></li>
+<li>
+<p>Creates the BuildConfig from <code>buildConfigPath</code> when it does not exist yet, and starts a binary build in <code>projectBuildR</code></p>
+</li>
+<li>
+<p>Waits for the build, reads the image digest and stores the image reference and the build tag <code>&lt;BUILD_NUMBER&gt;-&lt;yyyyMMdd-HHmmss&gt;</code> in <code>config.yaml</code></p>
+</li>
+<li>Copies the image with <code>skopeo</code> to <code>qcDockerRepoPush</code> under the build tag, the build number and <code>latest</code></li>
+</ol>
+<p>The deployment stage:</p>
+<ol>
+<li>Clones the deployment repository into <code>deploymentPath</code> when <code>deploymentRepo</code> is configured</li>
+<li>
+<p>Applies the config template <code>configPathR</code> unless <code>skipConfigDeploy: true</code></p>
+</li>
+<li>
+<p>Applies the deployment template <code>deployConfigPath</code>, tags <code>qcDockerRepoPull:&lt;buildTag&gt;</code> as <code>&lt;appName&gt;:latest</code>, restarts the rollout and waits for it</p>
+</li>
+</ol>
+<p>The QC deployment reuses the build tag produced by the snapshot stage of the same flow, so <code>deploy.openshift.qc.buildTag</code> only has to be set when you want to deploy a different image.</p>
+<p>For this to work:</p>
+<ul>
+<li>The OpenShift Client plugin must be installed and the cluster credentials stored in Jenkins</li>
+<li>The agent needs <code>oc</code> and <code>skopeo</code>, plus the docker authfile of <code>nexus.authfile</code></li>
+<li>The templates named in <code>buildConfigPath</code>, <code>dockerFilePath</code>, <code>deployConfigPath</code> and <code>configPathR</code> must exist in the repository</li>
+</ul>
+</div>
+
+<div class="section" id="15-troubleshooting">
+  <h2><span class="num">15</span> Troubleshooting</h2>
+<h3>"config.yaml not found in workspace"</h3>
+<p>Your project repository must contain a <code>config.yaml</code> file at the repository root. The file must have a <code>projects:</code> section.</p>
+<h3>"asoc.keyId and asoc.keySecret must be set in config.yaml"</h3>
+<p>Every project in <code>config.yaml</code> must have:</p>
+<pre><code><span class=<span class="s">"k"</span>>asoc</span>:
+  <span class=<span class="s">"k"</span>>keyId</span>:     <span class="v">&quot;bbh_...&quot;</span>
+  <span class=<span class="s">"k"</span>>keySecret</span>: <span class="v">&quot;...&quot;</span>
+</code></pre>
+<p>These credentials are obtained from the HCL AppScan on Cloud portal.</p>
+<h3>"PROJECT_NAMES not set"</h3>
+<p>Either pass <code>projectNames</code> to <code>devSecOpsPipeline()</code>:</p>
+<pre><code>devSecOpsPipeline(
+    projectNames: &#x27;my-app&#x27;,
+    agentNames:   [&#x27;linux-agent&#x27;]
+)
+</code></pre>
+<p>Or the library auto-detects all keys from the <code>projects:</code> section of your <code>config.yaml</code>.</p>
+<h3>"JAVA_HOME parameter is not specified"</h3>
+<p>The project has neither <code>javaPath</code> nor <code>buildToolAutoSetup: true</code>, and the agent does not export <code>HAS_BUILD_TOOL_INSTALLED=true</code>. Add the JDK path of the agent to your project configuration:</p>
+<pre><code><span class=<span class="s">"k"</span>>javaPath</span>: <span class="v">/usr/lib/jvm/java-17-openjdk</span>
+</code></pre>
+<h3>"Unit tests failed (script returned exit code 1)"</h3>
+<p>The test command returned a non-zero exit code. The stage is orange, not red: Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run, and only the Nexus release and the QC deployment are blocked. Open the console output of the stage for the failing tests. When Gradle stops at <code>jacocoTestCoverageVerification</code>, the coverage rule of your own build is stricter than the run allows; the library checks the coverage itself, so the task is not required in <code>tests.unitTests</code>.</p>
+<h3>"[DOD] No UrbanCode Deploy applications are configured"</h3>
+<p><code>devSecOpsPipeline</code> deploys VM projects to the lower test region with UrbanCode Deploy. Add <code>deploy.vm.dod</code> with a site, an application and at least one component, or use <code>devSecOpsSecurityPipeline</code> plus <code>devSecOpsExtendedPipeline</code>, which deploys over SSH with <code>deploy.vm.rd</code>.</p>
+<h3>"The required parameter (buildTag) is not defined"</h3>
+<p>An OpenShift deployment ran without the image built by the snapshot stage. In the split setup the build tag travels in <code>config.yaml</code>, so the extended job must copy it from the static job: pass <code>securityPipeline: '&lt;name of the static job&gt;'</code> in the Jenkinsfile and keep <code>config.yaml</code> in the archived artifacts of the static job.</p>
+<h3>"Scripts not permitted to use ..."</h3>
+<p>The Jenkins sandbox rejected a signature. The library is tested against the real sandbox before a release, so this points at a library bug rather than at your configuration: send the whole message, including the signature in the brackets, to the library team. Do not approve the signature in <em>In-process Script Approval</em>.</p>
+<h3>SAST stage takes very long or times out</h3>
+<ul>
+<li>Default <code>sast.pollTimeoutMin</code> is 50 minutes. This is a library default that only the library team can change.</li>
+<li>The IRX generation step (compile via Gradle + AppScan prepare) can take 10–20 minutes on large projects.</li>
+</ul>
+<h3>"IRX not found after prepare"</h3>
+<ul>
+<li>The Gradle/Maven build during IRX generation failed. Check the <code>prepare.log</code> file in <code>.appscan-logs/</code>.</li>
+<li>Ensure the Gradle wrapper (<code>gradlew</code>) is executable and committed to the repository.</li>
+<li>The library sets <code>chmod +x gradlew</code> automatically on Linux/Mac.</li>
+</ul>
+<h3>SonarQube stage fails with "SonarQube server not configured"</h3>
+<p>The SonarQube server must be registered in Jenkins as <code>SonarQube</code> (exactly this name) under <em>Manage Jenkins → Configure System → SonarQube servers</em>.</p>
+<h3>Nexus IQ stage shows 0 vulnerabilities but the build is unstable</h3>
+<p>The Jenkins sandbox may have blocked direct access to the <code>nexusPolicyEvaluation</code> result object. The library has a fallback that parses the build console log. If that also fails, counts remain 0 but the build result (UNSTABLE/FAILURE) set by the Nexus IQ plugin itself is still respected.</p>
+<h3>HTML report is empty or shows "Report could not be generated"</h3>
+<p>This happens when the pipeline fails very early (before <code>initialize()</code> completes). A fallback minimal HTML file is always written. Check the stage 1 console output for the root cause.</p>
+<h3>Tests stage is orange with "no test jobs configured"</h3>
+<p>All three test stages (smoke, regression, performance) require at least one configured job:</p>
+<pre><code><span class=<span class="s">"k"</span>>tests</span>:
+  <span class=<span class="s">"k"</span>>smoke</span>:
+    <span class=<span class="s">"k"</span>>jobs</span>:
+      - <span class=<span class="s">"k"</span>>name</span>: <span class="v">&quot;My job&quot;</span>
+        <span class=<span class="s">"k"</span>>type</span>: <span class="v">local</span>
+        <span class=<span class="s">"k"</span>>job</span>:  <span class="v">&quot;path/to/job&quot;</span>
+</code></pre>
+<p>An entry with an empty <code>job:</code> is reported as <code>NOT_CONFIGURED</code> and counts as a job that did not succeed, so the stage turns orange. When the whole <code>jobs:</code> list is missing, the stage turns orange as well and the release and QC stay blocked.</p>
+<h3>Nexus release or QC deployment was skipped</h3>
+<p>The release gate blocked it because at least one earlier stage is orange. The <strong>Release policy</strong> card of the report lists every violation, for example <code>gui Dependencies (Nexus IQ) critical 1 &gt; 0</code>, <code>stage 'Smoke tests' is WARN</code> or <code>line coverage 41.0% below the required 60%</code>. Remediate the findings, merge the GoldenFix pull request, or accept that this build stays on RD. The snapshot delivery and the RD deployment are never blocked.</p>
+<h3>A stage is orange and the build is UNSTABLE</h3>
+<p>That is the normal reaction to a policy violation or a failed test job. The stage box in the report carries a <strong>Reason</strong> line with the failed step, the vulnerability counts and the sentence that the Nexus release and the QC deployment stay blocked. The pipeline continues with every remaining stage.</p>
+<h3>GoldenFix pull request was not raised</h3>
+<p>The GoldenFix card shows the status. <code>NOT_CONFIGURED</code> means <code>scm.bitbucket.url</code> or <code>scm.bitbucket.credentialsId</code> is missing. <code>NO_FIXES</code> means Nexus IQ offered no remediation version for the violating direct dependencies. <code>NO_MANIFEST_CHANGES</code> means the vulnerable versions are not declared in any supported manifest, typically because a parent POM or a BOM manages them. <code>ERROR</code> means the <code>[GOLDENFIX]</code> lines in the console hold the reason, usually Nexus IQ or Bitbucket permissions.</p>
+<h3>DAST PDF report is missing in the pipeline report</h3>
+<p>The stage downloads the report as HTML and as PDF and archives both. When only the HTML link is present, look for <code>[DAST] PDF report not found</code> in the console; the PDF generation in ASoC may have taken longer than the download window.</p>
+<h3>Hundreds of smoke jobs</h3>
+<p>All jobs are executed even when some fail, and at most <code>tests.maxParallel</code> run at the same time. Use <code>tests.smoke.defaults</code> for shared settings and <code>tests.smoke.urls</code> for plain URL lists. Raise <code>maxParallel</code> only when the remote Jenkins instances have enough executors.</p>
+</div>
+
+<div class="section" id="16-selfservice-onboard-a-project-step-by-step">
+  <h2><span class="num">16</span> SelfService – onboard a project step by step</h2>
+<p>Everything below is done by the project team, without any request to the DevSecOps team.</p>
+<h3>Step 1 – Check the prerequisites of your application</h3>
+<ul>
+<li>The repository is reachable by Jenkins and builds with Gradle, Maven or Flutter.</li>
+<li>Unit tests produce a JaCoCo XML report (Gradle, Maven) or <code>coverage/lcov.info</code> (Flutter), with at least 60 % line coverage.</li>
+<li>The build produces a JAR or WAR under <code>build/libs</code> or <code>target</code>.</li>
+<li>The JDK of the agent is known, so you can put it in <code>javaPath</code> (or use <code>buildToolAutoSetup: true</code>).</li>
+<li>For VM deployment with <code>devSecOpsPipeline</code>: an UrbanCode Deploy application with at least one component.</li>
+<li>For VM deployment over SSH: a deployment script and a <code>version.properties</code> with <code>APP_VERSION=</code>, plus SSH access from the agent to the RD and QC hosts.</li>
+<li>For OpenShift deployment: the BuildConfig template, the Dockerfile, the deployment template and the config template in the repository, plus cluster tokens in Jenkins credentials.</li>
+</ul>
+<h3>Step 2 – Register your application in the tools</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What you need</th>
+<th>Where it goes in <code>config.yaml</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HCL AppScan on Cloud</td>
+<td>Application id (UUID) and an API key pair</td>
+<td><code>appId</code>, <code>asoc.keyId</code>, <code>asoc.keySecret</code></td>
+</tr>
+<tr>
+<td>SonarQube</td>
+<td>Project key, project name, badge token</td>
+<td><code>tools.sonar.*</code></td>
+</tr>
+<tr>
+<td>Nexus IQ</td>
+<td>Application public id</td>
+<td><code>tools.nexusIq.application</code></td>
+</tr>
+<tr>
+<td>Bitbucket</td>
+<td>Repository URL and credentials with push and pull request rights</td>
+<td><code>scm.bitbucket.*</code></td>
+</tr>
+<tr>
+<td>InfluxDB (optional)</td>
+<td>Write endpoint and token</td>
+<td><code>influx.*</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Step 3 – Create the test jobs</h3>
+<p>Create at least one Jenkins job for regression, one for smoke and one for performance tests. They may live on this Jenkins instance (<code>type: local</code>, <code>job: "folder/job-name"</code>) or on any other instance, referenced by full URL. A stage may hold hundreds of jobs; at most <code>tests.*.maxParallel</code> run at the same time.</p>
+<h3>Step 4 – Add <code>config.yaml</code> to your repository root</h3>
+<p>Copy <code>config.yaml.template</code> from this library, keep only the <code>projects:</code> section and fill in your values. Do not add thresholds or a coverage minimum: they come from the library. A complete two project example with SAST, DAST, SonarQube, Nexus IQ, GoldenFix, smoke, regression, performance and both deployment targets is in <code>examples/CertScanner/config.yaml</code>.</p>
+<h3>Step 5 – Add the <code>Jenkinsfile</code> to your repository root</h3>
+<pre><code>@Library(&#x27;DevSecOpsJenkinsLibrary&#x27;) _
+
+devSecOpsPipeline(
+    projectNames: &#x27;gui,backend-api&#x27;,
+    agentNames:   [&#x27;linux-agent&#x27;, &#x27;windows-agent&#x27;]
+)
+</code></pre>
+<p>Use <code>devSecOpsSecurityPipeline</code> plus <code>devSecOpsExtendedPipeline</code> instead when the static part should run on every commit and the rest in a separate job. The extended job takes <code>securityPipeline: '&lt;name of the static job&gt;'</code> and copies <code>config.yaml</code> and <code>release-gate.json</code> from it. The static job starts the extended one when the <code>RUN_EXTENDED_PIPELINE</code> parameter is selected, using the job name from <code>jenkins.pipeline.extendedPipeline</code> of <code>config.yaml</code>. A complete example of both is in <code>examples/README.md</code>.</p>
+<h3>Step 6 – Create the Jenkins job</h3>
+<p>A Pipeline job with <strong>Pipeline script from SCM</strong>, your Git repository, your branch and the script path <code>Jenkinsfile</code>. Nothing else has to be configured.</p>
+<h3>Step 7 – Run the pipeline</h3>
+<p>Click <strong>Build Now</strong>. Select <code>DEPLOY_HIGHER_ENV</code> only when you want the QC deployment; it happens only when every stage is green.</p>
+<h3>Step 8 – Read the report</h3>
+<p>Open <strong>Pipeline Report</strong> in the build sidebar:</p>
+<ul>
+<li>the stage flow with one box per stage and per project, green when the stage passed and orange when it broke the policy,</li>
+<li>the <strong>Reason</strong> line of each orange box, with the counts and the consequence,</li>
+<li>the <strong>Security Gates</strong> table with the findings of SAST, DAST, Nexus IQ and SonarQube, and links to the reports, to the HCL AppScan console and to the PDF,</li>
+<li>the <strong>Release policy</strong> card telling you whether the artifact was released to Nexus and whether QC is allowed,</li>
+<li>the <strong>Nexus IQ GoldenFix</strong> card with the pull request that upgrades the vulnerable dependencies,</li>
+<li>the <strong>Smoke tests</strong> table with one row per job.</li>
+</ul>
+<h3>Step 9 – Fix what is orange</h3>
+<p>Merge the GoldenFix pull request, fix the SAST, SonarQube or DAST findings, raise the coverage or repair the failing test jobs. The next green build is released to Nexus and may be deployed to QC.</p>
+<h3>Onboarding checklist</h3>
+<ul>
+<li><code>Jenkinsfile</code> and <code>config.yaml</code> committed at the repository root</li>
+<li><code>appId</code>, <code>asoc.keyId</code> and <code>asoc.keySecret</code> filled in for every project</li>
+<li><code>javaPath</code> (or <code>buildToolAutoSetup: true</code>) set for every project</li>
+<li>SonarQube project key and Nexus IQ application configured</li>
+<li>At least one job configured for regression, smoke and performance</li>
+<li><code>scm.bitbucket.url</code> and <code>credentialsId</code> set, so GoldenFix can raise pull requests</li>
+<li>Deployment target configured: <code>deploy.vm.dod</code> for <code>devSecOpsPipeline</code>, <code>deploy.vm.rd</code> and <code>qc</code> for SSH, or <code>deploy.openshift.*</code></li>
+<li>Unit tests reach 60 % line coverage</li>
+<li>First build green, report opened, release policy card checked</li>
+</ul>
+</div>
+
+<div class="section" id="17-library-development-and-tests">
+  <h2><span class="num">17</span> Library development and tests</h2>
+<p>This section is for the team that changes the library, not for the projects that use it.</p>
+<h3>One command</h3>
+<pre><code>bash test/run-all.sh
+</code></pre>
+<p>The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the <code>script-security</code> plugin) into <code>${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}</code>, then runs everything below and regenerates the demo reports in <code>examples/reports</code>. It prints <code>ALL CHECKS PASSED</code> when the library is releasable.</p>
+<h3>What it runs</h3>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>What it proves</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test/checks/sandbox-lint.sh</code></td>
+<td>No construct that needs an administrator approval, no static field, no <code>map."${key}"</code></td>
+</tr>
+<tr>
+<td><code>test/checks/undefined-calls.sh</code></td>
+<td>Every implicit call resolves to a declared method</td>
+</tr>
+<tr>
+<td><code>test/checks/undefined-variables.groovy</code></td>
+<td>Every name in a library class is a local, a parameter or a field</td>
+</tr>
+<tr>
+<td><code>test/checks/api-consistency.sh</code></td>
+<td>Every call on a library type matches a method with that argument count</td>
+</tr>
+<tr>
+<td><code>test/checks/closure-calls.groovy</code></td>
+<td>No unqualified call inside a closure of a static method</td>
+</tr>
+<tr>
+<td><code>test/checks/closure-field-writes.groovy</code></td>
+<td>No closure assigns a field of its own class</td>
+</tr>
+<tr>
+<td><code>test/checks/jdk-whitelist.groovy</code></td>
+<td>Every JDK constructor, static method and static field is on the script-security whitelist</td>
+</tr>
+<tr>
+<td><code>test/checks/architecture.sh</code></td>
+<td>Adapters depend on the core and the ports, never the other way round</td>
+</tr>
+<tr>
+<td><code>test/checks/vars-api.sh</code></td>
+<td>The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service</td>
+</tr>
+<tr>
+<td><code>test/checks/no-comments.sh</code></td>
+<td>No comments and no commented-out code in <code>src</code> and <code>vars</code></td>
+</tr>
+<tr>
+<td>compilation</td>
+<td><code>src</code> and <code>vars</code> compile with the sandbox compiler configuration</td>
+</tr>
+<tr>
+<td><code>test/sandbox/SandboxScenarios.groovy</code></td>
+<td>Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the GoldenFix version choice follows the Golden Version and nearest compatible rules; GoldenFix patches a real <code>pom.xml</code>, <code>build.gradle</code>, <code>gradle.properties</code>, <code>package.json</code>, <code>requirements.txt</code> and <code>pubspec.yaml</code>; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports</td>
+</tr>
+<tr>
+<td><code>test/sandbox/PipelineScenarios.groovy</code></td>
+<td>The four entry points run end to end under the real sandbox, green and orange, including the report, the release gate, the metrics and the deployments</td>
+</tr>
+</tbody>
+</table>
+<p>The sandbox tests execute the library inside <code>GroovySandbox.runInSandbox</code> with the real <code>script-security</code> whitelists and a fake Jenkins (<code>test/sandbox/harness</code>), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.</p>
+<h3>Rules the sandbox imposes on the library code</h3>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No static fields</td>
+<td>Reading one while the CPS engine saves the program is rejected (<code>staticField ...</code>)</td>
+</tr>
+<tr>
+<td>Qualify every call inside a closure of a static method</td>
+<td>Otherwise the sandbox sees <code>DefaultGroovyMethods invokeMethod</code> and rejects it</td>
+</tr>
+<tr>
+<td>Never assign a field of the class inside a closure</td>
+<td>The sandbox transformer produces invalid bytecode (<code>VerifyError</code>)</td>
+</tr>
+<tr>
+<td>Use <code>map[key]</code>, never <code>map."${key}"</code></td>
+<td>Under the sandbox the GString is looked up as a key and the result is <code>null</code></td>
+</tr>
+<tr>
+<td>No multiple assignment (<code>def (a, b) = ...</code>)</td>
+<td>The sandbox transformer does not support it</td>
+</tr>
+<tr>
+<td>Only whitelisted JDK API</td>
+<td><code>Boolean.FALSE</code>, <code>new LinkedHashMap()</code>, <code>JsonSlurper</code>, <code>Pattern.compile</code> and friends need an administrator approval</td>
+</tr>
+<tr>
+<td>Build collections from literals, parse JSON with <code>readJSON</code></td>
+<td>Same reason</td>
+</tr>
+<tr>
+<td>Keep the report generation defensive</td>
+<td>The pipeline report is written on every build, even when a scan or a test failed</td>
+</tr>
+</tbody>
+</table>
+<p>Every rule above is enforced by one of the checks, so breaking it fails <code>test/run-all.sh</code>.</p>
+<h3>Demo reports</h3>
+<p><code>test/run-all.sh</code> regenerates <code>examples/reports</code>: one page per pipeline and outcome plus an <code>index.html</code> overview. They are produced by the report template of the library from randomised but realistic data, so they can be shown in a demo and they change whenever the template changes.</p>
+</div>
+
+<div class="footer">Generated from DOCUMENTATION.md by tools/build-documentation-html.py — run test/run-all.sh to regenerate.</div>
+</div>
+</body>
+</html>

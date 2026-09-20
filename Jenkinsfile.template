@@ -1,0 +1,6 @@
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)

@@ -1,0 +1,216 @@
+projects:
+
+  gui:
+    appId:        "109f44ac-cc06-4ca0-884e-d944904f7019"
+    buildTool:    gradle
+    deployTarget: vm
+    sourceDir:    "."
+    javaPath:     /usr/lib/jvm/java-17-openjdk   # JDK used for build and tests, or buildToolAutoSetup: true to detect it
+
+    jenkins:
+      pipeline:
+        extendedPipeline: "MyApp/MyApp-extended-pipeline"   # started by the static pipeline when RUN_EXTENDED_PIPELINE is selected
+
+    asoc:
+      url:         "https://bbh.cloud.appscan.com"
+      keyId:       "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
+      keySecret:   "your-secret"
+      insecureTls: false                 # true adds curl -k to the ASoC calls, keep false
+
+    influx:
+      enabled:  true
+      project:  "MyApp"
+      env:      "test"
+      url:      "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s"
+      token:    "your-influx-token"
+
+    tools:
+      sonar:
+        projectName: "MyApp-GUI"
+        projectKey:  "myapp-gui"
+        serverUrl:   "https://tools.bbh.com/sonar"
+        badgeToken:  "sqb_xxxxxxxxxxxxxxxxxxxxxxxx"
+      nexusIq:
+        application:        "MyApp-GUI"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/gui/build/libs/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "MyApp-GUI-SAST"         # thresholds live in the library defaults.yaml only
+
+    sca:
+      scanName: "MyApp-GUI-SCA"
+
+    dast:
+      enabled:       true
+      scanName:      "MyApp-GUI-DAST"
+      targetUrl:     "http://rdltaapps1.testbbh.com"
+      presenceId:    ""
+      loginUser:     ""
+      loginPassword: ""
+
+    build:
+      maven:
+        javaPath: /usr/lib/jvm/java-17-openjdk
+        mvnPath: /opt/apps/jenkins/tools/hudson.tasks.Maven_MavenInstallation/Maven_3.6.3/apache-maven-3.6.3
+        goals: [ 'clean','verify' ]
+        flags: [ '-B', '-s', 'settings.xml', '-U', '-fn']
+        env:
+          MAVEN_OPTS: "-Xms512m -Xmx1g"
+
+      gradle:
+        tasks: ['clean','test','bootJar']
+        flags: ['--refresh-dependencies']
+
+    tests:
+      unitTests:
+        gradle:
+          tasks: ['test','jacocoTestReport','jacocoTestCoverageVerification']
+        unitTestResult: 'build/test-results/test/*.xml'
+      smoke:
+        maxParallel: 20                    # max smoke jobs running at the same time (default: 20)
+        defaults:                          # merged into every job below
+          type:          remote
+          timeoutMin:    15
+          credentialsId: "remote-jenkins-api-token"   # user + API token for the remote Jenkins instances
+        jobs:
+          - name:       "MyApp-GUI - smoke"
+            type:       local
+            job:        "myapp/smoke-tests"
+            timeoutMin: 15
+          - name: "MyApp-GUI - login smoke"               # remote job by full URL
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/myapp-login"
+          - name:          "MyApp-GUI - payments smoke"   # remote job via Remote Jenkins configured in Jenkins
+            job:           "smoke/myapp-payments"
+            remoteJenkins: "jenkins-b"
+            parameters:    "ENV=rd"
+          - "https://jenkins-c.bbh.com/job/smoke/job/myapp-reports"   # URL only, name derived from the URL
+        urls:                              # optional shorthand list: one remote job per URL
+          - "https://jenkins-c.bbh.com/job/smoke/job/myapp-search"
+      regression:                          # at least one working job is required, more are allowed
+        jobs:
+          - name:       "MyApp-GUI - regression"
+            type:       local
+            job:        "myapp/regression-tests"
+            timeoutMin: 60
+      performance:                         # at least one working job is required, more are allowed
+        jobs:
+          - name:       "MyApp-GUI - performance"
+            type:       local
+            job:        "myapp/performance-tests"
+            timeoutMin: 120
+
+    scm:
+      bitbucket:                           # where GoldenFix pull requests are raised
+        url:           "https://bitbucket.bbh.com/projects/MYAPP/repos/myapp"   # repository link (browse or clone URL)
+        credentialsId: "bitbucket-http-credentials"   # Username with password / HTTP access token
+        authType:      basic               # basic | bearer (Secret text with HTTP access token)
+        targetBranch:  ""                  # default: branch that triggered the build
+        reviewers:     []                  # Bitbucket user names
+
+    goldenFix:
+      enabled: true                        # on Nexus IQ policy violation raise PR GoldenFix-YYYYMMDDHHMM
+                                           # version choice: the Nexus IQ Golden Version, otherwise the nearest
+                                           # higher version, backward compatible first, then without violations
+
+    deploy:
+      vm:
+        rd:
+          host:         "rdltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+        qc:
+          host:         "qcltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+
+  backend-api:
+    appId:        "209f44ac-dd06-4ca0-884e-d944904f8020"
+    buildTool:    gradle
+    deployTarget: vm
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+
+    asoc:
+      url:       "https://bbh.cloud.appscan.com"
+      keyId:     "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
+      keySecret: "your-secret"
+
+    influx:
+      enabled:  true
+      project:  "MyApp"
+      env:      "test"
+      url:      "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s"
+      token:    "your-influx-token"
+
+    tools:
+      sonar:
+        projectName: "MyApp-Backend"
+        projectKey:  "myapp-backend"
+        serverUrl:   "https://tools.bbh.com/sonar"
+        badgeToken:  "sqb_yyyyyyyyyyyyyyyyyyyyyy"
+      nexusIq:
+        application:        "MyApp-Backend"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/api/build/libs/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "MyApp-Backend-SAST"
+
+    sca:
+      scanName: "MyApp-Backend-SCA"
+
+    dast:
+      enabled: false
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/MYAPP/repos/myapp"
+        credentialsId: "bitbucket-http-credentials"
+
+    goldenFix:
+      enabled: true
+
+    tests:
+      regression:                          # at least one working job is required, more are allowed
+        jobs:
+          - name:       "MyApp-Backend - regression"
+            type:       local
+            job:        "myapp/api-regression-tests"
+            timeoutMin: 60
+      smoke:                               # at least one working job is required, more are allowed
+        jobs:
+          - name:       "MyApp-Backend - smoke"
+            type:       local
+            job:        "myapp/api-smoke-tests"
+            timeoutMin: 15
+      performance:                         # at least one working job is required, more are allowed
+        jobs:
+          - name:       "MyApp-Backend - performance"
+            type:       local
+            job:        "myapp/api-performance-tests"
+            timeoutMin: 120
+
+    deploy:
+      vm:
+        rd:
+          host:         "rdltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/api/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+        qc:
+          host:         "qcltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/api/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"

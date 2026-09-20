@@ -1,0 +1,16 @@
+plugins {
+    id 'groovy'
+}
+
+repositories {
+    maven { url = uri("http://tools.bbh.com/nexus/content/groups/public")
+        allowInsecureProtocol = true }
+    maven { url = uri("https://tools.bbh.com/nexus/repository/gradle-plugins/") }
+    maven { url = uri("https://tools.bbh.com/nexus/repository/maven-public/") }
+    maven { url = uri("https://tools.bbh.com/nexus/repository/maven-central/") }
+}
+
+dependencies {
+    implementation localGroovy()
+    compileOnly 'org.jenkins-ci.plugins.workflow:workflow-cps:2.1000+'
+}

@@ -1,0 +1,1387 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "DevSecOps pipeline",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 67,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": " Description: Shows how many times the pipeline was triggered in a given time window (e.g., daily).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "deployments per day",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"deployments\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"count\")\r\n  |> aggregateWindow(every: 1d, fn: count, createEmpty: true)\r\n  |> yield(name: \"Deployment Count\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Deployment Frequency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Pipeline run count time for project.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "shades"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 0,
+        "y": 7
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 2
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"deployments\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"count\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> count()",
+          "refId": "A"
+        }
+      ],
+      "title": "Deployment frequency",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 7,
+        "x": 5,
+        "y": 7
+      },
+      "id": 9,
+      "libraryPanel": {
+        "name": "Successful higher test environment deployment",
+        "uid": "cfs2udtxr981sd"
+      },
+      "title": "Successful higher test environment deployment",
+      "type": "library-panel-ref"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The percentage of pipeline runs that ended in failure.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 7
+      },
+      "id": 2,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "import \"array\"\r\na = from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"change_failure\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"value\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\nfailures = \r\n  a\r\n  |> sum()\r\n  |> findRecord(fn: (key) => true, idx: 0)\r\ndeployments =\r\n  a\r\n  |> count()\r\n  |> findRecord(fn: (key) => true, idx: 0)\r\n  \r\nresult = failures._value / float(v: deployments._value) * 100.0\r\narray.from(rows: [{FailureRate: result}])",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Change Failure Rate (CFR)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Average build time duration",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 18,
+        "y": 7
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\") \r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r._measurement == \"build_duration\")\r\n  |> filter(fn: (r) => r._field == \"value\")\r\n  |> filter(fn: (r) => not exists r.successful_deploy)\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> mean()",
+          "refId": "A"
+        }
+      ],
+      "title": "Average build time duration",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 5,
+        "w": 13,
+        "x": 1,
+        "y": 11
+      },
+      "id": 1,
+      "libraryPanel": {
+        "name": "Code Quality Test Coverage Trend",
+        "uid": "ffs2v1m9158n4a"
+      },
+      "title": "Code Quality Test Coverage Trend",
+      "type": "library-panel-ref"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 15,
+        "y": 11
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "failureTimes = from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"change_failure\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r._value == 0)\r\n  |> keep(columns: [\"_time\"])\r\n  |> map(fn: (r) => ({r with _time: string(v: r._time) }))\r\n\r\nfrom(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"build_duration\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"CertScanner\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => not exists r.successful_deploy)\r\n  |> map(fn: (r) => ({  r with _timeStr: string(v: r._time) }))\r\n  |> filter(fn: (r) => contains(value: r._timeStr, set: failureTimes |> findColumn(fn: (key) => true, column: \"_time\")))\r\n  |> mean(column:\"_value\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Average successful build time duration",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Counts the sum of failures statuses for each stage. Answers why pipelines usually break ",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 22,
+        "x": 0,
+        "y": 16
+      },
+      "id": 15,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "sort": "desc",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r._measurement == \"stage_metric\")\r\n  |> filter(fn: (r) => r._project == \"${project}\")\r\n  |> filter(fn: (r) => r._env == \"test\")\r\n  |> filter(fn: (r) => r._result == \"failure\")\r\n  |> group(columns: [\"stage\"])\r\n  |> count(column: \"r._value\")\r\n  |> rename(columns: {_value: \"failures\"})\r\n  |> yield(name: \"failures_per_stage\")",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: -7d)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"stage_metric\")\r\n  |> group(columns: [\"result\"])\r\n  |> count()\r\n",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"stage_metric\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"CertScanner\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"result\")\r\n  |> group(columns: [\"stage\"])\r\n  |> mean()\r\n  |> map(fn: (r) => ({ r with _value: r._value == \"failure\" })) // Convert ms to seconds\r\n  |> keep(columns: [\"stage\", \"_value\"])\r\n  |> group()\r\n  |> yield(name: \"Stage Duration\")\r\n  |> map(fn: (r) => ({\r\n    r with stage_short:\r\n      if r.stage == \"Smoke tests\" then \"Smoke\"\r\n      else if r.stage == \"Unit tests\" then \"Units\"\r\n      else if r.stage == \"Monitor source changes (download sources)\" then \"Download sources\"\r\n      else if r.stage == \"Dependencies scan (Nexus IQ)\" then \"Nexus IQ\"\r\n      else if r.stage == \"SCA (SonarQube)\" then \"SonarQube\"\r\n      else if r.stage == \"SAST - Static Application Security Tests - HCL AppScan\" then \"SAST\"\r\n      else if r.stage == \"Nexus delivery (Static analysis passed)\" then \"Nexus delivery\"\r\n      else if r.stage == \"Lower test region deployment\" then \"Lower region\"\r\n      else if r.stage == \"Regression tests (>60% user stories coverage)\" then \"Regression\"\r\n      else if r.stage == \"Performance tests\" then \"Performance\"\r\n      else if r.stage == \"DAST - Dynamic Application Security Tests - HCL AppScan\" then \"DAST\"\r\n      else if r.stage == \"Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities\" then \"Safe Artifact\"\r\n      else if r.stage == \"Higher test environment deployment\" then \"Higher env\"\r\n      else r.stage\r\n  }))\r\n\r\n  |> keep(columns: [\"stage_short\", \"_value\"])\r\n\r\n  |> map(fn: (r) => ({\r\n    r with order:\r\n      if r.stage_short == \"smoke\" then 8\r\n      else if r.stage_short  == \"Units\" then 2\r\n      else if r.stage_short  == \"Download sources\" then 1\r\n      else if r.stage_short  == \"Nexus IQ\" then 3\r\n      else if r.stage_short  == \"SonarQube\" then 4\r\n      else if r.stage_short  == \"SAST\" then 5\r\n      else if r.stage_short  == \"Nexus delivery\" then 6\r\n      else if r.stage_short  == \"Lower region\" then 7\r\n      else if r.stage_short  == \"Regression\" then 9\r\n      else if r.stage_short  == \"Performance\" then 10\r\n      else if r.stage_short  == \"DAST\" then 11\r\n      else if r.stage_short  == \"Safe Artifact\" then 12\r\n      else if r.stage_short  == \"Higher env\" then 13\r\n      else 14\r\n  }))\r\n  |> sort(columns: [\"order\"])\r\n  |> drop(columns: [\"order\"])",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"stage_metric\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"CertScanner\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"result\")\r\n  |> filter(fn: (r) => r[\"_value\"] == \"failure\")\r\n  |> group(columns: [\"stage\"])\r\n  |> count()\r\n  |> group()\r\n  |> yield(name: \"Stage Failure Distribution\")",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"stage_metric\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"result\")\r\n  |> filter(fn: (r) => r[\"_value\"] == \"failure\")\r\n  |> group(columns: [\"stage\"])\r\n  |> count()\r\n  |> group()\r\n  |> map(fn: (r) => ({_time: now(), _field: r.stage, value: float(v:  r._value)}))\r\n  |> yield(name: \"Stage Failure Dustribution\")",
+          "refId": "E"
+        }
+      ],
+      "title": "Failures by stage",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "All vulnerabilities: critical, high, medium and low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 7,
+        "x": 2,
+        "y": 26
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> last()\r\n  |> group()\r\n  |> sum()",
+          "refId": "A"
+        }
+      ],
+      "title": "Total number of vulnerabilities (last build)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 11,
+        "x": 9,
+        "y": 26
+      },
+      "id": 18,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"AIden-gui\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> group(columns: [\"scanner\", \"_field\"])\r\n  |> last()\r\n  |> group()\r\n  |> sum()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "B"
+        }
+      ],
+      "title": "Total number of vulnerabilities (last build)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Shows the current total number of vulnerabilities (critical, high, medium, low) detected across the security scanners based on the most recent scan results.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "displayName": "${__field.name} - ${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 10,
+        "x": 0,
+        "y": 31
+      },
+      "id": 16,
+      "options": {
+        "displayMode": "basic",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\")\r\n  |> last()\r\n  |> yield(name: \"Current Vulnerabilities\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Current security status (Latest scan) ",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The evolution of security debt grouped by scanner type (SAST, DAST, NexusIQ). Shows whether the team is \"paying off\" the debt or if the application is becoming more vulnerable.\n",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 13,
+        "x": 10,
+        "y": 31
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"AIden-gui\")\r\n  |> filter(fn: (r) => r[\"scanner\"] !== \"niq\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "B"
+        }
+      ],
+      "title": "Critical and High Vulnerabilities Trend over time (sum of vulnerabilities)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The evolution of security debt grouped by scanner type (Sonarqube, NexusIQ). Shows whether the team is \"paying off\" the debt or if the application is becoming more vulnerable.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.name} - ${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] == \"nexusiq\" or r[\"scanner\"] == \"sca\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Critical and High Vulnerabilities Trend over time - Neksus IQ and SonarQube",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The evolution of security debt grouped by scanner type (SAST, DAST). Shows whether the team is \"paying off\" the debt or if the application is becoming more vulnerable.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.name} - ${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 23,
+        "x": 0,
+        "y": 54
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] == \"sast\" or r[\"scanner\"] == \"dast\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Critical and High Vulnerabilities Trend over time - SAST and DAST",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Average duration per pipeline stage. Highlights the bottleneck - the stage contributing most to total pipeline time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 23,
+        "x": 0,
+        "y": 63
+      },
+      "id": 10,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"stage_metric\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"duration_ms\")\r\n  |> group(columns: [\"stage\"])\r\n  |> mean()\r\n  |> map(fn: (r) => ({ r with _value: r._value / 1000.0 })) // Convert ms to seconds\r\n  |> keep(columns: [\"stage\", \"_value\"])\r\n  |> group()\r\n  |> yield(name: \"Stage Duration\")\r\n  |> map(fn: (r) => ({\r\n    r with stage_short:\r\n      if r.stage == \"Smoke tests\" then \"Smoke\"\r\n      else if r.stage == \"Unit tests\" then \"Units\"\r\n      else if r.stage == \"Monitor source changes (download sources)\" then \"Download sources\"\r\n      else if r.stage == \"Dependencies scan (Nexus IQ)\" then \"Nexus IQ\"\r\n      else if r.stage == \"SCA (SonarQube)\" then \"SonarQube\"\r\n      else if r.stage == \"SAST - Static Application Security Tests - HCL AppScan\" then \"SAST\"\r\n      else if r.stage == \"Nexus delivery (Static analysis passed)\" then \"Nexus delivery\"\r\n      else if r.stage == \"Lower test region deployment\" then \"Lower region\"\r\n      else if r.stage == \"Regression tests (>60% user stories coverage)\" then \"Regression\"\r\n      else if r.stage == \"Performance tests\" then \"Performance\"\r\n      else if r.stage == \"DAST - Dynamic Application Security Tests - HCL AppScan\" then \"DAST\"\r\n      else if r.stage == \"Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities\" then \"Safe Artifact\"\r\n      else if r.stage == \"Higher test environment deployment\" then \"Higher env\"\r\n      else r.stage\r\n  }))\r\n\r\n  |> keep(columns: [\"stage_short\", \"_value\"])\r\n\r\n  |> map(fn: (r) => ({\r\n    r with order:\r\n      if r.stage_short == \"smoke\" then 8\r\n      else if r.stage_short  == \"Units\" then 2\r\n      else if r.stage_short  == \"Download sources\" then 1\r\n      else if r.stage_short  == \"Nexus IQ\" then 3\r\n      else if r.stage_short  == \"SonarQube\" then 4\r\n      else if r.stage_short  == \"SAST\" then 5\r\n      else if r.stage_short  == \"Nexus delivery\" then 6\r\n      else if r.stage_short  == \"Lower region\" then 7\r\n      else if r.stage_short  == \"Regression\" then 9\r\n      else if r.stage_short  == \"Performance\" then 10\r\n      else if r.stage_short  == \"DAST\" then 11\r\n      else if r.stage_short  == \"Safe Artifact\" then 12\r\n      else if r.stage_short  == \"Higher env\" then 13\r\n      else 14\r\n  }))\r\n  |> sort(columns: [\"order\"])\r\n  |> drop(columns: [\"order\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Average duration of pipeline stages (Bottleneck Analysis)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 21,
+        "x": 0,
+        "y": 74
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"change_failure\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"value\")\r\n  |> filter(fn: (r) => r[\"_value\"] == 0)\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> aggregateWindow(every:1d, fn: count)",
+          "refId": "A"
+        }
+      ],
+      "title": "Successful higher test environment deployment",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "Shows how the time required to build, test, and deploy the application has changed over time",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "build duration",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 83
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\") \r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r._measurement == \"build_duration\")\r\n  |> filter(fn: (r) => r._field == \"value\")\r\n  |> filter(fn: (r) => not exists r.successful_deploy)\r\n   |> filter(fn: (r) => r[\"project\"] == \"${project}\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Average Lead Time / Build Duration",
+      "type": "timeseries"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "AIden-gui",
+          "value": "AIden-gui"
+        },
+        "name": "project",
+        "options": [
+          {
+            "selected": true,
+            "text": "AIden-gui",
+            "value": "AIden-gui"
+          },
+          {
+            "selected": false,
+            "text": "AI_Platform",
+            "value": "AI_Platform"
+          },
+          {
+            "selected": false,
+            "text": "is-fnda-tqat",
+            "value": "is-fnda-tqat"
+          },
+          {
+            "selected": false,
+            "text": "DATA_API",
+            "value": "DATA_API"
+          },
+          {
+            "selected": false,
+            "text": "pb-client-portal-mobile-ui",
+            "value": "pb-client-portal-mobile-ui"
+          }
+        ],
+        "query": "AIden-gui,AI_Platform,is-fnda-tqat,DATA_API,pb-client-portal-mobile-ui",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DevSecOps pipeline -long",
+  "uid": "adzfc54123",
+  "version": 6
+}

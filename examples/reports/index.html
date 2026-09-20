@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>DevSecOps pipeline reports</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 32px 16px 56px; }
+header { background: linear-gradient(135deg,#1d4ed8,#3b82f6); color: #fff; border-radius: 6px; padding: 24px 28px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.3px; }
+header p { margin-top: 6px; opacity: .9; font-size: .9rem; max-width: 760px; line-height: 1.5; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; margin-top: 22px; }
+.card { display: flex; flex-direction: column; gap: 8px; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #16a34a; border-radius: 6px; padding: 16px 18px; color: inherit; text-decoration: none; box-shadow: 0 1px 3px rgba(0,0,0,.06); transition: box-shadow .15s, transform .15s; }
+.card:hover { box-shadow: 0 6px 18px rgba(15,23,42,.12); transform: translateY(-1px); }
+.card.fail { border-left-color: #d97706; }
+.top { display: flex; justify-content: space-between; align-items: center; }
+.chip { font-size: .66rem; font-weight: 800; letter-spacing: .6px; color: #fff; background: #16a34a; padding: 3px 8px; border-radius: 3px; }
+.card.fail .chip { background: #d97706; }
+.build { font-size: .78rem; color: #64748b; font-weight: 600; }
+.card h2 { font-size: 1.02rem; color: #0f172a; }
+.job { font-size: .78rem; color: #64748b; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.verdict { font-size: .84rem; line-height: 1.45; }
+.verdict.ok { color: #166534; }
+.verdict.warn { color: #92400e; }
+.card ul { margin: 0 0 0 18px; font-size: .76rem; color: #475569; line-height: 1.5; }
+.open { margin-top: auto; font-size: .8rem; font-weight: 700; color: #1d4ed8; }
+footer { margin-top: 28px; font-size: .76rem; color: #64748b; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class='wrap'>
+<header>
+  <h1>DevSecOps pipeline reports</h1>
+  <p>Six builds of the CertScanner example with two projects, a Gradle GUI deployed to a VM and a Maven API deployed to OpenShift. Each pipeline is shown once with every stage green and once with policy violations, which turn stages orange and block the Nexus release and the QC deployment.</p>
+</header>
+<div class='grid'>
+<a class='card pass' href='security-pipeline-pass.html'>
+  <div class='top'><span class='chip'>SUCCESS</span><span class='build'>#212</span></div>
+  <h2>Static security pipeline</h2>
+  <p class='job'>CertScanner-security-pipeline</p>
+  <p class='verdict ok'>Every stage green. The snapshot is published to Nexus and nothing blocks the release.</p>
+  <span class='open'>Open report &rarr;</span>
+</a>
+<a class='card fail' href='security-pipeline-fail.html'>
+  <div class='top'><span class='chip'>UNSTABLE</span><span class='build'>#213</span></div>
+  <h2>Static security pipeline</h2>
+  <p class='job'>CertScanner-security-pipeline</p>
+  <p class='verdict warn'>Orange stages keep the build running. The snapshot is still published, the release and the QC deployment are blocked.</p><ul><li>stage 'Unit tests' is WARN</li><li>stage 'Dependencies scan (Nexus IQ)' is WARN</li><li>stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN</li><li>stage 'SCA (SonarQube)' is WARN</li></ul>
+  <span class='open'>Open report &rarr;</span>
+</a>
+<a class='card pass' href='sast-pipeline-pass.html'>
+  <div class='top'><span class='chip'>SUCCESS</span><span class='build'>#87</span></div>
+  <h2>SAST pipeline</h2>
+  <p class='job'>CertScanner-sast-pipeline</p>
+  <p class='verdict ok'>SAST found nothing above the policy.</p>
+  <span class='open'>Open report &rarr;</span>
+</a>
+<a class='card fail' href='sast-pipeline-fail.html'>
+  <div class='top'><span class='chip'>UNSTABLE</span><span class='build'>#88</span></div>
+  <h2>SAST pipeline</h2>
+  <p class='job'>CertScanner-sast-pipeline</p>
+  <p class='verdict warn'>SAST findings above the policy. They will block the Nexus release and the QC deployment.</p><ul><li>stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN</li><li>gui SAST (AppScan) critical 2 &gt; 0</li><li>gui SAST (AppScan) high 2 &gt; 0</li><li>gui SAST (AppScan) medium 11 &gt; 0</li></ul>
+  <span class='open'>Open report &rarr;</span>
+</a>
+<a class='card pass' href='full-pipeline-pass.html'>
+  <div class='top'><span class='chip'>SUCCESS</span><span class='build'>#341</span></div>
+  <h2>Full DevSecOps pipeline</h2>
+  <p class='job'>CertScanner-devsecops-pipeline</p>
+  <p class='verdict ok'>Every stage green. The artifact is released to Nexus and deployed to QC.</p>
+  <span class='open'>Open report &rarr;</span>
+</a>
+<a class='card fail' href='full-pipeline-fail.html'>
+  <div class='top'><span class='chip'>UNSTABLE</span><span class='build'>#342</span></div>
+  <h2>Full DevSecOps pipeline</h2>
+  <p class='job'>CertScanner-devsecops-pipeline</p>
+  <p class='verdict warn'>Orange stages keep the build running. The Nexus release and the QC deployment stay blocked.</p><ul><li>stage 'Unit tests' is WARN</li><li>stage 'Dependencies scan (Nexus IQ)' is WARN</li><li>stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN</li><li>stage 'SCA (SonarQube)' is WARN</li></ul>
+  <span class='open'>Open report &rarr;</span>
+</a>
+</div>
+<footer>Generated by <code>test/run-all.sh</code>: the library code runs under the Jenkins script-security sandbox with randomised scan and test results, and every page is produced by the report template of the library.</footer>
+</div>
+</body>
+</html>

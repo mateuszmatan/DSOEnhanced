@@ -1,0 +1,498 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 65,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 5,
+      "libraryPanel": {
+        "name": "Deployment frequency",
+        "uid": "bfqzpsrj990jka"
+      },
+      "title": "Deployments frequency",
+      "type": "library-panel-ref"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The percentage of pipeline runs that ended in failure.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 6,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"change_failure\" and r[\"_field\"] == \"value\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"value\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> map(fn: (r) => ({ r with _value: r._value * 100.0}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Change Failure Rate (CFR)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 10,
+        "x": 14,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"pb-client-portal-mobile-ui\")\r\n  |> filter(fn: (r) => r[\"env\"] == \"test\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> group(columns: [\"scanner\", \"_field\"])\r\n  |> last()\r\n  |> group()\r\n  |> sum()",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "B"
+        }
+      ],
+      "title": "Total number of vulnerabilities (last build)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The evolution of security debt grouped by scanner type (SAST, DAST, NexusIQ). Shows whether the team is \"paying off\" the debt or if the application is becoming more vulnerable.\n",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 21,
+        "x": 1,
+        "y": 4
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": true,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] !== \"niq\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "hide": false,
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "B"
+        }
+      ],
+      "title": "Critical and High Vulnerabilities Trend over time (sum of vulnerabilities)",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 18,
+        "w": 6,
+        "x": 0,
+        "y": 15
+      },
+      "id": 2,
+      "libraryPanel": {
+        "name": "Current security status (Latest scan) ",
+        "uid": "dfs2opb10zcw0b"
+      },
+      "title": "Current security status (Latest scan) ",
+      "type": "library-panel-ref"
+    },
+    {
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 6,
+        "y": 15
+      },
+      "id": 7,
+      "libraryPanel": {
+        "name": "Critical and High Vulnerabilities Trend over time - SAST and DAST",
+        "uid": "afrp52mcl46psd"
+      },
+      "title": "Critical and High Vulnerabilities Trend over time - SAST and DAST",
+      "type": "library-panel-ref"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "dfj90zkyausxsc"
+      },
+      "description": "The evolution of security debt grouped by scanner type (Sonarqube, NexusIQ). Shows whether the team is \"paying off\" the debt or if the application is becoming more vulnerable.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.name} - ${__field.labels.scanner}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 6,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "dfj90zkyausxsc"
+          },
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] == \"nexusiq\" or r[\"scanner\"] == \"sca\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Critical and High Vulnerabilities Trend over time - Neksus IQ and SonarQube",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 9,
+        "w": 20,
+        "x": 0,
+        "y": 33
+      },
+      "id": 10,
+      "libraryPanel": {
+        "name": "Code Quality Test Coverage Trend",
+        "uid": "ffs2v1m9158n4a"
+      },
+      "title": "Code Quality Test Coverage Trend",
+      "type": "library-panel-ref"
+    },
+    {
+      "gridPos": {
+        "h": 12,
+        "w": 22,
+        "x": 0,
+        "y": 42
+      },
+      "id": 9,
+      "libraryPanel": {
+        "name": "Deployment Frequency 2",
+        "uid": "bfs2zhvqr6x34b"
+      },
+      "title": "Deployment Frequency",
+      "type": "library-panel-ref"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "is-fnda-tqat",
+          "value": "is-fnda-tqat"
+        },
+        "description": "DevSecOps pipeline security",
+        "name": "project",
+        "options": [
+          {
+            "selected": false,
+            "text": "AIden-gui",
+            "value": "AIden-gui"
+          },
+          {
+            "selected": false,
+            "text": "AI_Platform",
+            "value": "AI_Platform"
+          },
+          {
+            "selected": true,
+            "text": "is-fnda-tqat",
+            "value": "is-fnda-tqat"
+          },
+          {
+            "selected": false,
+            "text": "DATA_API",
+            "value": "DATA_API"
+          },
+          {
+            "selected": false,
+            "text": "pb-client-portal-mobile-ui",
+            "value": "pb-client-portal-mobile-ui"
+          }
+        ],
+        "query": "AIden-gui,AI_Platform,is-fnda-tqat,DATA_API,pb-client-portal-mobile-ui",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DevSecOps pipeline -security",
+  "uid": "ad2trcm",
+  "version": 9
+}

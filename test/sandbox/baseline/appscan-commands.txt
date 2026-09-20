@@ -1,0 +1,148 @@
+===== cliLogin =====
+---
+[WITHENV] APPSCAN_CMD_RUNTIME=/opt/appscan/appscan.sh | APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+---
+[SH]
+#!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="${_OPTS}" \
+"$APPSCAN_CMD_RUNTIME" api_login \
+    -u "keyid" -P "fake-APPSCAN_KEY_SECRET" -persist -acceptssl \
+    -service_url "https://bbh.cloud.appscan.com" \
+    > "$APPSCAN_LOG_DIR/api_login.log" 2>&1 || true
+grep -v "^Picked up " "$APPSCAN_LOG_DIR/api_login.log" || true
+if grep -qiE 'unable to authenticate|authentication failed|unauthorized|token has expired' "$APPSCAN_LOG_DIR/api_login.log"; then
+    echo "[ERROR] AppScan CLI login failed."; exit 1
+fi
+echo "[INFO] AppScan CLI login succeeded."
+
+---
+===== apiLogin =====
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Content-Type: application/json" -d "{\"KeyId\":\"fake-ID\",\"KeySecret\":\"fake-Secret\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
+---
+===== dastStartScan =====
+---
+[WRITEFILE dast_payload.json]
+{
+            "ScanConfiguration": {
+                "Target": {
+                  "StartingUrl": "http://rd.example.com",
+                }
+            },
+            "PresenceId": "PRES-1",
+            "ScanName": "demo-scan-dast_7",
+            "AppId": "APP-ID",
+            "ClientType": "api",
+            "FullyAutomatic": true
+        }
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @dast_payload.json "https://bbh.cloud.appscan.com/api/v4/Scans/Dast"
+---
+scanId=DAST-SCAN-ID
+---
+===== dastWait =====
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Scans/Dast/DAST-SCAN-ID"
+---
+===== dastDownloadReport =====
+---
+[WRITEFILE report_payload.json]
+{"Configuration":{"ReportFileType":"Html","Summary":true,"Details":true,"Overview":true,"TableOfContent":true}}
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -o "appscan-dast-report.html" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID/Download"
+---
+[WRITEFILE report_payload.json]
+{"Configuration":{"ReportFileType":"Pdf","Summary":true,"Details":true,"Overview":true,"TableOfContent":true}}
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -o "appscan-dast-report.pdf" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID/Download"
+---
+===== renameDastReport =====
+---
+[SH]
+[ -f '/ws/appscan-dast-report.html' ] && mv '/ws/appscan-dast-report.html' '/ws/appscan-dast-report-demo-scan.html' || true
+---
+[SH]
+[ -f '/ws/appscan-dast-report.pdf' ] && mv '/ws/appscan-dast-report.pdf' '/ws/appscan-dast-report-demo-scan.pdf' || true
+---
+===== renameSastReport =====
+---
+[SH]
+[ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-demo-scan.html' || true
+---
+===== queueSast =====
+---
+[WITHENV] APPSCAN_CMD_RUNTIME=/opt/appscan/appscan.sh | APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+---
+[SH]
+#!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="${_OPTS}" \
+"$APPSCAN_CMD_RUNTIME" queue_analysis -a "APP-ID" -f "/ws/demo-scan.irx" -n "demo-scan-sast" \
+    2>&1 | tee "$APPSCAN_LOG_DIR/queue-demo-scan-sast.log" | grep -v "^Picked up " || true
+
+---
+[WRITEFILE /ws/.appscan-logs/scan-sast-demo-scan.id]
+12345678-1234-1234-1234-123456789abc
+---
+===== waitSast =====
+---
+[WITHENV] APPSCAN_CMD_RUNTIME=/opt/appscan/appscan.sh | APPSCAN_SCAN_ID=12345678-1234-1234-1234-123456789abc | APPSCAN_POLL_INTERVAL=30 | APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+---
+[SH]
+#!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+_START=$(date +%s)
+while true; do
+    _ELAPSED=$(( $(date +%s) - _START ))
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" status -i "$APPSCAN_SCAN_ID" \
+        > "$APPSCAN_LOG_DIR/status-sast-demo-scan.log" 2>&1 || true
+    if grep -qiE "Completed|Complete|Ready"        "$APPSCAN_LOG_DIR/status-sast-demo-scan.log"; then echo "[INFO] SAST scan completed after ${_ELAPSED}s."; exit 0; fi
+    if grep -qiE "Failed|Error|Canceled|Cancelled" "$APPSCAN_LOG_DIR/status-sast-demo-scan.log"; then echo "[ERROR] SAST scan failed after ${_ELAPSED}s."; exit 1; fi
+    echo "[RUNNING] SAST scan in progress... ${_ELAPSED}s elapsed"
+    sleep "$APPSCAN_POLL_INTERVAL"
+done
+
+---
+===== downloadSastReports =====
+---
+[WITHENV] APPSCAN_CMD_RUNTIME=/opt/appscan/appscan.sh | APPSCAN_SCAN_ID=12345678-1234-1234-1234-123456789abc | APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+---
+[SH]
+#!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+for i in {1..6}; do
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" get_result -i "$APPSCAN_SCAN_ID" -t html -d "/ws/appscan-report-demo-scan.html" \
+        > "$APPSCAN_LOG_DIR/get_result-sast-demo-scan.log" 2>&1 || true
+    if [ -s "/ws/appscan-report-demo-scan.html" ]; then echo "[INFO] SAST report downloaded"; break; fi
+    echo "[WARN] Report not ready, retry $i/6..."; sleep 10
+done
