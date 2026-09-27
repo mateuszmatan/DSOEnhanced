@@ -5,12 +5,15 @@ import com.bbh.remediation.port.SourceRepository
 class InMemorySourceRepository implements SourceRepository {
 
     Map<String, String> files = [:]
+    Map<String, String> original = [:]
     Map<String, String> written = [:]
     List<Map> commits = []
     List<String> pushedBranches = []
+    int reverts = 0
 
     InMemorySourceRepository(Map<String, String> files) {
         this.files.putAll(files)
+        this.original.putAll(files)
     }
 
     String prepareWorkingCopy(String branch) {
@@ -44,6 +47,13 @@ class InMemorySourceRepository implements SourceRepository {
 
     void push(String dir, String branch, Map pushCfg) {
         pushedBranches << branch
+    }
+
+    void revert(String dir) {
+        reverts++
+        written.clear()
+        files.clear()
+        files.putAll(original)
     }
 
     void cleanup(String dir) {

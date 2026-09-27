@@ -46,6 +46,8 @@ class GoldenFixService implements DependencyRemediation {
                 unresolved  : [],
                 prUrl       : '',
                 prTitle     : '',
+                verified    : null,
+                verifyLog   : '',
                 branch      : '',
                 targetBranch: ''
         ]
@@ -101,9 +103,16 @@ class GoldenFixService implements DependencyRemediation {
 
         String dir = repository.prepareWorkingCopy(title)
         try {
-            Map applied = applyFixes(dir, fixes, cfg)
+            Map attempt = applyVerifiedFixes(dir, fixes, cfg)
+            Map applied = attempt.applied as Map
             result.changes    = applied.changes
-            result.unresolved = applied.unresolved
+            result.unresolved = (applied.unresolved as List) + (attempt.dropped as List)
+            result.verified   = attempt.verified
+            result.verifyLog  = attempt.log
+            if (attempt.verified == false) {
+                finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
+                return
+            }
             String commitId = applied.files
                     ? repository.commit(dir, applied.files as List<String>, commitMessage(title, applied.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
                     : ''
@@ -137,6 +146,112 @@ class GoldenFixService implements DependencyRemediation {
         } finally {
             repository.cleanup(dir)
         }
+    }
+
+    private Map applyVerifiedFixes(String dir, List<Map> fixes, Map cfg) {
+        Map verifyCfg = (cfg.verify ?: [:]) as Map
+        boolean enabled = BuildUtils.booleanValue(verifyCfg.enabled, true)
+        String command = verifyCommand(verifyCfg)
+        int maxAttempts = (verifyCfg.maxAttempts != null ? verifyCfg.maxAttempts.toString().toInteger() : 3)
+        if (maxAttempts < 1) maxAttempts = 1
+
+        List<Map> current = fixes
+        List dropped = []
+        Map applied = applyFixes(dir, current, cfg)
+        if (!enabled || !command) {
+            script.echo "[GOLDENFIX] Pre-check build skipped (${enabled ? 'no build command for this project' : 'goldenFix.verify.enabled is false'})"
+            return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
+        }
+
+        String reason = ''
+        String log = ''
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (!applied.files) {
+                script.echo '[GOLDENFIX] Pre-check build skipped - no manifest changed'
+                return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
+            }
+            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts}: ${command}"
+            Map verdict = runVerifyBuild(dir, command, verifyCfg)
+            log = verdict.log as String
+            if (verdict.ok) {
+                script.echo "[GOLDENFIX] Pre-check build passed with ${describeVersions(current)}"
+                return [applied: applied, verified: true, dropped: dropped, reason: '', log: log]
+            }
+            reason = "the build failed with ${describeVersions(current)}".toString()
+            script.echo "[GOLDENFIX] Pre-check build failed - lowering the proposed versions so they stay backward compatible"
+            Map lowered = lowerFixes(current)
+            if (!lowered.changed) {
+                return [applied: applied, verified: false, dropped: dropped,
+                        reason: "${reason} and no lower backward compatible version is offered".toString(), log: log]
+            }
+            current = lowered.fixes as List<Map>
+            dropped.addAll(lowered.dropped as List)
+            repository.revert(dir)
+            applied = applyFixes(dir, current, cfg)
+        }
+        return [applied: applied, verified: false, dropped: dropped,
+                reason: "${reason} after ${maxAttempts} attempt(s)".toString(), log: log]
+    }
+
+    private Map runVerifyBuild(String dir, String command, Map verifyCfg) {
+        int timeoutMin = (verifyCfg.timeoutMinutes != null ? verifyCfg.timeoutMinutes.toString().toInteger() : 20)
+        try {
+            int status = 1
+            script.timeout(time: timeoutMin, unit: 'MINUTES') {
+                status = script.sh(label: 'GoldenFix: pre-check build', returnStatus: true, script: """#!/bin/bash
+set +e
+cd '${BuildUtils.escapeForSingleQuotes(dir)}'
+${command}
+""") as int
+            }
+            return [ok: status == 0, log: "exit code ${status}".toString()]
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return [ok: false, log: (e.message ?: e.getClass().getSimpleName()) as String]
+        }
+    }
+
+    private String verifyCommand(Map verifyCfg) {
+        String configured = (verifyCfg.command ?: '') as String
+        if (configured) return configured
+        String tool = (state.cfg?.buildTool ?: 'gradle') as String
+        if (tool == 'gradle') return './gradlew --no-daemon --console=plain classes'
+        if (tool == 'maven') return 'mvn -B -q -DskipTests compile'
+        if (tool == 'flutter') return 'flutter pub get'
+        return ''
+    }
+
+    @NonCPS
+    private Map lowerFixes(List<Map> fixes) {
+        List<Map> out = []
+        List dropped = []
+        boolean changed = false
+        for (Map fix : (fixes ?: [])) {
+            List alternatives = (fix.alternatives ?: []) as List
+            if (alternatives.isEmpty()) {
+                dropped << [component: fix.displayName, from: fix.currentVersion, to: fix.targetVersion,
+                            reason: 'every offered version broke the pre-check build, so this dependency was left untouched']
+                changed = true
+                continue
+            }
+            Map lowered = [:]
+            lowered.putAll(fix)
+            lowered.targetVersion = alternatives.get(0)
+            lowered.alternatives = alternatives.size() > 1 ? alternatives.subList(1, alternatives.size()) : []
+            lowered.nonBreaking = GoldenFix.patchLevelChange(fix.currentVersion as String, lowered.targetVersion as String)
+            out << lowered
+            changed = true
+        }
+        return [fixes: out, dropped: dropped, changed: changed && !out.isEmpty()]
+    }
+
+    @NonCPS
+    private String describeVersions(List<Map> fixes) {
+        List parts = []
+        for (Map fix : (fixes ?: [])) {
+            parts << "${fix.displayName} ${fix.currentVersion} -> ${fix.targetVersion}".toString()
+        }
+        return parts.join(', ')
     }
 
     private Map applyFixes(String dir, List<Map> fixes, Map cfg) {

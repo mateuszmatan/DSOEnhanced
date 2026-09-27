@@ -17,8 +17,9 @@ class GoldenFix implements Serializable {
     @NonCPS
     static Map create(String ecosystem, String group, String name, String currentVersion, String targetVersion,
                       String remediationType, String packageUrl, int threatLevel, Boolean direct, String application,
-                      boolean golden = false, Boolean nonBreaking = null) {
+                      boolean golden = false, Boolean nonBreaking = null, List alternatives = []) {
         return [
+                alternatives   : alternatives ?: [],
                 nonBreaking    : nonBreaking == null ? patchLevelChange(currentVersion, targetVersion) : nonBreaking,
                 ecosystem      : ecosystem,
                 group          : group ?: '',
@@ -75,12 +76,22 @@ class GoldenFix implements Serializable {
         if (!patchOnly.isEmpty()) {
             Map picked = newestCleanest(patchOnly)
             return [type: picked.type, version: picked.version, golden: isGoldenType(picked.type as String, goldenVersionTypes),
-                    nonBreaking: true, issues: picked.issues]
+                    nonBreaking: true, issues: picked.issues, alternatives: lowerThan(patchOnly, picked.version as String)]
         }
 
         Map fallback = newestCleanest(upgrades)
         return [type: fallback.type, version: fallback.version, golden: isGoldenType(fallback.type as String, goldenVersionTypes),
-                nonBreaking: false, issues: fallback.issues]
+                nonBreaking: false, issues: fallback.issues, alternatives: lowerThan(upgrades, fallback.version as String)]
+    }
+
+    @NonCPS
+    static List lowerThan(List upgrades, String version) {
+        List out = []
+        for (Map upgrade : sortNewestFirst(upgrades)) {
+            String candidate = upgrade.version as String
+            if (compare(candidate, version) < 0 && !out.contains(candidate)) out << candidate
+        }
+        return out
     }
 
     @NonCPS

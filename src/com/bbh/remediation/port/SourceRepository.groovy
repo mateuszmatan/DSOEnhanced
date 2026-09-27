@@ -14,6 +14,8 @@ interface SourceRepository extends Serializable {
 
     void push(String dir, String branch, Map pushCfg)
 
+    void revert(String dir)
+
     void cleanup(String dir)
 
     String resolveCurrentBranch()

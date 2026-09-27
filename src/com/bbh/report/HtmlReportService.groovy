@@ -560,6 +560,12 @@ class HtmlReportService implements Serializable {
                     explanation: "The vulnerable versions are not chosen by this project. They arrive through another library that this project " +
                             'depends on, so the upgrade has to be made in that library first.']
         }
+        if (status == 'BUILD_FAILED') {
+            return [headline   : 'The upgrade was not proposed because the application stopped building with it.',
+                    explanation: 'Before proposing anything the pipeline builds the application with the new versions. That build failed, and it ' +
+                            'failed again with every lower version the supplier offers, so nothing was proposed rather than handing over a change ' +
+                            'that breaks the application. The vulnerabilities above are still there and the upgrade has to be done by a developer.']
+        }
         if (status == 'SKIPPED') {
             return [headline   : 'Automatic upgrades are switched off for this project.',
                     explanation: goldenFixDetail(gf)]

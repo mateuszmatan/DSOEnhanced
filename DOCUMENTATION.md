@@ -2,6 +2,8 @@
 
 Jenkins Shared Library implementing a full DevSecOps pipeline: build, unit tests, dependency scan (Nexus IQ), code quality (SonarQube), SAST (HCL AppScan), deployment (VM/OpenShift), smoke/regression/performance tests, DAST (HCL AppScan), HTML report, and InfluxDB metrics.
 
+> For a short, reader-friendly overview of everything the library can do and everything an application needs before it can use it, open **`library-overview.html`** in a browser. This document is the full reference.
+
 ---
 
 ## Table of contents
@@ -755,8 +757,9 @@ When the Nexus IQ policy is violated (critical, high or medium findings above th
    - npm: `package.json` dependencies, devDependencies, peerDependencies, optionalDependencies (range operator preserved)
    - pip: `requirements*.txt`, `constraints*.txt`, `pyproject.toml` (PEP 621 and Poetry)
    - Flutter: `pubspec.yaml` dependencies and dev_dependencies (the `^` constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
-4. Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch `GoldenFix-YYYYMMDDHHMM` and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.
-5. The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the **Nexus IQ GoldenFix** card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).
+4. Builds the project with the new versions before proposing anything, so a pull request never breaks the build. The project is compiled inside the worktree (`./gradlew classes`, `mvn compile` or `flutter pub get` by default, `goldenFix.verify.command` to override). When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to `goldenFix.verify.maxAttempts` times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, **no pull request is opened** and the run ends with `BUILD_FAILED`. Set `goldenFix.verify.enabled: false` to skip the pre-check.
+5. Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch `GoldenFix-YYYYMMDDHHMM` and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.
+6. The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the **Nexus IQ GoldenFix** card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).
 
 A version is only written when the manifest declares a plain version that is lower than the target; ranges, hash pinned requirements and versions managed by a BOM are listed under "not applied automatically" instead.
 
@@ -1164,7 +1167,17 @@ The GoldenFix card explains the outcome in plain language, so that a reader who 
 
 ### DAST PDF report is missing in the pipeline report
 
-The stage downloads the report as HTML and as PDF and archives both. When only the HTML link is present, look for `[DAST] PDF report not found` in the console; the PDF generation in ASoC may have taken longer than the download window.
+The stage downloads the report as HTML and as PDF and archives both. The PDF is not required: when AppScan does not render it in time the console carries `[DAST] PDF report unavailable`, only the HTML link is shown and the stage is unaffected.
+
+### DAST fails with "the HTML report could not be produced"
+
+The HTML report *is* required, because the findings of the scan are read from it. After asking AppScan to render the report the library polls until the report is ready, downloads it and checks that the file really is a report. A build fails this way when:
+
+- AppScan answered with a message instead of a rendered report, which the console quotes;
+- the report was still not ready when `dast.reportTimeoutMin` ran out;
+- AppScan reported the rendering as `Failed`.
+
+Raise `dast.reportTimeoutMin` (default 30 minutes) or `dast.reportIntervalSec` (default 30 seconds) in `defaults.yaml` for scans whose reports take longer to render. The stage deliberately fails instead of recording zero findings: a green DAST stage always means a real report was parsed.
 
 ### Hundreds of smoke jobs
 

@@ -75,15 +75,25 @@ appScript.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/appscan.sh'
 appScript.files['demo-scan.irx'] = 'irx'
 appScript.readFileHandler = { String path -> 'content' }
 appScript.recordEvents = true
+String appscanHtmlReport = '<html><body><h3>Summary of security issues</h3><table>' +
+        '<tr><td>Total security issues:</td><td>2</td></tr><tr><td>Critical severity issues:</td><td>0</td></tr>' +
+        '<tr><td>High severity issues:</td><td>0</td></tr><tr><td>Medium severity issues:</td><td>0</td></tr>' +
+        '<tr><td>Low severity issues:</td><td>2</td></tr></table></body></html>'
 appScript.shHandler = { Map a ->
     String text = String.valueOf(a.script ?: '')
     appScript.events << "[SH]\n${text}".toString()
+    def outFile = text =~ /-o "([^"]+)"/
+    if (outFile.find()) {
+        String target = outFile.group(1)
+        appScript.files[target] = target.endsWith('.pdf') ? '%PDF-1.7 fake report' : appscanHtmlReport
+    }
     if (a.returnStatus) return 0
     if (!a.returnStdout) return null
     if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
     if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
     if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
     if (text.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"REPORT-ID"}'
+    if (text.contains('/api/v4/Reports/REPORT-ID')) return '{"Status":"Ready"}'
     if (text.contains('queue_analysis')) return 'Scan id: 12345678-1234-1234-1234-123456789abc'
     return ''
 }
@@ -174,6 +184,70 @@ check('GoldenFix: a Nexus IQ report carrying JSON nulls still yields the compone
                 && cleanedCandidates[0].name == 'snakeyaml',
         "without normalisation: '${rawFailure}', with normalisation: '${cleanedFailure}' ${cleanedCandidates}")
 
+SandboxHarness dastHarness = new SandboxHarness(srcDir, stubDir)
+Closure dastRun = { Closure downloadBody ->
+    FakeScript d = new FakeScript()
+    d.env.vars.putAll([WORKSPACE: '/ws', APPSCAN_LOG_DIR: '/ws/.appscan-logs', APPSCAN_SCAN_NAME: 'demo-scan',
+                       APPSCAN_SERVER_URL: 'https://bbh.cloud.appscan.com', APPSCAN_KEY_ID: 'keyid', BUILD_NUMBER: '9'])
+    d.shHandler = { Map a ->
+        String text = String.valueOf(a.script ?: '')
+        def outFile = text =~ /-o "([^"]+)"/
+        if (outFile.find()) downloadBody.call(d, outFile.group(1))
+        def move = text =~ /mv '([^']+)' '([^']+)'/
+        if (move.find()) {
+            String from = move.group(1).replace('/ws/', '')
+            String to = move.group(2).replace('/ws/', '')
+            if (d.files.containsKey(from)) d.files[to] = d.files.remove(from)
+        }
+        if (a.returnStatus) return 0
+        if (!a.returnStdout) return null
+        if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
+        if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+        if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
+        if (text.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"REPORT-ID"}'
+        if (text.contains('/api/v4/Reports/REPORT-ID')) return '{"Status":"Ready"}'
+        return ''
+    }
+    String failure = ''
+    Map counted = [:]
+    dastHarness.run {
+        def state = dastHarness.type('com.bbh.core.PipelineState').newInstance()
+        state.cfg = [appId: 'APP-ID', buildTool: 'gradle', dast: [enabled: true, targetUrl: 'http://rd.example.com']]
+        state.cfgDefaults = [dast: [pollTimeoutMin: 1, pollIntervalSec: 1, reportTimeoutMin: 1, reportIntervalSec: 30]]
+        state.currentProjectName = 'gui'
+        def os = dastHarness.type('com.bbh.core.OsHelper').newInstance(d)
+        def policy = dastHarness.type('com.bbh.core.PolicyEngine').newInstance(d, state, os)
+        def build = dastHarness.type('com.bbh.build.BuildService').newInstance(d, state, os, policy)
+        def appscan = dastHarness.type('com.bbh.scanner.AppScanService').newInstance(d, state, os, policy, build)
+        try {
+            appscan.dastScan()
+            counted.putAll((state.vulnCounts.dast ?: [:]) as Map)
+        } catch (Throwable t) {
+            failure = t.message ?: t.getClass().simpleName
+        }
+    }
+    return [failure: failure, state: d, counts: counted]
+}
+String goodHtml = '<html><body><h3>Summary of security issues</h3><table>' +
+        '<tr><td>High severity issues:</td><td>3</td></tr></table></body></html>'
+Map errorPayload = dastRun.call({ FakeScript d, String target ->
+    d.files[target] = target.endsWith('.pdf') ? '%PDF-1.7' : '{"Message":"Report is not ready yet","Code":409}'
+})
+Map noFile = dastRun.call({ FakeScript d, String target -> })
+Map healthy = dastRun.call({ FakeScript d, String target ->
+    d.files[target] = target.endsWith('.pdf') ? '%PDF-1.7' : goodHtml
+})
+check('DAST: an AppScan error message saved in place of the report fails the stage instead of passing it as zero findings',
+        (errorPayload.failure as String).contains('HTML report could not be produced')
+                && (errorPayload.failure as String).contains('Report is not ready yet'),
+        "error payload: '${errorPayload.failure}'")
+check('DAST: a download that produces no report file fails the stage',
+        (noFile.failure as String).contains('HTML report could not be produced'), "no file: '${noFile.failure}'")
+check('DAST: a real report is accepted and its findings are counted',
+        !healthy.failure && ((healthy.state as FakeScript).files.containsKey('appscan-dast-report-demo-scan.html'))
+                && ((healthy.counts as Map).high as int) == 3,
+        "healthy: '${healthy.failure}', counts ${healthy.counts}")
+
 File fixturesDir = new File(root, 'test/sandbox/fixtures')
 SandboxHarness gfHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
 FakeScript gfScript = new FakeScript()
@@ -240,6 +314,69 @@ try {
 } catch (Throwable t) {
     gfErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
 }
+Closure preCheckRun = { Closure buildOutcome ->
+    SandboxHarness h = new SandboxHarness(srcDir, stubDir, fixturesDir)
+    FakeScript sc = new FakeScript()
+    sc.env.vars.putAll([WORKSPACE: '/ws', JOB_NAME: 'DevSecOps/CertScanner-security-pipeline', BUILD_NUMBER: '213'])
+    List<String> builds = []
+    sc.shHandler = { Map a ->
+        String text = String.valueOf(a.script ?: '')
+        if (a.returnStdout) return '202609191405'
+        if (String.valueOf(a.label ?: '') == 'GoldenFix: pre-check build') {
+            builds << text
+            return buildOutcome.call(builds.size())
+        }
+        return a.returnStatus ? 0 : null
+    }
+    Map out = [:]
+    List<String> errs = []
+    try {
+        h.run {
+            def goldenFix = h.type('com.bbh.remediation.model.GoldenFix')
+            String app = 'CertValidityMonitoring-GUI'
+            List fixes = [goldenFix.create('maven', 'com.fasterxml.jackson.core', 'jackson-databind', '2.13.4',
+                    '2.13.9', 'next-non-failing', '', 8, true, app, false, true, ['2.13.7', '2.13.5'])]
+            def state = h.type('com.bbh.core.PipelineState').newInstance()
+            state.currentProjectName = 'gui'
+            state.cfg = [buildTool: 'maven', goldenFix: [enabled: true, verify: [enabled: true, maxAttempts: 3]],
+                         scm: [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
+            def repository = h.type('com.bbh.fixture.InMemorySourceRepository').newInstance([[
+                    'pom.xml': '<project><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
+                               '<artifactId>jackson-databind</artifactId><version>2.13.4</version></dependency></dependencies></project>']] as Object[])
+            def source = h.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
+            def publisher = h.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
+            List updaters = ['MavenPomUpdater'].collect { h.type("com.bbh.remediation.updater.${it}".toString()).newInstance() }
+            def service = h.type('com.bbh.remediation.GoldenFixService').newInstance(sc, state, source, repository, publisher, updaters)
+            service.remediate([[application: app, serverUrl: 'https://tools.bbh.com/IQ', scanId: 'a' * 32]])
+            out.putAll((state.projectsGoldenFix['gui'] ?: [:]) as Map)
+            out.pom = repository.written['pom.xml']
+            out.reverts = repository.reverts
+            out.prs = publisher.created.size()
+        }
+    } catch (Throwable t) {
+        errs << (SandboxHarness.rejectionOf(t) ?: t.toString())
+    }
+    return [result: out, builds: builds.size(), errors: errs, log: sc.log.findAll { it.contains('Pre-check') }]
+}
+Map firstTry = preCheckRun.call({ int n -> 0 })
+Map secondTry = preCheckRun.call({ int n -> n == 1 ? 1 : 0 })
+Map neverBuilds = preCheckRun.call({ int n -> 1 })
+
+check('GoldenFix pre-check: a green build opens the pull request with the version that was proposed',
+        firstTry.errors.isEmpty() && firstTry.builds == 1 && (firstTry.result as Map).status == 'PR_CREATED'
+                && ((firstTry.result as Map).pom as String).contains('<version>2.13.9</version>') && (firstTry.result as Map).prs == 1,
+        "${firstTry.errors} builds=${firstTry.builds} status=${(firstTry.result as Map).status}")
+check('GoldenFix pre-check: a failing build lowers the version and the pull request carries the one that builds',
+        secondTry.errors.isEmpty() && secondTry.builds == 2 && (secondTry.result as Map).status == 'PR_CREATED'
+                && ((secondTry.result as Map).pom as String).contains('<version>2.13.7</version>')
+                && (secondTry.result as Map).reverts == 1,
+        "${secondTry.errors} builds=${secondTry.builds} status=${(secondTry.result as Map).status} pom=${(secondTry.result as Map).pom}")
+check('GoldenFix pre-check: when no offered version builds, no pull request is opened and the run says why',
+        neverBuilds.errors.isEmpty() && (neverBuilds.result as Map).status == 'BUILD_FAILED'
+                && (neverBuilds.result as Map).prs == 0
+                && ((neverBuilds.result as Map).message as String).contains('do not build'),
+        "${neverBuilds.errors} status=${(neverBuilds.result as Map).status} msg=${(neverBuilds.result as Map).message}")
+
 List<String> gfLog = gfScript.log.findAll { it.contains('GOLDENFIX') }
 check('GoldenFix: remediation runs under the sandbox without a rejection', gfErrors.isEmpty() && !gfLog.any { it.contains('Remediation failed') },
         (gfErrors + gfLog).join('\n      '))

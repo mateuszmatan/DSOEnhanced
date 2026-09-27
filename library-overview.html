@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevSecOps Jenkins Shared Library - Capabilities and Prerequisites</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; line-height: 1.55; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+.header { background: linear-gradient(135deg,#1d4ed8,#3b82f6); color: #fff; border-radius: 6px; padding: 24px; margin-bottom: 20px; }
+.header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; }
+.header p { margin-top: 6px; opacity: 0.9; font-size: 0.9rem; }
+.section { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.section h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.section h3 { font-size: 0.92rem; color: #1e293b; margin: 18px 0 8px; }
+.section h4 { font-size: 0.85rem; color: #334155; margin: 14px 0 6px; }
+.num { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; background: #1e293b; color: #f8fafc; border-radius: 4px; font-size: 0.78rem; font-weight: 700; }
+p, li { font-size: 0.87rem; }
+p { margin: 8px 0; }
+ul, ol { margin: 8px 0 8px 22px; }
+li { margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 10px 0; }
+th { background: #f8fafc; text-align: left; padding: 8px 10px; border-bottom: 2px solid #e2e8f0; color: #374151; font-weight: 600; }
+td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 3px; padding: 0 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+pre { background: #0f172a; border-radius: 5px; padding: 14px 16px; overflow-x: auto; margin: 10px 0; }
+pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size: 0.78rem; line-height: 1.5; white-space: pre; }
+.k { color: #7dd3fc; } .v { color: #fbbf24; } .s { color: #86efac; } .c { color: #64748b; font-style: italic; } .kw { color: #c4b5fd; }
+.callout { border-radius: 4px; padding: 10px 14px; margin: 12px 0; font-size: 0.85rem; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+.ok { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.toc ol { columns: 2; column-gap: 32px; }
+.footer { text-align: center; color: #64748b; font-size: 0.78rem; padding: 18px 0; }
+.pill { display: inline-block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 3px; background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+.pill.req { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.pill.opt { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0; }
+.card { border: 1px solid #e2e8f0; border-left: 3px solid #3b82f6; border-radius: 4px; padding: 12px 14px; background: #f8fafc; }
+.card h4 { margin: 0 0 4px; font-size: 0.86rem; color: #1e293b; }
+.card p { margin: 0; font-size: 0.82rem; color: #475569; }
+@media (max-width: 720px) { .toc ol { columns: 1; } .section { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>DevSecOps Jenkins Shared Library</h1>
+  <p>What the library does, and what an application needs before it can use it</p>
+</div>
+
+<div class="section toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#what">What the library is</a></li>
+    <li><a href="#entry">Entry points and stages</a></li>
+    <li><a href="#security">Security scanning</a></li>
+    <li><a href="#quality">Code quality and coverage</a></li>
+    <li><a href="#policy">Policy engine and release gate</a></li>
+    <li><a href="#goldenfix">Automated dependency remediation (GoldenFix)</a></li>
+    <li><a href="#build">Build, test and delivery</a></li>
+    <li><a href="#deploy">Deployment</a></li>
+    <li><a href="#report">Reporting and metrics</a></li>
+    <li><a href="#platform">Platform support</a></li>
+    <li><a href="#prereq-jenkins">Prerequisites: Jenkins</a></li>
+    <li><a href="#prereq-tools">Prerequisites: external tools</a></li>
+    <li><a href="#prereq-app">Prerequisites: the application repository</a></li>
+    <li><a href="#checklist">Onboarding checklist</a></li>
+  </ol>
+</div>
+
+<div class="section" id="what">
+  <h2><span class="num">1</span> What the library is</h2>
+  <p>A Jenkins shared library that gives an application a complete, opinionated DevSecOps pipeline: build, unit tests with a coverage gate, dependency and static security scanning, code quality analysis, artifact delivery, deployment to two environments, functional and performance testing, dynamic security scanning, and a single HTML report that explains the outcome.</p>
+  <p>An application adopts it with a Jenkinsfile of a few lines and one <code>config.yaml</code>. Everything else - the stage order, the thresholds, the report, the release rules - comes from the library, so every project that uses it is measured the same way.</p>
+  <div class="grid">
+    <div class="card"><h4>One security policy for everyone</h4><p>Severity thresholds and the required coverage live in the library, not in the project, so a team cannot loosen its own gate.</p></div>
+    <div class="card"><h4>Nothing stops silently</h4><p>Every stage runs on every build. A stage that breaks the policy turns orange and the build becomes unstable, but later stages still run so one report shows every problem at once.</p></div>
+    <div class="card"><h4>Release is gated, not the pipeline</h4><p>Findings above the policy do not abort the run; they block the release artifact and the higher-environment deployment.</p></div>
+    <div class="card"><h4>Runs inside the script sandbox</h4><p>No construct needs an administrator to approve a signature, so onboarding a project needs no script approval.</p></div>
+  </div>
+</div>
+
+<div class="section" id="entry">
+  <h2><span class="num">2</span> Entry points and stages</h2>
+  <p>Four entry points share the same services, thresholds, release gate and report. Pick the one that matches how the work is split between jobs.</p>
+  <table>
+    <thead><tr><th>Entry point</th><th>Runs</th><th>Use it when</th></tr></thead>
+    <tbody>
+      <tr><td><code>devSecOpsPipeline</code></td><td>All thirteen stages in one build</td><td>One job should cover the whole flow</td></tr>
+      <tr><td><code>devSecOpsSecurityPipeline</code></td><td>Unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; can trigger the extended job</td><td>The static part runs on every commit, the rest is a separate job</td></tr>
+      <tr><td><code>devSecOpsExtendedPipeline</code></td><td>Deployment, functional and performance tests, DAST, release delivery, higher environment</td><td>The downstream half, started by the security pipeline</td></tr>
+      <tr><td><code>devSecOpsSASTScanningPipeline</code></td><td>Checkout and SAST only</td><td>A source-only security scan, for example on a schedule</td></tr>
+    </tbody>
+  </table>
+  <h3>The thirteen stages of the full pipeline</h3>
+  <table>
+    <thead><tr><th>#</th><th>Stage</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Monitor source changes</td><td>Checkout, tool environment, load and validate <code>config.yaml</code>, apply the library policy</td></tr>
+      <tr><td>2</td><td>Unit tests</td><td>Build the artifact, run unit tests, measure line coverage and check it against the required minimum</td></tr>
+      <tr><td>3</td><td>Dependencies scan</td><td>Nexus IQ policy evaluation of the dependency tree, and automated remediation when it fails</td></tr>
+      <tr><td>4</td><td>SAST</td><td>HCL AppScan static analysis of the source, with HTML report and console link</td></tr>
+      <tr><td>5</td><td>SCA (SonarQube)</td><td>SonarQube analysis and quality gate</td></tr>
+      <tr><td>6</td><td>Nexus delivery (snapshot)</td><td>Publish the snapshot artifact or container image once static analysis is done</td></tr>
+      <tr><td>7</td><td>Lower test region deployment</td><td>Deploy to the lower test environment</td></tr>
+      <tr><td>8</td><td>Regression tests</td><td>Run the regression job set, local or on a remote Jenkins</td></tr>
+      <tr><td>9</td><td>Smoke tests</td><td>Run the smoke job set</td></tr>
+      <tr><td>10</td><td>Performance tests</td><td>Run the performance job set</td></tr>
+      <tr><td>11</td><td>DAST</td><td>HCL AppScan dynamic scan of the deployed application, with HTML and PDF report</td></tr>
+      <tr><td>12</td><td>Nexus delivery (release)</td><td>Publish the release artifact, blocked when any earlier stage is not green</td></tr>
+      <tr><td>13</td><td>Higher test environment deployment</td><td>Deploy to the higher environment, only when everything is green and the operator asked for it</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section" id="security">
+  <h2><span class="num">3</span> Security scanning</h2>
+  <table>
+    <thead><tr><th>Scan</th><th>Tool</th><th>Capabilities</th></tr></thead>
+    <tbody>
+      <tr><td>Dependency / SCA</td><td>Sonatype Nexus IQ</td><td>Policy evaluation of the whole dependency tree, per-severity counts, link to the composition report, and automated remediation pull requests</td></tr>
+      <tr><td>SAST</td><td>HCL AppScan on Cloud</td><td>IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report downloaded and archived, link to the AppScan console</td></tr>
+      <tr><td>DAST</td><td>HCL AppScan on Cloud</td><td>Scan of the deployed application through an AppScan presence, polling until the scan finishes, HTML and PDF report downloaded and archived</td></tr>
+      <tr><td>Code quality</td><td>SonarQube</td><td>Analysis, quality gate, vulnerability and hotspot counts, and metric badges embedded in the report</td></tr>
+    </tbody>
+  </table>
+  <h3>How findings are counted</h3>
+  <p>The severity counts the pipeline reports are the ones printed in the tool's own report. For AppScan the library reads the <strong>Summary of security issues</strong> table of the downloaded HTML report, and falls back to counting the individual issue blocks only when a report carries no summary. The counts are verified a second time while the HTML report is written, against the report file archived with the build, so a report and a pipeline verdict can never disagree.</p>
+  <div class="callout ok"><strong>A missing report is a failure, not a clean result.</strong> If AppScan returns a message instead of a rendered report, the library recognises it, waits and retries until its timeout, and fails the stage rather than recording zero findings. A stage can only be green when a real report was parsed.</div>
+</div>
+
+<div class="section" id="quality">
+  <h2><span class="num">4</span> Code quality and coverage</h2>
+  <ul>
+    <li><strong>Unit tests</strong> through the project's own Gradle, Maven or Flutter build; a failing test suite turns the stage orange and coverage is still measured on whatever reports were produced.</li>
+    <li><strong>Line coverage</strong> read from JaCoCo (Gradle and Maven, with auto-detection of the report location) or from an LCOV file for Flutter, aggregated across modules and across projects.</li>
+    <li><strong>Coverage gate</strong> against the minimum required by the library policy, shown in the report next to the measured value.</li>
+    <li><strong>Per-class coverage</strong> printed to the console for the modules that were measured.</li>
+    <li><strong>Test results</strong> published to Jenkins so the trend graphs and the failed-test list work as usual.</li>
+  </ul>
+</div>
+
+<div class="section" id="policy">
+  <h2><span class="num">5</span> Policy engine and release gate</h2>
+  <h3>One policy, owned by the library</h3>
+  <p>Maximum critical, high and medium findings per scanner and the minimum line coverage are defined in the library's own <code>defaults.yaml</code>. A project cannot raise them in its <code>config.yaml</code>, and every build logs the thresholds it was measured against.</p>
+  <h3>Orange stages</h3>
+  <p>A stage that breaks the policy is marked <code>WARN</code>, the build becomes <code>UNSTABLE</code>, and the reason names the finding counts and the consequence. The pipeline keeps going, so one run surfaces every problem instead of stopping at the first.</p>
+  <h3>Release gate</h3>
+  <p>The gate collects every verdict of the run and blocks the release artifact and the higher-environment deployment when a scanner count is above the policy, the coverage is below the minimum, or any stage is not green. The verdict is written to <code>release-gate.json</code> and archived, so a downstream pipeline inherits the decision of the upstream one instead of re-deciding it.</p>
+</div>
+
+<div class="section" id="goldenfix">
+  <h2><span class="num">6</span> Automated dependency remediation (GoldenFix)</h2>
+  <p>When Nexus IQ reports a policy violation the library can prepare the upgrade itself and open a pull request for review. It never merges anything.</p>
+  <h3>What it changes</h3>
+  <ul>
+    <li>Only <strong>direct dependencies</strong> are touched. Transitive dependencies are left alone: they are upgraded by upgrading whatever pulls them in.</li>
+    <li>Manifests updated across the whole source tree, multi-module projects included: <code>pom.xml</code> (dependencies, dependencyManagement and the properties they reference, parent POMs too), <code>build.gradle</code> / <code>build.gradle.kts</code> and <code>gradle.properties</code>, <code>package.json</code>, <code>requirements.txt</code>, <code>pubspec.yaml</code>.</li>
+    <li>Anything it could not apply - a version managed by a BOM, for example - is listed in the pull request and in the report as not applied, with the reason.</li>
+  </ul>
+  <h3>Which version it picks</h3>
+  <p>Two rules, in this order:</p>
+  <ol>
+    <li><strong>Only the patch version may change.</strong> For <code>x.y.z</code> the major and the minor stay as they are, so <code>2.13.4</code> may become <code>2.13.5</code> but never <code>2.15.4</code>. This keeps every proposed change backward compatible.</li>
+    <li><strong>Of those, the newest one without known vulnerabilities.</strong> The proposals are walked from the newest downwards and the first one Nexus IQ reports as free of violations wins. When none is clean, the one with the fewest known issues is taken.</li>
+  </ol>
+  <p>A version Nexus IQ labels as its Golden Version still loses to a plain patch upgrade when it would move the minor. Only when no patch-level version is offered at all does the library fall back to the newest clean proposal of any level, and it says so in the pull request so a reviewer knows to check it by hand.</p>
+  <h3>The pre-check build</h3>
+  <div class="callout ok"><strong>The pull request is only opened if the application still builds with it.</strong> After applying the new versions in an isolated worktree the library builds the project. If the build fails it lowers every proposed version to the next lower one the supplier offers, reverts the worktree, applies again and rebuilds. Only a version set that builds is committed and proposed. If no offered version builds, no pull request is opened and the report says the upgrade needs a developer.</div>
+  <p>The pre-check uses a compile-only build by default (<code>gradlew classes</code>, <code>mvn compile</code>, <code>flutter pub get</code>), and the command, the attempt count and the timeout are all configurable.</p>
+  <h3>The pull request</h3>
+  <ul>
+    <li>Branch named <code>GoldenFix-YYYYMMDDHHMM</code>, pushed to Bitbucket, with a pull request that lists every change as a table of file, component, old and new version.</li>
+    <li>An existing pull request of the same run is updated rather than duplicated.</li>
+    <li>Reviewers can be set in the configuration.</li>
+    <li>The report explains the outcome in plain language, so a reader who does not work on the pipeline can act on it.</li>
+  </ul>
+</div>
+
+<div class="section" id="build">
+  <h2><span class="num">7</span> Build, test and delivery</h2>
+  <h3>Build tools</h3>
+  <p>Gradle, Maven and Flutter, each with the project's own tasks, profiles and arguments taken from <code>config.yaml</code>. The wrapper is used when the repository ships one.</p>
+  <h3>Functional and performance tests</h3>
+  <ul>
+    <li>Three independent job sets - smoke, regression and performance - each a list of Jenkins jobs.</li>
+    <li>Jobs run <strong>locally</strong> on the same Jenkins, or <strong>remotely</strong> on another Jenkins addressed by full URL with its own credentials.</li>
+    <li>Configurable parallelism, so a large job set does not saturate the controller.</li>
+    <li>Every job is reported with its status, duration and a link to its build; a job entry that is not configured yet is reported as such and counts as not successful.</li>
+  </ul>
+  <h3>Artifact delivery</h3>
+  <ul>
+    <li>Snapshot delivery after static analysis, release delivery only when the release gate allows it.</li>
+    <li>Maven artifacts deployed to a Nexus repository, with the version written back to the configuration.</li>
+    <li>Container images built and copied to Nexus for OpenShift projects.</li>
+  </ul>
+</div>
+
+<div class="section" id="deploy">
+  <h2><span class="num">8</span> Deployment</h2>
+  <table>
+    <thead><tr><th>Target</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Virtual machines</td><td>Over SSH, or through the UrbanCode Deploy plugin, to a lower and a higher environment</td></tr>
+      <tr><td>OpenShift</td><td>Image build, copy to Nexus, deployment and rollout status per environment, using the cluster tokens from the credentials store</td></tr>
+    </tbody>
+  </table>
+  <p>The higher environment is deployed only when the release gate allows it and an operator selected the parameter, so a promotion is always a deliberate act.</p>
+</div>
+
+<div class="section" id="report">
+  <h2><span class="num">9</span> Reporting and metrics</h2>
+  <h3>The HTML pipeline report</h3>
+  <ul>
+    <li>A stage flow grouped into phases, each stage with its result, duration, finding counts and links to the tool's own report.</li>
+    <li>A Security Gates table with the counts of every scanner against the policy, per project.</li>
+    <li>A release policy card listing every violation that blocks the release.</li>
+    <li>Coverage bars, SonarQube metric badges, the GoldenFix outcome and the full list of test jobs.</li>
+    <li>Multi-project aware: one report covers every project of the build, each with its own rows and boxes.</li>
+    <li>Written, archived and published even when the run failed; if the full report cannot be rendered a minimal one with the stage results is written instead.</li>
+  </ul>
+  <h3>Metrics</h3>
+  <p>Stage results, durations, finding counts and coverage are pushed to InfluxDB, and the repository ships Grafana dashboards and queries built on them, so the trend across builds and across applications is visible outside Jenkins.</p>
+</div>
+
+<div class="section" id="platform">
+  <h2><span class="num">10</span> Platform support</h2>
+  <table>
+    <thead><tr><th>Dimension</th><th>Supported</th></tr></thead>
+    <tbody>
+      <tr><td>Agent operating system</td><td>Linux, macOS and Windows; the library detects the agent and uses the right shell</td></tr>
+      <tr><td>Build tools</td><td>Gradle, Maven, Flutter</td></tr>
+      <tr><td>Dependency ecosystems for remediation</td><td>Maven, npm, PyPI, Dart/Flutter pub</td></tr>
+      <tr><td>Projects per build</td><td>One or many, each with its own configuration, scans, coverage and report rows</td></tr>
+      <tr><td>Source control</td><td>Git; Bitbucket for GoldenFix pull requests</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">GoldenFix remediation needs a Linux or macOS agent. Everything else runs on Windows agents as well.</div>
+</div>
+
+<div class="section" id="prereq-jenkins">
+  <h2><span class="num">11</span> Prerequisites: Jenkins</h2>
+  <h3>The library itself</h3>
+  <p>Register it once under <em>Manage Jenkins &rarr; Configure System &rarr; Global Pipeline Libraries</em>, for example under the name <code>DevSecOpsJenkinsLibrary</code>, pointing at this repository. Projects then load it with <code>@Library('DevSecOpsJenkinsLibrary') _</code>.</p>
+  <h3>Plugins</h3>
+  <table>
+    <thead><tr><th>Plugin</th><th>Needed for</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>Pipeline</td><td>Declarative pipeline support</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Pipeline: Shared Groovy Libraries</td><td>Loading this library</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Git</td><td>Source checkout</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Pipeline Utility Steps</td><td><code>readYaml</code>, <code>readJSON</code>, <code>writeJSON</code>, <code>findFiles</code></td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Credentials Binding</td><td><code>withCredentials</code> for every external tool</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>HTML Publisher</td><td>Publishing the pipeline report</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>JUnit</td><td>Unit test results</td><td><span class="pill req">required</span></td></tr>
+      <tr><td>SonarQube Scanner</td><td><code>withSonarQubeEnv</code>, <code>waitForQualityGate</code></td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Nexus Platform</td><td><code>nexusPolicyEvaluation</code></td><td><span class="pill req">required</span></td></tr>
+      <tr><td>Parameterized Remote Trigger</td><td>Test jobs on another Jenkins</td><td><span class="pill">as needed</span></td></tr>
+      <tr><td>Copy Artifact</td><td>Passing <code>config.yaml</code> and the release gate downstream</td><td><span class="pill">as needed</span></td></tr>
+      <tr><td>SSH Agent</td><td>Pushing the GoldenFix branch, SSH deployment</td><td><span class="pill">as needed</span></td></tr>
+      <tr><td>OpenShift Client</td><td>OpenShift deployment</td><td><span class="pill opt">optional</span></td></tr>
+      <tr><td>UrbanCode Deploy</td><td>VM deployment through UCD</td><td><span class="pill opt">optional</span></td></tr>
+    </tbody>
+  </table>
+  <h3>Global configuration</h3>
+  <ol>
+    <li>A <strong>SonarQube server</strong> registered under the name <code>SonarQube</code>.</li>
+    <li>A <strong>Nexus IQ server</strong> registered under <em>Sonatype Nexus Platform</em>.</li>
+    <li>Network access from the agents to Nexus, Nexus IQ, SonarQube, HCL AppScan and Bitbucket, through the corporate proxy where one is used.</li>
+  </ol>
+  <h3>Credentials</h3>
+  <table>
+    <thead><tr><th>Credential</th><th>Type</th><th>Used for</th></tr></thead>
+    <tbody>
+      <tr><td><code>nexusiqP</code></td><td>Username / password</td><td>Nexus IQ evaluation, and reading reports and remediation versions for GoldenFix</td></tr>
+      <tr><td><code>hcl-app-scan-acount</code></td><td>Username / password (key id and secret)</td><td>HCL AppScan API for SAST and DAST</td></tr>
+      <tr><td>Bitbucket credentials</td><td>Username / password, or secret text with <code>authType: bearer</code></td><td>Pushing the GoldenFix branch and opening the pull request; needs write access to the repository</td></tr>
+      <tr><td>Remote Jenkins credentials</td><td>Username / API token</td><td>Triggering test jobs on another Jenkins</td></tr>
+      <tr><td><code>openshift-rd-token</code>, <code>openshift-qc-token</code></td><td>Secret text</td><td>OpenShift deployment per environment</td></tr>
+    </tbody>
+  </table>
+  <h3>Installation-specific global steps</h3>
+  <div class="callout">The library calls four steps that are not public plugins and must exist as global variables in the Jenkins instance: <code>reportBuild</code>, <code>reportUnitTest</code>, <code>reportSurefireTest</code> and <code>addSonarBadgesToDescription</code>. Without them the Nexus delivery and SonarQube stages fail. Provide them, or remove the calls when porting the library to another Jenkins.</div>
+  <h3>Script security</h3>
+  <p>Nothing needs approval under <em>In-process Script Approval</em>. The library is written to stay inside the script sandbox, and its test suite loads every class and runs every pipeline under the real sandbox before a release.</p>
+</div>
+
+<div class="section" id="prereq-tools">
+  <h2><span class="num">12</span> Prerequisites: external tools</h2>
+  <table>
+    <thead><tr><th>Tool</th><th>What has to exist before the first build</th></tr></thead>
+    <tbody>
+      <tr><td>Sonatype Nexus IQ</td><td>An application with a public id, and a policy assigned to it</td></tr>
+      <tr><td>HCL AppScan on Cloud</td><td>An application id; for DAST also a presence reachable from the target environment and the target URL of the deployed application</td></tr>
+      <tr><td>SonarQube</td><td>A project key; a badge token if the report should show metric badges</td></tr>
+      <tr><td>Nexus repository</td><td>Snapshot and release repositories, and an account allowed to deploy to them</td></tr>
+      <tr><td>Bitbucket</td><td>The repository that GoldenFix proposes upgrades to, and a target branch for the pull request</td></tr>
+      <tr><td>InfluxDB and Grafana</td><td>Only if the metrics and the shipped dashboards are wanted</td></tr>
+    </tbody>
+  </table>
+  <h3>Agent tools</h3>
+  <ul>
+    <li>A Java JDK for Gradle and Maven builds.</li>
+    <li>Gradle or Maven, or the wrapper in the repository.</li>
+    <li>The Flutter SDK for Flutter applications.</li>
+    <li><code>curl</code>, <code>python3</code>, <code>git</code>, <code>ssh</code> and <code>scp</code> on Linux and macOS agents; PowerShell on Windows agents.</li>
+    <li>Enough disk space for the AppScan client utility, which the library downloads and caches in the workspace.</li>
+  </ul>
+</div>
+
+<div class="section" id="prereq-app">
+  <h2><span class="num">13</span> Prerequisites: the application repository</h2>
+  <h3>A Jenkinsfile</h3>
+  <pre><code><span class="c">@Library('DevSecOpsJenkinsLibrary') _</span>
+
+<span class="kw">devSecOpsPipeline</span>(
+    <span class="k">projectNames</span>: <span class="s">'my-app'</span>,
+    <span class="k">agentNames</span>:   [<span class="s">'linux-agent'</span>]
+)</code></pre>
+  <h3>A config.yaml in the repository root</h3>
+  <p>One <code>projects:</code> section per project built by the job. A run fails early and says what is missing, so a first build is a fast way to validate the file. The minimum is:</p>
+  <pre><code><span class="k">projects</span>:
+  <span class="k">my-app</span>:
+    <span class="k">buildTool</span>:  <span class="v">gradle</span>            <span class="c"># gradle | maven | flutter</span>
+    <span class="k">appId</span>:      <span class="s">"&lt;HCL AppScan application id&gt;"</span>
+    <span class="k">asoc</span>:
+      <span class="k">keyId</span>:    <span class="s">"&lt;HCL AppScan key id&gt;"</span>
+    <span class="k">build</span>:
+      <span class="k">tasks</span>:    [<span class="s">"clean"</span>, <span class="s">"build"</span>]
+    <span class="k">tests</span>:
+      <span class="k">unitTests</span>:
+        <span class="k">tasks</span>:  [<span class="s">"test"</span>]
+    <span class="k">tools</span>:
+      <span class="k">sonar</span>:
+        <span class="k">projectKey</span>: <span class="s">"&lt;SonarQube project key&gt;"</span>
+      <span class="k">nexusIq</span>:
+        <span class="k">iqApplication</span>: <span class="s">"&lt;Nexus IQ public id&gt;"</span></code></pre>
+  <p>Add the sections for the capabilities the project uses: <code>dast</code> (target URL and presence), <code>scm.bitbucket</code> (for GoldenFix pull requests), <code>goldenFix</code>, <code>tests.smoke</code> / <code>regression</code> / <code>performance</code>, <code>deploy.vm</code> or the OpenShift settings, and <code>coverage.reportPath</code> when the coverage report is not in a standard location. The template in the repository lists every option with its default.</p>
+  <h3>The build itself</h3>
+  <ul>
+    <li>A build that runs unattended on an agent, with no interactive prompt.</li>
+    <li>A unit test task, and a coverage report: JaCoCo XML for Gradle and Maven, or an LCOV file for Flutter. Without a coverage report the stage turns orange, because the required coverage cannot be verified.</li>
+    <li>Direct dependencies declared in a manifest the library can edit, if GoldenFix should be able to propose upgrades.</li>
+    <li>A deployable artifact or a Dockerfile, if the delivery and deployment stages are used.</li>
+  </ul>
+  <h3>What the pipeline needs from the environment</h3>
+  <ul>
+    <li>A deployed, reachable instance of the application for DAST and for the functional tests.</li>
+    <li>Jenkins jobs for smoke, regression and performance tests, created before the pipeline reaches those stages; an entry with an empty job name is reported as not configured and turns the stage orange.</li>
+  </ul>
+</div>
+
+<div class="section" id="checklist">
+  <h2><span class="num">14</span> Onboarding checklist</h2>
+  <ol>
+    <li>Register the library in Jenkins and install the plugins of section 11.</li>
+    <li>Register the SonarQube and Nexus IQ servers, and add the credentials.</li>
+    <li>Create the application in Nexus IQ, HCL AppScan and SonarQube, and note the three identifiers.</li>
+    <li>Add the Jenkinsfile and <code>config.yaml</code> to the repository.</li>
+    <li>Make sure the build produces a coverage report, and point <code>coverage.reportPath</code> at it if it is in an unusual place.</li>
+    <li>Run the job once. The first run validates the configuration, logs the thresholds it measures against and writes the report even if stages fail.</li>
+    <li>Read the report, fix what it names, and only then wire in the deployment, the test job sets and the GoldenFix pull requests.</li>
+  </ol>
+  <div class="callout ok">The pipeline is designed to be onboarded incrementally. A project can start with build, unit tests and the three static scans, and add deployment, functional tests and DAST later; the stages it does not configure report themselves as not required or not configured instead of breaking the run.</div>
+</div>
+
+<div class="footer">DevSecOps Jenkins Shared Library &middot; capabilities and prerequisites</div>
+
+</div>
+</body>
+</html>

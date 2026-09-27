@@ -61,6 +61,9 @@ curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "A
 curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"
 ---
 [SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID"
+---
+[SH]
 curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -o "appscan-dast-report.html" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID/Download"
 ---
 [WRITEFILE report_payload.json]
@@ -68,6 +71,9 @@ curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "A
 ---
 [SH]
 curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"
+---
+[SH]
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID"
 ---
 [SH]
 curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -o "appscan-dast-report.pdf" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID/Download"

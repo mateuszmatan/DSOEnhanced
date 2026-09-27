@@ -6,6 +6,7 @@ import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
 import com.bbh.utils.AppScanReportParser
+import com.bbh.utils.RestClient
 import com.bbh.utils.BuildUtils
 
 class AppScanService implements Serializable {
@@ -503,12 +504,18 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     }
 
     void dastDownloadReport(String scanId) {
-        downloadDastReport(scanId, 'Html', 'appscan-dast-report.html')
-        downloadDastReport(scanId, 'Pdf', 'appscan-dast-report.pdf')
+        Map html = downloadDastReport(scanId, 'Html', 'appscan-dast-report.html')
+        Map pdf  = downloadDastReport(scanId, 'Pdf', 'appscan-dast-report.pdf')
+        if (!pdf.ok) script.echo "[DAST] PDF report unavailable: ${pdf.reason} - the HTML report is still linked"
+        if (!html.ok) {
+            script.error("[DAST] The HTML report could not be produced, so the findings of this scan are unknown: ${html.reason}")
+        }
     }
 
-    void downloadDastReport(String scanId, String fileType, String outFile) {
+    Map downloadDastReport(String scanId, String fileType, String outFile) {
         script.echo "[DAST] Generating & Downloading ${fileType.toUpperCase()} report"
+        int timeoutMin  = (state.cfgDefaults.dast?.reportTimeoutMin ?: 30) as int
+        int intervalSec = (state.cfgDefaults.dast?.reportIntervalSec ?: 30) as int
 
         script.writeFile(file: 'report_payload.json',
                 text: """{"Configuration":{"ReportFileType":"${fileType}","Summary":true,"Details":true,"Overview":true,"TableOfContent":true}}""")
@@ -519,15 +526,83 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         ).trim()
         def reportId = script.readJSON(text: response).Id
         if (!reportId) {
-            script.echo "[DAST] Could not generate the ${fileType.toUpperCase()} report: ${response}"
-            return
+            return [ok: false, reason: "AppScan did not accept the ${fileType.toUpperCase()} report request: ${RestClient.abbreviate(response, 300)}".toString()]
         }
         script.echo "[DAST] Generating report ID: ${reportId}"
+        return fetchRenderedReport(reportId, fileType, outFile, timeoutMin, intervalSec)
+    }
 
-        script.sleep(time: 30, unit: 'SECONDS')
+    Map fetchRenderedReport(String reportId, String fileType, String outFile, int timeoutMin, int intervalSec) {
+        long deadline = System.currentTimeMillis() + (timeoutMin * 60000L)
+        int seconds = intervalSec < 1 ? 1 : intervalSec
+        int maxAttempts = ((timeoutMin * 60) / seconds) as int
+        if (maxAttempts < 1) maxAttempts = 1
+        int attempt = 0
+        String reason = 'the report was never rendered'
+        while (attempt < maxAttempts && System.currentTimeMillis() < deadline) {
+            attempt++
+            String status = reportStatus(reportId)
+            if (status == 'Failed') {
+                return [ok: false, reason: "AppScan reported the ${fileType.toUpperCase()} report as Failed".toString()]
+            }
+            if (status == 'Ready' || status == 'Unknown') {
+                script.sh(script: curlCommand([bearerHeader(), "-o \"${outFile}\""], appscanApiUrl("Reports/${reportId}/Download")))
+                Map check = validateReportFile(outFile, fileType)
+                if (check.ok) {
+                    script.echo "[DAST] DAST report saved as ${outFile} after ${attempt} attempt(s)"
+                    return [ok: true, reason: '']
+                }
+                reason = check.reason as String
+            } else {
+                reason = "AppScan reports the ${fileType.toUpperCase()} report as ${status}".toString()
+            }
+            if (attempt >= maxAttempts) break
+            script.echo "[DAST] ${fileType.toUpperCase()} report not ready yet (${reason}) - waiting ${seconds}s, attempt ${attempt} of ${maxAttempts}"
+            script.sleep(time: seconds, unit: 'SECONDS')
+        }
+        return [ok: false, reason: "${reason}, gave up after ${attempt} attempt(s) over at most ${timeoutMin} minute(s)".toString()]
+    }
 
-        script.sh(script: curlCommand([bearerHeader(), "-o \"${outFile}\""], appscanApiUrl("Reports/${reportId}/Download")))
-        script.echo "[DAST] DAST report saved as ${outFile}"
+    String reportStatus(String reportId) {
+        try {
+            String body = script.sh(script: curlCommand(acceptHeaders(), appscanApiUrl("Reports/${reportId}")), returnStdout: true).trim()
+            if (!body) return 'Unknown'
+            def status = script.readJSON(text: body)?.Status
+            return status ? (status as String) : 'Unknown'
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return 'Unknown'
+        }
+    }
+
+    Map validateReportFile(String outFile, String fileType) {
+        String path = "${script.env.WORKSPACE}/${outFile}"
+        if (!script.fileExists(path)) return [ok: false, reason: 'the download produced no file']
+        String head = readHead(path)
+        if (fileType.equalsIgnoreCase('Pdf')) {
+            if (!head.startsWith('%PDF')) {
+                return [ok: false, reason: "the downloaded file is not a PDF: ${RestClient.abbreviate(head.trim(), 200)}".toString()]
+            }
+            return [ok: true, reason: '']
+        }
+        String trimmed = head.trim()
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            return [ok: false, reason: "AppScan returned a message instead of the report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
+        }
+        if (!trimmed.toLowerCase().contains('<html') && !trimmed.toLowerCase().contains('<!doctype html')) {
+            return [ok: false, reason: "the downloaded file is not an HTML report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
+        }
+        return [ok: true, reason: '']
+    }
+
+    String readHead(String path) {
+        try {
+            String content = script.readFile(path) ?: ''
+            return content.length() > 2048 ? content.substring(0, 2048) : content
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return ''
+        }
     }
 
     void renameDastReport() {
@@ -551,15 +626,17 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         } else {
             script.echo "[DAST] PDF report not found - only the HTML report will be linked"
         }
-        def counts = [critical: 0, high: 0, medium: 0, low: 0]
-        if (script.fileExists(dest)) {
-            counts = parseHtmlCounts(dest, 'dast')
-            state.vulnCounts.dast = counts
-            state.recordVulns('dast', counts)
-            script.echo "[DAST] C:${counts.critical} H:${counts.high} M:${counts.medium} L:${counts.low}"
-        } else {
-            script.echo "[DAST] HTML report not found - vulnerability counts remain 0"
+        if (!script.fileExists(dest)) {
+            script.error("[DAST] ${dest.tokenize('/').last()} is missing, so the findings of this scan are unknown - the stage cannot be reported as passed")
         }
+        Map check = validateReportFile(dest.tokenize('/').last(), 'Html')
+        if (!check.ok) {
+            script.error("[DAST] ${dest.tokenize('/').last()} does not hold a report: ${check.reason}")
+        }
+        def counts = parseHtmlCounts(dest, 'dast')
+        state.vulnCounts.dast = counts
+        state.recordVulns('dast', counts)
+        script.echo "[DAST] C:${counts.critical} H:${counts.high} M:${counts.medium} L:${counts.low}"
 
         policy.registerFindings('dast', counts, dest.tokenize('/').last())
     }

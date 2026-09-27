@@ -67,7 +67,8 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
                 }
                 Map fix = GoldenFix.create(c.ecosystem as String, c.group as String, c.name as String, c.version as String,
                         pick.version as String, pick.type as String, c.packageUrl as String, c.threatLevel as int,
-                        c.direct as Boolean, application, pick.golden as boolean, pick.nonBreaking as Boolean)
+                        c.direct as Boolean, application, pick.golden as boolean, pick.nonBreaking as Boolean,
+                        (pick.alternatives ?: []) as List)
                 fixes << fix
                 lines << "[GOLDENFIX]   ${c.displayName} ${c.version} -> ${pick.version}: ${GoldenFix.selectionLabel(fix)}".toString()
             }

@@ -37,6 +37,8 @@ defaults:
     maxMedium:       0
     pollTimeoutMin:  60
     pollIntervalSec: 60
+    reportTimeoutMin:  30          # how long to wait for AppScan to render the HTML and PDF report
+    reportIntervalSec: 30          # delay between two attempts to fetch the rendered report
 
   tests:
     maxParallel: 20                # max test jobs (smoke/regression/performance) running at the same time
@@ -58,6 +60,11 @@ defaults:
                                    # 1. only the patch version may change, x.y stays as it is
                                    # 2. of those, the newest one without known vulnerabilities
                                    # with no patch level offer the newest clean version of any level is used
+    verify:                          # pre-check: build the project with the proposed versions before opening the PR
+      enabled:        true           # a failing build lowers the proposed versions and tries again
+      maxAttempts:    3              # how many version sets are tried before giving up
+      timeoutMinutes: 20
+      command:        ""             # default: gradlew classes / mvn compile / flutter pub get
     commitAuthorName:  "DevSecOps GoldenFix"
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default

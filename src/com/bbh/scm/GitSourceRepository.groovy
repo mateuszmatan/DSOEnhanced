@@ -99,6 +99,15 @@ rm -f '${q(messageFile)}'
         }
     }
 
+    void revert(String dir) {
+        script.sh(label: 'GoldenFix: revert worktree', script: """#!/bin/bash
+set +x
+set -euo pipefail
+git -C '${q(dir)}' checkout -- .
+git -C '${q(dir)}' clean -fd
+""")
+    }
+
     void cleanup(String dir) {
         script.sh(label: 'GoldenFix: remove worktree', script: """#!/bin/bash
 cd '${q(workspaceRoot())}'
