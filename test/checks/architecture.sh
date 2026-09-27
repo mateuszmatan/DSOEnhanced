@@ -7,7 +7,7 @@ ALLOWED = {
     'utils': set(),
     'core': {'utils'},
     'config': {'core', 'utils'},
-    'build': {'core', 'utils'},
+    'build': {'core', 'utils', 'remediation.port', 'remediation.model'},
     'deploy': {'core', 'build', 'utils'},
     'metrics': {'core'},
     'report': {'core', 'utils'},

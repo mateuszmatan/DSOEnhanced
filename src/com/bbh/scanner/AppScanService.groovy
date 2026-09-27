@@ -578,21 +578,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     Map validateReportFile(String outFile, String fileType) {
         String path = "${script.env.WORKSPACE}/${outFile}"
         if (!script.fileExists(path)) return [ok: false, reason: 'the download produced no file']
-        String head = readHead(path)
-        if (fileType.equalsIgnoreCase('Pdf')) {
-            if (!head.startsWith('%PDF')) {
-                return [ok: false, reason: "the downloaded file is not a PDF: ${RestClient.abbreviate(head.trim(), 200)}".toString()]
-            }
-            return [ok: true, reason: '']
-        }
-        String trimmed = head.trim()
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            return [ok: false, reason: "AppScan returned a message instead of the report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
-        }
-        if (!trimmed.toLowerCase().contains('<html') && !trimmed.toLowerCase().contains('<!doctype html')) {
-            return [ok: false, reason: "the downloaded file is not an HTML report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
-        }
-        return [ok: true, reason: '']
+        return AppScanReportParser.validate(readHead(path), fileType)
     }
 
     String readHead(String path) {

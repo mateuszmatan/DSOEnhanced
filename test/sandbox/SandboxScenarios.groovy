@@ -314,6 +314,61 @@ try {
 } catch (Throwable t) {
     gfErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
 }
+SandboxHarness flutterHarness = new SandboxHarness(srcDir, stubDir)
+String flutterLcov = 'SF:/ws/lib/main.dart\nDA:1,3\nDA:2,0\nend_of_record\nSF:/ws/lib/api/client.dart\nDA:4,1\nend_of_record\n'
+String flutterAnalyze = "INFO|HINT|UNUSED_IMPORT|/ws/lib/main.dart|3|8|20|Unused import: 'dart:io'.\n" +
+        "ERROR|COMPILE_TIME_ERROR|UNDEFINED_METHOD|/ws/lib/api/client.dart|42|5|11|The method 'foo' isn't defined.\n" +
+        "WARNING|WARNING|UNUSED_LOCAL_VARIABLE|/ws/lib/main.dart|9|7|3|The value of 'x' isn't used.\n"
+String flutterCoverageXml = flutterHarness.run {
+    flutterHarness.type('com.bbh.utils.FlutterSonarReports').coverageXml(flutterLcov, '/ws')
+} as String
+String flutterIssuesJson = flutterHarness.run {
+    flutterHarness.type('com.bbh.utils.FlutterSonarReports').issuesJson(flutterAnalyze, '/ws')
+} as String
+boolean coverageWellFormed = true
+try {
+    javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(new ByteArrayInputStream(flutterCoverageXml.getBytes('UTF-8')))
+} catch (Throwable t) {
+    coverageWellFormed = false
+}
+def flutterIssues = new groovy.json.JsonSlurper().parseText(flutterIssuesJson)
+check('Flutter without the SonarQube plugin: LCOV becomes a well formed generic coverage report with relative paths',
+        coverageWellFormed && flutterCoverageXml.contains('<file path="lib/main.dart">')
+                && flutterCoverageXml.contains('<lineToCover lineNumber="1" covered="true"/>')
+                && flutterCoverageXml.contains('<lineToCover lineNumber="2" covered="false"/>')
+                && flutterCoverageXml.contains('<file path="lib/api/client.dart">'),
+        flutterCoverageXml)
+check('Flutter without the SonarQube plugin: dart analyze becomes generic external issues with mapped severities',
+        flutterIssues.issues.size() == 3
+                && flutterIssues.issues.every { !(it.primaryLocation.filePath as String).startsWith('/') }
+                && flutterIssues.issues.collect { it.severity } == ['INFO', 'MAJOR', 'MINOR']
+                && flutterIssues.issues.collect { it.type } == ['CODE_SMELL', 'BUG', 'CODE_SMELL']
+                && flutterIssues.issues[1].ruleId == 'UNDEFINED_METHOD'
+                && flutterIssues.issues[1].primaryLocation.textRange.startLine == 42,
+        flutterIssuesJson)
+
+SandboxHarness verifierHarness = new SandboxHarness(srcDir, stubDir)
+List verifierPlan = verifierHarness.run {
+    verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript()).plan(
+            ['pom.xml', 'web/package.json', 'tools/requirements.txt', 'gui/build.gradle', 'gradle.properties',
+             'mobile/pubspec.yaml', 'docs/readme.md', 'api/pyproject.toml'], [:])
+} as List
+List verifierKinds = verifierPlan.collect { (it as Map).name }.unique().sort()
+List verifierDirs = verifierPlan.collect { "${(it as Map).name}@${(it as Map).subDir}".toString() }.sort()
+List overridden = verifierHarness.run {
+    verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript()).plan(
+            ['web/package.json'], [npm: 'npm run build'])
+} as List
+check('GoldenFix pre-check: every ecosystem whose manifest changed is verified, not only Maven',
+        verifierKinds == ['gradle', 'maven', 'npm', 'pip', 'pub'],
+        "planned ${verifierKinds} from ${verifierPlan.collect { (it as Map).command }}")
+check('GoldenFix pre-check: each changed manifest is verified in its own directory and a file it does not know is ignored',
+        verifierDirs == ['gradle@', 'gradle@gui', 'maven@', 'npm@web', 'pip@api', 'pip@tools', 'pub@mobile'],
+        verifierDirs)
+check('GoldenFix pre-check: the command of an ecosystem can be overridden in config.yaml',
+        overridden.size() == 1 && (overridden[0] as Map).command == 'npm run build', overridden)
+
 Closure preCheckRun = { Closure buildOutcome ->
     SandboxHarness h = new SandboxHarness(srcDir, stubDir, fixturesDir)
     FakeScript sc = new FakeScript()
@@ -322,7 +377,7 @@ Closure preCheckRun = { Closure buildOutcome ->
     sc.shHandler = { Map a ->
         String text = String.valueOf(a.script ?: '')
         if (a.returnStdout) return '202609191405'
-        if (String.valueOf(a.label ?: '') == 'GoldenFix: pre-check build') {
+        if (String.valueOf(a.label ?: '').startsWith('GoldenFix: pre-check ')) {
             builds << text
             return buildOutcome.call(builds.size())
         }
@@ -346,7 +401,8 @@ Closure preCheckRun = { Closure buildOutcome ->
             def source = h.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
             def publisher = h.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
             List updaters = ['MavenPomUpdater'].collect { h.type("com.bbh.remediation.updater.${it}".toString()).newInstance() }
-            def service = h.type('com.bbh.remediation.GoldenFixService').newInstance(sc, state, source, repository, publisher, updaters)
+            def verifier = h.type('com.bbh.build.ManifestBuildVerifier').newInstance(sc)
+            def service = h.type('com.bbh.remediation.GoldenFixService').newInstance(sc, state, source, repository, publisher, updaters, verifier)
             service.remediate([[application: app, serverUrl: 'https://tools.bbh.com/IQ', scanId: 'a' * 32]])
             out.putAll((state.projectsGoldenFix['gui'] ?: [:]) as Map)
             out.pom = repository.written['pom.xml']

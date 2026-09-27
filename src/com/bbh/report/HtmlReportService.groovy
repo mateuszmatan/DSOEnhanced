@@ -212,7 +212,7 @@ class HtmlReportService implements Serializable {
     protected Map parseAppScanReport(String path) {
         if (!path || !script.fileExists(path)) return [parsed: false]
         try {
-            return parseHclAppScanHtml(script.readFile(path))
+            return AppScanReportParser.counts(script.readFile(path) as String)
         } catch (Throwable t) {
             script.echo "[REPORT] Failed to parse ${path}: ${t.message}"
             return [parsed: false]
@@ -287,11 +287,6 @@ class HtmlReportService implements Serializable {
             }
         }
         return details
-    }
-
-    @NonCPS
-    protected Map parseHclAppScanHtml(String html) {
-        return AppScanReportParser.counts(html)
     }
 
     @NonCPS protected String esc(String s) {

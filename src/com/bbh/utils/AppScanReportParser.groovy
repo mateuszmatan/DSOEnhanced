@@ -36,6 +36,24 @@ class AppScanReportParser implements Serializable {
     }
 
     @NonCPS
+    static Map validate(String head, String fileType) {
+        String trimmed = (head ?: '').trim()
+        if (!trimmed) return [ok: false, reason: 'the downloaded file is empty']
+        if ('pdf'.equalsIgnoreCase(fileType)) {
+            if (!trimmed.startsWith('%PDF')) return [ok: false, reason: "the downloaded file is not a PDF: ${RestClient.abbreviate(trimmed, 200)}".toString()]
+            return [ok: true, reason: '']
+        }
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            return [ok: false, reason: "AppScan returned a message instead of the report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
+        }
+        String lower = trimmed.toLowerCase()
+        if (!lower.contains('<html') && !lower.contains('<!doctype html')) {
+            return [ok: false, reason: "the downloaded file is not an HTML report: ${RestClient.abbreviate(trimmed, 200)}".toString()]
+        }
+        return [ok: true, reason: '']
+    }
+
+    @NonCPS
     static Map severities(String html) {
         Map parsed = counts(html)
         return [

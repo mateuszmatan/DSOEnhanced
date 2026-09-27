@@ -146,7 +146,8 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── config/ConfigLoader.groovy          <- config.yaml + defaults.yaml -> PipelineState
 │   ├── build/
 │   │   ├── BuildService.groovy             <- build, unit tests, coverage, remote test jobs
-│   │   └── BuildRunner.groovy              <- one runner for the Gradle and Maven commands
+│   │   ├── BuildRunner.groovy              <- one runner for the Gradle and Maven commands
+│   │   └── ManifestBuildVerifier.groovy    <- adapter: the GoldenFix pre-check build, one check per changed manifest
 │   ├── scanner/                            <- adapters for the scanners
 │   │   ├── AppScanService.groovy           <- HCL AppScan SAST and DAST
 │   │   ├── NexusIqService.groovy           <- Nexus IQ scan, calls the remediation port on a violation
@@ -160,12 +161,13 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   ├── port/SourceRepository.groovy       <- outbound port: source tree, commit, push
 │   │   ├── port/PullRequestPublisher.groovy   <- outbound port: pull request
 │   │   ├── port/ManifestUpdater.groovy        <- outbound port: one build manifest format
+│   │   ├── port/BuildVerifier.groovy          <- outbound port: pre-check build of the proposed versions
 │   │   └── updater/                        <- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater
 │   ├── scm/                                <- adapters: GitSourceRepository (git worktree), Bitbucket pull requests
 │   ├── deploy/                             <- adapters: VmDeployService (SSH, UrbanCode Deploy), OpenshiftService
 │   ├── metrics/InfluxDbService.groovy      <- adapter: DORA metrics
 │   ├── report/HtmlReportService.groovy     <- one report template, the variant only selects the stage layout
-│   └── utils/                              <- RestClient (curl JSON client), BuildUtils, FlutterUtils
+│   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
 ├── tools/build-documentation-html.py       <- renders DOCUMENTATION.md into documentation.html
 ├── test/                          <- the library test suite, see section 17
 │   ├── run-all.sh                 <- one command: static checks, compilation, sandbox scenarios, demo reports
@@ -757,7 +759,18 @@ When the Nexus IQ policy is violated (critical, high or medium findings above th
    - npm: `package.json` dependencies, devDependencies, peerDependencies, optionalDependencies (range operator preserved)
    - pip: `requirements*.txt`, `constraints*.txt`, `pyproject.toml` (PEP 621 and Poetry)
    - Flutter: `pubspec.yaml` dependencies and dev_dependencies (the `^` constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
-4. Builds the project with the new versions before proposing anything, so a pull request never breaks the build. The project is compiled inside the worktree (`./gradlew classes`, `mvn compile` or `flutter pub get` by default, `goldenFix.verify.command` to override). When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to `goldenFix.verify.maxAttempts` times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, **no pull request is opened** and the run ends with `BUILD_FAILED`. Set `goldenFix.verify.enabled: false` to skip the pre-check.
+4. Builds the project with the new versions before proposing anything, so a pull request never breaks the build. **Every ecosystem whose manifest was changed is verified, not only the project's main build tool**, and each manifest is checked in its own directory, so a repository that mixes a `pom.xml`, an Angular `package.json` and a `requirements.txt` has all three checked:
+
+   | Changed manifest | Default pre-check |
+   |------------------|-------------------|
+   | `pom.xml` | `mvn -B -q -DskipTests compile` |
+   | `build.gradle`, `build.gradle.kts`, `gradle.properties`, `*.versions.toml` | `./gradlew --no-daemon --console=plain classes` (or `gradle` without a wrapper) |
+   | `package.json` | `npm ci --ignore-scripts`, or `npm install --ignore-scripts` without a lock file |
+   | `requirements*.txt`, `constraints*.txt` | `python3 -m pip install --dry-run -r <file>` |
+   | `pyproject.toml` | `python3 -m pip install --dry-run .` |
+   | `pubspec.yaml` | `flutter pub get` (or `dart pub get`) |
+
+   Each command is replaceable per ecosystem under `goldenFix.verify.commands`, for example `commands: { npm: "npm run build" }` to compile an Angular application rather than only resolving its dependencies. When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to `goldenFix.verify.maxAttempts` times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, **no pull request is opened** and the run ends with `BUILD_FAILED`. Set `goldenFix.verify.enabled: false` to skip the pre-check.
 5. Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch `GoldenFix-YYYYMMDDHHMM` and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.
 6. The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the **Nexus IQ GoldenFix** card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).
 
@@ -1239,6 +1252,21 @@ A Pipeline job with **Pipeline script from SCM**, your Git repository, your bran
 Click **Build Now**. Select `DEPLOY_HIGHER_ENV` only when you want the QC deployment; it happens only when every stage is green.
 
 ### Step 8 – Read the report
+
+### Flutter and SonarQube without the Flutter plugin
+
+SonarQube Community has no Dart or Flutter analyser, so the library does not depend on one. A Flutter project is analysed through SonarQube's own generic import formats, which every edition supports:
+
+| What | How it reaches SonarQube |
+|------|--------------------------|
+| Line coverage | `total_lcov.info` is converted to the **Generic Coverage** XML and passed as `sonar.coverageReportPaths` |
+| Static findings | `dart analyze --format=machine` is converted to the **Generic Issue** JSON and passed as `sonar.externalIssuesReportPaths`; `ERROR` becomes a `MAJOR` bug, `WARNING` a `MINOR` code smell, `INFO` an informational code smell |
+| Sources and tests | `sonar.sources` (default `lib`) and `sonar.tests` (default `test`), overridable in `tools.sonar.sources` and `tools.sonar.tests` |
+
+The analysis runs on Linux, macOS and Windows agents - the scanner is invoked with the shell of the agent, not with `bat` alone. `tools.sonar.dartAnalyzeCommand` replaces the analyzer command, and a project that *does* have the commercial `sonar-flutter` plugin installed can set `tools.sonar.flutterPlugin: true` to use the plugin's own properties instead.
+
+Dart files are indexed by SonarQube as an unknown language, so the quality gate for a Flutter project is built on the imported coverage and the imported findings rather than on rules SonarQube runs itself.
+
 
 The severity counts shown for SAST and DAST are the ones printed in the AppScan HTML and PDF report: the pipeline reads the **Summary of security issues** table of that report, and only counts the individual issue blocks when a report carries no summary. The counts are verified once more while the report is written, against the report file archived with the build. When the archived report disagrees with what was recorded during the scan, the stage box, the Security Gates table and the release gate all follow the archived report, and the console carries a `[REPORT]` line naming both numbers.
 

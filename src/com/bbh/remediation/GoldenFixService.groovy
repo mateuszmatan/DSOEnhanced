@@ -2,6 +2,7 @@ package com.bbh.remediation
 
 import com.bbh.remediation.model.GoldenFix
 import com.bbh.core.PipelineState
+import com.bbh.remediation.port.BuildVerifier
 import com.bbh.remediation.port.DependencyRemediation
 import com.bbh.remediation.port.GoldenFixSource
 import com.bbh.remediation.port.ManifestUpdater
@@ -24,15 +25,17 @@ class GoldenFixService implements DependencyRemediation {
     private final SourceRepository       repository
     private final PullRequestPublisher   publisher
     private final List<ManifestUpdater>  updaters
+    private final BuildVerifier          verifier
 
     GoldenFixService(def script, PipelineState state, GoldenFixSource source, SourceRepository repository,
-                     PullRequestPublisher publisher, List<ManifestUpdater> updaters) {
+                     PullRequestPublisher publisher, List<ManifestUpdater> updaters, BuildVerifier verifier = null) {
         this.script     = script
         this.state      = state
         this.source     = source
         this.repository = repository
         this.publisher  = publisher
         this.updaters   = updaters
+        this.verifier   = verifier
     }
 
     void remediate(List<Map> scanRefs) {
@@ -151,15 +154,14 @@ class GoldenFixService implements DependencyRemediation {
     private Map applyVerifiedFixes(String dir, List<Map> fixes, Map cfg) {
         Map verifyCfg = (cfg.verify ?: [:]) as Map
         boolean enabled = BuildUtils.booleanValue(verifyCfg.enabled, true)
-        String command = verifyCommand(verifyCfg)
         int maxAttempts = (verifyCfg.maxAttempts != null ? verifyCfg.maxAttempts.toString().toInteger() : 3)
         if (maxAttempts < 1) maxAttempts = 1
 
         List<Map> current = fixes
         List dropped = []
         Map applied = applyFixes(dir, current, cfg)
-        if (!enabled || !command) {
-            script.echo "[GOLDENFIX] Pre-check build skipped (${enabled ? 'no build command for this project' : 'goldenFix.verify.enabled is false'})"
+        if (!enabled || verifier == null) {
+            script.echo "[GOLDENFIX] Pre-check build skipped (${enabled ? 'no build verifier is wired in' : 'goldenFix.verify.enabled is false'})"
             return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
         }
 
@@ -170,14 +172,16 @@ class GoldenFixService implements DependencyRemediation {
                 script.echo '[GOLDENFIX] Pre-check build skipped - no manifest changed'
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
-            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts}: ${command}"
-            Map verdict = runVerifyBuild(dir, command, verifyCfg)
+            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(current)}"
+            Map verdict = verifier.verify(dir, applied.files as List<String>, verifyCfg)
             log = verdict.log as String
             if (verdict.ok) {
-                script.echo "[GOLDENFIX] Pre-check build passed with ${describeVersions(current)}"
-                return [applied: applied, verified: true, dropped: dropped, reason: '', log: log]
+                script.echo verdict.skipped
+                        ? "[GOLDENFIX] Pre-check build skipped - ${log}"
+                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${describeVersions(current)}"
+                return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log]
             }
-            reason = "the build failed with ${describeVersions(current)}".toString()
+            reason = "the build failed with ${describeVersions(current)} (${log})".toString()
             script.echo "[GOLDENFIX] Pre-check build failed - lowering the proposed versions so they stay backward compatible"
             Map lowered = lowerFixes(current)
             if (!lowered.changed) {
@@ -191,34 +195,6 @@ class GoldenFixService implements DependencyRemediation {
         }
         return [applied: applied, verified: false, dropped: dropped,
                 reason: "${reason} after ${maxAttempts} attempt(s)".toString(), log: log]
-    }
-
-    private Map runVerifyBuild(String dir, String command, Map verifyCfg) {
-        int timeoutMin = (verifyCfg.timeoutMinutes != null ? verifyCfg.timeoutMinutes.toString().toInteger() : 20)
-        try {
-            int status = 1
-            script.timeout(time: timeoutMin, unit: 'MINUTES') {
-                status = script.sh(label: 'GoldenFix: pre-check build', returnStatus: true, script: """#!/bin/bash
-set +e
-cd '${BuildUtils.escapeForSingleQuotes(dir)}'
-${command}
-""") as int
-            }
-            return [ok: status == 0, log: "exit code ${status}".toString()]
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            return [ok: false, log: (e.message ?: e.getClass().getSimpleName()) as String]
-        }
-    }
-
-    private String verifyCommand(Map verifyCfg) {
-        String configured = (verifyCfg.command ?: '') as String
-        if (configured) return configured
-        String tool = (state.cfg?.buildTool ?: 'gradle') as String
-        if (tool == 'gradle') return './gradlew --no-daemon --console=plain classes'
-        if (tool == 'maven') return 'mvn -B -q -DskipTests compile'
-        if (tool == 'flutter') return 'flutter pub get'
-        return ''
     }
 
     @NonCPS

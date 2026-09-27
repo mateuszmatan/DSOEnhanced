@@ -317,7 +317,8 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
 │   ├── config/ConfigLoader.groovy          &lt;- config.yaml + defaults.yaml -&gt; PipelineState
 │   ├── build/
 │   │   ├── BuildService.groovy             &lt;- build, unit tests, coverage, remote test jobs
-│   │   └── BuildRunner.groovy              &lt;- one runner for the Gradle and Maven commands
+│   │   ├── BuildRunner.groovy              &lt;- one runner for the Gradle and Maven commands
+│   │   └── ManifestBuildVerifier.groovy    &lt;- adapter: the GoldenFix pre-check build, one check per changed manifest
 │   ├── scanner/                            &lt;- adapters for the scanners
 │   │   ├── AppScanService.groovy           &lt;- HCL AppScan SAST and DAST
 │   │   ├── NexusIqService.groovy           &lt;- Nexus IQ scan, calls the remediation port on a violation
@@ -331,12 +332,13 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
 │   │   ├── port/SourceRepository.groovy       &lt;- outbound port: source tree, commit, push
 │   │   ├── port/PullRequestPublisher.groovy   &lt;- outbound port: pull request
 │   │   ├── port/ManifestUpdater.groovy        &lt;- outbound port: one build manifest format
+│   │   ├── port/BuildVerifier.groovy          &lt;- outbound port: pre-check build of the proposed versions
 │   │   └── updater/                        &lt;- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater
 │   ├── scm/                                &lt;- adapters: GitSourceRepository (git worktree), Bitbucket pull requests
 │   ├── deploy/                             &lt;- adapters: VmDeployService (SSH, UrbanCode Deploy), OpenshiftService
 │   ├── metrics/InfluxDbService.groovy      &lt;- adapter: DORA metrics
 │   ├── report/HtmlReportService.groovy     &lt;- one report template, the variant only selects the stage layout
-│   └── utils/                              &lt;- RestClient (curl JSON client), BuildUtils, FlutterUtils
+│   └── utils/                              &lt;- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
 ├── tools/build-documentation-html.py       &lt;- renders DOCUMENTATION.md into documentation.html
 ├── test/                          &lt;- the library test suite, see section 17
 │   ├── run-all.sh                 &lt;- one command: static checks, compilation, sandbox scenarios, demo reports
@@ -1179,9 +1181,44 @@ devSecOpsPipeline(
    - npm: <code>package.json</code> dependencies, devDependencies, peerDependencies, optionalDependencies (range operator preserved)
    - pip: <code>requirements*.txt</code>, <code>constraints*.txt</code>, <code>pyproject.toml</code> (PEP 621 and Poetry)
    - Flutter: <code>pubspec.yaml</code> dependencies and dev_dependencies (the <code>^</code> constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
-4. Builds the project with the new versions before proposing anything, so a pull request never breaks the build. The project is compiled inside the worktree (<code>./gradlew classes</code>, <code>mvn compile</code> or <code>flutter pub get</code> by default, <code>goldenFix.verify.command</code> to override). When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to <code>goldenFix.verify.maxAttempts</code> times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, <strong>no pull request is opened</strong> and the run ends with <code>BUILD_FAILED</code>. Set <code>goldenFix.verify.enabled: false</code> to skip the pre-check.</p>
-<ol start="5">
-<li>Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch <code>GoldenFix-YYYYMMDDHHMM</code> and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.</li>
+4. Builds the project with the new versions before proposing anything, so a pull request never breaks the build. <strong>Every ecosystem whose manifest was changed is verified, not only the project's main build tool</strong>, and each manifest is checked in its own directory, so a repository that mixes a <code>pom.xml</code>, an Angular <code>package.json</code> and a <code>requirements.txt</code> has all three checked:</p>
+<table>
+<thead>
+<tr>
+<th>Changed manifest</th>
+<th>Default pre-check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pom.xml</code></td>
+<td><code>mvn -B -q -DskipTests compile</code></td>
+</tr>
+<tr>
+<td><code>build.gradle</code>, <code>build.gradle.kts</code>, <code>gradle.properties</code>, <code>*.versions.toml</code></td>
+<td><code>./gradlew --no-daemon --console=plain classes</code> (or <code>gradle</code> without a wrapper)</td>
+</tr>
+<tr>
+<td><code>package.json</code></td>
+<td><code>npm ci --ignore-scripts</code>, or <code>npm install --ignore-scripts</code> without a lock file</td>
+</tr>
+<tr>
+<td><code>requirements*.txt</code>, <code>constraints*.txt</code></td>
+<td><code>python3 -m pip install --dry-run -r &lt;file&gt;</code></td>
+</tr>
+<tr>
+<td><code>pyproject.toml</code></td>
+<td><code>python3 -m pip install --dry-run .</code></td>
+</tr>
+<tr>
+<td><code>pubspec.yaml</code></td>
+<td><code>flutter pub get</code> (or <code>dart pub get</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Each command is replaceable per ecosystem under <code>goldenFix.verify.commands</code>, for example <code>commands: { npm: "npm run build" }</code> to compile an Angular application rather than only resolving its dependencies. When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to <code>goldenFix.verify.maxAttempts</code> times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, <strong>no pull request is opened</strong> and the run ends with <code>BUILD_FAILED</code>. Set <code>goldenFix.verify.enabled: false</code> to skip the pre-check.
+5. Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch <code>GoldenFix-YYYYMMDDHHMM</code> and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.</p>
+<ol start="6">
 <li>The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the <strong>Nexus IQ GoldenFix</strong> card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).</li>
 </ol>
 <p>A version is only written when the manifest declares a plain version that is lower than the target; ranges, hash pinned requirements and versions managed by a BOM are listed under "not applied automatically" instead.</p>
@@ -1929,6 +1966,32 @@ devSecOpsPipeline(
 <h3>Step 7 – Run the pipeline</h3>
 <p>Click <strong>Build Now</strong>. Select <code>DEPLOY_HIGHER_ENV</code> only when you want the QC deployment; it happens only when every stage is green.</p>
 <h3>Step 8 – Read the report</h3>
+<h3>Flutter and SonarQube without the Flutter plugin</h3>
+<p>SonarQube Community has no Dart or Flutter analyser, so the library does not depend on one. A Flutter project is analysed through SonarQube's own generic import formats, which every edition supports:</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>How it reaches SonarQube</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Line coverage</td>
+<td><code>total_lcov.info</code> is converted to the <strong>Generic Coverage</strong> XML and passed as <code>sonar.coverageReportPaths</code></td>
+</tr>
+<tr>
+<td>Static findings</td>
+<td><code>dart analyze --format=machine</code> is converted to the <strong>Generic Issue</strong> JSON and passed as <code>sonar.externalIssuesReportPaths</code>; <code>ERROR</code> becomes a <code>MAJOR</code> bug, <code>WARNING</code> a <code>MINOR</code> code smell, <code>INFO</code> an informational code smell</td>
+</tr>
+<tr>
+<td>Sources and tests</td>
+<td><code>sonar.sources</code> (default <code>lib</code>) and <code>sonar.tests</code> (default <code>test</code>), overridable in <code>tools.sonar.sources</code> and <code>tools.sonar.tests</code></td>
+</tr>
+</tbody>
+</table>
+<p>The analysis runs on Linux, macOS and Windows agents - the scanner is invoked with the shell of the agent, not with <code>bat</code> alone. <code>tools.sonar.dartAnalyzeCommand</code> replaces the analyzer command, and a project that <em>does</em> have the commercial <code>sonar-flutter</code> plugin installed can set <code>tools.sonar.flutterPlugin: true</code> to use the plugin's own properties instead.</p>
+<p>Dart files are indexed by SonarQube as an unknown language, so the quality gate for a Flutter project is built on the imported coverage and the imported findings rather than on rules SonarQube runs itself.</p>
 <p>The severity counts shown for SAST and DAST are the ones printed in the AppScan HTML and PDF report: the pipeline reads the <strong>Summary of security issues</strong> table of that report, and only counts the individual issue blocks when a report carries no summary. The counts are verified once more while the report is written, against the report file archived with the build. When the archived report disagrees with what was recorded during the scan, the stage box, the Security Gates table and the release gate all follow the archived report, and the console carries a <code>[REPORT]</code> line naming both numbers.</p>
 <p>Open <strong>Pipeline Report</strong> in the build sidebar:</p>
 <ul>

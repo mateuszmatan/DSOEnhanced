@@ -36,6 +36,18 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String fileNameOf(String path) {
+        String normalized = (path ?: '').replace('\\', '/')
+        int index = normalized.lastIndexOf('/')
+        return index >= 0 ? normalized.substring(index + 1) : normalized
+    }
+
+    static String parentOf(String path) {
+        String normalized = (path ?: '').replace('\\', '/')
+        int index = normalized.lastIndexOf('/')
+        return index >= 0 ? normalized.substring(0, index) : ''
+    }
+
     static String escapeForSingleQuotes(String value) {
         return value.replace("'", "'\"'\"'")
     }

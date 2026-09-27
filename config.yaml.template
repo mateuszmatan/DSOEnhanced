@@ -113,6 +113,11 @@ projects:
 
     goldenFix:
       enabled: true                        # on Nexus IQ policy violation raise PR GoldenFix-YYYYMMDDHHMM
+      verify:                              # pre-check: the PR is opened only if the project still builds
+        enabled:     true
+        maxAttempts: 3                     # a failing build lowers the versions and tries again
+        commands:                          # one check per changed manifest; defaults resolve dependencies
+          npm: ""                          # e.g. "npm run build" to compile an Angular application
                                            # version choice: only the patch version changes (x.y stays),
                                            # and of those the newest one without known vulnerabilities
 

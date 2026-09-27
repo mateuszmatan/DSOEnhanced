@@ -1,5 +1,6 @@
 import groovy.transform.Field
 import com.bbh.build.BuildService
+import com.bbh.build.ManifestBuildVerifier
 import com.bbh.config.ConfigLoader
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
@@ -47,7 +48,8 @@ private void _setup() {
     _sonar     = new SonarService(this, _state, _os, _build)
     _nexusIq   = new NexusIqService(this, _state, _policy, new GoldenFixService(this, _state,
             new NexusIqGoldenFixSource(this), new GitSourceRepository(this), new BitbucketPullRequestPublisher(this),
-            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater()]))
+            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater()],
+            new ManifestBuildVerifier(this)))
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)

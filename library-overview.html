@@ -123,7 +123,7 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
       <tr><td>Dependency / SCA</td><td>Sonatype Nexus IQ</td><td>Policy evaluation of the whole dependency tree, per-severity counts, link to the composition report, and automated remediation pull requests</td></tr>
       <tr><td>SAST</td><td>HCL AppScan on Cloud</td><td>IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report downloaded and archived, link to the AppScan console</td></tr>
       <tr><td>DAST</td><td>HCL AppScan on Cloud</td><td>Scan of the deployed application through an AppScan presence, polling until the scan finishes, HTML and PDF report downloaded and archived</td></tr>
-      <tr><td>Code quality</td><td>SonarQube</td><td>Analysis, quality gate, vulnerability and hotspot counts, and metric badges embedded in the report</td></tr>
+      <tr><td>Code quality</td><td>SonarQube</td><td>Analysis, quality gate, vulnerability and hotspot counts, and metric badges embedded in the report; Flutter projects are covered without any Dart plugin</td></tr>
     </tbody>
   </table>
   <h3>How findings are counted</h3>
@@ -140,6 +140,8 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
     <li><strong>Per-class coverage</strong> printed to the console for the modules that were measured.</li>
     <li><strong>Test results</strong> published to Jenkins so the trend graphs and the failed-test list work as usual.</li>
   </ul>
+  <h3>Flutter on SonarQube without a Dart plugin</h3>
+  <p>SonarQube Community has no Dart or Flutter analyser, and the library does not need one. A Flutter project reaches SonarQube through the generic import formats every edition supports: the LCOV coverage file is converted to the Generic Coverage XML, and <code>dart analyze</code> findings are converted to Generic Issues, with <code>ERROR</code> mapped to a major bug, <code>WARNING</code> to a minor code smell and <code>INFO</code> to an informational one. The analysis runs on Linux, macOS and Windows agents. A team that does own the commercial <code>sonar-flutter</code> plugin can switch to its properties with one setting.</p>
 </div>
 
 <div class="section" id="policy">
@@ -170,7 +172,19 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
   <p>A version Nexus IQ labels as its Golden Version still loses to a plain patch upgrade when it would move the minor. Only when no patch-level version is offered at all does the library fall back to the newest clean proposal of any level, and it says so in the pull request so a reviewer knows to check it by hand.</p>
   <h3>The pre-check build</h3>
   <div class="callout ok"><strong>The pull request is only opened if the application still builds with it.</strong> After applying the new versions in an isolated worktree the library builds the project. If the build fails it lowers every proposed version to the next lower one the supplier offers, reverts the worktree, applies again and rebuilds. Only a version set that builds is committed and proposed. If no offered version builds, no pull request is opened and the report says the upgrade needs a developer.</div>
-  <p>The pre-check uses a compile-only build by default (<code>gradlew classes</code>, <code>mvn compile</code>, <code>flutter pub get</code>), and the command, the attempt count and the timeout are all configurable.</p>
+  <p><strong>Every ecosystem whose manifest changed is verified, not only the project's main build tool</strong>, and each manifest is checked in its own directory, so a repository that mixes a <code>pom.xml</code>, an Angular <code>package.json</code> and a <code>requirements.txt</code> has all three checked.</p>
+  <table>
+    <thead><tr><th>Changed manifest</th><th>Default pre-check</th></tr></thead>
+    <tbody>
+      <tr><td><code>pom.xml</code></td><td><code>mvn -B -q -DskipTests compile</code></td></tr>
+      <tr><td><code>build.gradle</code>, <code>build.gradle.kts</code>, <code>gradle.properties</code>, <code>*.versions.toml</code></td><td><code>./gradlew --no-daemon --console=plain classes</code></td></tr>
+      <tr><td><code>package.json</code></td><td><code>npm ci --ignore-scripts</code>, or <code>npm install --ignore-scripts</code> without a lock file</td></tr>
+      <tr><td><code>requirements*.txt</code>, <code>constraints*.txt</code></td><td><code>python3 -m pip install --dry-run -r &lt;file&gt;</code></td></tr>
+      <tr><td><code>pyproject.toml</code></td><td><code>python3 -m pip install --dry-run .</code></td></tr>
+      <tr><td><code>pubspec.yaml</code></td><td><code>flutter pub get</code></td></tr>
+    </tbody>
+  </table>
+  <p>Each command is replaceable per ecosystem under <code>goldenFix.verify.commands</code>, for example to compile an Angular application rather than only resolving its dependencies. The attempt count and the timeout are configurable as well.</p>
   <h3>The pull request</h3>
   <ul>
     <li>Branch named <code>GoldenFix-YYYYMMDDHHMM</code>, pushed to Bitbucket, with a pull request that lists every change as a table of file, component, old and new version.</li>

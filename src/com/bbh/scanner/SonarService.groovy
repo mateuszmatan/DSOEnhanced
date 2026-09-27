@@ -4,6 +4,7 @@ import com.bbh.build.BuildRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.build.BuildService
+import com.bbh.utils.FlutterSonarReports
 
 class SonarService implements Serializable {
 
@@ -38,16 +39,7 @@ class SonarService implements Serializable {
         def scaFailReason = null
         try {
             if (tool == 'flutter') {
-                script.withSonarQubeEnv(installationName: "${sonarCfg.sonarQubeEnv.installationName}") {
-                    def scannerHome = script.tool name: "sonar-scanner-cli-${state.cfg.tools?.sonar?.sonarScannerVersion}"
-                    def flutterArgs = sonarArgs + [
-                            "-Dsonar.sources=lib", "-Dsonar.tests=test",
-                            script.fileExists('test_report.json') ? "-Dsonar.flutter.tests.reportPath=test_report.json" : null,
-                            script.fileExists('total_lcov.info') ? "-Dsonar.dart.lcov.reportPaths=total_lcov.info" : null
-                    ].findAll { it }
-
-                    script.bat "${scannerHome}\\bin\\sonar-scanner.bat -X ${flutterArgs.join(' ')}"
-                }
+                scanFlutter(sonarCfg, sonarArgs, installationName)
             } else {
                 if (credentialsId) {
                     script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
@@ -84,6 +76,72 @@ class SonarService implements Serializable {
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
+    }
+
+    private void scanFlutter(Map sonarCfg, List sonarArgs, String installationName) {
+        String env = (sonarCfg.sonarQubeEnv?.installationName ?: installationName ?: '') as String
+        boolean plugin = sonarCfg.flutterPlugin ? true : false
+        List args = sonarArgs + ["-Dsonar.sources=${sonarCfg.sources ?: 'lib'}".toString(),
+                                 "-Dsonar.tests=${sonarCfg.tests ?: 'test'}".toString()]
+        args.addAll(plugin ? flutterPluginArgs() : flutterGenericArgs(sonarCfg))
+        script.withSonarQubeEnv(env ? [installationName: env] : [:]) {
+            runScanner(sonarCfg, args.findAll { it })
+        }
+    }
+
+    private List flutterPluginArgs() {
+        return [
+                script.fileExists('test_report.json') ? '-Dsonar.flutter.tests.reportPath=test_report.json' : null,
+                script.fileExists('total_lcov.info') ? '-Dsonar.dart.lcov.reportPaths=total_lcov.info' : null
+        ]
+    }
+
+    private List flutterGenericArgs(Map sonarCfg) {
+        List args = []
+        String workspace = (script.env.WORKSPACE ?: '') as String
+        if (script.fileExists('total_lcov.info')) {
+            String xml = FlutterSonarReports.coverageXml(script.readFile('total_lcov.info') as String, workspace)
+            script.writeFile file: 'sonar-generic-coverage.xml', text: xml
+            args << '-Dsonar.coverageReportPaths=sonar-generic-coverage.xml'
+            script.echo '[SONAR] Flutter line coverage converted to the SonarQube generic coverage format'
+        } else {
+            script.echo '[SONAR] total_lcov.info not found - Flutter coverage will not be imported into SonarQube'
+        }
+        String analysis = runDartAnalyze(sonarCfg)
+        if (analysis) {
+            String json = FlutterSonarReports.issuesJson(analysis, workspace)
+            script.writeFile file: 'sonar-dart-issues.json', text: json
+            args << '-Dsonar.externalIssuesReportPaths=sonar-dart-issues.json'
+            script.echo '[SONAR] dart analyze findings converted to the SonarQube generic issue format'
+        }
+        return args
+    }
+
+    private String runDartAnalyze(Map sonarCfg) {
+        String command = (sonarCfg.dartAnalyzeCommand ?: 'dart analyze --format=machine') as String
+        try {
+            if (os.isWindows()) {
+                return script.bat(returnStdout: true, script: "@echo off\r\n${command} > dart-analyze.txt 2>&1 & type dart-analyze.txt & exit /b 0") as String
+            }
+            return script.sh(returnStdout: true, script: "${command} 2>/dev/null || true") as String
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[SONAR] dart analyze could not be run (${e.message}) - only coverage will be imported"
+            return ''
+        }
+    }
+
+    private void runScanner(Map sonarCfg, List args) {
+        String version = (sonarCfg.sonarScannerVersion ?: '') as String
+        String home = version ? (script.tool(name: "sonar-scanner-cli-${version}") as String) : ''
+        String joined = args.join(' ')
+        if (os.isWindows()) {
+            String binary = home ? "${home}\\bin\\sonar-scanner.bat" : 'sonar-scanner.bat'
+            script.bat "\"${binary}\" ${joined}"
+        } else {
+            String binary = home ? "${home}/bin/sonar-scanner" : 'sonar-scanner'
+            script.sh "'${binary}' ${joined}"
+        }
     }
 
     private void fetchIssueCounts(String sonarUrl, String projectKey) {
