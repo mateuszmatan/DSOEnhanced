@@ -6,6 +6,8 @@ class PipelineState implements Serializable {
     Map  cfg                = [:]
     Map  cfgDefaults        = [:]
     long commitTime         = 0L
+    String commitSha        = ''
+    String commitAuthor     = ''
     String currentProjectName = 'unknown'
 
     Map stageResults = [:]

@@ -13,7 +13,7 @@ class ConfigLoader implements Serializable {
     }
 
     void initialize() {
-        state.commitTime = System.currentTimeMillis()
+        readCommitMetadata()
 
         String defaultsText = script.libraryResource('defaults.yaml')
         def defaultsYaml    = script.readYaml(text: defaultsText)
@@ -53,6 +53,26 @@ class ConfigLoader implements Serializable {
 
         applyPolicy()
         script.echo "[INIT] OS: ${script.env.OS_TYPE ?: 'linux'}"
+    }
+
+    void readCommitMetadata() {
+        state.commitTime = System.currentTimeMillis()
+        try {
+            String raw = script.sh(returnStdout: true, label: 'Read the commit under test',
+                    script: "git log -1 --format='%ct|%H|%ae' 2>/dev/null || true").trim()
+            List parts = raw ? (raw.split(/\|/) as List) : []
+            if (parts.size() >= 3 && ((parts[0] as String) ==~ /\d+/)) {
+                state.commitTime   = ((parts[0] as String) as long) * 1000L
+                state.commitSha    = (parts[1] as String)
+                state.commitAuthor = (parts[2] as String)
+                script.echo "[INIT] Commit under test: ${state.commitSha.take(8)} by ${state.commitAuthor}"
+            } else {
+                script.echo '[INIT] Commit metadata unavailable - the lead time is measured from the start of the build'
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[INIT] Commit metadata could not be read (${e.message}) - the lead time is measured from the start of the build"
+        }
     }
 
     List<String> resolveProjectNames() {

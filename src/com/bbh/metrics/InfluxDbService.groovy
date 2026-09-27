@@ -2,6 +2,7 @@ package com.bbh.metrics
 
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
+import com.bbh.core.ReleaseGate
 
 class InfluxDbService implements Serializable {
     private final def         script
@@ -14,7 +15,7 @@ class InfluxDbService implements Serializable {
         this.os     = os
     }
 
-    void send( String pipelineType) {
+    void send(String pipelineType) {
         def influxCfg = state.cfg.influx ?: [:]
         if (!(influxCfg.enabled as boolean)) { script.echo "[INFLUX] InfluxDB disabled or not configured."; return }
         def url     = influxCfg.url
@@ -23,45 +24,13 @@ class InfluxDbService implements Serializable {
         def token   = influxCfg.token
         def credId  = influxCfg.credentialsId ?: ''
         if (!url || (!token && !credId)) { script.echo "[INFLUX] Missing url or token - skipping."; return }
-        def safeProject = project.replaceAll(/[,= ]/, '\\\\$0') + pipelineType
-        def safeEnv     = envName.replaceAll(/[,= ]/, '\\\\$0')
-        long timestamp  = (System.currentTimeMillis() / 1000) as long
-        int changeFailure   = (script.currentBuild.currentResult != 'SUCCESS') ? 1 : 0
-        long buildDuration  = (script.currentBuild.duration ?: 0) / 1000
-        def lines = []
-        lines << "deployments,project=${safeProject},env=${safeEnv} count=1 ${timestamp}"
-        lines << "change_failure,project=${safeProject},env=${safeEnv} value=${changeFailure} ${timestamp}"
-        lines << "build_duration,project=${safeProject},env=${safeEnv} value=${buildDuration} ${timestamp}"
-        state.stageResults.each { stageName, stageStatus ->
-            def safeStage = stageName.replaceAll(/[,= ]/, '\\\\$0')
-            def result    = (stageStatus == 'PASS' || stageStatus == 'NOT_REQUIRED') ? 'success' : 'failure'
-            long startEpoch = 0L; long endEpoch = 0L; long durMs = 0L
-            if (state.stageTimes[stageName]) {
-                def st = (state.stageTimes[stageName].start ?: 0L) as long
-                def en = (state.stageTimes[stageName].end   ?: 0L) as long
-                startEpoch = (st / 1000L) as long; endEpoch = (en / 1000L) as long
-                if (st > 0L && en > st) durMs = en - st
-            }
-            lines << "stage_metric,project=${safeProject},env=${safeEnv},stage=${safeStage} result=\"${result}\",start_time=${startEpoch},end_time=${endEpoch},duration_ms=${durMs} ${timestamp}"
-        }
-        ['sast', 'dast'].each { scanner ->
-            def counts = state.vulnCounts[scanner] ?: [critical: 0, high: 0, medium: 0, low: 0]
-            lines << "vulnerabilities,project=${safeProject},env=${safeEnv},scanner=${scanner} critical=${counts.critical ?: 0},high=${counts.high ?: 0},medium=${counts.medium ?: 0},low=${counts.low ?: 0} ${timestamp}"
-        }
-        Map niq = totalsOf((state.projectsNexusIqResults ?: [:]) as Map, (state.nexusIqResults ?: [:]) as Map)
-        if (niq) {
-            lines << "vulnerabilities,project=${safeProject},env=${safeEnv},scanner=nexusiq critical=${niq.critical},high=${niq.high},medium=${niq.medium},low=0 ${timestamp}"
-        }
-        Map sonar = totalsOf((state.projectsSonarResults ?: [:]) as Map, (state.sonarResults ?: [:]) as Map)
-        if (sonar) {
-            lines << "vulnerabilities,project=${safeProject},env=${safeEnv},scanner=sonar critical=${sonar.critical},high=${sonar.high},medium=${sonar.medium},low=0 ${timestamp}"
-        }
-        if (state.coverage && state.coverage.enabled) {
-            lines << "test_coverage,project=${safeProject},env=${safeEnv} line_pct=${state.coverage.line ?: 0.0},covered=${(state.coverage.covered ?: 0) as int}i,total=${(state.coverage.total ?: 0) as int}i ${timestamp}"
-        }
-        def payload = lines.join('\n')
-        script.echo "[INFLUX] Prepared metrics: ${payload}"
-        script.echo "[INFLUX] Sending metrics to ${url} for project ${project} (${envName})"
+
+        Map context = buildContext(project as String, pipelineType, envName as String)
+        List<String> lines = PipelineMetrics.lines(state, context)
+        String payload = lines.join('\n')
+        script.echo "[INFLUX] ${lines.size()} metric line(s) for ${context.project} (${context.env}), build ${context.buildNumber}, result ${context.result}"
+        script.echo "[INFLUX] Sending metrics to ${url}"
+
         def tmpFile = "influx_payload_${System.currentTimeMillis()}.txt"
         script.writeFile file: tmpFile, text: payload
         try {
@@ -79,19 +48,32 @@ class InfluxDbService implements Serializable {
         }
     }
 
-    private Map totalsOf(Map perProject, Map fallback) {
-        List sources = perProject ? (perProject.values() as List) : (fallback ? [fallback] : [])
-        if (!sources) return [:]
-        int critical = 0
-        int high = 0
-        int medium = 0
-        for (def entry : sources) {
-            Map values = (entry ?: [:]) as Map
-            critical += (values.critical ?: 0) as int
-            high += (values.high ?: 0) as int
-            medium += (values.medium ?: 0) as int
+    private Map buildContext(String project, String pipelineType, String envName) {
+        String result = (script.currentBuild.currentResult ?: 'SUCCESS') as String
+        Map decision = new ReleaseGate(script, state).evaluate()
+        return [
+                project        : project + (pipelineType ?: ''),
+                env            : envName,
+                variant        : (pipelineType ?: 'full'),
+                result         : result,
+                failed         : result != 'SUCCESS',
+                durationSeconds: ((script.currentBuild.duration ?: 0) as long) / 1000L,
+                buildNumber    : (script.env.BUILD_NUMBER ?: '0') as String,
+                job            : (script.env.JOB_NAME ?: '') as String,
+                branch         : (script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String,
+                timestamp      : (System.currentTimeMillis() / 1000L) as long,
+                deployed       : deployedStage(),
+                released       : PipelineMetrics.green(state.stageStatus('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities')),
+                releaseGate    : decision
+        ]
+    }
+
+    private boolean deployedStage() {
+        List names = ['Lower test region deployment', 'Higher test environment deployment']
+        for (String name : names) {
+            if (PipelineMetrics.green(state.stageStatus(name))) return true
         }
-        return [critical: critical, high: high, medium: medium]
+        return false
     }
 
     private void sendPayload(String url, String token, String tmpFile) {

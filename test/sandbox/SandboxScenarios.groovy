@@ -314,6 +314,62 @@ try {
 } catch (Throwable t) {
     gfErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
 }
+SandboxHarness metricsHarness = new SandboxHarness(srcDir, stubDir)
+List metricLines = metricsHarness.run {
+    def st = metricsHarness.type('com.bbh.core.PipelineState').newInstance()
+    st.commitTime = System.currentTimeMillis() - 7200000L
+    st.commitSha = 'ab12cd34ef567890'
+    st.projectsAllCfg = [gui: [:], 'backend-api': [:]]
+    st.stageResults = ['Monitor source changes (download sources)': 'PASS', 'Unit tests': 'WARN',
+                       'SAST - Static Application Security Tests - HCL AppScan': 'WARN',
+                       'Lower test region deployment': 'PASS', 'Smoke tests': 'PASS',
+                       'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities': 'BLOCKED']
+    long t = System.currentTimeMillis()
+    st.stageTimes['Unit tests'] = [start: t - 120000L, end: t - 60000L]
+    st.stageErrors['Unit tests'] = 'gui: Line coverage 45.0% is below the required 75%.'
+    st.policyLimits = [sast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], sca: [maxCritical: 0, maxHigh: 0, maxMedium: 0],
+                       dast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], niq: [maxCritical: 0, maxHigh: 0, maxMedium: 0]]
+    st.policyStatus = [sast: 'WARN', sca: 'PASS', dast: 'SKIP', coverage: 'WARN', sonar: 'PASS']
+    st.projectsVulnCounts = [gui: [sast: [critical: 0, high: 2, medium: 3, low: 5]]]
+    st.projectsScanResults = [gui: [sast: 'WARN']]
+    st.projectsCoverage = [gui: [enabled: true, line: 45.0, covered: 450, missed: 550, total: 1000, minRequired: 75]]
+    st.projectsRemoteTestResults = [gui: ['Smoke tests': [[name: 'gui smoke, one', status: 'SUCCESS', durationMs: 64000L, type: 'remote'],
+                                                          [name: 'gui-smoke-2', status: 'FAILURE', durationMs: 12000L, type: 'local']]]]
+    st.projectsGoldenFix = [gui: [status: 'PR_CREATED', fixes: [1, 2, 3], changes: [1, 2], unresolved: [1], verified: true]]
+    Map ctx = [project: 'Cert Scanner', env: 'test', variant: 'security', result: 'UNSTABLE', failed: true,
+               durationSeconds: 512L, buildNumber: '212', job: 'DevSecOps/CertScanner', branch: 'develop',
+               timestamp: (t / 1000L) as long, deployed: true, released: false,
+               releaseGate: [allowed: false, violations: ['gui SAST high 2 > 0'], reason: 'blocked']]
+    metricsHarness.type('com.bbh.metrics.PipelineMetrics').lines(st, ctx)
+} as List
+List measurements = metricLines.collect { (it as String).split(/[, ]/)[0] }.unique().sort()
+String doraLine = metricLines.find { (it as String).startsWith('dora,') } as String
+String stageLine = metricLines.find { (it as String).startsWith('stage_event,') && it.contains('Unit\\ tests') } as String
+String jobLine = metricLines.find { (it as String).startsWith('test_job,') } as String
+boolean wellFormed = metricLines.every { String l ->
+    List sections = l.split(' ') as List
+    sections.size() >= 3 && (sections[-1] ==~ /\d+/) && l.contains('=')
+}
+check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate and remediation',
+        measurements == ['build_duration', 'change_failure', 'code_coverage', 'deployments', 'dora', 'goldenfix',
+                         'pipeline_run', 'policy_status', 'release_gate', 'security_findings', 'stage_event',
+                         'stage_metric', 'test_execution', 'test_job', 'vulnerabilities'],
+        measurements)
+check('InfluxDB: every line is valid line protocol with an explicit timestamp and escaped tags',
+        wellFormed && metricLines.every { !(it as String).contains('project=Cert Scanner') }
+                && metricLines.any { (it as String).contains('project=Cert\\ Scanner') },
+        metricLines.findAll { !((it as String).split(' ') as List)[-1].matches(/\d+/) })
+check('InfluxDB: DORA carries deployment, lead time from the commit, change failure and release',
+        doraLine && doraLine.contains('deployment=1i') && doraLine.contains('change_failure=1i')
+                && doraLine.contains('released=0i') && (doraLine =~ /lead_time_s=(\d+)i/) .with { it.find() && (it.group(1) as long) >= 7000L },
+        doraLine)
+check('InfluxDB: a stage point is stamped at the end of that stage and carries its reason',
+        stageLine && stageLine.contains('status=WARN') && stageLine.contains('duration_ms=60000i')
+                && stageLine.contains('ok=0i') && stageLine.contains('below the required 75'),
+        stageLine)
+check('InfluxDB: a test job name with a comma is escaped rather than breaking the line',
+        jobLine && metricLines.any { (it as String).contains('name="gui smoke, one"') }, jobLine)
+
 SandboxHarness flutterHarness = new SandboxHarness(srcDir, stubDir)
 String flutterLcov = 'SF:/ws/lib/main.dart\nDA:1,3\nDA:2,0\nend_of_record\nSF:/ws/lib/api/client.dart\nDA:4,1\nend_of_record\n'
 String flutterAnalyze = "INFO|HINT|UNUSED_IMPORT|/ws/lib/main.dart|3|8|20|Unused import: 'dart:io'.\n" +

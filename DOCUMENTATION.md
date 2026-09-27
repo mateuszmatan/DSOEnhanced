@@ -25,6 +25,7 @@ Jenkins Shared Library implementing a full DevSecOps pipeline: build, unit tests
 15. [Troubleshooting](#15-troubleshooting)
 16. [SelfService – onboard a project step by step](#16-selfservice--onboard-a-project-step-by-step)
 17. [Library development and tests](#17-library-development-and-tests)
+18. [Monitoring and metrics](#18-monitoring-and-metrics)
 
 ---
 
@@ -65,7 +66,7 @@ After all stages, the library always:
 - Adds a **Nexus IQ GoldenFix** card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically
 - Adds a **Release policy** card stating whether the artifact may be released to Nexus and deployed to QC
 - Archives the HTML reports, the DAST PDF report and the release gate verdict (`release-gate.json`) as build artifacts
-- Sends DORA metrics to InfluxDB (if configured)
+- Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#18-monitoring-and-metrics)
 
 ---
 
@@ -165,7 +166,10 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   └── updater/                        <- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater
 │   ├── scm/                                <- adapters: GitSourceRepository (git worktree), Bitbucket pull requests
 │   ├── deploy/                             <- adapters: VmDeployService (SSH, UrbanCode Deploy), OpenshiftService
-│   ├── metrics/InfluxDbService.groovy      <- adapter: DORA metrics
+│   ├── metrics/
+│   │   ├── InfluxDbService.groovy          <- adapter: writes the batch to InfluxDB
+│   │   ├── PipelineMetrics.groovy          <- builds every measurement from the pipeline state
+│   │   └── MetricLine.groovy               <- line protocol formatting and escaping
 │   ├── report/HtmlReportService.groovy     <- one report template, the variant only selects the stage layout
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
 ├── tools/build-documentation-html.py       <- renders DOCUMENTATION.md into documentation.html
@@ -1348,3 +1352,51 @@ Every rule above is enforced by one of the checks, so breaking it fails `test/ru
 ### Demo reports
 
 `test/run-all.sh` regenerates `examples/reports`: one page per pipeline and outcome plus an `index.html` overview. They are produced by the report template of the library from randomised but realistic data, so they can be shown in a demo and they change whenever the template changes.
+
+---
+
+## 18. Monitoring and metrics
+
+Every run writes one batch of InfluxDB line protocol from `post { always }`, so a failed run is recorded exactly like a successful one. Nothing is sampled: the batch covers the run, every stage, every scanner, every module, every test suite, the release gate and the remediation outcome.
+
+### What is written
+
+| Measurement | Tags | Answers |
+|-------------|------|---------|
+| `pipeline_run` | project, env, variant, result, branch | One row per run: outcome, duration, and how many stages passed, warned, failed, were blocked or skipped |
+| `dora` | project, env, variant | Deployment, lead time from the commit under test, change failure and whether a release was published |
+| `stage_event` | project, env, stage, status | Per stage: duration, whether it was executed, its order and the reason when it was not green. **Stamped at the end of that stage**, so the timeline is accurate |
+| `security_findings` | project, env, module, scanner, status | Severity counts per scanner per module, the policy limits, and how many findings are above them |
+| `policy_status` | project, env, scanner, status | Which gates were evaluated and which held |
+| `code_coverage` | project, env, module, measured | Line coverage against the required minimum, and the shortfall |
+| `test_execution` / `test_job` | project, env, module, suite, status, type | Suite totals and success rate, and each individual job |
+| `release_gate` | project, env, allowed | Whether the release was permitted, and how many violations blocked it |
+| `goldenfix` | project, env, module, status | Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one |
+
+The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working.
+
+### DORA
+
+The four metrics are derived from the `dora` measurement:
+
+- **Deployment frequency** - the `deployment` field is 1 when a deployment stage completed green.
+- **Lead time for changes** - `lead_time_s` measures from the timestamp of the commit under test, read with `git log -1` during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
+- **Change failure rate** - `change_failure` is 1 for any run that did not end `SUCCESS`.
+- **Time to restore** - derived in Grafana from the `change_failure` series; the query is in `grafana-queries.md`.
+
+### Configuration
+
+```yaml
+influx:
+  enabled: true
+  project: "MyApp"
+  env:     "test"
+  url:     "http://influx.example.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s"
+  token:   "your-influx-token"       # or credentialsId for a Jenkins secret
+```
+
+A bucket keeps the data for its retention period, and the cumulative "since the beginning" panels reach only as far back as that. Set the retention to infinite, or to the period the organisation reports on.
+
+### Dashboards
+
+`grafana-queries.md` holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` are unchanged and continue to work.
