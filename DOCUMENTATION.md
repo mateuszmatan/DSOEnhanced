@@ -1,33 +1,48 @@
 # DevSecOpsJenkinsLibrary
 
-Jenkins Shared Library implementing a full DevSecOps pipeline: build, unit tests, dependency scan (Nexus IQ), code quality (SonarQube), SAST (HCL AppScan), deployment (VM/OpenShift), smoke/regression/performance tests, DAST (HCL AppScan), HTML report, and InfluxDB metrics.
-
-> **Onboarding a new application?** Open **`integration.html`** in a browser - a step by step guide that takes you from an empty repository to a running pipeline, with one chapter per pipeline type and the registration steps for Nexus IQ, HCL AppScan and SonarQube.
->
-> For a short overview of everything the library can do, open **`library-overview.html`**. This document is the full reference.
-
----
+Jenkins Shared Library implementing a full DevSecOps pipeline for Brown Brothers Harriman: build, unit tests, dependency scan (Nexus IQ), code quality (SonarQube), SAST and DAST (HCL AppScan), artifact delivery (Nexus), deployment (VM/OpenShift), smoke, regression and performance tests, an HTML report, automated dependency remediation and InfluxDB metrics.
 
 ## Table of contents
 
+This is the complete documentation in one page. **Part I** explains what the library does, **Part II** takes a new application from an empty repository to a running pipeline, **Part III** is the reference for every setting, **Part IV** covers monitoring and troubleshooting, and **Part V** is for people changing the library itself.
+
+
+**Part I — Overview**
+
 1. [What the library provides](#1-what-the-library-provides)
-2. [Application requirements](#2-application-requirements)
+2. [Capabilities in detail](#2-capabilities-in-detail)
 3. [Architecture overview](#3-architecture-overview)
-4. [Prerequisites](#4-prerequisites)
-5. [Step 1 – Register the library in Jenkins](#5-step-1--register-the-library-in-jenkins)
-6. [Step 2 – Add two files to your project repository](#6-step-2--add-two-files-to-your-project-repository)
-7. [Step 3 – Configure the Jenkins job](#7-step-3--configure-the-jenkins-job)
-8. [Step 4 – First run](#8-step-4--first-run)
-9. [config.yaml reference](#9-configyaml-reference)
-10. [Pipeline stages](#10-pipeline-stages)
-11. [Policy thresholds](#11-policy-thresholds)
-12. [Advanced: using library methods directly](#12-advanced-using-library-methods-directly)
-13. [Supported build tools](#13-supported-build-tools)
-14. [Supported deployment targets](#14-supported-deployment-targets)
-15. [Troubleshooting](#15-troubleshooting)
-16. [SelfService – onboard a project step by step](#16-selfservice--onboard-a-project-step-by-step)
-17. [Library development and tests](#17-library-development-and-tests)
-18. [Monitoring and metrics](#18-monitoring-and-metrics)
+
+**Part II — Onboarding a new application**
+
+4. [What your application must provide](#4-what-your-application-must-provide)
+5. [Prerequisites: Jenkins and the BBH toolchain](#5-prerequisites-jenkins-and-the-bbh-toolchain)
+6. [Registering your application in the tools](#6-registering-your-application-in-the-tools)
+7. [Onboarding step by step](#7-onboarding-step-by-step)
+8. [Chapter: the full pipeline](#8-chapter-the-full-pipeline)
+9. [Chapter: the security pipeline](#9-chapter-the-security-pipeline)
+10. [Chapter: the extended pipeline](#10-chapter-the-extended-pipeline)
+11. [Chapter: the SAST scanning pipeline](#11-chapter-the-sast-scanning-pipeline)
+12. [Worked examples](#12-worked-examples)
+
+**Part III — Reference**
+
+13. [config.yaml reference](#13-configyaml-reference)
+14. [Pipeline stages](#14-pipeline-stages)
+15. [Policy thresholds](#15-policy-thresholds)
+16. [Supported build tools](#16-supported-build-tools)
+17. [Supported deployment targets](#17-supported-deployment-targets)
+18. [Advanced: using library methods directly](#18-advanced-using-library-methods-directly)
+
+**Part IV — Operations**
+
+19. [Monitoring and metrics](#19-monitoring-and-metrics)
+20. [Grafana dashboards and queries](#20-grafana-dashboards-and-queries)
+21. [Troubleshooting](#21-troubleshooting)
+
+**Part V — Contributing**
+
+22. [Library development and tests](#22-library-development-and-tests)
 
 ---
 
@@ -53,7 +68,7 @@ The library executes the following pipeline automatically when you call `devSecO
 
 ### Which pipeline to use
 
-The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in `vars/devSecOpsSteps.groovy`. Each stage method takes the `devSecOpsApi` instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build](#12-advanced-using-library-methods-directly).
+The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in `vars/devSecOpsSteps.groovy`. Each stage method takes the `devSecOpsApi` instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build](#18-advanced-using-library-methods-directly).
 
 | Entry point | Runs | Use it when |
 |-------------|------|-------------|
@@ -68,58 +83,81 @@ After all stages, the library always:
 - Adds a **Nexus IQ GoldenFix** card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically
 - Adds a **Release policy** card stating whether the artifact may be released to Nexus and deployed to QC
 - Archives the HTML reports, the DAST PDF report and the release gate verdict (`release-gate.json`) as build artifacts
-- Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#18-monitoring-and-metrics)
+- Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#19-monitoring-and-metrics)
 
 ---
 
-## 2. Application requirements
+---
 
-Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
+## 2. Capabilities in detail
 
-- **Git repository accessible from Jenkins.**
-  The project must live in a Git repository that the Jenkins controller can clone. The `Jenkinsfile` and `config.yaml` must be committed at the repository root and pushed to the branch configured in the Jenkins job.
+This chapter is the high level answer to "what can it do". Every item is covered in detail later in the document.
 
-- **Supported build tool: Gradle, Maven, or Flutter.**
-  The codebase must use one of the three supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository. The build tool is either declared in `config.yaml` or auto-detected.
+### One policy for every application
 
-- **Code must compile successfully.**
-  The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
+Severity thresholds and the required line coverage live in the library's own `defaults.yaml`, not in the project. A team cannot loosen its own gate, and every build logs the thresholds it was measured against.
 
-- **Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).**
-  The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from `resources/defaults.yaml` only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the `--coverage` flag which produces `coverage/lcov.info`.
+### Nothing stops silently
 
-- **A JDK on the agent, named in the configuration.**
-  Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`.
+Every stage runs on every build. A stage that breaks the policy is marked **orange** (`WARN`), the build becomes `UNSTABLE`, and the pipeline carries on so that one run surfaces every problem instead of stopping at the first. What a finding blocks is the *release*, not the run.
 
-- **HCL AppScan on Cloud (ASoC) application registered.**
-  The application must be registered in ASoC and have a known application ID (UUID). An API key pair (`keyId` + `keySecret`) must be obtained from the ASoC portal and placed in `config.yaml`. Both SAST and DAST scans are uploaded to this application.
+### Security scanning
 
-- **SonarQube project registered.**
-  A project must exist in SonarQube with a unique `projectKey`. A badge token (`badgeToken`) is required for SonarQube metric badges to appear in the HTML pipeline report. The SonarQube server must be reachable from the Jenkins agent.
+| Scan | Tool | Capabilities |
+|------|------|--------------|
+| Dependency / SCA | Sonatype Nexus IQ | Policy evaluation of the whole dependency tree, per severity counts, a link to the composition report, and automated remediation pull requests |
+| SAST | HCL AppScan on Cloud | IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report archived, link to the AppScan console |
+| DAST | HCL AppScan on Cloud | Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived |
+| Code quality | SonarQube | Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report |
 
-- **Nexus IQ application registered.**
-  The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the configured `scanPatterns` in `config.yaml`. The Nexus IQ server must be reachable from the Jenkins agent.
+The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
-- **Build artifacts produced in expected locations.**
-  Gradle projects must produce artifacts under `build/libs/`. Maven projects under `target/`. These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing.
+### Code quality and coverage
 
-- **Deployment script and version file (VM deployment over SSH).**
-  For SSH deployment, the repository must contain a zero-downtime deployment shell script and a `version.properties` file with an `APP_VERSION=<version>` entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
+Unit tests run through the project's own Gradle, Maven or Flutter build. Line coverage is read from JaCoCo (with auto detection of the report location) or from an LCOV file for Flutter, aggregated across modules and projects, and checked against the minimum required by the library. A failing test suite turns the stage orange and coverage is still measured on whatever reports were produced.
 
-- **UrbanCode Deploy application (VM deployment in `devSecOpsPipeline`).**
-  The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so `deploy.vm.dod` must name the site, the application and at least one component. The UrbanCode Deploy plugin (`UCDeployPublisher`) and the configured site must exist in Jenkins.
+Flutter projects are analysed by SonarQube **without the commercial Dart plugin**: coverage and `dart analyze` findings are converted into SonarQube's generic import formats, which every edition supports.
 
-- **OpenShift templates and a Dockerfile (OpenShift deployment).**
-  For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by `deploy.openshift.rd.buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR`. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with `skopeo`, so the agent needs `skopeo`, `oc` and the authfile named in `deploy.openshift.rd.nexus.authfile`.
+### Release gate
 
-- **Test jobs exist in Jenkins.**
-  Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured in `config.yaml`. All three test types require at least one job entry — placeholder entries with `job: ""` are allowed initially and will show `NOT_CONFIGURED` without failing.
+The gate collects every verdict of the run and blocks the release artifact and the higher environment deployment when a scanner count is above the policy, the coverage is below the minimum, or any stage is not green. The verdict is written to `release-gate.json` and archived, so a downstream pipeline inherits the decision instead of re-deciding it.
 
-- **DAST target accessible from Jenkins agent (DAST only).**
-  When `dast.enabled: true`, the configured `dast.targetUrl` must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in `dast.presenceId`.
+### Automated dependency remediation (GoldenFix)
 
-- **InfluxDB endpoint accessible (optional).**
-  If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
+When Nexus IQ reports a policy violation the library prepares the upgrade itself and opens a pull request for review. It never merges anything.
+
+- Only **direct dependencies** are touched; transitive ones are upgraded by upgrading whatever pulls them in.
+- Manifests are updated across the whole source tree: `pom.xml`, `build.gradle`/`.kts`, `gradle.properties`, version catalogs, `package.json`, `requirements*.txt`, `pyproject.toml` and `pubspec.yaml`.
+- The version is chosen by two rules: **only the patch version may change**, and of those the **newest one without known vulnerabilities** wins.
+- Before anything is proposed the project is **built with the new versions**; a failing build lowers them and retries, and if nothing builds, no pull request is opened.
+
+### Build, test and delivery
+
+Gradle, Maven and Flutter builds with the project's own tasks. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it, and container images built and copied to Nexus for OpenShift projects.
+
+### Deployment
+
+Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image build, copy to Nexus, deployment and rollout status per environment. The higher environment is deployed only when the gate allows it *and* an operator selected the parameter.
+
+### Reporting and metrics
+
+A single HTML report per build with the stage flow, finding counts against the policy, coverage bars, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
+
+### Platform support
+
+| Dimension | Supported |
+|-----------|-----------|
+| Agent operating system | Linux, macOS and Windows; the library detects the agent and uses the right shell |
+| Build tools | Gradle, Maven, Flutter |
+| Dependency ecosystems for remediation | Maven, npm, PyPI, Dart/Flutter pub |
+| Projects per build | One or many, each with its own configuration, scans, coverage and report rows |
+| Source control | Git; Bitbucket for GoldenFix pull requests |
+
+GoldenFix remediation needs a Linux or macOS agent. Everything else runs on Windows agents as well.
+
+### Script security
+
+The library runs inside the Jenkins script sandbox and uses no construct that requires an administrator to approve a signature, so onboarding a new project needs no script approval.
 
 ---
 
@@ -130,7 +168,6 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 ├── DOCUMENTATION.md               <- this file
 ├── documentation.html             <- the same documentation as a single HTML page, generated from it
 ├── config.yaml.template           <- copy into your project and fill in
-├── grafana-queries.md             <- Flux queries for Grafana dashboards (InfluxDB metrics)
 ├── resources/
 │   └── defaults.yaml              <- embedded non-overridable defaults (read via libraryResource)
 ├── vars/                          <- Jenkins global variables: the entry points and the composition root
@@ -200,7 +237,62 @@ Projects **cannot** override the `defaults` – they are embedded in the library
 
 ---
 
-## 4. Prerequisites
+---
+
+## 4. What your application must provide
+
+Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
+
+- **Git repository accessible from Jenkins.**
+  The project must live in a Git repository that the Jenkins controller can clone. The `Jenkinsfile` and `config.yaml` must be committed at the repository root and pushed to the branch configured in the Jenkins job.
+
+- **Supported build tool: Gradle, Maven, or Flutter.**
+  The codebase must use one of the three supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository. The build tool is either declared in `config.yaml` or auto-detected.
+
+- **Code must compile successfully.**
+  The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
+
+- **Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).**
+  The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from `resources/defaults.yaml` only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the `--coverage` flag which produces `coverage/lcov.info`.
+
+- **A JDK on the agent, named in the configuration.**
+  Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`.
+
+- **HCL AppScan on Cloud (ASoC) application registered.**
+  The application must be registered in ASoC and have a known application ID (UUID). An API key pair (`keyId` + `keySecret`) must be obtained from the ASoC portal and placed in `config.yaml`. Both SAST and DAST scans are uploaded to this application.
+
+- **SonarQube project registered.**
+  A project must exist in SonarQube with a unique `projectKey`. A badge token (`badgeToken`) is required for SonarQube metric badges to appear in the HTML pipeline report. The SonarQube server must be reachable from the Jenkins agent.
+
+- **Nexus IQ application registered.**
+  The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the configured `scanPatterns` in `config.yaml`. The Nexus IQ server must be reachable from the Jenkins agent.
+
+- **Build artifacts produced in expected locations.**
+  Gradle projects must produce artifacts under `build/libs/`. Maven projects under `target/`. These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing.
+
+- **Deployment script and version file (VM deployment over SSH).**
+  For SSH deployment, the repository must contain a zero-downtime deployment shell script and a `version.properties` file with an `APP_VERSION=<version>` entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
+
+- **UrbanCode Deploy application (VM deployment in `devSecOpsPipeline`).**
+  The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so `deploy.vm.dod` must name the site, the application and at least one component. The UrbanCode Deploy plugin (`UCDeployPublisher`) and the configured site must exist in Jenkins.
+
+- **OpenShift templates and a Dockerfile (OpenShift deployment).**
+  For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by `deploy.openshift.rd.buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR`. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with `skopeo`, so the agent needs `skopeo`, `oc` and the authfile named in `deploy.openshift.rd.nexus.authfile`.
+
+- **Test jobs exist in Jenkins.**
+  Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured in `config.yaml`. All three test types require at least one job entry — placeholder entries with `job: ""` are allowed initially and will show `NOT_CONFIGURED` without failing.
+
+- **DAST target accessible from Jenkins agent (DAST only).**
+  When `dast.enabled: true`, the configured `dast.targetUrl` must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in `dast.presenceId`.
+
+- **InfluxDB endpoint accessible (optional).**
+  If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
+
+---
+
+---
+
+## 5. Prerequisites: Jenkins and the BBH toolchain
 
 The Jenkins controller and build agents must have the following installed and configured:
 
@@ -271,36 +363,145 @@ Every class of the library is loaded and every pipeline is executed under the re
 
 ---
 
-## 5. Step 1 – Register the library in Jenkins
+### The BBH systems your pipeline will use
 
-1. Open Jenkins → **Manage Jenkins** → **Configure System**.
-2. Scroll to **Global Pipeline Libraries** → click **Add**.
-3. Fill in:
+All of these run inside the BBH network. You need an account or an entry in each of the ones your pipeline uses.
+
+| System | Address | What it does for you |
+|--------|---------|----------------------|
+| Bitbucket | `rdtools.testbbh.com:7990` | Stores your source code, your `Jenkinsfile` and your `config.yaml`, and receives the automatic dependency upgrade pull requests |
+| Jenkins | your BBH Jenkins instance | Runs the pipeline, on OpenShift agents or on VM agents |
+| SonarQube Community | `tools.bbh.com/sonar` | Code quality analysis and the quality gate |
+| Nexus IQ | `tools.bbh.com/IQ` | Scans your third party dependencies for known vulnerabilities |
+| Nexus repository | `tools.bbh.com/nexus` | Stores the artifacts and container images your pipeline publishes |
+| HCL AppScan on Cloud | `bbh.cloud.appscan.com` | Security scanning of your source code (SAST) and of your running application (DAST) |
+| InfluxDB / Grafana | BBH monitoring instance | Optional. Collects the pipeline metrics and the DORA figures |
+
+### How AppScan is reached
+
+AppScan is outside the BBH network, so the pipeline goes through the BBH proxy `tstproxy.bbh.com:9090` using the dedicated service account `PROXY_ASOCJenk`. The pipeline obtains that account's password at run time from OIS (`oisapi.bbh.com`) using a certificate and the internal helper scripts.
+
+**An application team configures none of this.** The certificates and scripts are maintained by the DevSecOps platform team and are deliberately not stored in the library repository. If an agent cannot reach AppScan, that is the part to raise with them, quoting the agent label.
+
+### Who does what
+
+| Step | Who |
+|------|-----|
+| Registering the library in Jenkins | Jenkins administrators, once per instance |
+| Creating the shared credentials | Jenkins administrators |
+| Creating the Nexus IQ application and assigning a policy | You, or the Nexus IQ administrators |
+| Creating the SonarQube project and tokens | You |
+| Creating the AppScan application, key pair and DAST Presence | DevSecOps team |
+| Proxy account, OIS certificates, agent connectivity | DevSecOps platform team |
+| Nexus repositories and publishing accounts | Nexus administrators |
+| Deployment hosts and accounts | The owners of your test environments |
+| `Jenkinsfile`, `config.yaml`, the Jenkins job, the test jobs | You |
+
+---
+
+## 6. Registering your application in the tools
+
+Do this before the first pipeline run. Each tool gives you an identifier that goes into your `config.yaml`. Keep a note of the values as you go; the checklist at the end of this chapter lists them.
+
+### Nexus IQ — dependency scanning
+
+**Where:** `tools.bbh.com/IQ` · **Who:** you, or the Nexus IQ administrators if you may not create applications
+
+1. **Sign in and open Organizations & Policies.** Find the organisation your team belongs to. If you do not know which one, ask your team lead.
+2. **Create a new application.** Use a clear name such as `MyApp-GUI`. Nexus IQ also asks for an *Application ID*, the short public identifier — that is the value you need.
+3. **Confirm a policy is assigned.** The application must inherit your organisation's policy, otherwise the scan reports nothing.
+4. **Write down the Application ID.** It goes into `config.yaml` as `tools.nexusIq.application`.
+
+The pipeline fails the dependency stage if the application does not exist in Nexus IQ, so do this before the first run.
+
+### SonarQube — code quality
+
+**Where:** `tools.bbh.com/sonar` · **Who:** you
+
+1. **Create the project.** Choose *Create Project → Manually*, give it a display name such as `MyApp-GUI` and a project key such as `myapp-gui`. The key must be unique across BBH, so prefix it with your application name.
+2. **Generate a token to read results back.** *My Account → Security → Generate token*. Give it to the Jenkins administrators to store as a *Secret text* credential and note the credential ID.
+3. **Optional: generate a badge token.** *Project Settings → Badges*. Adding it to the configuration makes the quality metrics appear in the pipeline report.
+4. **Write down the project key and the credential ID.** They go into `config.yaml` as `tools.sonar.projectKey` and `tools.sonar.authToken`.
+
+**Flutter applications:** SonarQube Community has no Dart analyser and the library does not need one. It converts your coverage and your `dart analyze` findings into the formats SonarQube accepts from any language. Nothing extra to install — just create the project as above.
+
+### HCL AppScan — SAST
+
+**Where:** `bbh.cloud.appscan.com` · **Who:** the DevSecOps team creates the application, you note the identifiers
+
+1. **Request an AppScan application.** Ask the DevSecOps team to create one for your product, giving them the application name and your team.
+2. **Receive the Application ID.** It looks like `109f44ac-cc06-4ca0-884e-d944904f7019` and goes into `config.yaml` as `appId`.
+3. **Receive the API key ID.** It looks like `bbh_b81fbc9f-...` and goes into `config.yaml` as `asoc.keyId`. The matching secret is **not** put in your file — it lives in the Jenkins credential `hcl-app-scan-acount`.
+4. **Confirm your agent can reach AppScan.** Ask the DevSecOps team to confirm the proxy service account and the OIS certificate are installed on your agent label. This is the most common reason a first SAST run fails.
+
+> **Never** put the AppScan key secret, the proxy password or any certificate into `config.yaml` or into Bitbucket. Secrets belong in the Jenkins credentials store, and the library reads them from there at run time.
+
+### HCL AppScan — DAST
+
+**Where:** `bbh.cloud.appscan.com` · **Who:** you and the DevSecOps team
+
+DAST scans a *running* instance, so it only applies if you have one deployed in a test environment. If you do not, set `dast.enabled: false` and the pipeline reports the stage as not required instead of failing.
+
+1. **Have a deployed test instance** and note its URL, for example `http://rdltaapps1.testbbh.com`. It goes into `config.yaml` as `dast.targetUrl`.
+2. **Request an AppScan Presence.** Your application is inside the BBH network and AppScan is outside it, so AppScan needs a Presence — a small agent inside the network that performs the scan. Ask the DevSecOps team for one and for its ID.
+3. **Decide whether the scan needs to log in.** If the interesting parts are behind a login, provide a dedicated test account and give the credentials to the DevSecOps team rather than putting them in the file.
+4. **Write down the target URL and the Presence ID.** They go into `config.yaml` as `dast.targetUrl` and `dast.presenceId`.
+
+### Nexus repository — where artifacts are published
+
+**Where:** `tools.bbh.com/nexus` · **Who:** ask the Nexus administrators
+
+Only needed if your pipeline publishes artifacts or container images. Ask for a snapshot repository, a release repository and an account that may deploy to them. If you deploy to OpenShift, ask for the Docker registry path as well.
+
+### Credentials that must exist in Jenkins
+
+Most of these are shared across all applications and will already exist. Check with the administrators and request only what is missing.
+
+| Credential ID | Type | Needed for | Scope |
+|---------------|------|-----------|-------|
+| `hcl-app-scan-acount` | Username with password | The AppScan key ID and key secret, for SAST and DAST | shared |
+| `nexusiqP` | Username with password | Nexus IQ evaluation and remediation lookups | shared |
+| your Bitbucket credential | Username with password, or HTTP access token | Pushing the upgrade branch and opening the pull request; needs **write** access | per application |
+| your SonarQube token | Secret text | Reading issue counts back after the analysis | per application |
+| `remote-jenkins-api-token` | Username with API token | Only if your tests run on another Jenkins instance | optional |
+| `openshift-rd-token`, `openshift-qc-token` | Secret text | Only if you deploy to OpenShift | optional |
+
+### Checklist before you continue
+
+You should now have written down: the **Nexus IQ application ID**, the **SonarQube project key** and token credential ID, the **AppScan application ID** and key ID, and — if you use DAST — the **target URL** and **Presence ID**. If any is still missing, finish this chapter before going on.
+
+---
+
+## 7. Onboarding step by step
+
+This chapter is the same for all four pipelines. Do it once, then go to the chapter of the pipeline you chose.
+
+**You do not write any pipeline code.** Your application needs exactly two new files: a `Jenkinsfile` of about five lines and a `config.yaml` that describes your application. Everything else comes from the library.
+
+### Step 1 — Register the library in Jenkins
+
+**Who:** Jenkins administrators, once per Jenkins instance, not once per application.
+
+*Manage Jenkins → System → Global Pipeline Libraries*:
 
 | Field | Value |
 |-------|-------|
 | Name | `DevSecOpsJenkinsLibrary` |
-| Default version | `main` (or your release branch) |
-| Load implicitly | unchecked |
-| Allow default version override | unchecked |
-| Retrieval method | **Modern SCM** |
-| Source Code Management | **Git** |
-| Project Repository | URL to this repository |
-| Credentials | credentials to the library repo (if private) |
+| Default version | `main` (or a release tag) |
+| Retrieval method | Modern SCM → Git |
+| Project repository | the library repository on `rdtools.testbbh.com:7990` |
+| Load implicitly | off — projects declare `@Library(...)` themselves |
+| Allow default version to be overridden | on, so a project can pin a version while testing |
 
-4. Click **Save**.
+Ask them to confirm this is done before you create your job.
 
-That is all you need to do in Jenkins for the library. You do not need to configure anything else globally.
+### Step 2 — Add the two files to your repository
 
----
+**Who:** a developer on your team.
 
-## 6. Step 2 – Add two files to your project repository
+Both go in the **root** of the repository, on the branch the pipeline will build.
 
-Your project repository needs exactly **two files**:
-
-### File 1: `Jenkinsfile` (at repository root)
-
-The simplest possible Jenkinsfile:
+`Jenkinsfile` — the entry point differs per pipeline, so take it from your chapter:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
@@ -311,9 +512,320 @@ devSecOpsPipeline(
 )
 ```
 
-Replace `my-app` with the key name(s) you will use in `config.yaml`, and `agentNames` with the Jenkins agent labels your builds may run on. Both entries are required: `agentNames` fills the `AGENT_NAME` build parameter.
+`projectNames` must match the keys under `projects:` in `config.yaml`. `agentNames` are the Jenkins agent labels offered as the `AGENT_NAME` build parameter.
 
-For multiple projects (e.g. a monorepo with GUI and API):
+`config.yaml` — copy `config.yaml.template` from the library, keep only the `projects:` section and fill in the values you collected in the previous chapter. **Do not add thresholds or a coverage minimum**: they come from the library and a project cannot change them. The worked example for your pipeline is in your chapter, and every option is listed in [config.yaml reference](#13-configyaml-reference).
+
+### Step 3 — Create the test jobs
+
+**Who:** you, with your QA colleagues. Only for pipelines that run tests.
+
+Smoke, regression and performance jobs must exist before the pipeline reaches those stages. They may live on this Jenkins (`type: local`, `job: "folder/job-name"`) or on any other instance, referenced by full URL. A stage may hold hundreds of jobs; at most `tests.*.maxParallel` run at the same time.
+
+An entry with an empty `job:` is reported as `NOT_CONFIGURED`, counts as a job that did not succeed and turns the stage orange without failing the run — which is a reasonable way to start while a suite is still being written.
+
+### Step 4 — Create the Jenkins job
+
+**Who:** you, or the Jenkins administrators.
+
+*New Item* → name it, for example `MyApp-devsecops-pipeline` → choose **Pipeline**. Then in the job configuration:
+
+| Field | Value |
+|-------|-------|
+| Definition | Pipeline script from SCM |
+| SCM | Git |
+| Repository URL | your Bitbucket repository |
+| Credentials | your Bitbucket credential |
+| Branch | the branch to build |
+| Script Path | `Jenkinsfile` |
+
+Nothing else has to be configured. Save.
+
+### Step 5 — Run it
+
+**Who:** you.
+
+Press **Build Now**. The first run registers the build parameters and may stop early — that is normal. Run it a second time and you will see **Build with Parameters** with `AGENT_NAME` and whatever else your pipeline defines.
+
+### Step 6 — Read the report
+
+On the build page choose **Pipeline Report** in the left menu.
+
+1. **Read the colours.** Green means the stage met the policy. **Orange** means it ran but broke a rule — the build is unstable and the release is blocked, but the pipeline carried on so you can see every problem at once. Red means the stage failed and the pipeline stopped there.
+2. **Read the reasons.** Each orange or red stage carries its reason underneath, naming the counts and the consequence.
+3. **Check the Release policy card.** It lists every reason the release and the higher environment deployment are blocked. When it is empty, your application is releasable.
+
+**A first run is rarely all green, and that is fine.** The usual first run findings are coverage below the required minimum, dependencies with known vulnerabilities, and test jobs that do not exist yet. Work through them one at a time — nothing has to be perfect before the pipeline is useful. [Troubleshooting](#21-troubleshooting) lists what each message means.
+
+---
+
+## 8. Chapter: the full pipeline
+
+**Entry point:** `devSecOpsPipeline` · **Parameters:** `AGENT_NAME`, `DEPLOY_HIGHER_ENV`
+
+### When to choose it
+
+One Jenkins job that does everything: build, unit tests, all three security scans, code quality, publishing, deployment to two environments, functional and performance tests, and the dynamic security scan. Choose it when a single job covering the whole flow is acceptable and the run time is not a problem.
+
+**Thirteen stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment.
+
+### Jenkinsfile
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
+```
+
+### config.yaml
+
+```yaml
+projects:
+  my-app:
+    appId:        "<AppScan application ID>"
+    buildTool:    gradle
+    deployTarget: vm
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+      keyId: "<AppScan key ID>"
+
+    tools:
+      sonar:
+        projectName: "MyApp"
+        projectKey:  "myapp"
+        serverUrl:   "https://tools.bbh.com/sonar"
+        authToken:   "<Jenkins credential ID of your Sonar token>"
+      nexusIq:
+        application:   "<Nexus IQ application ID>"
+        serverUrl:     "https://tools.bbh.com/IQ"
+        credentialsId: "nexusiqP"
+        scanPatterns:  ["**/build/libs/*.jar"]
+
+    build:
+      gradle:
+        tasks: ['clean', 'build']
+
+    tests:
+      unitTests:
+        gradle:
+          tasks: ['test', 'jacocoTestReport']
+        unitTestResult: 'build/test-results/test/*.xml'
+      smoke:
+        jobs:
+          - name: "MyApp - smoke"
+            type: local
+            job:  "myapp/smoke-tests"
+      regression:
+        jobs:
+          - name: "MyApp - regression"
+            type: local
+            job:  "myapp/regression-tests"
+      performance:
+        jobs:
+          - name: "MyApp - performance"
+            type: local
+            job:  "myapp/performance-tests"
+
+    dast:
+      enabled:    true
+      targetUrl:  "http://rdltaapps1.testbbh.com"
+      presenceId: "<AppScan Presence ID>"
+
+    scm:
+      bitbucket:
+        url:           "http://rdtools.testbbh.com:7990/projects/MYAPP/repos/myapp"
+        credentialsId: "<your Bitbucket credential ID>"
+
+    deploy:
+      vm:
+        rd:
+          host:         "rdltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/deployment"
+          deployScript: "scripts/deployment/deploy.sh"
+        qc:
+          host:         "qcltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/MyApp/deployment"
+          deployScript: "scripts/deployment/deploy.sh"
+```
+
+Use `buildTool: maven` or `flutter` if that is what your project uses and replace the `build` and `tests` blocks accordingly.
+
+### Specific to this pipeline
+
+- **VM deployment uses UrbanCode Deploy** here, unlike the extended pipeline which deploys over SSH. Set `deployTarget: openshift` for an OpenShift project.
+- **`DEPLOY_HIGHER_ENV` is off by default.** The pipeline deploys there only when you tick it *and* everything else is green, so a promotion is always deliberate.
+
+---
+
+## 9. Chapter: the security pipeline
+
+**Entry point:** `devSecOpsSecurityPipeline` · **Parameters:** `AGENT_NAME`, `RUN_EXTENDED_PIPELINE`
+
+### When to choose it
+
+The first half of the flow, meant to run on **every commit**: it is fast, needs no deployed environment, and gives developers security feedback quickly. It pairs with the next chapter, which runs the slower half on demand.
+
+**Six stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery.
+
+It also archives your `config.yaml` and the release decision so the extended pipeline can pick them up, and can start the extended job automatically.
+
+### Jenkinsfile
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsSecurityPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
+```
+
+### config.yaml
+
+Start from the file in the previous chapter and **remove the `dast`, `deploy` and `tests.smoke` / `regression` / `performance` blocks** — this pipeline does not use them. Keep `appId`, `asoc`, `tools.sonar`, `tools.nexusIq`, `build`, `tests.unitTests` and `scm.bitbucket`.
+
+If you will also run the extended pipeline, add the name of that job so this one can start it:
+
+```yaml
+    jenkins:
+      pipeline:
+        extendedPipeline: "MyApp/MyApp-extended-pipeline"
+```
+
+You can add this later, once the extended job exists.
+
+### Specific to this pipeline
+
+- **Turn on automatic builds.** Because it is meant to run on every commit, enable a build trigger in the job configuration — a Bitbucket webhook or *Poll SCM*. Ask the Jenkins administrators which method your instance uses.
+- **Leave `RUN_EXTENDED_PIPELINE` off** until the extended job exists.
+- **Why the split is worth it:** developers get the security verdict within minutes of pushing, instead of waiting for deployments and performance tests that are not relevant to the change they just made.
+
+---
+
+## 10. Chapter: the extended pipeline
+
+**Entry point:** `devSecOpsExtendedPipeline` · **Parameters:** `AGENT_NAME`, `DEPLOY_HIGHER_ENV`
+
+### When to choose it
+
+The second half of the flow, started after the security pipeline. It deploys, runs the test suites, performs the dynamic security scan and then decides about the release and the promotion.
+
+**Eight stages:** source checkout · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment.
+
+> **The security pipeline must be working first.** This one copies the archived `config.yaml` and the release decision from that job. It **inherits** the verdict rather than deciding again, so a security finding that blocked the release there also blocks it here.
+
+### Jenkinsfile
+
+The one difference from the other chapters: `securityPipeline` must be the full Jenkins path of the security job.
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsExtendedPipeline(
+    projectNames:     'my-app',
+    agentNames:       ['linux-agent'],
+    securityPipeline: 'MyApp/MyApp-security-pipeline'
+)
+```
+
+If you keep both pipelines in one repository, give this file a different name such as `Jenkinsfile.extended` and point the job's *Script Path* at it.
+
+### config.yaml
+
+This pipeline needs the `deploy`, `tests.smoke`, `tests.regression`, `tests.performance` and `dast` blocks shown in the full pipeline chapter. The `config.yaml` it actually uses is **the one archived by the security job**, so edit the file in the repository and let the security pipeline run once to publish it.
+
+### Specific to this pipeline
+
+- **VM deployment is over SSH** here, not UrbanCode Deploy. For OpenShift set `deployTarget: openshift` and provide the cluster tokens as credentials.
+- **Do not add a commit trigger.** This job is started by the security pipeline or by a person.
+- **Copy Artifact permission.** This job reads files archived by the security job, which on some Jenkins instances requires the upstream job to permit it. If the first run reports that it cannot copy artifacts, that is the setting to ask the administrators about.
+- **Connect the two jobs** by setting `jenkins.pipeline.extendedPipeline` in the security job's `config.yaml` to this job's path. From then on, running the security pipeline with `RUN_EXTENDED_PIPELINE` ticked starts this one automatically.
+
+---
+
+## 11. Chapter: the SAST scanning pipeline
+
+**Entry point:** `devSecOpsSASTScanningPipeline` · **Parameters:** `AGENT_NAME`
+
+### When to choose it
+
+The smallest option: it checks out your code and runs the AppScan static security scan, nothing else. Use it when you want a security scan of the source without building, testing or deploying — typically on a weekly schedule, for an application whose main pipeline lives elsewhere, or as the very first step of onboarding.
+
+**Two stages:** source checkout · AppScan SAST.
+
+> **A good way to start.** If you are onboarding a large application, running this pipeline first proves that the AppScan connection, the proxy and the certificates all work, before you invest time in the rest of the configuration.
+
+### Jenkinsfile
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsSASTScanningPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
+```
+
+### config.yaml
+
+This pipeline needs very little — only the AppScan identifiers and, if your source is not at the repository root, where to find it.
+
+```yaml
+projects:
+  my-app:
+    appId:     "<AppScan application ID>"
+    buildTool: gradle
+    sourceDir: "."
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+      keyId: "<AppScan key ID>"
+
+    sast:
+      scanName: "MyApp-SAST"
+```
+
+### Specific to this pipeline
+
+- **This pipeline checks out the source itself** and sets up the JDK, because there is no build stage to do it.
+- **Put it on a schedule.** In the job configuration tick *Build periodically* and enter something like `H 2 * * 1`, which runs it once a week early on Monday morning. Scanning source code does not need to happen on every commit.
+- The report shows only the source checkout and the SAST stage, with a link to the AppScan report. There is no release gate card, because this pipeline releases nothing.
+
+---
+
+## 12. Worked examples
+
+The library ships a complete, working example under `examples/CertScanner/`, and the test suite regenerates a set of demo reports under `examples/reports/` on every run so you can see exactly what the pipeline produces before you run it yourself.
+
+`CertScanner/` is a complete, working example of a project onboarded to the library. It shows two projects in one repository:
+
+| Project | Build tool | Deployment | Scans configured |
+|---------|-----------|------------|------------------|
+| `gui` | Gradle | VM: UrbanCode Deploy in the full pipeline, SSH in the extended pipeline and for QC | SAST, DAST, SonarQube, Nexus IQ with GoldenFix |
+| `backend-api` | Maven | OpenShift: image build, copy to the Nexus docker registry, rollout on RD and QC | SAST, DAST, SonarQube, Nexus IQ with GoldenFix |
+
+Both projects configure the JDK (`javaPath`), unit tests with coverage, regression, smoke and performance jobs, including local jobs, remote jobs by full URL, a remote job through a Remote Jenkins name and a plain URL list.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `CertScanner/Jenkinsfile` | Loads the library and calls the full pipeline |
+| `CertScanner/config.yaml` | Full project configuration, the only file you adapt |
+
+### Choosing the entry point
+
+Every entry point takes `projectNames`, the keys of the `projects:` section of your `config.yaml`, and `agentNames`, the Jenkins agent labels offered as the `AGENT_NAME` build parameter.
+
+The full pipeline runs all thirteen stages in one job:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
@@ -324,138 +836,53 @@ devSecOpsPipeline(
 )
 ```
 
-### File 2: `config.yaml` (at repository root)
+Split the flow into two jobs when the static part should run on every commit and the deployment and test part on demand. The first job runs unit tests, Nexus IQ, SAST, SonarQube and the snapshot delivery, and archives `config.yaml` together with the release gate verdict:
 
-This file contains ONLY the `projects:` section. You do not need to specify `defaults:` — the library provides non-overridable defaults automatically.
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
 
-Minimal example (single project, VM deployment):
-
-```yaml
-projects:
-
-  my-app:
-    appId:     "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-    buildTool: gradle
-    javaPath:  /usr/lib/jvm/java-17-openjdk     # JDK for the build and the tests
-
-    asoc:
-      keyId:     "bbh_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      keySecret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
-    tools:
-      sonar:
-        projectName: "My Application"
-        projectKey:  "my-application"
-        serverUrl:   "https://tools.bbh.com/sonar"
-        badgeToken:  "sqb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      nexusIq:
-        application:        "My-Application"
-        serverUrl:          "https://tools.bbh.com/IQ"
-        credentialsId:      "nexusiqP"
-        scanPatterns:       ["**/build/libs/*.jar"]
-        stage:              "build"
-        failOnNetworkError: false
-
-    dast:
-      enabled:   true
-      targetUrl: "http://my-rd-server.example.com"
-
-    tests:
-      smoke:
-        jobs:
-          - name:       "My App - smoke"
-            type:       local
-            job:        "my-app/smoke-tests"
-            timeoutMin: 15
-      regression:
-        jobs:
-          - name:       "My App - regression"
-            type:       local
-            job:        "my-app/regression-tests"
-            timeoutMin: 60
-      performance:
-        jobs:
-          - name:       "My App - performance"
-            type:       local
-            job:        "my-app/performance-tests"
-            timeoutMin: 120
-
-    deploy:
-      vm:
-        dod:                                   # lower test region of devSecOpsPipeline (UrbanCode Deploy)
-          siteName:      "deploy.bbh.com"
-          deployProcess: "tomcat-app-process"
-          applications:
-            - applicationName: "My-App"
-              components:
-                - componentName:       "My-App-app"
-                  baseDir:             "build/libs"
-                  fileIncludePatterns: "*.jar"
-        rd:                                    # lower test region of devSecOpsExtendedPipeline (SSH)
-          host:         "rdserver.example.com"
-          user:         "deploy"
-          deployDir:    "/opt/app/deployment"
-          deployScript: "scripts/deployment/deploy.sh"
-          versionFile:  "scripts/deployment/version.properties"
-        qc:
-          host:         "qcserver.example.com"
-          user:         "deploy"
-          deployDir:    "/opt/app/deployment"
-          deployScript: "scripts/deployment/deploy.sh"
-          versionFile:  "scripts/deployment/version.properties"
+devSecOpsSecurityPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent']
+)
 ```
 
-> **Important:** `asoc.keyId` and `asoc.keySecret` are required in every project. These are credentials for HCL AppScan on Cloud (ASoC). Obtain them from the ASoC portal under your organization's API key settings.
+The second job deploys to RD, runs regression, smoke and performance tests and DAST, and then decides about the release and the QC deployment. It copies the archived files from the first job, so `securityPipeline` must name that job:
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsExtendedPipeline(
+    projectNames:     'gui,backend-api',
+    agentNames:       ['linux-agent'],
+    securityPipeline: 'CertScanner-security'
+)
+```
+
+The static job starts the extended one when its `RUN_EXTENDED_PIPELINE` parameter is selected. The job it starts is the one named in `jenkins.pipeline.extendedPipeline` of `config.yaml`, and it is started after the static job finishes, also when that job ended unstable. The extended job inherits the verdict of the static one through the copied `release-gate.json`, so findings from the static part still block the Nexus release and the QC deployment.
+
+### What the thresholds are
+
+Nothing in these files sets a security threshold or a coverage minimum. Both come from `resources/defaults.yaml` inside the library and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
+
+Step by step onboarding instructions are in the SelfService section of `DOCUMENTATION.md` and `documentation.html`.
+
+### Demo reports
+
+`reports/` holds one generated HTML page per pipeline and outcome, plus `index.html` as the overview. They are produced by the report template of the library from randomised data when `test/run-all.sh` runs, so they always match the current template:
+
+| Page | Pipeline | Outcome |
+|------|----------|---------|
+| `security-pipeline-pass.html` | static security | every stage green |
+| `security-pipeline-fail.html` | static security | orange stages, release and QC blocked |
+| `sast-pipeline-pass.html` | SAST only | no findings |
+| `sast-pipeline-fail.html` | SAST only | findings above the policy |
+| `full-pipeline-pass.html` | all thirteen stages | released to Nexus and deployed to QC |
+| `full-pipeline-fail.html` | all thirteen stages | orange stages, GoldenFix pull request, release and QC blocked |
 
 ---
 
-## 7. Step 3 – Configure the Jenkins job
-
-1. Create a new **Pipeline** job in Jenkins.
-2. In **Pipeline** section, select **Pipeline script from SCM**.
-3. Set **SCM** to **Git** and enter your project repository URL.
-4. Set **Branch Specifier** to your default branch (e.g. `*/main`).
-5. Set **Script Path** to `Jenkinsfile`.
-6. Click **Save**.
-
-No environment variables need to be configured in the job definition. The library reads everything from `config.yaml`.
-
-### Optional: expose parameters in the job
-
-The entry points declare their build parameters, so they appear in the Jenkins UI after the first run:
-
-| Parameter | Declared by | Default | Description |
-|-----------|-------------|---------|-------------|
-| `AGENT_NAME` | every entry point | first entry of `agentNames` | The agent label the build runs on, taken from `agentNames` of the Jenkinsfile call. |
-| `DEPLOY_HIGHER_ENV` | `devSecOpsPipeline`, `devSecOpsExtendedPipeline` | `false` | When `true`, the pipeline deploys to the QC environment, provided every earlier stage is green. |
-| `RUN_EXTENDED_PIPELINE` | `devSecOpsSecurityPipeline` | `false` | When `true`, the static pipeline starts the job named in `jenkins.pipeline.extendedPipeline` after the report is published. |
-
-A policy violation never fails the pipeline. The stage turns orange, the build is marked UNSTABLE and keeps running, and the Nexus release plus the QC deployment stay blocked until the findings are fixed. There is no override parameter and no project threshold.
-
-These appear in the Jenkins UI automatically after the first successful run.
-
----
-
-## 8. Step 4 – First run
-
-1. Open your pipeline job in Jenkins.
-2. Click **Build Now** (or **Build with Parameters** if parameters have already been discovered).
-3. Watch the **Stage View** – each stage turns green on success or red on failure.
-4. After the build finishes, click **Pipeline Report** in the left sidebar to view the HTML security report.
-
-### What to expect on first run
-
-- **Stage 1** reads your `config.yaml` after the declarative checkout. If the file is missing or malformed, the stage fails with a clear error message.
-- **Stage 2 (Unit tests)** turns orange instead of red when the tests fail or the coverage is below the required value, and the build carries on.
-- **Stage 4 (SAST)** compiles the project, uploads it to ASoC and waits for the results. This typically takes 20–50 minutes.
-- **Stage 11 (DAST)** is skipped for projects where `dast.enabled: false`.
-- **Stage 12** is skipped when any earlier stage is orange.
-- **Stage 13** only runs when `DEPLOY_HIGHER_ENV=true` is selected at build time and every earlier stage is green.
-- Orange stages do not stop the run: every stage from unit tests to DAST is executed on every build.
-
----
-
-## 9. config.yaml reference
+## 13. config.yaml reference
 
 The `config.yaml` in your project must contain only a `projects:` top-level key. Below is the full reference with all available fields and their defaults (coming from the library):
 
@@ -713,7 +1140,9 @@ projects:
 
 ---
 
-## 10. Pipeline stages
+---
+
+## 14. Pipeline stages
 
 ### Stage 1: Monitor source changes (download sources)
 
@@ -833,7 +1262,9 @@ The **release gate** collects the verdict. It blocks the second Nexus delivery a
 
 Each pipeline evaluates the results it owns and hands its verdict to the next one through the archived `release-gate.json`, so a security pipeline with an orange stage also blocks the release in the extended pipeline.
 
-## 11. Policy thresholds
+---
+
+## 15. Policy thresholds
 
 All thresholds live in `resources/defaults.yaml` inside the library. A project **cannot** change any of them in `config.yaml`: a value put there is ignored. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
@@ -853,7 +1284,100 @@ The required coverage is shown in the report exactly as configured in `resources
 
 ---
 
-## 12. Advanced: using library methods directly
+---
+
+## 16. Supported build tools
+
+| Tool | Build | Unit tests | Coverage | Release publish |
+|------|-------|-----------|---------|---------|
+| Gradle | `./gradlew` + `build.gradle.tasks` and `flags` | `./gradlew` + `tests.unitTests.gradle.tasks` | JaCoCo XML | `./gradlew publish` |
+| Maven | `mvn` + `build.maven.goals` and `flags` | `mvn` + `tests.unitTests.maven.goals` | JaCoCo XML | `mvn deploy` |
+| Flutter | `flutter build <platform>` | `flutter test --coverage --machine` | lcov | Nexus upload of the APK/IPA |
+
+Every command comes from `config.yaml`; the table shows where the library reads it. The build tool is auto-detected from `buildTool` in config or by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle).
+
+Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
+
+The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK.
+
+A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.
+
+### JaCoCo report auto-detection (Gradle)
+
+Searched in order:
+1. `build/jacoco/jacoco.xml`
+2. `build/reports/jacoco/test/jacocoTestReport.xml`
+3. `build/reports/jacoco/jacocoTestReport.xml`
+4. `coverage.reportPath` from `config.yaml` (custom path)
+
+### JaCoCo report auto-detection (Maven)
+
+Searched in order:
+1. `target/site/jacoco/jacoco.xml`
+2. `target/jacoco/jacoco.xml`
+3. `coverage.reportPath` from `config.yaml` (custom path)
+
+---
+
+---
+
+## 17. Supported deployment targets
+
+### VM deployment over SSH
+
+Used by `devSecOpsExtendedPipeline` for the lower test region and by every pipeline for the QC deployment. Set `deployTarget: vm` (the default) and fill in `deploy.vm.rd` and `deploy.vm.qc`.
+
+The library connects over SSH and:
+1. Verifies connectivity (`ssh ... uptime`)
+2. Creates the deploy directory on the remote host
+3. Copies `deployScript` and `versionFile` with `scp`
+4. Executes `deployScript` on the remote host
+
+For this to work:
+- The Jenkins agent must have key-based SSH access to the deployment host
+- `deployScript` must exist in your project and be executable
+- `versionFile` must contain `APP_VERSION=<version>`
+
+### VM deployment with UrbanCode Deploy
+
+Used by `devSecOpsPipeline` for the lower test region (environment `DV`). Fill in `deploy.vm.dod`.
+
+For every application of `deploy.vm.dod.applications`, ordered by `order`, the library:
+1. Checks that each component has files matching `fileIncludePatterns` under `baseDir`
+2. Publishes every component as a new version named `<versionPrefix>_<BUILD_ID>` (`UCDeployPublisher` push)
+3. Creates the snapshot `<applicationName>_snapshot_<BUILD_ID>` and starts `deployProcess` on the environment
+
+For this to work:
+- The UrbanCode Deploy plugin must be installed and the site of `siteName` configured in Jenkins
+- The artifact must exist under `baseDir` when the stage runs
+
+### OpenShift deployment
+
+Set `deployTarget: openshift` and fill in `deploy.openshift.rd` (and `qc`). The library uses the OpenShift Client plugin (`openshift.withCluster()`).
+
+The snapshot stage:
+1. Copies the artifact and the Dockerfile into `buildContext`
+2. Creates the BuildConfig from `buildConfigPath` when it does not exist yet, and starts a binary build in `projectBuildR`
+3. Waits for the build, reads the image digest and stores the image reference and the build tag `<BUILD_NUMBER>-<yyyyMMdd-HHmmss>` in `config.yaml`
+4. Copies the image with `skopeo` to `qcDockerRepoPush` under the build tag, the build number and `latest`
+
+The deployment stage:
+1. Clones the deployment repository into `deploymentPath` when `deploymentRepo` is configured
+2. Applies the config template `configPathR` unless `skipConfigDeploy: true`
+3. Applies the deployment template `deployConfigPath`, tags `qcDockerRepoPull:<buildTag>` as `<appName>:latest`, restarts the rollout and waits for it
+
+The QC deployment reuses the build tag produced by the snapshot stage of the same flow, so `deploy.openshift.qc.buildTag` only has to be set when you want to deploy a different image.
+
+For this to work:
+- The OpenShift Client plugin must be installed and the cluster credentials stored in Jenkins
+- The agent needs `oc` and `skopeo`, plus the docker authfile of `nexus.authfile`
+- The templates named in `buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR` must exist in the repository
+
+---
+
+---
+
+## 18. Advanced: using library methods directly
 
 ### One devSecOpsApi instance per build
 
@@ -989,94 +1513,560 @@ The tool environment variables such as `APPSCAN_SERVER_URL` or the proxy setting
 
 ---
 
-## 13. Supported build tools
+---
 
-| Tool | Build | Unit tests | Coverage | Release publish |
-|------|-------|-----------|---------|---------|
-| Gradle | `./gradlew` + `build.gradle.tasks` and `flags` | `./gradlew` + `tests.unitTests.gradle.tasks` | JaCoCo XML | `./gradlew publish` |
-| Maven | `mvn` + `build.maven.goals` and `flags` | `mvn` + `tests.unitTests.maven.goals` | JaCoCo XML | `mvn deploy` |
-| Flutter | `flutter build <platform>` | `flutter test --coverage --machine` | lcov | Nexus upload of the APK/IPA |
+## 19. Monitoring and metrics
 
-Every command comes from `config.yaml`; the table shows where the library reads it. The build tool is auto-detected from `buildTool` in config or by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle).
+Every run writes one batch of InfluxDB line protocol from `post { always }`, so a failed run is recorded exactly like a successful one. Nothing is sampled: the batch covers the run, every stage, every scanner, every module, every test suite, the release gate and the remediation outcome.
 
-Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
+### What is written
 
-The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK.
+| Measurement | Tags | Answers |
+|-------------|------|---------|
+| `pipeline_run` | project, env, variant, result, branch | One row per run: outcome, duration, and how many stages passed, warned, failed, were blocked or skipped |
+| `dora` | project, env, variant | Deployment, lead time from the commit under test, change failure and whether a release was published |
+| `stage_event` | project, env, stage, status | Per stage: duration, whether it was executed, its order and the reason when it was not green. **Stamped at the end of that stage**, so the timeline is accurate |
+| `security_findings` | project, env, module, scanner, status | Severity counts per scanner per module, the policy limits, and how many findings are above them |
+| `policy_status` | project, env, scanner, status | Which gates were evaluated and which held |
+| `code_coverage` | project, env, module, measured | Line coverage against the required minimum, and the shortfall |
+| `test_execution` / `test_job` | project, env, module, suite, status, type | Suite totals and success rate, and each individual job |
+| `release_gate` | project, env, allowed | Whether the release was permitted, and how many violations blocked it |
+| `goldenfix` | project, env, module, status | Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one |
 
-A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.
+The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working.
 
-### JaCoCo report auto-detection (Gradle)
+### DORA
 
-Searched in order:
-1. `build/jacoco/jacoco.xml`
-2. `build/reports/jacoco/test/jacocoTestReport.xml`
-3. `build/reports/jacoco/jacocoTestReport.xml`
-4. `coverage.reportPath` from `config.yaml` (custom path)
+The four metrics are derived from the `dora` measurement:
 
-### JaCoCo report auto-detection (Maven)
+- **Deployment frequency** - the `deployment` field is 1 when a deployment stage completed green.
+- **Lead time for changes** - `lead_time_s` measures from the timestamp of the commit under test, read with `git log -1` during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
+- **Change failure rate** - `change_failure` is 1 for any run that did not end `SUCCESS`.
+- **Time to restore** - derived in Grafana from the `change_failure` series; the query is in [Grafana dashboards and queries](#20-grafana-dashboards-and-queries).
 
-Searched in order:
-1. `target/site/jacoco/jacoco.xml`
-2. `target/jacoco/jacoco.xml`
-3. `coverage.reportPath` from `config.yaml` (custom path)
+### Configuration
+
+```yaml
+influx:
+  enabled: true
+  project: "MyApp"
+  env:     "test"
+  url:     "http://influx.example.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s"
+  token:   "your-influx-token"       # or credentialsId for a Jenkins secret
+```
+
+A bucket keeps the data for its retention period, and the cumulative "since the beginning" panels reach only as far back as that. Set the retention to infinite, or to the period the organisation reports on.
+
+### Dashboards
+
+[Grafana dashboards and queries](#20-grafana-dashboards-and-queries) holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` are unchanged and continue to work.
 
 ---
 
-## 14. Supported deployment targets
+## 20. Grafana dashboards and queries
 
-### VM deployment over SSH
+Every build writes one batch of InfluxDB line protocol from `post { always }`, so a run that failed is recorded exactly like a run that succeeded. This document lists what is written and the Flux to put on a dashboard.
 
-Used by `devSecOpsExtendedPipeline` for the lower test region and by every pipeline for the QC deployment. Set `deployTarget: vm` (the default) and fill in `deploy.vm.rd` and `deploy.vm.qc`.
+- **Bucket:** `DORA-metrics` (the `bucket=` parameter of `influx.url` in `config.yaml`)
+- **Written by:** `com.bbh.metrics.PipelineMetrics`, sent by `com.bbh.metrics.InfluxDbService`
+- **Cadence:** one write per pipeline run, containing every measurement below
 
-The library connects over SSH and:
-1. Verifies connectivity (`ssh ... uptime`)
-2. Creates the deploy directory on the remote host
-3. Copies `deployScript` and `versionFile` with `scp`
-4. Executes `deployScript` on the remote host
+### Dashboard variables
 
-For this to work:
-- The Jenkins agent must have key-based SSH access to the deployment host
-- `deployScript` must exist in your project and be executable
-- `versionFile` must contain `APP_VERSION=<version>`
+Create these as *Query* variables so the panels below work unchanged.
 
-### VM deployment with UrbanCode Deploy
+| Variable | Type | Definition |
+|----------|------|------------|
+| `project` | Query | `import "influxdata/influxdb/schema"`<br>`schema.tagValues(bucket: "DORA-metrics", tag: "project")` |
+| `env` | Query | `schema.tagValues(bucket: "DORA-metrics", tag: "env")` |
+| `module` | Query, multi, include All | `schema.tagValues(bucket: "DORA-metrics", tag: "module")` |
+| `stage` | Query, multi, include All | `schema.tagValues(bucket: "DORA-metrics", tag: "stage")` |
 
-Used by `devSecOpsPipeline` for the lower test region (environment `DV`). Fill in `deploy.vm.dod`.
+For the "since the beginning" panels set the panel time range to `From: now-5y` or use the explicit `range(start: 0)` shown in section 7.
 
-For every application of `deploy.vm.dod.applications`, ordered by `order`, the library:
-1. Checks that each component has files matching `fileIncludePatterns` under `baseDir`
-2. Publishes every component as a new version named `<versionPrefix>_<BUILD_ID>` (`UCDeployPublisher` push)
-3. Creates the snapshot `<applicationName>_snapshot_<BUILD_ID>` and starts `deployProcess` on the environment
 
-For this to work:
-- The UrbanCode Deploy plugin must be installed and the site of `siteName` configured in Jenkins
-- The artifact must exist under `baseDir` when the stage runs
+### What the pipeline writes
 
-### OpenShift deployment
+| Measurement | Tags | Key fields | Answers |
+|-------------|------|-----------|---------|
+| `pipeline_run` | project, env, variant, result, branch | build, duration_s, success, unstable, stages_total, passed, warned, failed, blocked, skipped, not_required, modules, commit, job | One row per run: outcome and shape |
+| `dora` | project, env, variant | deployment, lead_time_s, change_failure, duration_s, released | The four DORA metrics |
+| `stage_event` | project, env, stage, status | duration_ms, duration_s, ok, executed, order, reason | Per stage, stamped at the end of that stage |
+| `security_findings` | project, env, module, scanner, status | critical, high, medium, low, total, above_policy, max_*, exceeded | Findings per scanner per module against policy |
+| `policy_status` | project, env, scanner, status | ok, measured | Which gates were evaluated and which held |
+| `code_coverage` | project, env, module, measured | line_pct, covered, missed, total, required, met, gap | Coverage per module against the required minimum |
+| `test_execution` | project, env, module, suite | total, passed, failed, not_configured, duration_ms, success_rate | Smoke, regression and performance suites |
+| `test_job` | project, env, module, suite, status, type | duration_ms, name, ok | Individual test jobs |
+| `release_gate` | project, env, allowed | allowed, blocked, violations, reason | Whether the release was permitted |
+| `goldenfix` | project, env, module, status | offered, applied, unresolved, pr_raised, build_check, build_failed | Automated dependency remediation |
+| `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities`, `test_coverage` | — | — | Kept unchanged so dashboards built before this revision keep working |
 
-Set `deployTarget: openshift` and fill in `deploy.openshift.rd` (and `qc`). The library uses the OpenShift Client plugin (`openshift.withCluster()`).
+> `stage_event` points carry the **end time of the stage** as their timestamp, not the time of the write, so a stage timeline is accurate to the second.
 
-The snapshot stage:
-1. Copies the artifact and the Dockerfile into `buildContext`
-2. Creates the BuildConfig from `buildConfigPath` when it does not exist yet, and starts a binary build in `projectBuildR`
-3. Waits for the build, reads the image digest and stores the image reference and the build tag `<BUILD_NUMBER>-<yyyyMMdd-HHmmss>` in `config.yaml`
-4. Copies the image with `skopeo` to `qcDockerRepoPush` under the build tag, the build number and `latest`
 
-The deployment stage:
-1. Clones the deployment repository into `deploymentPath` when `deploymentRepo` is configured
-2. Applies the config template `configPathR` unless `skipConfigDeploy: true`
-3. Applies the deployment template `deployConfigPath`, tags `qcDockerRepoPull:<buildTag>` as `<appName>:latest`, restarts the rollout and waits for it
+### DORA metrics
 
-The QC deployment reuses the build tag produced by the snapshot stage of the same flow, so `deploy.openshift.qc.buildTag` only has to be set when you want to deploy a different image.
+### 2.1 Deployment frequency
 
-For this to work:
-- The OpenShift Client plugin must be installed and the cluster credentials stored in Jenkins
-- The agent needs `oc` and `skopeo`, plus the docker authfile of `nexus.authfile`
-- The templates named in `buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR` must exist in the repository
+*Visualization: Time series (bars)*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "dora" and r._field == "deployment")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> aggregateWindow(every: 1d, fn: sum, createEmpty: true)
+  |> yield(name: "Deployments per day")
+```
+
+### 2.2 Lead time for changes
+
+Time from the commit under test to the end of the run. *Visualization: Time series, unit `seconds (s)`; add a median reduction for a Stat panel.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "dora" and r._field == "lead_time_s")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._value > 0)
+  |> aggregateWindow(every: v.windowPeriod, fn: median, createEmpty: false)
+  |> yield(name: "Lead time (median)")
+```
+
+### 2.3 Change failure rate
+
+*Visualization: Gauge, unit `percent (0-100)`, thresholds 15 / 30.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "dora" and r._field == "change_failure")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> mean()
+  |> map(fn: (r) => ({ r with _value: r._value * 100.0 }))
+  |> yield(name: "Change failure rate %")
+```
+
+### 2.4 Time to restore service
+
+The gap between a failing run and the next green one. *Visualization: Time series, unit `seconds (s)`.*
+
+```flux
+import "experimental"
+
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "dora" and r._field == "change_failure")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> sort(columns: ["_time"])
+  |> stateDuration(fn: (r) => r._value == 1, column: "broken_for", unit: 1s)
+  |> filter(fn: (r) => r._value == 0 and r.broken_for >= 0)
+  |> map(fn: (r) => ({ r with _value: float(v: r.broken_for) }))
+  |> yield(name: "Time to restore")
+```
+
+> `stateDuration` resets on every green run, so the value on a recovery point is how long the pipeline had been failing. Reduce with `mean()` for MTTR on a Stat panel.
+
+
+### Pipeline health
+
+### 3.1 Run outcome over time
+
+*Visualization: State timeline, tag `result` as the value.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "pipeline_run" and r._field == "success")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> keep(columns: ["_time", "_value", "result", "branch"])
+  |> yield(name: "Run outcome")
+```
+
+### 3.2 Build duration trend
+
+*Visualization: Time series, unit `seconds (s)`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "pipeline_run" and r._field == "duration_s")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
+  |> yield(name: "Build duration")
+```
+
+### 3.3 Stage status breakdown of the latest run
+
+*Visualization: Bar gauge or table.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "pipeline_run")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._field =~ /^(passed|warned|failed|blocked|skipped|not_required)$/)
+  |> last()
+  |> keep(columns: ["_field", "_value"])
+  |> yield(name: "Stages of the last run")
+```
+
+### 3.4 Where the time goes — slowest stages
+
+*Visualization: Bar chart, unit `seconds (s)`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "stage_event" and r._field == "duration_s")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._value > 0)
+  |> group(columns: ["stage"])
+  |> mean()
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+  |> yield(name: "Average stage duration")
+```
+
+### 3.5 Which stage breaks most often
+
+*Visualization: Bar chart.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "stage_event" and r._field == "ok")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._value == 0)
+  |> group(columns: ["stage"])
+  |> count()
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+  |> yield(name: "Not green, by stage")
+```
+
+### 3.6 Why it broke — the reasons behind the last failures
+
+*Visualization: Table.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "stage_event" and r._field == "reason")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._value != "")
+  |> keep(columns: ["_time", "stage", "status", "_value"])
+  |> sort(columns: ["_time"], desc: true)
+  |> limit(n: 50)
+  |> yield(name: "Failure reasons")
+```
+
+
+### Security posture
+
+### 4.1 Open findings by scanner
+
+*Visualization: Time series, stacked.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "security_findings" and r._field == "total")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r.module =~ /^${module:regex}$/)
+  |> group(columns: ["scanner"])
+  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
+  |> yield(name: "Findings by scanner")
+```
+
+### 4.2 Findings above policy — the number that blocks a release
+
+*Visualization: Time series with a threshold at 0.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "security_findings" and r._field == "above_policy")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> group(columns: ["scanner"])
+  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)
+  |> yield(name: "Above policy")
+```
+
+### 4.3 Severity heatmap of the latest scan
+
+*Visualization: Table or heatmap, group by module.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "security_findings")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._field =~ /^(critical|high|medium|low)$/)
+  |> last()
+  |> pivot(rowKey: ["module", "scanner"], columnKey: ["_field"], valueColumn: "_value")
+  |> yield(name: "Latest severities")
+```
+
+### 4.4 Gate health — which policies held
+
+*Visualization: State timeline by `scanner`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "policy_status" and r._field == "ok")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => exists r.scanner)
+  |> yield(name: "Policy status")
+```
+
+### 4.5 Releases blocked by the gate
+
+*Visualization: Stat (count) plus a table of reasons.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "release_gate" and r._field == "blocked")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> sum()
+  |> yield(name: "Blocked releases")
+```
+
+
+### Quality and tests
+
+### 5.1 Coverage per module against the required minimum
+
+*Visualization: Time series, unit `percent (0-100)`, with a threshold line at the required value.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "code_coverage" and r._field == "line_pct")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}" and r.measured == "yes")
+  |> group(columns: ["module"])
+  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)
+  |> yield(name: "Line coverage")
+```
+
+### 5.2 How far below the bar
+
+*Visualization: Bar gauge, unit `percent (0-100)`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "code_coverage" and r._field == "gap")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> last()
+  |> filter(fn: (r) => r._value > 0)
+  |> keep(columns: ["module", "_value"])
+  |> yield(name: "Coverage shortfall")
+```
+
+### 5.3 Test suite success rate
+
+*Visualization: Time series, unit `percent (0-100)`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "test_execution" and r._field == "success_rate")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> group(columns: ["suite"])
+  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
+  |> yield(name: "Suite success rate")
+```
+
+### 5.4 The test jobs that fail most
+
+*Visualization: Table.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "test_job" and r._field == "name")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r.status != "SUCCESS" and r.status != "ALREADY IMPLEMENTED")
+  |> group(columns: ["_value", "suite"])
+  |> count()
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+  |> limit(n: 20)
+  |> yield(name: "Flaky or failing jobs")
+```
+
+
+### Automated remediation (GoldenFix)
+
+### 6.1 Pull requests raised
+
+*Visualization: Time series (bars).*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "goldenfix" and r._field == "pr_raised")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> aggregateWindow(every: 1d, fn: sum, createEmpty: true)
+  |> yield(name: "GoldenFix pull requests")
+```
+
+### 6.2 Upgrades offered, applied and left to a developer
+
+*Visualization: Time series, stacked.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "goldenfix")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._field =~ /^(offered|applied|unresolved)$/)
+  |> group(columns: ["_field"])
+  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)
+  |> yield(name: "Remediation funnel")
+```
+
+### 6.3 How often the pre-check build saved a broken pull request
+
+*Visualization: Stat.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "goldenfix" and r._field == "build_failed")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> sum()
+  |> yield(name: "Upgrades withheld because they did not build")
+```
+
+
+### What DevSecOps has delivered — cumulative views
+
+These panels answer "what has this given us over successive runs, and since the beginning". Set the panel range to `now-5y`, or keep `range(start: 0)` as written to ignore the dashboard picker entirely.
+
+### 7.1 Runs, deployments and failures since the beginning
+
+*Visualization: Stat row, four panels sharing this query with a different `_field` filter.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "dora")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._field =~ /^(deployment|change_failure|released)$/)
+  |> group(columns: ["_field"])
+  |> sum()
+  |> yield(name: "Totals since day one")
+```
+
+### 7.2 Cumulative findings caught above policy
+
+The running total of findings the gate has caught — the clearest single number for "what the pipeline prevented". *Visualization: Time series with `Fill opacity`.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "security_findings" and r._field == "above_policy")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> group()
+  |> sort(columns: ["_time"])
+  |> cumulativeSum(columns: ["_value"])
+  |> yield(name: "Findings caught, cumulative")
+```
+
+### 7.3 Cumulative dependency upgrades merged into the codebase
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "goldenfix" and r._field == "applied")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> group()
+  |> sort(columns: ["_time"])
+  |> cumulativeSum(columns: ["_value"])
+  |> yield(name: "Dependency upgrades proposed, cumulative")
+```
+
+### 7.4 Coverage: where we started against where we are
+
+*Visualization: Stat with `Text mode: value and name`.*
+
+```flux
+base = from(bucket: "DORA-metrics")
+  |> range(start: 0)
+  |> filter(fn: (r) => r._measurement == "code_coverage" and r._field == "line_pct")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}" and r.measured == "yes")
+  |> group()
+
+first = base |> first() |> map(fn: (r) => ({ r with _field: "first recorded" }))
+now   = base |> last()  |> map(fn: (r) => ({ r with _field: "latest" }))
+
+union(tables: [first, now]) |> yield(name: "Coverage then and now")
+```
+
+### 7.5 Trend of the quarter — is the pipeline getting faster and safer
+
+*Visualization: Time series, two axes.*
+
+```flux
+duration = from(bucket: "DORA-metrics")
+  |> range(start: -90d)
+  |> filter(fn: (r) => r._measurement == "pipeline_run" and r._field == "duration_s")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> aggregateWindow(every: 1w, fn: mean, createEmpty: false)
+  |> map(fn: (r) => ({ r with _field: "build duration (s)" }))
+
+failures = from(bucket: "DORA-metrics")
+  |> range(start: -90d)
+  |> filter(fn: (r) => r._measurement == "security_findings" and r._field == "above_policy")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> aggregateWindow(every: 1w, fn: sum, createEmpty: false)
+  |> map(fn: (r) => ({ r with _field: "findings above policy" }))
+
+union(tables: [duration, failures]) |> yield(name: "Quarterly trend")
+```
+
+### 7.6 Per-run comparison table — the last twenty builds side by side
+
+*Visualization: Table, `Organize fields` to order the columns.*
+
+```flux
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "pipeline_run")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> filter(fn: (r) => r._field =~ /^(build|duration_s|passed|warned|failed|blocked)$/)
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"], desc: true)
+  |> limit(n: 20)
+  |> yield(name: "Recent builds")
+```
+
+
+### Suggested dashboard layout
+
+| Row | Panels |
+|-----|--------|
+| **Executive** | Deployment frequency · Lead time (median) · Change failure rate · Time to restore |
+| **Value delivered** | Findings caught cumulatively (7.2) · Dependency upgrades cumulative (7.3) · Coverage then and now (7.4) · Blocked releases (4.5) |
+| **Pipeline health** | Run outcome timeline (3.1) · Build duration trend (3.2) · Slowest stages (3.4) · Most broken stages (3.5) |
+| **Security** | Findings by scanner (4.1) · Above policy (4.2) · Severity table (4.3) · Policy status timeline (4.4) |
+| **Quality** | Coverage per module (5.1) · Coverage shortfall (5.2) · Suite success rate (5.3) · Failing jobs (5.4) |
+| **Remediation** | Pull requests raised (6.1) · Remediation funnel (6.2) · Upgrades withheld (6.3) |
+| **Detail** | Failure reasons (3.6) · Recent builds table (7.6) |
+
+The two dashboard definitions under `grafana/` — `devSecOpsDashboard` and `devSecOpsSecurityDashboard` — were built against the measurements marked as kept in section 1 and continue to work unchanged. Panels from sections 2 to 7 are additions rather than replacements.
+
+### Retention
+
+The cumulative panels in section 7 read from the beginning of the bucket, so the bucket's retention period is what limits how far back "since the beginning" reaches. A bucket created with the default 30 day retention will silently shorten these panels; set the retention to `0` (infinite) or to the period the organisation wants to report on.
 
 ---
 
-## 15. Troubleshooting
+## 21. Troubleshooting
 
 ### "config.yaml not found in workspace"
 
@@ -1204,107 +2194,35 @@ All jobs are executed even when some fail, and at most `tests.maxParallel` run a
 
 ---
 
-## 16. SelfService – onboard a project step by step
+### Problems on a first run
 
-Everything below is done by the project team, without any request to the DevSecOps team.
+| What you see | What it means and what to do |
+|--------------|------------------------------|
+| `config.yaml not found in workspace` | The file is missing from the repository root or is on a different branch than the one the job builds. Check the branch in the job configuration. |
+| `Project '...' not found in config.yaml` | The name in `projectNames` in your `Jenkinsfile` does not match the key under `projects:` in `config.yaml`. They must be identical. |
+| `asoc.keyId must be set` | The AppScan key ID is missing from `config.yaml`. |
+| SAST fails while connecting, or times out | The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this. |
+| Nexus IQ reports the application does not exist | `tools.nexusIq.application` does not match an application in Nexus IQ. |
+| Coverage shows `not measured` | The build produced no coverage report. Confirm your test task generates JaCoCo XML, or point `coverage.reportPath` at it. |
+| DAST fails saying the HTML report could not be produced | AppScan did not render the report in time or returned a message instead. The stage deliberately fails rather than recording zero findings. Re-run; if it repeats, ask for a higher `dast.reportTimeoutMin`. |
+| A test stage is orange with `NOT_CONFIGURED` | A test job named in `config.yaml` does not exist in Jenkins yet. Create it, or accept the orange stage until the suite is ready. |
+| No dependency upgrade pull request appears | The pipeline needs `scm.bitbucket.url` and a credential with write access. The report states this in plain language when it is the cause. |
+| The extended pipeline cannot copy artifacts | The Copy Artifact permission on the upstream security job. Ask the Jenkins administrators. |
 
-### Step 1 – Check the prerequisites of your application
+### Where to go for help
 
-- The repository is reachable by Jenkins and builds with Gradle, Maven or Flutter.
-- Unit tests produce a JaCoCo XML report (Gradle, Maven) or `coverage/lcov.info` (Flutter), with at least 60 % line coverage.
-- The build produces a JAR or WAR under `build/libs` or `target`.
-- The JDK of the agent is known, so you can put it in `javaPath` (or use `buildToolAutoSetup: true`).
-- For VM deployment with `devSecOpsPipeline`: an UrbanCode Deploy application with at least one component.
-- For VM deployment over SSH: a deployment script and a `version.properties` with `APP_VERSION=`, plus SSH access from the agent to the RD and QC hosts.
-- For OpenShift deployment: the BuildConfig template, the Dockerfile, the deployment template and the config template in the repository, plus cluster tokens in Jenkins credentials.
-
-### Step 2 – Register your application in the tools
-
-| Tool | What you need | Where it goes in `config.yaml` |
-|------|---------------|-------------------------------|
-| HCL AppScan on Cloud | Application id (UUID) and an API key pair | `appId`, `asoc.keyId`, `asoc.keySecret` |
-| SonarQube | Project key, project name, badge token | `tools.sonar.*` |
-| Nexus IQ | Application public id | `tools.nexusIq.application` |
-| Bitbucket | Repository URL and credentials with push and pull request rights | `scm.bitbucket.*` |
-| InfluxDB (optional) | Write endpoint and token | `influx.*` |
-
-### Step 3 – Create the test jobs
-
-Create at least one Jenkins job for regression, one for smoke and one for performance tests. They may live on this Jenkins instance (`type: local`, `job: "folder/job-name"`) or on any other instance, referenced by full URL. A stage may hold hundreds of jobs; at most `tests.*.maxParallel` run at the same time.
-
-### Step 4 – Add `config.yaml` to your repository root
-
-Copy `config.yaml.template` from this library, keep only the `projects:` section and fill in your values. Do not add thresholds or a coverage minimum: they come from the library. A complete two project example with SAST, DAST, SonarQube, Nexus IQ, GoldenFix, smoke, regression, performance and both deployment targets is in `examples/CertScanner/config.yaml`.
-
-### Step 5 – Add the `Jenkinsfile` to your repository root
-
-```groovy
-@Library('DevSecOpsJenkinsLibrary') _
-
-devSecOpsPipeline(
-    projectNames: 'gui,backend-api',
-    agentNames:   ['linux-agent', 'windows-agent']
-)
-```
-
-Use `devSecOpsSecurityPipeline` plus `devSecOpsExtendedPipeline` instead when the static part should run on every commit and the rest in a separate job. The extended job takes `securityPipeline: '<name of the static job>'` and copies `config.yaml` and `release-gate.json` from it. The static job starts the extended one when the `RUN_EXTENDED_PIPELINE` parameter is selected, using the job name from `jenkins.pipeline.extendedPipeline` of `config.yaml`. A complete example of both is in `examples/README.md`.
-
-### Step 6 – Create the Jenkins job
-
-A Pipeline job with **Pipeline script from SCM**, your Git repository, your branch and the script path `Jenkinsfile`. Nothing else has to be configured.
-
-### Step 7 – Run the pipeline
-
-Click **Build Now**. Select `DEPLOY_HIGHER_ENV` only when you want the QC deployment; it happens only when every stage is green.
-
-### Step 8 – Read the report
-
-### Flutter and SonarQube without the Flutter plugin
-
-SonarQube Community has no Dart or Flutter analyser, so the library does not depend on one. A Flutter project is analysed through SonarQube's own generic import formats, which every edition supports:
-
-| What | How it reaches SonarQube |
-|------|--------------------------|
-| Line coverage | `total_lcov.info` is converted to the **Generic Coverage** XML and passed as `sonar.coverageReportPaths` |
-| Static findings | `dart analyze --format=machine` is converted to the **Generic Issue** JSON and passed as `sonar.externalIssuesReportPaths`; `ERROR` becomes a `MAJOR` bug, `WARNING` a `MINOR` code smell, `INFO` an informational code smell |
-| Sources and tests | `sonar.sources` (default `lib`) and `sonar.tests` (default `test`), overridable in `tools.sonar.sources` and `tools.sonar.tests` |
-
-The analysis runs on Linux, macOS and Windows agents - the scanner is invoked with the shell of the agent, not with `bat` alone. `tools.sonar.dartAnalyzeCommand` replaces the analyzer command, and a project that *does* have the commercial `sonar-flutter` plugin installed can set `tools.sonar.flutterPlugin: true` to use the plugin's own properties instead.
-
-Dart files are indexed by SonarQube as an unknown language, so the quality gate for a Flutter project is built on the imported coverage and the imported findings rather than on rules SonarQube runs itself.
-
-
-The severity counts shown for SAST and DAST are the ones printed in the AppScan HTML and PDF report: the pipeline reads the **Summary of security issues** table of that report, and only counts the individual issue blocks when a report carries no summary. The counts are verified once more while the report is written, against the report file archived with the build. When the archived report disagrees with what was recorded during the scan, the stage box, the Security Gates table and the release gate all follow the archived report, and the console carries a `[REPORT]` line naming both numbers.
-
-
-Open **Pipeline Report** in the build sidebar:
-
-- the stage flow with one box per stage and per project, green when the stage passed and orange when it broke the policy,
-- the **Reason** line of each orange box, with the counts and the consequence,
-- the **Security Gates** table with the findings of SAST, DAST, Nexus IQ and SonarQube, and links to the reports, to the HCL AppScan console and to the PDF,
-- the **Release policy** card telling you whether the artifact was released to Nexus and whether QC is allowed,
-- the **Nexus IQ GoldenFix** card with the pull request that upgrades the vulnerable dependencies,
-- the **Smoke tests** table with one row per job.
-
-### Step 9 – Fix what is orange
-
-Merge the GoldenFix pull request, fix the SAST, SonarQube or DAST findings, raise the coverage or repair the failing test jobs. The next green build is released to Nexus and may be deployed to QC.
-
-### Onboarding checklist
-
-- [ ] `Jenkinsfile` and `config.yaml` committed at the repository root
-- [ ] `appId`, `asoc.keyId` and `asoc.keySecret` filled in for every project
-- [ ] `javaPath` (or `buildToolAutoSetup: true`) set for every project
-- [ ] SonarQube project key and Nexus IQ application configured
-- [ ] At least one job configured for regression, smoke and performance
-- [ ] `scm.bitbucket.url` and `credentialsId` set, so GoldenFix can raise pull requests
-- [ ] Deployment target configured: `deploy.vm.dod` for `devSecOpsPipeline`, `deploy.vm.rd` and `qc` for SSH, or `deploy.openshift.*`
-- [ ] Unit tests reach 60 % line coverage
-- [ ] First build green, report opened, release policy card checked
+| Question about | Ask |
+|----------------|-----|
+| The library, the report, a stage that behaves unexpectedly | The DevSecOps team |
+| AppScan connectivity, the proxy account, OIS certificates, a DAST Presence | The DevSecOps team |
+| Agents, credentials, registering the shared library, Copy Artifact permissions | The Jenkins administrators |
+| Nexus IQ applications and policies | The Nexus IQ administrators |
+| Nexus repositories and publishing accounts | The Nexus administrators |
+| Deployment targets, hosts and deployment accounts | The owners of your test environments |
 
 ---
 
-## 17. Library development and tests
+## 22. Library development and tests
 
 This section is for the team that changes the library, not for the projects that use it.
 
@@ -1356,49 +2274,3 @@ Every rule above is enforced by one of the checks, so breaking it fails `test/ru
 `test/run-all.sh` regenerates `examples/reports`: one page per pipeline and outcome plus an `index.html` overview. They are produced by the report template of the library from randomised but realistic data, so they can be shown in a demo and they change whenever the template changes.
 
 ---
-
-## 18. Monitoring and metrics
-
-Every run writes one batch of InfluxDB line protocol from `post { always }`, so a failed run is recorded exactly like a successful one. Nothing is sampled: the batch covers the run, every stage, every scanner, every module, every test suite, the release gate and the remediation outcome.
-
-### What is written
-
-| Measurement | Tags | Answers |
-|-------------|------|---------|
-| `pipeline_run` | project, env, variant, result, branch | One row per run: outcome, duration, and how many stages passed, warned, failed, were blocked or skipped |
-| `dora` | project, env, variant | Deployment, lead time from the commit under test, change failure and whether a release was published |
-| `stage_event` | project, env, stage, status | Per stage: duration, whether it was executed, its order and the reason when it was not green. **Stamped at the end of that stage**, so the timeline is accurate |
-| `security_findings` | project, env, module, scanner, status | Severity counts per scanner per module, the policy limits, and how many findings are above them |
-| `policy_status` | project, env, scanner, status | Which gates were evaluated and which held |
-| `code_coverage` | project, env, module, measured | Line coverage against the required minimum, and the shortfall |
-| `test_execution` / `test_job` | project, env, module, suite, status, type | Suite totals and success rate, and each individual job |
-| `release_gate` | project, env, allowed | Whether the release was permitted, and how many violations blocked it |
-| `goldenfix` | project, env, module, status | Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one |
-
-The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working.
-
-### DORA
-
-The four metrics are derived from the `dora` measurement:
-
-- **Deployment frequency** - the `deployment` field is 1 when a deployment stage completed green.
-- **Lead time for changes** - `lead_time_s` measures from the timestamp of the commit under test, read with `git log -1` during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
-- **Change failure rate** - `change_failure` is 1 for any run that did not end `SUCCESS`.
-- **Time to restore** - derived in Grafana from the `change_failure` series; the query is in `grafana-queries.md`.
-
-### Configuration
-
-```yaml
-influx:
-  enabled: true
-  project: "MyApp"
-  env:     "test"
-  url:     "http://influx.example.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s"
-  token:   "your-influx-token"       # or credentialsId for a Jenkins secret
-```
-
-A bucket keeps the data for its retention period, and the cumulative "since the beginning" panels reach only as far back as that. Set the retention to infinite, or to the period the organisation reports on.
-
-### Dashboards
-
-`grafana-queries.md` holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` are unchanged and continue to work.

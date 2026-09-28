@@ -1,6 +1,6 @@
 # DevSecOps Jenkins Shared Library — Change Roadmap
 
-A record of the work delivered on this library, grouped by theme and ordered as it was released. Each entry states what changed and why it mattered. Details for any item are in `DOCUMENTATION.md`; `library-overview.html` is the reader-friendly summary of the library as it now stands.
+A record of the work delivered on this library, grouped by theme and ordered as it was released. Each entry states what changed and why it mattered. Details for any item are in `DOCUMENTATION.md`, which is the complete single-page documentation of the library as it now stands.
 
 **Delivered across six releases** — 30 files changed, six new components, and the automated check suite grown from 176 to 191 checks, all passing.
 
@@ -66,7 +66,7 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 
 | Change | Description |
 |--------|-------------|
-| **`library-overview.html`** | A new standalone page describing the library's capabilities and everything an application needs before adopting it, written for readers who are not pipeline engineers. |
+| **Single-page documentation** | The overview, the onboarding guide with a chapter per pipeline, the worked examples and the Grafana queries were consolidated into `DOCUMENTATION.md` and its generated `documentation.html`, replacing four separate documents. |
 | **Reference documentation** | `DOCUMENTATION.md`, the generated `documentation.html`, `defaults.yaml` and `config.yaml.template` were updated for every behavioural change, including the new configuration surface for report polling and pre-check commands. |
 
 ---
