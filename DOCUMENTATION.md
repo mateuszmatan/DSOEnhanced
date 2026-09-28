@@ -2,7 +2,9 @@
 
 Jenkins Shared Library implementing a full DevSecOps pipeline: build, unit tests, dependency scan (Nexus IQ), code quality (SonarQube), SAST (HCL AppScan), deployment (VM/OpenShift), smoke/regression/performance tests, DAST (HCL AppScan), HTML report, and InfluxDB metrics.
 
-> For a short, reader-friendly overview of everything the library can do and everything an application needs before it can use it, open **`library-overview.html`** in a browser. This document is the full reference.
+> **Onboarding a new application?** Open **`integration.html`** in a browser - a step by step guide that takes you from an empty repository to a running pipeline, with one chapter per pipeline type and the registration steps for Nexus IQ, HCL AppScan and SonarQube.
+>
+> For a short overview of everything the library can do, open **`library-overview.html`**. This document is the full reference.
 
 ---
 

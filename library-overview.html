@@ -378,6 +378,7 @@ pre code { background: none; border: none; padding: 0; color: #e2e8f0; font-size
     <li>Run the job once. The first run validates the configuration, logs the thresholds it measures against and writes the report even if stages fail.</li>
     <li>Read the report, fix what it names, and only then wire in the deployment, the test job sets and the GoldenFix pull requests.</li>
   </ol>
+  <div class="callout info"><b>Step by step instructions:</b> <code>integration.html</code> walks through the whole onboarding, with one chapter per pipeline type and the registration steps for Nexus IQ, HCL AppScan and SonarQube.</div>
   <div class="callout ok">The pipeline is designed to be onboarded incrementally. A project can start with build, unit tests and the three static scans, and add deployment, functional tests and DAST later; the stages it does not configure report themselves as not required or not configured instead of breaking the run.</div>
 </div>
 
