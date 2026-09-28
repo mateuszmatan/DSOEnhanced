@@ -24,7 +24,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
 | `vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
 | `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
-| `docs-html.sh` | `documentation.html` is the rendering of `DOCUMENTATION.md` (regenerates it when it is not) |
+| `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
 
 ### Compilation
 

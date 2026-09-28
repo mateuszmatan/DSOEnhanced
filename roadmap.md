@@ -1,6 +1,6 @@
 # DevSecOps Jenkins Shared Library — Change Roadmap
 
-A record of the work delivered on this library, grouped by theme and ordered as it was released. Each entry states what changed and why it mattered. Details for any item are in `DOCUMENTATION.md`, which is the complete single-page documentation of the library as it now stands.
+A record of the work delivered on this library, grouped by theme and ordered as it was released. Each entry states what changed and why it mattered. Details for any item are in `documentation.confluence`, the complete single-page documentation of the library, and in the `documentation.html` rendered from it.
 
 **Delivered across six releases** — 30 files changed, six new components, and the automated check suite grown from 176 to 191 checks, all passing.
 
@@ -66,8 +66,8 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 
 | Change | Description |
 |--------|-------------|
-| **Single-page documentation** | The overview, the onboarding guide with a chapter per pipeline, the worked examples and the Grafana queries were consolidated into `DOCUMENTATION.md` and its generated `documentation.html`, replacing four separate documents. |
-| **Reference documentation** | `DOCUMENTATION.md`, the generated `documentation.html`, `defaults.yaml` and `config.yaml.template` were updated for every behavioural change, including the new configuration surface for report polling and pre-check commands. |
+| **Single-page documentation** | The overview, the onboarding guide with a chapter per pipeline, the worked examples and the Grafana queries were consolidated into one document, replacing five separate files. The source is `documentation.confluence`, written in Confluence wiki markup so it can be published without conversion, and `documentation.html` is generated from it. |
+| **Reference documentation** | The documentation, `defaults.yaml` and `config.yaml.template` were updated for every behavioural change, including the new configuration surface for report polling and pre-check commands. A chapter stating the business case for the shared pipeline, with published industry benchmarks, was added to the overview. |
 
 ---
 
