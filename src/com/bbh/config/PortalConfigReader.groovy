@@ -128,7 +128,7 @@ mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
 i=0
 for key in $DSO_PORTAL_KEYS; do
   : > "body-$i"
-  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 --retry-connrefused \\
+  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \\
     -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
   if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
   printf '%s %.16s\\n' "${status:-000}" "$sum" > "status-$i"

@@ -83,8 +83,8 @@ check 'curl wrote no error for answered requests' "$(cat "$DIR"/error-* | wc -c 
 DIR="$WORK/down"
 CLOSED="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 DSO_PORTAL_DIR="$DIR" DSO_PORTAL_URL="http://127.0.0.1:$CLOSED" DSO_PORTAL_KEYS="$OK" sh "$WORK/query.sh"
-check 'an unreachable portal: status 000 after the retries, the script still ends with status 0' "$? $(cut -d' ' -f1 "$DIR/status-0")" '0 000'
-check 'an unreachable portal: one curl error per attempt (three), naming the cause, not the key' "$(grep -c '^curl: (7) Failed to connect' "$DIR/error-0") $(grep -c "$OK" "$DIR/error-0")" '3 0'
+check 'an unreachable portal: status 000, the script still ends with status 0' "$? $(cut -d' ' -f1 "$DIR/status-0")" '0 000'
+check 'an unreachable portal: one curl error naming the cause, not the key' "$(grep -c '^curl: (7) Failed to connect' "$DIR/error-0") $(grep -c "$OK" "$DIR/error-0")" '1 0'
 
 echo
 [ "$failures" -eq 0 ] && echo 'ALL QUERY SCRIPT SCENARIOS PASSED' || echo "$failures QUERY SCRIPT SCENARIO CHECK(S) FAILED"
