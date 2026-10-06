@@ -55,7 +55,7 @@ Map platform = (new JsonSlurperClassic().parseText(new File(root, 'test/fixtures
 Closure jenkins = {
     FakeScript j = new FakeScript()
     j.resourcesDir = new File(root, 'resources')
-    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_DB_URL: PortalFixtures.DATABASE_URL])
+    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_URL: PortalFixtures.PORTAL_URL])
     return j
 }
 

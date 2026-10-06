@@ -184,7 +184,7 @@ Severity thresholds and the required line coverage are global settings of the De
 
 h3. Configuration from the DevSecOps portal
 
-Every setting of a pipeline lives in the DevSecOps portal. A Jenkinsfile names only the pipeline key the portal issued for the service; at the start of every build the library reads the published configuration of that key from the portal database, read only. Invalidating a key in the portal stops every pipeline that uses it. The console, the report header and the metrics record which configuration a build used: the key hint, when the portal rendered it and a sha256 hint.
+Every setting of a pipeline lives in the DevSecOps portal. A Jenkinsfile names only the pipeline key the portal issued for the service; at the start of every build the library asks the portal for the configuration of that key over HTTPS, read only. Invalidating a key in the portal stops every pipeline that uses it. The console, the report header and the metrics record which configuration a build used: the key hint, when the portal rendered it and a sha256 hint.
 
 h3. Nothing stops silently
 
@@ -257,8 +257,6 @@ h1. 4. Solution Architecture
 DevSecOpsJenkinsLibrary/           <- library repository root
 ├── documentation.confluence       <- this document, Confluence wiki markup, the single source
 ├── documentation.html             <- the same documentation as a single HTML page, generated from it
-├── resources/
-│   └── com/bbh/config/PortalConfigQuery.java   <- the read-only query of the portal database, run on an agent
 ├── vars/                          <- Jenkins global variables: the entry points and the composition root
 │   ├── devSecOpsPipeline.groovy               <- entry point: all thirteen stages
 │   ├── devSecOpsSecurityPipeline.groovy       <- entry point: static analysis part
@@ -273,7 +271,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   ├── ReleaseGate.groovy              <- blocks the Nexus release and the QC deployment when a stage is not green
 │   │   └── OsHelper.groovy
 │   ├── config/ConfigLoader.groovy          <- portal documents -> PipelineState and the run-state file pipeline-config.yaml
-│   ├── config/PortalConfigReader.groovy    <- reads the documents of the pipeline keys from the portal database
+│   ├── config/PortalConfigReader.groovy    <- reads the configuration of the pipeline keys from the portal over HTTPS
 │   ├── build/
 │   │   ├── BuildService.groovy             <- build, unit tests, coverage, remote test jobs
 │   │   ├── BuildRunner.groovy              <- one runner for the Gradle and Maven commands
@@ -321,7 +319,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 ||Source||Who controls it||Contains||
 |Global Settings of the DevSecOps portal|DevSecOps team|Security thresholds, required coverage, timeouts, tool defaults ({{defaults}}) and the platform values: AppScan, proxy and Nexus addresses, the iOS build agent ({{platform}})|
 |The service in the DevSecOps portal|Project team, in the portal|Service settings (appId, servers, test jobs, deploy targets), the pipeline type, the agent labels and the linked security or extended job|
-|Jenkins global environment variables and credentials|Jenkins administrators|Where the portal database is and which account reads it|
+|One Jenkins global environment variable|Jenkins administrators|The address of the portal ({{DSO_PORTAL_URL}})|
 
 Projects *cannot* override the {{defaults}}. Thresholds for SAST, SCA, Nexus IQ, DAST and the required line coverage exist in one place only, the Global Settings of the portal, and the next build of every pipeline uses a changed value.
 
@@ -329,8 +327,8 @@ h3. How a pipeline reads its configuration
 
 # The entry point calls {{devSecOpsApi.configure('<variant>', [pipelineKey: '<key>'])}} before {{pipeline {}}}. The keys are checked before anything runs; the console and every message show only a hint of a key, its first eight and last four characters.
 # Outside a node the read runs on an agent of the label {{DSO_PORTAL_AGENT}} (default {{linux-agent}}) and must finish within five minutes. A custom Jenkinsfile that calls {{configure()}} inside a node of a Linux or macOS agent reads on that node.
-# In a new directory below the workspace's {{@tmp}} folder the library writes {{PortalConfigQuery.java}} from its resources, downloads the Oracle JDBC driver from {{DSO_PORTAL_JDBC_DRIVER_URL}}, verifies its SHA-256 and runs the program with the reader account bound from the Jenkins credentials. The program calls {{DSO_PORTAL.DSO_LIBRARY_CONFIG}} once per key and writes nothing to the database. The directory is deleted afterwards.
-# The library checks every document: the portal issued the key, the key is active, its configuration is published, its pipeline type is the one of the entry point, all keys belong to one product and name each service once. The first key is the primary project, as the first name of {{projectNames}} was.
+# A short {{sh}} script sends one {{GET <DSO_PORTAL_URL>/api/dso/config/<key>?format=json}} per key with {{curl}}, asking again twice, five seconds apart, when the portal cannot be reached or answers 408, 429 or 5xx. The keys reach the script only through its environment, and the answers go to a new directory below the workspace's {{@tmp}} folder, deleted afterwards. The portal renders the configuration at that moment from its database and records the key's last use; the library holds no account and changes nothing.
+# The library checks every answer: the portal issued the key, the key is active, the answer is a configuration, its pipeline type is the one of the entry point, all keys belong to one product and name each service once. The first key is the primary project, as the first name of {{projectNames}} was.
 # In the Monitor stage {{ConfigLoader.initialize()}} merges every service with the global defaults exactly as {{defaults.yaml}} was merged under {{config.yaml}}, and writes the services to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags.
 # An extended pipeline whose key names a security job copies {{pipeline-config.yaml}} and {{release-gate.json}} from the last successful build of that job and takes from the copy only the run-time tags: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the VM delivery version in {{delivery}}, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}.
 
@@ -338,15 +336,15 @@ h3. Differences from config.yaml
 
 The portal integration keeps every stage, scanner, deployment, report, metric, release gate and GoldenFix pull request as it was with {{config.yaml}} and {{defaults.yaml}}, except for these differences, each forced by having no {{config.yaml}} or by reading the portal only:
 
-# The configuration lives in the portal, not in the repository: there is no configuration per branch, pull request or commit, a replayed build uses today's portal values, and the release and develop jobs of one service share one pipeline per type. The console, the report header and {{build_evidence}} record the key hint, the time the configuration was rendered and its sha256 hint.
-# A failure before {{pipeline {}}} (no key, a bad, unknown, invalidated or unpublished key, a type or product mismatch, a database error) ends the build without a report, {{release-gate.json}} or InfluxDB point. {{build_duration}} and the DORA duration include the read.
+# The configuration lives in the portal, not in the repository: there is no configuration per branch, pull request or commit, a replayed build uses today's portal values, and the release and develop jobs of one service share one pipeline per type. The console, the report header and {{build_evidence}} record the key hint, the time the portal rendered the configuration (the time of the read) and the sha256 hint of the answer.
+# A failure before {{pipeline {}}} (no key, a bad, unknown or invalidated key, a type or product mismatch, an unreachable portal) ends the build without a report, {{release-gate.json}} or InfluxDB point. {{build_duration}} and the DORA duration include the read.
 # The archived run-state file is {{pipeline-config.yaml}}, not {{config.yaml}}; the first extended build after the cutover needs one security build made by the new library.
 # The extended pipeline uses the services of its own key plus the run-time tags of the security build, not the whole {{config.yaml}} the security build archived.
 # Keys the portal does not model are gone from {{getCFG()}}, such as custom keys a team added to {{config.yaml}}. {{tests.<suite>.defaults}}, test jobs given as a bare URL and {{urls}} lists are expanded into jobs when a service is migrated. {{jobs[].auth}} maps other than credential IDs, OpenShift {{appName}}, {{imageNamespace}}, {{cluster}} and {{credentialsId}} (read only by the unused {{nexusDelivery}} method) and the keys no code reads ({{asoc.keySecret}}, {{sast.scanName}}, {{sca.scanName}}, {{dast.scanName}}, {{build.maven.javaPath}}) are not modelled. {{jenkins.pipeline.extendedPipeline}} is in the documents of security pipelines only, so a custom Jenkinsfile that calls {{devSecOpsApi.runExtendedPipeline()}} configures itself with the key of the security pipeline.
 # Selecting projects through {{PROJECT_NAMES}} or {{PROJECT_NAME}} without keys is gone; the keys decide.
 # Messages that named {{config.yaml}} or {{defaults.yaml}} now name the portal, also where they reach the report, {{release-gate.json}} and InfluxDB. A {{securityPipeline}} in the Jenkinsfile of a full, security or SAST pipeline is ignored, which shows the Nexus IQ and SonarQube summary rows it used to hide.
 # Nexus IQ report links appear for every service, because the Nexus IQ server address is a global setting; GoldenFix stays governed by its own switch per service.
-# Every build depends on the portal database at its start: the agents of the {{DSO_PORTAL_AGENT}} label need a route to it, access to Nexus and a JDK 11 or later.
+# Every build depends on the portal at its start: the agents of the {{DSO_PORTAL_AGENT}} label need HTTPS access to it.
 
 ----
 
@@ -457,7 +455,7 @@ h3. Agent tools
 * Flutter SDK (if building Flutter applications)
 * {{curl}}, {{python3}}, {{ssh}}, {{scp}} (Linux agents)
 * PowerShell (Windows agents)
-* On the agents of the {{DSO_PORTAL_AGENT}} label, and on a Linux or macOS agent where a custom Jenkinsfile calls {{configure()}} inside a node: a JDK 11 or later with the {{jdk.compiler}} module (a JRE is not enough), {{curl}}, and {{sha256sum}} or {{shasum}}
+* On the agents of the {{DSO_PORTAL_AGENT}} label, and on a Linux or macOS agent where a custom Jenkinsfile calls {{configure()}} inside a node: {{curl}}, and {{sha256sum}} or {{shasum}}
 
 h3. Script security
 
@@ -477,51 +475,37 @@ h3. Jenkins global configuration
 |{{tests.*.jobs[].credentialsId}} (optional)|Username/Password (user + API token)|Triggering remote test jobs referenced by full URL|
 |{{openshift-rd-token}}|Secret text|OpenShift RD cluster token|
 |{{openshift-qc-token}}|Secret text|OpenShift QC cluster token|
-|{{dso-portal-db-reader}} (or the ID in {{DSO_PORTAL_DB_CREDENTIALS_ID}})|Username/Password|The reader account {{DSO_LIBRARY}} of the DevSecOps portal database|
 |{{influx.credentialsId}} of the service|Secret text|The InfluxDB token; the portal stores only the credentials ID|
 |{{tests.*.jobs[].tokenCredentialsId}} (optional)|Secret text|The build token of a remote test job, which the portal never stores|
 
-*Global environment variables* go into *Manage Jenkins → System → Global properties → Environment variables*. They are the only settings of the library outside the portal: where the portal database is and which account reads it.
+*Global environment variables* go into *Manage Jenkins → System → Global properties → Environment variables*. They are the only settings of the library outside the portal: where the portal is.
 
 ||Variable||Required||Value||
-|{{DSO_PORTAL_DB_URL}}|yes|JDBC URL of the portal database without user or password, for example {{jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL}}|
-|{{DSO_PORTAL_DB_CREDENTIALS_ID}}|no|Username/Password credentials of the reader account, default {{dso-portal-db-reader}}|
-|{{DSO_PORTAL_DB_SCHEMA}}|no|Schema that owns {{DSO_LIBRARY_CONFIG}}, default {{DSO_PORTAL}}|
-|{{DSO_PORTAL_AGENT}}|no|Label of the agents that read the database before the pipeline starts, default {{linux-agent}}|
-|{{DSO_PORTAL_JDBC_DRIVER_URL}}|no|Where those agents download the Oracle JDBC driver, default the {{ojdbc11-23.26.3.0.0.jar}} in the {{maven-central}} proxy of {{tools.bbh.com/nexus}}; a {{file://}} URL works for a jar an administrator installed|
-|{{DSO_PORTAL_JDBC_DRIVER_SHA256}}|no|SHA-256 of that jar, default the one of 23.26.3.0.0; change it together with the URL|
-|{{DSO_PORTAL_JAVA}}|no|The {{java}} executable on those agents, default {{java}} on the {{PATH}}, else {{$JAVA_HOME/bin/java}}; it may also be set per agent|
+|{{DSO_PORTAL_URL}}|yes|Address of the DevSecOps portal, the host of its OpenShift route, for example {{https://dso-portal.apps.bbh.com}}; without a user, password, query or trailing path to the API|
+|{{DSO_PORTAL_AGENT}}|no|Label of the agents that read the portal before the pipeline starts, default {{linux-agent}}|
 
-h3. The DevSecOps portal database
+h3. The DevSecOps portal
 
-*The reader account.* A DBA runs the script {{deploy/db/dso-library-reader.sql}} of the DevSecOps portal repository once:
+*Read only, no account.* The library sends {{GET /api/dso/config/<key>?format=json}} and nothing else. The portal answers 200 with the configuration, 403 with the reason when the key was invalidated and 404 for a key it never issued. Jenkins needs no database account, no credentials and no driver, and the portal's database is reached by the portal alone.
 
-{code:bash}
-sqlplus <dba user>@//<host>:1521/<service> @deploy/db/dso-library-reader.sql
-{code}
+*The key is the secret.* Whoever holds a key can read the configuration of that one pipeline, as anyone who could read a product repository could read its {{config.yaml}} before; it holds credential IDs, never a secret. Invalidating the key in the portal stops it at once. A key cannot be guessed (a random UUID) and the portal offers no way to list keys over this request. When the portal moves behind BBH SSO, {{/api/dso/config/**}} stays outside the sign-in and keeps the key as its only check.
 
-It creates the profile {{DSO_LIBRARY_PROFILE}}, which never locks the account after failed logins (so one wrong Jenkins credential cannot stop every pipeline) and audits failed logins instead, and the user {{DSO_LIBRARY}} with {{CREATE SESSION}} and {{EXECUTE}} on {{DSO_PORTAL.DSO_LIBRARY_CONFIG}}, nothing else. The account cannot list keys, read a table or lock anything; it learns only the document of a key it already holds. Store its user name and password as the Username/Password credentials {{dso-portal-db-reader}}.
+*Network.* The agents of the {{DSO_PORTAL_AGENT}} label need HTTPS to the portal's route and must trust its certificate (the BBH certificate authority, as for Nexus and Bitbucket).
 
-*Rotation.* The password lifetime follows the BBH policy. Change the password in the database and in the Jenkins credentials together. When Oracle reports that the password expires soon, every build logs a {{[PORTAL] WARNING}} naming the credentials; an expired or locked account stops every build with a message naming them.
-
-*Network.* Allow only the agents of the {{DSO_PORTAL_AGENT}} label to reach the listener, with a listener access control list (valid node checking). Turn on Oracle native network encryption on the listener, or use TCPS: unless the URL uses TCPS the library requires AES256 encryption and SHA256 checksums, so a listener without native network encryption refuses the connection.
-
-*Failures.* Each failure names {{DSO_PORTAL_DB_URL}} (host and service only), {{DSO_PORTAL_DB_CREDENTIALS_ID}} and the DevSecOps team, and sets the build description to {{DevSecOps portal database unavailable}}. Only a network error is retried, twice, after 5 and 15 seconds; a wrong password, a locked or expired account and a missing grant are not, so the account is never locked by retries.
+*Failures.* An unreachable portal, an untrusted certificate or an answer other than 200, 403 or the portal's own 404 stops the build with one message naming {{DSO_PORTAL_URL}}, the cause (the {{curl}} error or the HTTP status with the portal's explanation) and the DevSecOps team, and sets the build description to {{DevSecOps portal unavailable}}. The read is retried twice, five seconds apart, when the portal cannot be reached or answers 408, 429 or 5xx, so a restart of the portal does not fail builds.
 
 h3. The agents that read the portal ({{DSO_PORTAL_AGENT}})
 
 Before {{pipeline {}}} the library takes one executor of an agent with the {{DSO_PORTAL_AGENT}} label for a few seconds, never the {{AGENT_NAME}} the build was started with. Those agents need:
 
 * Linux or macOS; a Windows agent is refused with a message asking for another label
-* a network route to the database host and port
-* access to {{DSO_PORTAL_JDBC_DRIVER_URL}}, or the jar installed locally and named with a {{file://}} URL
-* a JDK 11 or later with the {{jdk.compiler}} module, because the query program runs as a single source file; point {{DSO_PORTAL_JAVA}} at it when {{java}} on the {{PATH}} is a JRE or older
+* HTTPS access to {{DSO_PORTAL_URL}}
 * {{curl}}, and {{sha256sum}} or {{shasum}}
 
 h3. Cutover to the DevSecOps portal
 
-# The DevSecOps team enters the Global Settings (the values of the former {{defaults.yaml}}) and the platform values in the portal, then every product and service, and saves each service so its configuration is published.
-# A DBA creates the reader account; the Jenkins administrators create its credentials and the global environment variables, and check the agents of the {{DSO_PORTAL_AGENT}} label.
+# The DevSecOps team enters the Global Settings (the values of the former {{defaults.yaml}}) and the platform values in the portal, then every product and service.
+# The Jenkins administrators set {{DSO_PORTAL_URL}} and check that the agents of the {{DSO_PORTAL_AGENT}} label reach it.
 # Pin the portal-integrated library version in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}} of every migrated Jenkinsfile and in the portal's {{platform.jenkinsLibrary}}, from which the portal writes the Jenkinsfile it offers, until every job carries a key. Jobs not migrated yet keep the default version and their {{config.yaml}}.
 # Replace each Jenkinsfile with the one the product page of the portal offers, and delete {{config.yaml}} from the repository once the build is green.
 # Run every security job once with the new library before its extended job: the extended job copies {{pipeline-config.yaml}}, which only the new library archives.
@@ -563,8 +547,7 @@ h3. Who does what
 |Proxy account, OIS certificates, agent connectivity|DevSecOps platform team|
 |Nexus repositories and publishing accounts|Nexus administrators|
 |Deployment hosts and accounts|The owners of your test environments|
-|The reader account of the portal database|A DBA, once|
-|The global environment variables and the reader credentials|Jenkins administrators, once|
+|The global environment variable {{DSO_PORTAL_URL}}|Jenkins administrators, once|
 |Global Settings and platform values in the portal, invalidating keys|DevSecOps team|
 |The service in the DevSecOps portal, the {{Jenkinsfile}}, the Jenkins job, the test jobs|You|
 
@@ -677,7 +660,7 @@ h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsf
 *Who:* a developer on your team with access to the DevSecOps portal.
 
 # *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch14].
-# *Save it.* Saving publishes the configuration. Until then a build stops with "has no published configuration yet".
+# *Save it.* The next build reads what you saved.
 # *Commit the Jenkinsfile.* Copy the Jenkinsfile the product page offers with the pipeline key of the service into the *root* of the repository, on the branch the pipeline will build:
 
 {code:groovy}
@@ -689,9 +672,9 @@ devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
 The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}} or {{devSecOpsSASTScanningPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so.
 
 *The life of a pipeline key:*
-* The portal issues one key per service and pipeline type. The key selects a configuration; it is not a password, because the database account that reads the configuration stays in the Jenkins credentials.
-* A change of the service in the portal needs no change of the Jenkinsfile: the next build reads the configuration published last.
-* The DevSecOps team can invalidate a key in the portal with a reason. The next build of every job that uses it stops before the pipeline starts with "Key <hint> was invalidated in the DevSecOps portal: <reason>". Regenerate the key in the portal and put the new one in the Jenkinsfile.
+* The portal issues one key per service and pipeline type. The key selects a configuration and is the only thing a build shows the portal: whoever holds it can read the configuration of that pipeline, as anyone could read {{config.yaml}} in the repository before. It never unlocks a secret, because the configuration holds credential IDs only.
+* A change of the service in the portal needs no change of the Jenkinsfile: the next build reads the configuration saved last.
+* The DevSecOps team can invalidate a key in the portal with a reason. The next build of every job that uses it stops before the pipeline starts with "Key <hint> was invalidated in the DevSecOps portal (<when and why>)". Regenerate the key in the portal and put the new one in the Jenkinsfile.
 * A key of another pipeline type or of another product, or two keys for one service, stop the build with a message naming both values.
 
 h3. Step 3 — Create the test jobs
@@ -2267,19 +2250,18 @@ The Jenkinsfile names no key, or something that is not a key the portal issues. 
 devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
 {code}
 
-h3. "[PORTAL] Key ... was not issued", "was invalidated" or "has no published configuration yet"
+h3. "[PORTAL] Key ... was not issued" or "was invalidated"
 
-* *Not issued:* the key is mistyped or belongs to another portal database. Copy it again from the product page.
+* *Not issued:* the key is mistyped or belongs to another portal (the message names the portal it asked). Copy it again from the product page.
 * *Invalidated:* the DevSecOps team invalidated the key; the message gives their reason. Regenerate the key in the portal and put the new one in the Jenkinsfile.
-* *No published configuration:* save the service in the portal.
 
 h3. "[PORTAL] Key ... configures a security pipeline, devSecOpsPipeline runs the full pipeline"
 
 Each key belongs to one pipeline type; use the key of that type, or the entry point the product page offers for the key. The same applies to keys of two products in one run, and to two keys that configure the same service.
 
-h3. "[PORTAL] ... DevSecOps portal database ..."
+h3. "[PORTAL] The configuration could not be read from the DevSecOps portal at ..."
 
-The read of the portal database failed; the build description says {{DevSecOps portal database unavailable}} and the message names the URL, the credentials ID and the DevSecOps team. A missing {{DSO_PORTAL_DB_URL}}, a URL with a user or password, a wrong or expired password, a locked account, a missing grant, a driver that does not match its SHA-256, an agent without a JDK 11 or a Windows agent of the {{DSO_PORTAL_AGENT}} label each have their own message. None of them can be fixed in the Jenkinsfile; [Platform Prerequisites|#ch6] lists what the administrators set up.
+The agent could not reach the portal, did not trust its certificate, or the portal answered with an error; the build description says {{DevSecOps portal unavailable}} and the message names the portal address, the cause and the DevSecOps team. A missing or malformed {{DSO_PORTAL_URL}} and a Windows agent of the {{DSO_PORTAL_AGENT}} label each have their own message. None of them can be fixed in the Jenkinsfile; [Platform Prerequisites|#ch6] lists what the administrators set up.
 
 h3. "The last successful build of ... has no pipeline-config.yaml"
 
@@ -2393,7 +2375,6 @@ h3. Problems on a first run
 
 ||What you see||What it means and what to do||
 |{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names no pipeline key, or the job builds a branch with an older {{Jenkinsfile}}. Check the branch in the job configuration.|
-|{{[PORTAL] Key ... has no published configuration yet}}|Save the service in the DevSecOps portal.|
 |{{asoc.keyId must be set}}|The AppScan key ID is missing from the service in the DevSecOps portal.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
@@ -2407,7 +2388,7 @@ h3. Where to go for help
 
 ||Question about||Ask||
 |The library, the report, a stage that behaves unexpectedly|The DevSecOps team|
-|A pipeline key, the settings of a service, the portal database|The DevSecOps team|
+|A pipeline key, the settings of a service, the portal|The DevSecOps team|
 |AppScan connectivity, the proxy account, OIS certificates, a DAST Presence|The DevSecOps team|
 |Agents, credentials, registering the shared library, Copy Artifact permissions|The Jenkins administrators|
 |Nexus IQ applications and policies|The Nexus IQ administrators|
@@ -2444,13 +2425,13 @@ h3. What it runs
 |{{test/checks/jdk-whitelist.groovy}}|Every JDK constructor, static method and static field is on the script-security whitelist|
 |{{test/checks/architecture.sh}}|Adapters depend on the core and the ports, never the other way round|
 |{{test/checks/vars-api.sh}}|The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service|
-|{{test/checks/no-comments.sh}}|No comments and no commented-out code in {{src}}, {{vars}} and {{resources/**/*.java}}|
-|{{test/checks/ascii.sh}}|{{src}}, {{vars}} and {{resources}} hold printable ASCII only|
-|compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration; {{PortalConfigQuery.java}} compiles with {{javac --release 11 -Xlint:all -Werror}}|
-|{{test/portal/query-scenarios.sh}}|{{PortalConfigQuery.java}}, run as the library runs it against a fake Oracle driver, sends the connection properties and timeouts, reads without writing, escapes the answer to ASCII, retries only network errors (after 5 and 15 seconds) and never writes a key or the password|
+|{{test/checks/no-comments.sh}}|No comments and no commented-out code in {{src}} and {{vars}}|
+|{{test/checks/ascii.sh}}|{{src}} and {{vars}} hold printable ASCII only|
+|compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration|
+|{{test/portal/query-scenarios.sh}}|The query script of {{PortalConfigReader}}, run with the real {{curl}} against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key|
 |{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports|
 |{{test/sandbox/PipelineScenarios.groovy}}|The four entry points run end to end under the real sandbox, green and orange, including the report, the release gate, the metrics and the deployments, and match the golden runs recorded before the portal integration|
-|{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, documents, database errors, agents), the read in place, the query script holding no secret, and the extended handoff|
+|{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff|
 |{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of the {{config.yaml}} library and the portal loader produce the same configuration, exactly for documents with the same values and after declared rules for the documents the portal renders|
 
 The sandbox tests execute the library inside {{GroovySandbox.runInSandbox}} with the real {{script-security}} whitelists and a fake Jenkins ({{test/sandbox/harness}}), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.

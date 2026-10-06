@@ -24,17 +24,17 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `jdk-whitelist.groovy` | Every JDK constructor, static method and static field used by the library is on the real script-security whitelist |
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
 | `vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
-| `no-comments.sh` | No comments and no commented-out code in `src`, `vars` and `resources/**/*.java` |
-| `ascii.sh` | `src`, `vars` and `resources` hold printable ASCII, tabs and newlines only |
+| `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
+| `ascii.sh` | `src` and `vars` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
 
 ### Compilation
 
-`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here. `resources/com/bbh/config/PortalConfigQuery.java` is compiled with `javac --release 11 -Xlint:all -Werror` (it needs no Oracle driver to compile).
+`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here.
 
-### The portal query program (`test/portal/query-scenarios.sh`)
+### The portal query script (`test/portal/query-scenarios.sh`)
 
-Runs `PortalConfigQuery.java` the way the library launches it, as a single source file, against `test/portal/FakeOracleDriver.java`, a JDBC driver that checks the connection properties, the login and query timeouts, the statement, `autoCommit` off and the rollback, and answers by the mode in its URL (`jdbc:fake:<mode>`). The scenarios check the answer file for: one result per key in key order with `null` for an unknown key; the ASCII escaping without `\/` and the sha256 of the UTF-8 text; a TCPS URL without the native encryption properties; the password expiry warning; a wrong password and a locked account reported after one attempt; a network error retried twice after 5 and 15 seconds; a missing grant whose message holds neither the key nor the password; a bad schema name and a missing password refused before connecting. The retry makes this step take about 20 seconds.
+Takes the query script out of `PortalConfigReader.groovy` and runs it with `sh` and the real `curl` against a small HTTP portal written in Python on `127.0.0.1`, which answers only `GET <path>/api/dso/config/<key>?format=json` with `Accept: application/json`. The scenarios check: one status, body and error file per key in key order, in a directory only the agent user can read; HTTP 200 with the sha256 hint of the body and the body byte for byte, UTF-8 included; the 403 and 404 problem details of the portal; a portal that answers 503 twice and is asked again until it answers; an unreachable portal reported as status `000` after three attempts, with the `curl` errors and without the key. The retries make this step take about 20 seconds.
 
 ### Sandbox scenarios (`test/sandbox/SandboxScenarios.groovy`)
 
@@ -66,7 +66,7 @@ The runs on the portal branch read the same values from portal documents (built 
 
 | Rule | Reason |
 |------|--------|
-| the steps before the pipeline's own `agent` are dropped | `configure()` reads the portal on a bootstrap agent (`node`, `withEnv`, `withCredentials`, the query `sh`, `deleteDir`) before `pipeline {}` starts |
+| the steps before the pipeline's own `agent` are dropped | `configure()` reads the portal on a bootstrap agent (`node`, `withEnv`, the query `sh`, `deleteDir`) before `pipeline {}` starts |
 | `[PORTAL]` log lines are dropped | the portal read logs one line per key |
 | the `writeYaml pipeline-config.yaml` right after the commit is read is dropped | `ConfigLoader.initialize()` writes the run-state file at the start of the Monitor stage |
 | `config.yaml` becomes `pipeline-config.yaml` | the archived and copied run-state file is renamed (accepted difference 3) |
@@ -77,7 +77,7 @@ When a run differs, the script writes `<name>.actual.txt` next to the golden fil
 
 ### DevSecOps portal scenarios (`test/sandbox/PortalScenarios.groovy`)
 
-Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown, revoked or unpublished key; a key of another pipeline type or product; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_DB_URL` or one with credentials; every database error class (only network errors are retried, and the build description says the database is unavailable); an answer that is not JSON; an expiring password; a Windows bootstrap agent; the read in place inside a `node`; the recorded query script (`#!/bin/sh`, `set +x`, no key, no password); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
+Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown or revoked key; an empty answer; a key of another pipeline type or product; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_URL` and addresses with a user, a query or no scheme (never repeated in the message); a trailing slash; an unreachable portal, an untrusted certificate, a router without a portal, a wrong address and a failing portal (one message with the cause, the address and the DevSecOps team, and the build description says the portal is unavailable); a `curl` error that holds the key; an answer that is not JSON; a Windows bootstrap agent; the read in place inside a `node`; the bootstrap agent `linux-agent` outside a node; the recorded query script (`#!/bin/sh`, `set +x`, no key, one GET per key with retries); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
 
 ### Compatibility scenarios (`test/sandbox/CompatibilityScenarios.groovy`)
 
@@ -119,7 +119,7 @@ The fake behaves like Jenkins where the library depends on it:
 - `withEnv` and `withCredentials` set their variables only for their body;
 - `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects (JSONObject, JSONArray, JSONNull) like the real step; set `jsonLib = false` for plain Groovy maps;
 - `dir` and `deleteDir` remove the files below a directory;
-- a `sh` script that runs `PortalConfigQuery.java` is answered by the fake portal: it writes the answer file named by `DSO_PORTAL_OUTPUT` from the scenario's `portal` map (key to document entry), or from `portalAnswer` when a scenario wants an error or a broken answer.
+- a `sh` script that calls `/api/dso/config/` is answered by the fake portal: for each key in `DSO_PORTAL_KEYS` it writes the status, body and error files below `DSO_PORTAL_DIR` as the portal would answer from the scenario's `portal` map (key to key status, reason and configuration: 200, the 403 problem or the 404 problem), or from `portalAnswer` when a scenario wants another status, a `curl` error or a broken answer.
 
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario.
 

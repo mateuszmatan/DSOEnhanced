@@ -104,7 +104,7 @@ Closure runPipeline = { Map spec ->
             BUILD_ID    : String.valueOf(spec.buildNumber),
             GIT_BRANCH  : 'origin/develop',
             PATH        : '/usr/bin',
-            DSO_PORTAL_DB_URL: PortalFixtures.DATABASE_URL
+            DSO_PORTAL_URL: PortalFixtures.PORTAL_URL
     ])
     j.params.putAll((spec.params ?: [:]) as Map)
     j.resourcesDir = new File(root, 'resources')

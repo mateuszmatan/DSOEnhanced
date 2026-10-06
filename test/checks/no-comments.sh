@@ -27,7 +27,7 @@ def code_only(text):
     return ''.join(out)
 
 problems = []
-for f in sorted(glob.glob('src/**/*.groovy', recursive=True)) + sorted(glob.glob('vars/*.groovy')) + sorted(glob.glob('resources/**/*.java', recursive=True)):
+for f in sorted(glob.glob('src/**/*.groovy', recursive=True)) + sorted(glob.glob('vars/*.groovy')):
     for number, line in enumerate(code_only(open(f).read()).split('\n'), 1):
         stripped = line.strip()
         if stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*/') or ' // ' in line:
@@ -38,5 +38,5 @@ if problems:
     for p in problems:
         print("  " + p)
     sys.exit(1)
-print("NO-COMMENTS CHECK PASSED - no comments and no commented-out code in src, vars and resources/**/*.java")
+print("NO-COMMENTS CHECK PASSED - no comments and no commented-out code in src and vars")
 PY
