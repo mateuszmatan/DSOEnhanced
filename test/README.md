@@ -70,6 +70,10 @@ The runs on the portal branch read the same values from portal documents (built 
 
 When a run differs, the script writes `<name>.actual.txt` next to the golden file. Delete a golden file and run the suite again only when the behaviour changes on purpose, and review the new file before committing it.
 
+### DevSecOps portal scenarios (`test/sandbox/PortalScenarios.groovy`)
+
+Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown, revoked or unpublished key; a key of another pipeline type or product; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_DB_URL` or one with credentials; every database error class (only network errors are retried, and the build description says the database is unavailable); an answer that is not JSON; an expiring password; a Windows bootstrap agent; the read in place inside a `node`; the recorded query script (`#!/bin/sh`, `set +x`, no key, no password); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
+
 ## The fake Jenkins
 
 `test/sandbox/harness/devsecops/test`:
@@ -96,7 +100,7 @@ The fake behaves like Jenkins where the library depends on it:
 
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario.
 
-`test/fixtures` holds the configuration files of the library before the portal integration: `defaults.yaml` (formerly `resources/defaults.yaml`) and `CertScanner/config.yaml` (formerly `examples/CertScanner/config.yaml`), and `portal/` the documents a real DevSecOps portal rendered for the CertScanner services. The scenarios build their portal documents from the first two, so every pipeline run reads the same values as before.
+`test/fixtures` holds the configuration files of the library before the portal integration: `defaults.yaml` (formerly `resources/defaults.yaml`) and `CertScanner/config.yaml` (formerly `examples/CertScanner/config.yaml`), and `portal/` the documents a real DevSecOps portal rendered for its demo services. The pipeline and sandbox scenarios build their portal documents from `defaults.yaml` and `config.yaml`, so every pipeline run reads the same values as before.
 
 ## Adding a scenario
 
