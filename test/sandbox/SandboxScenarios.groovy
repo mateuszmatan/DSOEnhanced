@@ -746,8 +746,7 @@ Closure runScenario = { Map spec ->
     ])
     script.params.DEPLOY_HIGHER_ENV = spec.deployHigherEnv ?: false
     script.resources['defaults.yaml'] = defaultsText
-    script.files['config.yaml'] = configText
-    script.yamlHandler = { Map a -> a.text != null ? defaults : projects }
+    script.files['config.yaml'] = yaml.dump(projects)
     script.shHandler = { Map a ->
         if (a.returnStatus) return 0
         if (spec.fail && state?.currentProjectName == 'backend-api' && String.valueOf(a.label ?: '').startsWith('Maven: test')) {

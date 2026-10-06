@@ -61,6 +61,9 @@ Closure dataFor = { boolean fail ->
     ]
 }
 
+List<String> secretResources = ['a2a-certs/a2a.sh', 'a2a-certs/get-a2a-password.sh', 'a2a-certs/loginfile.sh',
+                                 'a2a-certs/PROXY_ASOCJenk.cert.pem', 'a2a-certs/PROXY_ASOCJenk.key.pem', 'a2a-certs/PROXY_ASOCJenk.keypsw']
+
 Closure runPipeline = { Map spec ->
     SandboxHarness harness = new SandboxHarness(srcDir, stubDir)
     FakeScript j = new FakeScript()
@@ -79,14 +82,16 @@ Closure runPipeline = { Map spec ->
     }
     (projects.projects as Map).each { k, v -> Map sonarCfg = (((v as Map).tools ?: [:]) as Map).sonar as Map; if (sonarCfg) sonarCfg.badgeToken = '' }
     if (spec.var == 'devSecOpsExtendedPipeline') {
-        Map rd = ((((projects.projects as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd as Map
+        Map archived = yaml.load(yaml.dump(projects)) as Map
+        Map rd = ((((archived.projects as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd as Map
         rd.buildTag = '213-20260919-081500'
         rd.internalDockerUrl = 'image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee'
+        Map gate = [job: 'DevSecOps/CertScanner-security-pipeline', build: '213', allowed: !spec.upstreamViolations, violations: spec.upstreamViolations ?: []]
+        j.upstream['DevSecOps/CertScanner-security-pipeline'] = ['config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
     }
     Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
     j.env.vars.putAll([
-            WORKSPACE   : '/ws',
             BUILD_URL   : "https://jenkins.bbh.com/job/DevSecOps/job/${spec.job}/${spec.buildNumber}/".toString(),
             JOB_NAME    : "DevSecOps/${spec.job}".toString(),
             BUILD_NUMBER: String.valueOf(spec.buildNumber),
@@ -95,8 +100,10 @@ Closure runPipeline = { Map spec ->
             PATH        : '/usr/bin'
     ])
     j.params.putAll((spec.params ?: [:]) as Map)
-    j.resources['defaults.yaml'] = defaultsText
-    j.files['config.yaml'] = configText
+    j.resourcesDir = new File(root, 'resources')
+    if (spec.coverageMinLine) j.resources['defaults.yaml'] = yaml.dump(defaults)
+    secretResources.each { String name -> j.resources[name] = "fake ${name}".toString() }
+    j.files['config.yaml'] = yaml.dump(projects)
     j.files['gradlew'] = '#!/bin/sh'
     j.files['build/reports/jacoco/test/jacocoTestReport.xml'] = '<report/>'
     j.files['target/site/jacoco/jacoco.xml'] = '<report/>'
@@ -105,12 +112,6 @@ Closure runPipeline = { Map spec ->
     j.files['target/certscanner-api.jar'] = 'jar'
     j.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/bin/appscan.sh'
     j.files['.appscan-logs/proxy.pass'] = 'proxy-secret'
-    if (spec.upstreamViolations) {
-        Map gate = [job: 'DevSecOps/CertScanner-security-pipeline', build: '213', allowed: false, violations: spec.upstreamViolations]
-        j.jsonFiles['release-gate.json'] = gate
-        j.files['release-gate.json'] = groovy.json.JsonOutput.toJson(gate)
-    }
-    j.yamlHandler = { Map a -> a.text != null ? defaults : projects }
     j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
 
     Closure project = { -> (j.env.CURRENT_PROJECT_NAME ?: 'gui') as String }
@@ -180,6 +181,38 @@ Map baseConfig = [projectNames: 'gui,backend-api', agentNames: ['linux-agent', '
 List<String> staticStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
 List<String> extendedStages = [MONITOR, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 List<String> fullStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+
+File goldenDir = new File(root, 'test/sandbox/golden')
+
+Closure goldenView = { Map r ->
+    FakeScript j = r.j as FakeScript
+    List<String> influx = j.files.findAll { k, v -> (k as String).startsWith('influx_payload_') }.collect { k, v -> v as String }
+    return ['== calls', j.calls.join('\n'),
+            '== log', j.log.findAll { !it.startsWith('[INIT]') && !it.startsWith('[POLICY]') }.join('\n'),
+            '== release-gate.json', (j.files['release-gate.json'] ?: '') as String,
+            '== influx', influx.join('\n'),
+            '== report', r.html as String].join('\n') + '\n'
+}
+
+Closure rule = { String reason, String pattern, String replacement ->
+    [reason: reason, apply: { String text -> text.replaceAll(pattern, replacement) }]
+}
+List<Map> baseRules = [
+        rule('build tags carry the UTC time of the run', /\d{8}-\d{6}/, '<stamp>'),
+        rule('temporary file names carry System.currentTimeMillis()', /(?<!\d)\d{13}(?!\d)/, '<ms>'),
+        rule('the report header shows the wall-clock time of the run', /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/, '<time>'),
+        rule('InfluxDB points carry the epoch second of the run', /(?m) \d{10}$/, ' <s>'),
+        rule('stage and job timings are measured on the wall clock', /\b(start_time|end_time|duration_ms|duration_s|lead_time_s)=\d+i/, '$1=<n>i'),
+        rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
+        rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><')
+]
+List<Map> portalRules = []
+
+Closure normalise = { String text, List<Map> rules ->
+    String out = text
+    rules.each { Map r -> out = (r.apply as Closure).call(out) as String }
+    return out
+}
 
 List<Map> specs = [
         [name: 'security pipeline, green', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline', buildNumber: 212,
@@ -281,7 +314,7 @@ specs.each { Map spec ->
                 log.findAll { it.startsWith('[DAST]') }.join(' | '))
     }
     if (spec.var == 'devSecOpsExtendedPipeline') {
-        check("${name}: config.yaml and the release gate are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline'),
+        check("${name}: config.yaml and the release gate are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=config.yaml,release-gate.json'),
                 j.calls.findAll { it.startsWith('copyArtifacts') })
     }
     if (spec.mavenVmDelivery) {
@@ -306,6 +339,19 @@ specs.each { Map spec ->
     }
     List unhandled = j.unhandled.unique()
     if (unhandled) println "      note: steps not emulated by the fake Jenkins: ${unhandled}"
+    String slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/, '-')
+    String actual = normalise(goldenView(r), baseRules)
+    File golden = new File(goldenDir, "${slug}.txt")
+    if (!golden.exists()) {
+        golden.parentFile.mkdirs()
+        golden.text = actual
+        println "      note: golden output recorded at ${golden}"
+    }
+    boolean same = normalise(golden.text, portalRules) == normalise(actual, portalRules)
+    File diffFile = new File(goldenDir, "${slug}.actual.txt")
+    if (same) diffFile.delete() else diffFile.text = actual
+    check("${name}: the run matches the golden output recorded on the library before the portal integration", same,
+            "compare ${golden} with ${diffFile}")
 }
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"

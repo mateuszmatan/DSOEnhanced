@@ -65,7 +65,7 @@ abstract class FakeCpsScript extends Script {
 
     def agent(Closure body) { body.call() }
 
-    def label(Object value) { value }
+    def label(Object value) { model.agent = value }
 
     def disableConcurrentBuilds() { null }
 
@@ -111,6 +111,11 @@ abstract class FakeCpsScript extends Script {
     def unstable(Closure body) { model.post.unstable = body }
 
     private void runModel() {
+        jenkins.calls << "agent ${model.agent}".toString()
+        jenkins.onAgent(model.agent) { runStages() }
+    }
+
+    void runStages() {
         boolean failed = false
         for (Map st : (model.stages as List<Map>)) {
             String name = st.name as String

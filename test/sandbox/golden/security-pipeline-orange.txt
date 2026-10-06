@@ -1,0 +1,1040 @@
+== calls
+agent linux-agent
+sh uname -s 2>/dev/null || echo Linux
+sh chmod +x 'gradlew' 2>/dev/null || true
+sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: clean build bootJar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: test jacocoTestReport jacocoTestCoverageVerification] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
+        
+sh 
+python3 - "build/reports/jacoco/test/jacocoTestReport.xml" <<'PYEOF'
+import xml.etree.ElementTree as ET, sys
+try:
+    tree = ET.parse(sys.argv[1])
+    for c in tree.getroot().findall('counter'):
+        if c.get('type') == 'LINE':
+            covered = int(c.get('covered', 0)); missed = int(c.get('missed', 0))
+            total = covered + missed
+            pct = round(covered * 100.0 / total, 1) if total else 0.0
+            print(f'{pct},{covered},{missed}'); sys.exit(0)
+    print('0.0,0,0')
+except Exception: print('0.0,0,0')
+PYEOF
+
+sh 
+python3 - "build/reports/jacoco/test/jacocoTestReport.xml" <<'PYEOF'
+import xml.etree.ElementTree as ET
+import sys
+ 
+try:
+    tree = ET.parse(sys.argv[1])
+    root = tree.getroot()
+ 
+    for pkg in root.findall('package'):
+        package_name = pkg.get('name', '').replace('/', '.')
+ 
+        for cls in pkg.findall('class'):
+            class_name = cls.get('name', '').replace('/', '.')
+            source_file = cls.get('sourcefilename', '')
+ 
+            covered = 0
+            missed = 0
+ 
+            for counter in cls.findall('counter'):
+                if counter.get('type') == 'LINE':
+                    covered = int(counter.get('covered', 0))
+                    missed = int(counter.get('missed', 0))
+ 
+            total = covered + missed
+            pct = round(covered * 100.0 / total, 1) if total else 0.0
+ 
+            print(f"{package_name},{class_name},{source_file},{pct},{covered},{missed},{total}")
+ 
+except Exception:
+    print("ERROR,,,,0.0,0,0,0")
+PYEOF
+
+sh mvn -v
+sh mvn -version
+withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
+sh [Maven: clean verify] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'clean' 'verify' '-B' '-U'
+        
+sh mvn -v
+sh mvn -version
+sh [Maven: test jacoco:report] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'test' 'jacoco:report'
+        
+sh 
+python3 - "target/site/jacoco/jacoco.xml" <<'PYEOF'
+import xml.etree.ElementTree as ET, sys
+try:
+    tree = ET.parse(sys.argv[1])
+    for c in tree.getroot().findall('counter'):
+        if c.get('type') == 'LINE':
+            covered = int(c.get('covered', 0)); missed = int(c.get('missed', 0))
+            total = covered + missed
+            pct = round(covered * 100.0 / total, 1) if total else 0.0
+            print(f'{pct},{covered},{missed}'); sys.exit(0)
+    print('0.0,0,0')
+except Exception: print('0.0,0,0')
+PYEOF
+
+sh 
+python3 - "target/site/jacoco/jacoco.xml" <<'PYEOF'
+import xml.etree.ElementTree as ET
+import sys
+ 
+try:
+    tree = ET.parse(sys.argv[1])
+    root = tree.getroot()
+ 
+    for pkg in root.findall('package'):
+        package_name = pkg.get('name', '').replace('/', '.')
+ 
+        for cls in pkg.findall('class'):
+            class_name = cls.get('name', '').replace('/', '.')
+            source_file = cls.get('sourcefilename', '')
+ 
+            covered = 0
+            missed = 0
+ 
+            for counter in cls.findall('counter'):
+                if counter.get('type') == 'LINE':
+                    covered = int(counter.get('covered', 0))
+                    missed = int(counter.get('missed', 0))
+ 
+            total = covered + missed
+            pct = round(covered * 100.0 / total, 1) if total else 0.0
+ 
+            print(f"{package_name},{class_name},{source_file},{pct},{covered},{missed},{total}")
+ 
+except Exception:
+    print("ERROR,,,,0.0,0,0,0")
+PYEOF
+
+withCredentials [nexusiqP]
+sh [Nexus IQ: resolve application CertValidityMonitoring-GUI] #!/bin/bash
+set +x
+set -euo pipefail
+curl -sS -X 'GET' -u "$NIQ_GF_USER:$NIQ_GF_PASS" -H 'Accept: application/json'  -w '\n%{http_code}' 'https://tools.bbh.com/IQ/api/v2/applications?publicId=CertValidityMonitoring-GUI'
+
+sh [Nexus IQ: policy report 0f1e2d3c4b5a69788796a5b4c3d2e1f0] #!/bin/bash
+set +x
+set -euo pipefail
+curl -sS -X 'GET' -u "$NIQ_GF_USER:$NIQ_GF_PASS" -H 'Accept: application/json'  -w '\n%{http_code}' 'https://tools.bbh.com/IQ/api/v2/applications/CertValidityMonitoring-GUI/reports/0f1e2d3c4b5a69788796a5b4c3d2e1f0/policy'
+
+sh mkdir -p DevSecOpsJenkinsLibrary
+sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
+sh chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh
+sh chmod +x DevSecOpsJenkinsLibrary/loginfile.sh
+sh chmod 600 DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.cert.pem
+sh chmod 600 DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.key.pem
+sh #!/usr/bin/env bash
+set -euo pipefail; set -x
+mkdir -p "$APPSCAN_LOG_DIR"
+chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh 2>/dev/null || true
+PROXY_PASS="$(cat DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.keypsw | DevSecOpsJenkinsLibrary/get-a2a-password.sh     -a oisapi.bbh.com     -c DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.cert.pem     -k DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.key.pem     -A "9hV0qzEV9kou36xWP+TtBA6OWUKFuaq6J1jNgQ05Bjw="     -p)"
+if [[ "$PROXY_PASS" == *"error"* ]]; then echo "[ERROR] Failed to retrieve proxy password."; exit 1; fi
+printf '%s' "$PROXY_PASS" > "$APPSCAN_LOG_DIR/proxy.pass"
+chmod 600 "$APPSCAN_LOG_DIR/proxy.pass"
+
+sh #!/usr/bin/env bash
+set -euo pipefail; set -x
+mkdir -p "$APPSCAN_TOOLS_DIR" "$APPSCAN_LOG_DIR" "$APPSCAN_HOME_DIR" "$APPSCAN_BIN_DIR"
+rm -f "$APPSCAN_TOOLS_DIR/sa.zip" || true
+curl -fsSL "$SA_LINUX_URL" -o "$APPSCAN_TOOLS_DIR/sa.zip"
+if [ ! -s "$APPSCAN_TOOLS_DIR/sa.zip" ]; then echo "[ERROR] SAClientUtil archive missing or empty"; exit 1; fi
+unzip -oq "$APPSCAN_TOOLS_DIR/sa.zip" -d "$APPSCAN_TOOLS_DIR"
+APPSCAN_CMD="$(find "$APPSCAN_TOOLS_DIR" -type f -name appscan.sh | head -n 1)"
+if [ -z "$APPSCAN_CMD" ]; then echo "[ERROR] appscan.sh not found after extraction"; exit 1; fi
+chmod +x "$APPSCAN_CMD"
+printf '%s' "$APPSCAN_CMD" > "$APPSCAN_LOG_DIR/appscan.cmd"
+
+sh chmod +x "$APPSCAN_BIN_DIR/gradle"
+sh mkdir -p '/ws/.appscan-home/.appscan'
+sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+withCredentials [bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="${_OPTS}" \
+"$APPSCAN_CMD_RUNTIME" api_login \
+    -u "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9" -P "fake-APPSCAN_KEY_SECRET" -persist -acceptssl \
+    -service_url "https://bbh.cloud.appscan.com" \
+    > "$APPSCAN_LOG_DIR/api_login.log" 2>&1 || true
+grep -v "^Picked up " "$APPSCAN_LOG_DIR/api_login.log" || true
+if grep -qiE 'unable to authenticate|authentication failed|unauthorized|token has expired' "$APPSCAN_LOG_DIR/api_login.log"; then
+    echo "[ERROR] AppScan CLI login failed."; exit 1
+fi
+echo "[INFO] AppScan CLI login succeeded."
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SOURCE_DIR_RUNTIME=/ws, APPSCAN_SOURCE_FOLDERS=, APPSCAN_EXCLUDED_FOLDERS=, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: clean build bootJar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+
+rm -f "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" || true
+
+APPSCAN_SOURCE_FOLDERS="${APPSCAN_SOURCE_FOLDERS:-}"
+APPSCAN_EXCLUDED_FOLDERS="${APPSCAN_EXCLUDED_FOLDERS:-}"
+
+APPSCAN_CONFIG_FILE="${APPSCAN_CONFIG_FILE:-appscan-config.xml}"
+case "$APPSCAN_CONFIG_FILE" in
+    /*)
+        APPSCAN_CONFIG_PATH="$APPSCAN_CONFIG_FILE"
+        ;;
+    *)
+        APPSCAN_CONFIG_PATH="$WORKSPACE/$APPSCAN_CONFIG_FILE"
+        ;;
+esac
+
+echo "===== [INFO]: environment ====="
+echo "PWD=$(pwd)"
+echo "WORKSPACE=$WORKSPACE"
+echo "APPSCAN_SOURCE_DIR_RUNTIME=$APPSCAN_SOURCE_DIR_RUNTIME"
+echo "APPSCAN_SOURCE_FOLDERS=$APPSCAN_SOURCE_FOLDERS"
+echo "APPSCAN_EXCLUDED_FOLDERS=$APPSCAN_EXCLUDED_FOLDERS"
+echo "APPSCAN_SCAN_NAME=$APPSCAN_SCAN_NAME"
+echo "APPSCAN_BIN_DIR=$APPSCAN_BIN_DIR"
+echo "APPSCAN_HOME_DIR=$APPSCAN_HOME_DIR"
+echo "APPSCAN_LOG_DIR=$APPSCAN_LOG_DIR"
+echo "APPSCAN_CONFIG_FILE=$APPSCAN_CONFIG_FILE"
+echo "JAVA_HOME=${JAVA_HOME:-}"
+echo "PATH=$PATH"
+ 
+echo "===== [INFO]: Workspace content ====="
+ls -la "$WORKSPACE" || true
+echo "===== [INFO]: AppScan Source Folder content ====="
+ls -la "$APPSCAN_SOURCE_DIR_RUNTIME" || true
+
+echo "[IRX] Source directory: $APPSCAN_SOURCE_DIR_RUNTIME"
+
+if [ "false" = "true" ]; then
+
+    APPSCAN_CONFIG_ARGS=(
+        -c "$APPSCAN_CONFIG_PATH"
+    )
+    SCAN_DIR="$WORKSPACE"
+    
+else    
+    # Prevent AppScan from automatically loading appscan-config.xml from the current directory.
+    APPSCAN_CONFIG_ARGS=(-nc)
+
+    echo "===== Create staged AppScan source directory ====="
+    
+    if [ "$APPSCAN_SOURCE_FOLDERS" = "$APPSCAN_SOURCE_DIR_RUNTIME" ] && [ -z $APPSCAN_EXCLUDED_FOLDERS ]; then
+        echo "[INFO] SOURCE_FOLDERS is the same as APPSCAN_SOURCE_DIR_RUNTIME and no excluded folders are specified. Skipping staging."
+        SCAN_DIR="$APPSCAN_SOURCE_DIR_RUNTIME"
+    else
+        SCAN_DIR="$WORKSPACE/appscan-source-staged"
+         
+        rm -rf "$SCAN_DIR"
+        mkdir -p "$SCAN_DIR"
+         
+        echo "[INFO] Copying source folders: $APPSCAN_SOURCE_FOLDERS"
+         
+        IFS=',' read -ra INCLUDED_FOLDERS <<< "$APPSCAN_SOURCE_FOLDERS"
+        IFS=',' read -ra EXCLUDED_FOLDERS <<< "$APPSCAN_EXCLUDED_FOLDERS"
+          
+        for i in "${!INCLUDED_FOLDERS[@]}"; do
+            INCLUDED_FOLDERS[$i]="$(echo "${INCLUDED_FOLDERS[$i]}" | xargs)"
+        done
+        
+        for i in "${!EXCLUDED_FOLDERS[@]}"; do
+            EXCLUDED_FOLDERS[$i]="$(echo "${EXCLUDED_FOLDERS[$i]}" | xargs)"
+        done 
+        
+        HAS_INCLUDED=false
+        HAS_EXCLUDED=false
+        
+        [ -n "$APPSCAN_SOURCE_FOLDERS" ] && HAS_INCLUDED=true
+        [ -n "$APPSCAN_EXCLUDED_FOLDERS" ] && HAS_EXCLUDED=true
+            
+        if $HAS_INCLUDED; then
+            echo "[INFO] Copying only included directories"
+         
+            for INCLUDED in "${INCLUDED_FOLDERS[@]}"; do
+                [ -z "$INCLUDED" ] && continue
+         
+                find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -type d -name "$INCLUDED" -print |
+                while IFS= read -r DIR; do
+                    REL_PATH="${DIR#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+         
+                    echo "[INFO] Copying included directory: $REL_PATH"
+         
+                    mkdir -p "$SCAN_DIR/$(dirname "$REL_PATH")"
+                    cp -a "$DIR" "$SCAN_DIR/$REL_PATH"
+                done
+            done
+        
+        elif $HAS_EXCLUDED; then
+            echo "[INFO] Copying everything except excluded directories"
+     
+            find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -print0 |
+            while IFS= read -r -d '' SOURCE_PATH; do
+         
+                REL_PATH="${SOURCE_PATH#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+                SKIP=false
+                for EXCLUDED in "${EXCLUDED_FOLDERS[@]}"; do
+                    [ -z "$EXCLUDED" ] && continue
+         
+                    if [[ "/$REL_PATH/" == *"$EXCLUDED/"* ]]; then
+                        SKIP=true
+                        break
+                    fi
+                done
+         
+                $SKIP && continue
+     
+                TARGET_PATH="$SCAN_DIR/$REL_PATH"
+                if [ -d "$SOURCE_PATH" ]; then
+                    mkdir -p "$TARGET_PATH"
+                elif [ -f "$SOURCE_PATH" ]; then
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                elif [ -L "$SOURCE_PATH" ]; then
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                fi
+            done
+            
+        else
+            echo "[INFO] No included or excluded directories specified"
+            echo "[INFO] Copying complete source directory contents"
+         
+            find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -print0 |
+            while IFS= read -r -d '' SOURCE_PATH; do
+                REL_PATH="${SOURCE_PATH#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+                TARGET_PATH="$SCAN_DIR/$REL_PATH"
+         
+                if [ -d "$SOURCE_PATH" ]; then
+                    mkdir -p "$TARGET_PATH"
+                else
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                fi
+            done
+        fi             
+    fi
+    cd $SCAN_DIR
+    
+    if [ ! -d ".git" ]; then
+        git init >/dev/null 2>&1
+    fi
+fi        
+
+_irx_java=$(find "$SCAN_DIR" -name "*.java"   2>/dev/null | wc -l | tr -d ' ')
+_irx_grv=$(find  "$SCAN_DIR" -name "*.groovy" 2>/dev/null | wc -l | tr -d ' ')
+_irx_kt=$(find   "$SCAN_DIR" -name "*.kt"     2>/dev/null | wc -l | tr -d ' ')
+echo "[IRX] Source files: .java=$_irx_java  .groovy=$_irx_grv  .kt=$_irx_kt"
+
+echo "AppScan Prepare CLI is running..."
+
+if [ ! -d ".git" ]; then
+    git init >/dev/null 2>&1
+fi
+ 
+set +e
+
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="$APPSCAN_OPTS" \
+"$APPSCAN_CMD_RUNTIME" prepare -s thorough "${APPSCAN_CONFIG_ARGS[@]}" -n "$APPSCAN_SCAN_NAME" -d .  \
+    > "$APPSCAN_LOG_DIR/prepare.log" 2>&1
+    
+PREPARE_RC=$?
+ 
+set -e
+ 
+echo "===== [INFO]: AppScan prepare result ====="
+echo "AppScan prepare exit code: $PREPARE_RC"
+ 
+echo "===== [INFO]: prepare.log - first 50 lines ====="
+head -n 50 "$APPSCAN_LOG_DIR/prepare.log"
+
+echo "===== [INFO]: prepare.log - last 50 lines ====="
+tail -n 50 "$APPSCAN_LOG_DIR/prepare.log"
+ 
+IRX_FILE=$(find "$WORKSPACE" "$SCAN_DIR" "$APPSCAN_HOME_DIR" "$APPSCAN_LOG_DIR" /tmp/appscan-workspace \
+  -name "*.irx" -type f 2>/dev/null | head -1 || true)
+ 
+if [ "$PREPARE_RC" -ne 0 ]; then
+  echo "[ERROR] AppScan prepare failed with exit code $PREPARE_RC"
+  exit "$PREPARE_RC"
+fi
+ 
+if [ -z "$IRX_FILE" ]; then
+  echo "[ERROR] IRX not found after prepare"
+  exit 1
+fi
+ 
+echo "[INFO] Found IRX: $IRX_FILE"
+ 
+if [ "$IRX_FILE" != "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" ]; then
+  echo "[INFO] Copying IRX to expected location: $WORKSPACE/$APPSCAN_SCAN_NAME.irx"
+  cp "$IRX_FILE" "$WORKSPACE/$APPSCAN_SCAN_NAME.irx"
+fi
+ 
+echo "[INFO] IRX size: $(wc -c < "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" | tr -d ' ') bytes"
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="${_OPTS}" \
+"$APPSCAN_CMD_RUNTIME" queue_analysis -a "209f44ac-dd06-4ca0-884e-d944904f8020" -f "/ws/certscanner-gui.irx" -n "certscanner-gui-sast" \
+    2>&1 | tee "$APPSCAN_LOG_DIR/queue-certscanner-gui-sast.log" | grep -v "^Picked up " || true
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SOURCE_DIR_RUNTIME=/ws, APPSCAN_SOURCE_FOLDERS=, APPSCAN_EXCLUDED_FOLDERS=, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh mvn -v
+sh mvn -version
+withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
+sh [Maven: clean verify] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'clean' 'verify' '-B' '-U'
+        
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+
+rm -f "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" || true
+
+APPSCAN_SOURCE_FOLDERS="${APPSCAN_SOURCE_FOLDERS:-}"
+APPSCAN_EXCLUDED_FOLDERS="${APPSCAN_EXCLUDED_FOLDERS:-}"
+
+APPSCAN_CONFIG_FILE="${APPSCAN_CONFIG_FILE:-appscan-config.xml}"
+case "$APPSCAN_CONFIG_FILE" in
+    /*)
+        APPSCAN_CONFIG_PATH="$APPSCAN_CONFIG_FILE"
+        ;;
+    *)
+        APPSCAN_CONFIG_PATH="$WORKSPACE/$APPSCAN_CONFIG_FILE"
+        ;;
+esac
+
+echo "===== [INFO]: environment ====="
+echo "PWD=$(pwd)"
+echo "WORKSPACE=$WORKSPACE"
+echo "APPSCAN_SOURCE_DIR_RUNTIME=$APPSCAN_SOURCE_DIR_RUNTIME"
+echo "APPSCAN_SOURCE_FOLDERS=$APPSCAN_SOURCE_FOLDERS"
+echo "APPSCAN_EXCLUDED_FOLDERS=$APPSCAN_EXCLUDED_FOLDERS"
+echo "APPSCAN_SCAN_NAME=$APPSCAN_SCAN_NAME"
+echo "APPSCAN_BIN_DIR=$APPSCAN_BIN_DIR"
+echo "APPSCAN_HOME_DIR=$APPSCAN_HOME_DIR"
+echo "APPSCAN_LOG_DIR=$APPSCAN_LOG_DIR"
+echo "APPSCAN_CONFIG_FILE=$APPSCAN_CONFIG_FILE"
+echo "JAVA_HOME=${JAVA_HOME:-}"
+echo "PATH=$PATH"
+ 
+echo "===== [INFO]: Workspace content ====="
+ls -la "$WORKSPACE" || true
+echo "===== [INFO]: AppScan Source Folder content ====="
+ls -la "$APPSCAN_SOURCE_DIR_RUNTIME" || true
+
+echo "[IRX] Source directory: $APPSCAN_SOURCE_DIR_RUNTIME"
+
+if [ "false" = "true" ]; then
+
+    APPSCAN_CONFIG_ARGS=(
+        -c "$APPSCAN_CONFIG_PATH"
+    )
+    SCAN_DIR="$WORKSPACE"
+    
+else    
+    # Prevent AppScan from automatically loading appscan-config.xml from the current directory.
+    APPSCAN_CONFIG_ARGS=(-nc)
+
+    echo "===== Create staged AppScan source directory ====="
+    
+    if [ "$APPSCAN_SOURCE_FOLDERS" = "$APPSCAN_SOURCE_DIR_RUNTIME" ] && [ -z $APPSCAN_EXCLUDED_FOLDERS ]; then
+        echo "[INFO] SOURCE_FOLDERS is the same as APPSCAN_SOURCE_DIR_RUNTIME and no excluded folders are specified. Skipping staging."
+        SCAN_DIR="$APPSCAN_SOURCE_DIR_RUNTIME"
+    else
+        SCAN_DIR="$WORKSPACE/appscan-source-staged"
+         
+        rm -rf "$SCAN_DIR"
+        mkdir -p "$SCAN_DIR"
+         
+        echo "[INFO] Copying source folders: $APPSCAN_SOURCE_FOLDERS"
+         
+        IFS=',' read -ra INCLUDED_FOLDERS <<< "$APPSCAN_SOURCE_FOLDERS"
+        IFS=',' read -ra EXCLUDED_FOLDERS <<< "$APPSCAN_EXCLUDED_FOLDERS"
+          
+        for i in "${!INCLUDED_FOLDERS[@]}"; do
+            INCLUDED_FOLDERS[$i]="$(echo "${INCLUDED_FOLDERS[$i]}" | xargs)"
+        done
+        
+        for i in "${!EXCLUDED_FOLDERS[@]}"; do
+            EXCLUDED_FOLDERS[$i]="$(echo "${EXCLUDED_FOLDERS[$i]}" | xargs)"
+        done 
+        
+        HAS_INCLUDED=false
+        HAS_EXCLUDED=false
+        
+        [ -n "$APPSCAN_SOURCE_FOLDERS" ] && HAS_INCLUDED=true
+        [ -n "$APPSCAN_EXCLUDED_FOLDERS" ] && HAS_EXCLUDED=true
+            
+        if $HAS_INCLUDED; then
+            echo "[INFO] Copying only included directories"
+         
+            for INCLUDED in "${INCLUDED_FOLDERS[@]}"; do
+                [ -z "$INCLUDED" ] && continue
+         
+                find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -type d -name "$INCLUDED" -print |
+                while IFS= read -r DIR; do
+                    REL_PATH="${DIR#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+         
+                    echo "[INFO] Copying included directory: $REL_PATH"
+         
+                    mkdir -p "$SCAN_DIR/$(dirname "$REL_PATH")"
+                    cp -a "$DIR" "$SCAN_DIR/$REL_PATH"
+                done
+            done
+        
+        elif $HAS_EXCLUDED; then
+            echo "[INFO] Copying everything except excluded directories"
+     
+            find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -print0 |
+            while IFS= read -r -d '' SOURCE_PATH; do
+         
+                REL_PATH="${SOURCE_PATH#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+                SKIP=false
+                for EXCLUDED in "${EXCLUDED_FOLDERS[@]}"; do
+                    [ -z "$EXCLUDED" ] && continue
+         
+                    if [[ "/$REL_PATH/" == *"$EXCLUDED/"* ]]; then
+                        SKIP=true
+                        break
+                    fi
+                done
+         
+                $SKIP && continue
+     
+                TARGET_PATH="$SCAN_DIR/$REL_PATH"
+                if [ -d "$SOURCE_PATH" ]; then
+                    mkdir -p "$TARGET_PATH"
+                elif [ -f "$SOURCE_PATH" ]; then
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                elif [ -L "$SOURCE_PATH" ]; then
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                fi
+            done
+            
+        else
+            echo "[INFO] No included or excluded directories specified"
+            echo "[INFO] Copying complete source directory contents"
+         
+            find "$APPSCAN_SOURCE_DIR_RUNTIME" -path "$SCAN_DIR" -prune -o -mindepth 1 -print0 |
+            while IFS= read -r -d '' SOURCE_PATH; do
+                REL_PATH="${SOURCE_PATH#"$APPSCAN_SOURCE_DIR_RUNTIME"/}"
+                TARGET_PATH="$SCAN_DIR/$REL_PATH"
+         
+                if [ -d "$SOURCE_PATH" ]; then
+                    mkdir -p "$TARGET_PATH"
+                else
+                    mkdir -p "$(dirname "$TARGET_PATH")"
+                    cp -a "$SOURCE_PATH" "$TARGET_PATH"
+                fi
+            done
+        fi             
+    fi
+    cd $SCAN_DIR
+    
+    if [ ! -d ".git" ]; then
+        git init >/dev/null 2>&1
+    fi
+fi        
+
+_irx_java=$(find "$SCAN_DIR" -name "*.java"   2>/dev/null | wc -l | tr -d ' ')
+_irx_grv=$(find  "$SCAN_DIR" -name "*.groovy" 2>/dev/null | wc -l | tr -d ' ')
+_irx_kt=$(find   "$SCAN_DIR" -name "*.kt"     2>/dev/null | wc -l | tr -d ' ')
+echo "[IRX] Source files: .java=$_irx_java  .groovy=$_irx_grv  .kt=$_irx_kt"
+
+echo "AppScan Prepare CLI is running..."
+
+if [ ! -d ".git" ]; then
+    git init >/dev/null 2>&1
+fi
+ 
+set +e
+
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="$APPSCAN_OPTS" \
+"$APPSCAN_CMD_RUNTIME" prepare -s thorough "${APPSCAN_CONFIG_ARGS[@]}" -n "$APPSCAN_SCAN_NAME" -d .  \
+    > "$APPSCAN_LOG_DIR/prepare.log" 2>&1
+    
+PREPARE_RC=$?
+ 
+set -e
+ 
+echo "===== [INFO]: AppScan prepare result ====="
+echo "AppScan prepare exit code: $PREPARE_RC"
+ 
+echo "===== [INFO]: prepare.log - first 50 lines ====="
+head -n 50 "$APPSCAN_LOG_DIR/prepare.log"
+
+echo "===== [INFO]: prepare.log - last 50 lines ====="
+tail -n 50 "$APPSCAN_LOG_DIR/prepare.log"
+ 
+IRX_FILE=$(find "$WORKSPACE" "$SCAN_DIR" "$APPSCAN_HOME_DIR" "$APPSCAN_LOG_DIR" /tmp/appscan-workspace \
+  -name "*.irx" -type f 2>/dev/null | head -1 || true)
+ 
+if [ "$PREPARE_RC" -ne 0 ]; then
+  echo "[ERROR] AppScan prepare failed with exit code $PREPARE_RC"
+  exit "$PREPARE_RC"
+fi
+ 
+if [ -z "$IRX_FILE" ]; then
+  echo "[ERROR] IRX not found after prepare"
+  exit 1
+fi
+ 
+echo "[INFO] Found IRX: $IRX_FILE"
+ 
+if [ "$IRX_FILE" != "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" ]; then
+  echo "[INFO] Copying IRX to expected location: $WORKSPACE/$APPSCAN_SCAN_NAME.irx"
+  cp "$IRX_FILE" "$WORKSPACE/$APPSCAN_SCAN_NAME.irx"
+fi
+ 
+echo "[INFO] IRX size: $(wc -c < "$WORKSPACE/$APPSCAN_SCAN_NAME.irx" | tr -d ' ') bytes"
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+env -u APPSCAN_DOMAIN \
+    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+    APPSCAN_OPTS="${_OPTS}" \
+"$APPSCAN_CMD_RUNTIME" queue_analysis -a "209f44ac-dd06-4ca0-884e-d944904f8021" -f "/ws/certscanner-backend.irx" -n "certscanner-backend-sast" \
+    2>&1 | tee "$APPSCAN_LOG_DIR/queue-certscanner-backend-sast.log" | grep -v "^Picked up " || true
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_POLL_INTERVAL=30, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+_START=$(date +%s)
+while true; do
+    _ELAPSED=$(( $(date +%s) - _START ))
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" status -i "$APPSCAN_SCAN_ID" \
+        > "$APPSCAN_LOG_DIR/status-sast-certscanner-gui.log" 2>&1 || true
+    if grep -qiE "Completed|Complete|Ready"        "$APPSCAN_LOG_DIR/status-sast-certscanner-gui.log"; then echo "[INFO] SAST scan completed after ${_ELAPSED}s."; exit 0; fi
+    if grep -qiE "Failed|Error|Canceled|Cancelled" "$APPSCAN_LOG_DIR/status-sast-certscanner-gui.log"; then echo "[ERROR] SAST scan failed after ${_ELAPSED}s."; exit 1; fi
+    echo "[RUNNING] SAST scan in progress... ${_ELAPSED}s elapsed"
+    sleep "$APPSCAN_POLL_INTERVAL"
+done
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+for i in {1..6}; do
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" get_result -i "$APPSCAN_SCAN_ID" -t html -d "/ws/appscan-report-certscanner-gui.html" \
+        > "$APPSCAN_LOG_DIR/get_result-sast-certscanner-gui.log" 2>&1 || true
+    if [ -s "/ws/appscan-report-certscanner-gui.html" ]; then echo "[INFO] SAST report downloaded"; break; fi
+    echo "[WARN] Report not ready, retry $i/6..."; sleep 10
+done
+
+sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-certscanner-gui.html' || true
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_POLL_INTERVAL=30, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+_START=$(date +%s)
+while true; do
+    _ELAPSED=$(( $(date +%s) - _START ))
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" status -i "$APPSCAN_SCAN_ID" \
+        > "$APPSCAN_LOG_DIR/status-sast-certscanner-backend.log" 2>&1 || true
+    if grep -qiE "Completed|Complete|Ready"        "$APPSCAN_LOG_DIR/status-sast-certscanner-backend.log"; then echo "[INFO] SAST scan completed after ${_ELAPSED}s."; exit 0; fi
+    if grep -qiE "Failed|Error|Canceled|Cancelled" "$APPSCAN_LOG_DIR/status-sast-certscanner-backend.log"; then echo "[ERROR] SAST scan failed after ${_ELAPSED}s."; exit 1; fi
+    echo "[RUNNING] SAST scan in progress... ${_ELAPSED}s elapsed"
+    sleep "$APPSCAN_POLL_INTERVAL"
+done
+
+withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
+sh #!/usr/bin/env bash
+set -euo pipefail; set +x
+_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
+_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
+for i in {1..6}; do
+    env -u APPSCAN_DOMAIN \
+        PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
+        APPSCAN_OPTS="${_OPTS}" \
+    "$APPSCAN_CMD_RUNTIME" get_result -i "$APPSCAN_SCAN_ID" -t html -d "/ws/appscan-report-certscanner-backend.html" \
+        > "$APPSCAN_LOG_DIR/get_result-sast-certscanner-backend.log" 2>&1 || true
+    if [ -s "/ws/appscan-report-certscanner-backend.html" ]; then echo "[INFO] SAST report downloaded"; break; fi
+    echo "[WARN] Report not ready, retry $i/6..."; sleep 10
+done
+
+sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-certscanner-backend.html' || true
+sh chmod +x gradlew
+sh [Gradle: sonarqube] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'sonarqube'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-gui&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
+sh [Maven: sonar:sonar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'sonar:sonar'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-backend&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
+junit build/test-results/test/*.xml
+reportUnitTest
+sh ls target/*.jar target/*.war 2>/dev/null | head -n 1 || true
+reportBuild
+sh 
+set -eu +x
+find '.' -type f -path '*/target/surefire-reports/*.xml' | sort 
+
+sh 
+set -eu +x
+mkdir -p 'surefire-reports'
+find '.' -type f -path '*/target/surefire-reports/*.xml' \
+    | while IFS= read -r src; do
+        filename=$(basename "$src")
+        dest='surefire-reports/'"$filename"
+        cp "$src" "$dest"
+    done    
+
+junit surefire-reports/*.xml
+reportSurefireTest
+sh 
+            ART_FILE=$(ls target/certscanner-api.jar | head -n 1)
+
+            echo "Detected artifact: $ART_FILE"
+            echo "Dockerfile path: openshift/Dockerfile"
+
+            mkdir -p target/docker
+
+            # Copy application artifact    
+            cp "$ART_FILE" target/docker/certscanner-api.jar
+
+            #Copy Dockerfile
+            cp openshift/Dockerfile target/docker/Dockerfile
+
+            #Copy additional files
+            if [ "null" != "null" ]; then cp null target/docker/null; fi
+
+            echo "Build context content:"
+            ls -la "target/docker"
+        
+sh echo >> openshift/Dockerfile
+sh echo LABEL com.bbh.app.name=certscanner-api >> openshift/Dockerfile
+sh echo LABEL com.bbh.app.version=213 >> openshift/Dockerfile
+sh echo LABEL com.bbh.image.build=213-<stamp> >> openshift/Dockerfile
+writeYaml config.yaml
+sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:213-<stamp>
+sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:213
+sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:latest
+sh mkdir -p /ws/report
+sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
+sh rm -f 'influx_payload_<ms>.txt'
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,config.yaml,release-gate.json
+publishHTML pipeline-report.html
+cleanWs
+build DevSecOps/CertScanner-extended-pipeline (no wait)
+== log
+------------------------------------------------------------
+[STAGE]  Monitor source changes (download sources)
+[RESULT] PASS
+------------------------------------------------------------
+Detected tool from config file is gradle
+[BUILD] Tool: gradle OS: linux
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+Detected tool from config file is gradle
+[TEST] Tool: gradle
+Execute Gradle Command: './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
+Detected tool from config file is gradle
+[COVERAGE] Build tool: gradle  Required by the library policy: 60%
+Class coverage: 
+Package: com.bbh.certscanner, Class: CertificateService, Coverage: 45.0, Missed: 550, Covered: 450
+=========================
+----------------------------------------------------
+[FAIL] LINE COVERAGE gui: 45.0%  (min required: 60%)
+covered=450  missed=550  total=1000
+----------------------------------------------------
+[unstable] [POLICY] gui: Line coverage 45.0% is below the required 60%. The Nexus release and the QC deployment stay blocked until this is fixed.
+Detected tool from config file is maven
+[BUILD] Tool: maven OS: linux
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+Detected tool from config file is maven
+[TEST] Tool: maven
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'test' 'jacoco:report'
+[unstable] [POLICY] backend-api: Unit tests failed (script returned exit code 1), coverage is checked on the reports that were produced. The Nexus release and the QC deployment stay blocked until this is fixed.
+Detected tool from config file is maven
+[COVERAGE] Build tool: maven  Required by the library policy: 60%
+Class coverage: 
+Package: com.bbh.certscanner, Class: CertificateService, Coverage: 84.0, Missed: 160, Covered: 840
+=========================
+----------------------------------------------------
+[PASS] LINE COVERAGE backend-api: 84.0%  (min required: 60%)
+covered=840  missed=160  total=1000
+----------------------------------------------------
+[COVERAGE] backend-api: Line coverage 84.0% meets the required 60%.
+------------------------------------------------------------
+[STAGE]  Unit tests
+[RESULT] WARN
+[COV]    Line: 64.5%  required: 60%  OK
+[COV]    Covered: 1290  Missed: 710  Total: 2000
+------------------------------------------------------------
+[DEP-SCAN] Application: CertValidityMonitoring-GUI | Server: https://tools.bbh.com/IQ
+[DEP-SCAN] Application: CertValidityMonitoring-GUI - C:2 H:5 M:9
+[GOLDENFIX] Nexus IQ policy violated - fetching GoldenFix list for 1 Nexus IQ application(s)
+[GOLDENFIX] CertValidityMonitoring-GUI: 0 violating direct component(s) eligible for GoldenFix (threat level >= 2)
+[GOLDENFIX] Nexus IQ returned no GoldenFix versions for the violating direct dependencies
+[unstable] [POLICY] gui: Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+[DEP-SCAN] Application: CertValidityMonitoring-Backend | Server: https://tools.bbh.com/IQ
+[DEP-SCAN] Application: CertValidityMonitoring-Backend - C:0 H:0 M:0
+[DEP-SCAN] Policy satisfied.
+------------------------------------------------------------
+[STAGE]  Dependencies scan (Nexus IQ)
+[RESULT] WARN
+------------------------------------------------------------
+Detected tool from config file is gradle
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+Start queue sast
+[INFO] 'certscanner-gui-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
+Detected tool from config file is maven
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+Start queue sast
+[INFO] 'certscanner-backend-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
+[SAST] Report counts: Critical=0 High=3 Medium=4 Low=6
+[unstable] [POLICY] gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+[SAST] Report counts: Critical=0 High=1 Medium=2 Low=3
+[unstable] [POLICY] backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+------------------------------------------------------------
+[STAGE]  SAST - Static Application Security Tests - HCL AppScan
+[RESULT] WARN
+[SAST]   Found:  Critical=0  High=1  Medium=2  Low=3
+[SAST]   Limits: Critical<=0  High<=0  Medium<=0
+------------------------------------------------------------
+Detected tool from config file is gradle
+Execute Gradle Command: './gradlew' 'sonarqube'
+Detected tool from config file is maven
+Execute Maven Command: 'mvn' 'sonar:sonar'
+[unstable] [POLICY] backend-api: SonarQube vulnerabilities above the policy: critical 1 of max 0, high 2 of max 0, medium 3 of max 0; SonarQube quality gate is ERROR. The Nexus release and the QC deployment stay blocked until this is fixed.
+------------------------------------------------------------
+[STAGE]  SCA (SonarQube)
+[RESULT] WARN
+[SCA]    Found:  Critical=1  High=2  Medium=3  Low=4
+[SCA]    Limits: Critical<=0  High<=0
+------------------------------------------------------------
+Detected tool from config file is gradle
+[REPORT] No artifact found for gradle/apk
+Detected tool from config file is gradle
+Detected tool from config file is maven
+Detected tool from config file is maven
+Report files found: 0
+
+The parameter 'appName'             = certscanner-api
+The parameter 'appVersion'          = 213
+The parameter 'dockerFilePath'      = openshift/Dockerfile
+The parameter 'buildContext'        = target/docker
+The parameter 'projectBuildR'       = ta-certscanner-build
+        
+Project ta-certscanner in cluster ocp
+OpenShift build phase: Complete
+Build output ImageStream: image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api:latest = image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4
+
+The parameter 'internalDockerUrl' = image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4
+The parameter 'qcDockerRepoPush'  = docker-qc.tools.bbh.com/ta/certscanner-api
+The parameter 'appVersion'        = 213
+The parameter 'authfile'          = /home/jenkins/.docker/nexus-auth.json
+The parameter 'openshiftCertDir'  = /etc/pki/openshift
+        
+Image image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 -> docker-qc.tools.bbh.com/ta/certscanner-api:213-<stamp>
+Copying blob sha256:5f1c done
+Image image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 -> docker-qc.tools.bbh.com/ta/certscanner-api:213
+Copying blob sha256:5f1c done
+Image image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 -> docker-qc.tools.bbh.com/ta/certscanner-api:latest
+Copying blob sha256:5f1c done
+------------------------------------------------------------
+[STAGE]  Nexus delivery (Static analysis passed)
+[RESULT] PASS
+------------------------------------------------------------
+[REPORT] Pipeline report written to pipeline-report.html
+[RELEASE-GATE] State written to release-gate.json (allowed=false)
+[INFLUX] 40 metric line(s) for CertScannersecurity (test), build 213, result UNSTABLE
+[INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+Vulnerabilities above the policy severity: SAST=3, DAST=0
+-----------------------------------------------------------------
+--- Pipeline finished ---
+-----------------------------------------------------------------
+Running extended pipeline DevSecOps/CertScanner-extended-pipeline
+-----------------------------------------------------------------
+--- Pipeline completed with warnings (unstable). ---
+-----------------------------------------------------------------
+== release-gate.json
+{"job":"DevSecOps/CertScanner-security-pipeline","build":"213","allowed":false,"violations":["stage 'Unit tests' is WARN","stage 'Dependencies scan (Nexus IQ)' is WARN","stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN","stage 'SCA (SonarQube)' is WARN","gui SAST (AppScan) high 3 > 0","gui SAST (AppScan) medium 4 > 0","backend-api SAST (AppScan) high 1 > 0","backend-api SAST (AppScan) medium 2 > 0","backend-api SCA (SonarQube) critical 1 > 0","backend-api SCA (SonarQube) high 2 > 0","backend-api SCA (SonarQube) medium 3 > 0","gui line coverage 45.0% below the required 60%"]}
+== influx
+deployments,project=CertScannersecurity,env=test count=1 <s>
+change_failure,project=CertScannersecurity,env=test value=1i <s>
+build_duration,project=CertScannersecurity,env=test value=0i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=Unit\ tests result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=Dependencies\ scan\ (Nexus\ IQ) result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=SCA\ (SonarQube) result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+vulnerabilities,project=CertScannersecurity,env=test,scanner=sast critical=0i,high=1i,medium=2i,low=3i <s>
+vulnerabilities,project=CertScannersecurity,env=test,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
+vulnerabilities,project=CertScannersecurity,env=test,scanner=nexusiq critical=2i,high=5i,medium=9i,low=0i <s>
+vulnerabilities,project=CertScannersecurity,env=test,scanner=sonar critical=1i,high=2i,medium=3i,low=0i <s>
+test_coverage,project=CertScannersecurity,env=test line_pct=64.5,covered=1290i,total=2000i <s>
+pipeline_run,project=CertScannersecurity,env=test,variant=security,result=UNSTABLE,branch=origin/develop build=213i,duration_s=<n>i,success=0i,unstable=1i,stages_total=6i,passed=2i,warned=4i,failed=0i,blocked=0i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-security-pipeline" <s>
+dora,project=CertScannersecurity,env=test,variant=security deployment=0i,change_failure=1i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
+stage_event,project=CertScannersecurity,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Unit\ tests,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=2i,reason="gui: Line coverage 45.0% is below the required 60%. || backend-api: Unit tests failed (script returned exit code 1), coverage is checked on the reports that were produced. The Nexus release and the QC deployment stay blocked until this is f" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=3i,reason="gui: Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScannersecurity,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=4i,reason="gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. || backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScannersecurity,env=test,stage=SCA\ (SonarQube),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=5i,reason="backend-api: SonarQube vulnerabilities above the policy: critical 1 of max 0, high 2 of max 0, medium 3 of max 0; SonarQube quality gate is ERROR. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScannersecurity,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
+security_findings,project=CertScannersecurity,env=test,module=gui,scanner=niq,status=WARN critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannersecurity,env=test,module=gui,scanner=sast,status=WARN critical=0i,high=3i,medium=4i,low=6i,total=13i,above_policy=7i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
+security_findings,project=CertScannersecurity,env=test,module=gui,scanner=sonar,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannersecurity,env=test,module=gui,scanner=sca,status=SKIP critical=0i,high=0i,medium=0i,low=1i,total=1i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannersecurity,env=test,module=backend-api,scanner=niq,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannersecurity,env=test,module=backend-api,scanner=sast,status=WARN critical=0i,high=1i,medium=2i,low=3i,total=6i,above_policy=3i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
+security_findings,project=CertScannersecurity,env=test,module=backend-api,scanner=sonar,status=WARN critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannersecurity,env=test,module=backend-api,scanner=sca,status=SKIP critical=1i,high=2i,medium=3i,low=4i,total=10i,above_policy=6i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=sast,status=WARN ok=0i,measured=1i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=sca,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=dast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=iast,status=PASS ok=1i,measured=1i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=coverage,status=WARN ok=0i,measured=1i <s>
+policy_status,project=CertScannersecurity,env=test,scanner=sonar,status=WARN ok=0i,measured=1i <s>
+code_coverage,project=CertScannersecurity,env=test,module=gui,measured=yes line_pct=45.0,covered=450i,missed=550i,total=1000i,required=60.0,met=0i,gap=15.0 <s>
+code_coverage,project=CertScannersecurity,env=test,module=backend-api,measured=yes line_pct=84.0,covered=840i,missed=160i,total=1000i,required=60.0,met=1i,gap=0.0 <s>
+release_gate,project=CertScannersecurity,env=test,allowed=no allowed=0i,blocked=1i,violations=24i,reason="Nexus release and QC deployment blocked: stage 'Unit tests' is WARN (previous pipeline) | stage 'Dependencies scan (Nexus IQ)' is WARN (previous pipeline) | stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN (previous pi" <s>
+goldenfix,project=CertScannersecurity,env=test,module=gui,status=NO_FIXES offered=0i,applied=0i,unresolved=0i,pr_raised=0i,build_check=0i,build_failed=0i <s>
+== report
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Pipeline Report - DevSecOps/CertScanner-security-pipeline #213</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; min-height: 100vh; }
+.container { margin: 0 auto; padding: 16px; }
+h2 { font-size: 0.95rem; margin-bottom: 12px; color: #111827; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.card { background: #fff; border-radius: 4px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+td { border-bottom: 1px solid #f1f5f9; }
+tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class='container' style='max-width:1250px;width:100%;box-sizing:border-box;'>
+<div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
+<div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
+<div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-security-pipeline &nbsp;&bull;&nbsp; Build #213</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div>
+
+</div>
+<div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
+<div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
+<h2>Pipeline Stages</h2>
+<div style='display:flex;flex-direction:column;gap:0;'><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#3b82f6;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dev</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Unit tests - gui</span></div><div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:#d97706;'>45.0%</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; required&nbsp;<b>60%</b> &bull; BBH SLDC policy</span><span style='font-size:0.68rem;color:#92400e;font-weight:700;'>below the required level</span></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> Line coverage 45.0% is below the required 60%. The Nexus release and the QC deployment stay blocked until this is fixed.</div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Unit tests - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:#16a34a;'>84.0%</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; required&nbsp;<b>60%</b> &bull; BBH SLDC policy</span></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> Unit tests failed (script returned exit code 1), coverage is checked on the reports that were produced. The Nexus release and the QC deployment stay blocked until this is fixed.</div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#2563eb;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Static security & code quality scans</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - gui</span></div><div style='margin-top:2px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;font-weight:700;'>2</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;S:&nbsp;<span style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;font-weight:700;'>5</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;M:&nbsp;<span style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;font-weight:700;'>9</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span></div><div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:#64748b;'><b>No upgrade is available yet.</b> The supplier of the vulnerable components has not published a safe version, so there is nothing to upgrade to automatically. The components have to be replaced or the risk accepted by the security team.</div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>Nexus IQ</a></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.</div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:2px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;S:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;M:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span></div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>Nexus IQ</a></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>4.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>SAST - Static Application Security Tests - HCL AppScan - gui</span></div><div style='margin-top:3px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span>&nbsp;&nbsp;H:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>3</b>&nbsp;&nbsp;M:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>4</b>&nbsp;&nbsp;L:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>6</b></div><div style='margin-top:3px;padding-left:25px;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-gui.html' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>SAST Report</a></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.</div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>4.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>SAST - Static Application Security Tests - HCL AppScan - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:3px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span>&nbsp;&nbsp;H:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>1</b>&nbsp;&nbsp;M:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>2</b>&nbsp;&nbsp;L:&nbsp;<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>3</b></div><div style='margin-top:3px;padding-left:25px;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-backend.html' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>SAST Report</a></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.</div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>5.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>SCA (SonarQube) - gui</span></div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>SonarQube</a></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fcd34d;border-left:3px solid #d97706;background:#fffbeb;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>5.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>SCA (SonarQube) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>SonarQube</a></div></div><div style='flex:0 0 auto;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></div></div></div><div style='background:#fffbeb;border:1px solid #fcd34d;border-top:none;border-left:3px solid #d97706;padding:5px 10px 5px 35px;font-size:0.78rem;color:#92400e;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> SonarQube vulnerabilities above the policy: critical 1 of max 0, high 2 of max 0, medium 3 of max 0; SonarQube quality gate is ERROR. The Nexus release and the QC deployment stay blocked until this is fixed.</div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#172554;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Delivery</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>6.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Nexus delivery (Static analysis passed) - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>6.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Nexus delivery (Static analysis passed) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div></div>
+</div>
+<div style='flex:1.4;min-width:620px;'>
+<div class='card' style='margin-top:0;'>
+<h2>Security Gates</h2><div style='background:#b45309;color:#fff;font-weight:700;text-align:center;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:0.85rem;letter-spacing:0.5px;'>NEXUS RELEASE AND QC DEPLOYMENT BLOCKED</div><div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Project / Scanner</th><th style='text-align:center;'>Critical</th><th style='text-align:center;'>High</th><th style='text-align:center;'>Medium</th><th style='text-align:center;'>Low</th><th style='text-align:center;'>Policy</th><th style='text-align:center;white-space:nowrap;'>Report / Dashboard</th></tr></thead><tbody><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='7' style='padding:6px 14px;font-size:0.82rem;font-weight:700;color:#1d4ed8;letter-spacing:0.3px;'>gui</td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>SAST (AppScan)</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>3 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>4 / 0</td><td style='text-align:center;padding:6px 10px;font-weight:600;'>6</td><td style='text-align:center;padding:6px 10px;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></td><td style='text-align:center;padding:6px 10px;white-space:nowrap;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-gui.html' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Report</a></td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>Nexus IQ</td><td style='text-align:center;background:#fee2e2;padding:5px 10px;'><span style='color:#991b1b;font-weight:700;font-size:0.88rem;'>2&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#fee2e2;padding:5px 10px;'><span style='color:#991b1b;font-weight:700;font-size:0.88rem;'>5&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#fee2e2;padding:5px 10px;'><span style='color:#991b1b;font-weight:700;font-size:0.88rem;'>9&nbsp;/&nbsp;0</span></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;font-weight:600'><d></td><td style='text-align:center;padding:6px 10px;font-weight:600;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></td><td style='text-align:center;padding:6px 10px;font-weight:600;line-height:1.7;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a><br><a href='https://tools.bbh.com/IQ/assets/index.html#/developer/priorities/CertValidityMonitoring-GUI/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Golden Fix</a></td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>SCA (SonarQube)</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#fff5c1;color:#d97706;font-weight:700;padding:6px 10px;'>1</td><td style='text-align:center;padding:6px 10px;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='text-align:center;padding:6px 10px;white-space:nowrap;'><a href='https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a></td></tr><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='7' style='padding:6px 14px;font-size:0.82rem;font-weight:700;color:#1d4ed8;letter-spacing:0.3px;'>backend-api</td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>SAST (AppScan)</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>1 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>2 / 0</td><td style='text-align:center;padding:6px 10px;font-weight:600;'>3</td><td style='text-align:center;padding:6px 10px;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></td><td style='text-align:center;padding:6px 10px;white-space:nowrap;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-backend.html' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Report</a></td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>Nexus IQ</td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;font-weight:600'><d></td><td style='text-align:center;padding:6px 10px;font-weight:600;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='text-align:center;padding:6px 10px;font-weight:600;line-height:1.7;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a><br><a href='https://tools.bbh.com/IQ/assets/index.html#/developer/priorities/CertValidityMonitoring-Backend/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Golden Fix</a></td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>SCA (SonarQube)</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>1 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>2 / 0</td><td style='text-align:center;background:#fee2e2;color:#991b1b;font-weight:700;padding:6px 10px;'>3 / 0</td><td style='text-align:center;background:#fff5c1;color:#d97706;font-weight:700;padding:6px 10px;'>4</td><td style='text-align:center;padding:6px 10px;'><span style='background:#d97706;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>WARN</span></td><td style='text-align:center;padding:6px 10px;white-space:nowrap;'><a href='https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a></td></tr></tbody></table></div>
+</div>
+<div class='card' style='margin-top:16px;'><h2>Release policy</h2><div style='background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #d97706;padding:8px 12px;font-size:0.85rem;color:#92400e;'><b>The artifact was not released to Nexus and the deployment to QC is blocked.</b><div style='font-size:0.78rem;margin-top:2px;'>Every stage was executed and the build reached the lower test region (RD), but at least one stage is marked orange. Fix the findings listed below to unblock the Nexus release and the QC deployment.</div></div><ul style='margin:8px 0 0 18px;font-size:0.78rem;color:#475569;'><li>stage &#39;Unit tests&#39; is WARN</li><li>stage &#39;Dependencies scan (Nexus IQ)&#39; is WARN</li><li>stage &#39;SAST - Static Application Security Tests - HCL AppScan&#39; is WARN</li><li>stage &#39;SCA (SonarQube)&#39; is WARN</li><li>gui SAST (AppScan) high 3 &gt; 0</li><li>gui SAST (AppScan) medium 4 &gt; 0</li><li>backend-api SAST (AppScan) high 1 &gt; 0</li><li>backend-api SAST (AppScan) medium 2 &gt; 0</li><li>backend-api SCA (SonarQube) critical 1 &gt; 0</li><li>backend-api SCA (SonarQube) high 2 &gt; 0</li><li>backend-api SCA (SonarQube) medium 3 &gt; 0</li><li>gui line coverage 45.0% below the required 60%</li></ul></div>
+<div class='card' style='margin-top:16px;'><h2>Nexus IQ GoldenFix</h2><div style='font-size:0.82rem;font-weight:700;color:#1d4ed8;margin:8px 0 4px;'>gui</div><div style='background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;font-size:0.82rem;color:#475569;margin-bottom:8px;'><b>No upgrade is available yet.</b><div style='margin-top:3px;font-size:0.78rem;line-height:1.5;'>The supplier of the vulnerable components has not published a safe version, so there is nothing to upgrade to automatically. The components have to be replaced or the risk accepted by the security team.</div></div></div>
+
+<div class='card' style='margin-top:16px;'><h2>Code Coverage</h2><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>gui</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#d97706;min-width:70px;'>45.0%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:45.0%;height:100%;background:#d97706;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>450 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>backend-api</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>84.0%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:84.0%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>840 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div></div>
+
+</div>
+</div>
+</div>
+</body>
+</html>
