@@ -159,6 +159,14 @@ List<Map> configRules = [
              influx.remove('token')
              if (!influx.credentialsId) influx.credentialsId = 'influxdb-token'
              1
+         }],
+        [id    : 'R7',
+         reason: 'SAME+: deploy.vm.dod skipWait false, deployWithSnapshot true, updateSnapshotComp false, includeOnlyDeployVersions true and ' +
+                 'deployOnlyChanged false equal the code defaults of VmDeployService.groovy:168-172 (BuildUtils.booleanValue(..., <default>))',
+         apply : { Map cfg, String variant ->
+             Map dod = (((cfg.deploy as Map)?.vm as Map)?.dod ?: [:]) as Map
+             [skipWait: false, deployWithSnapshot: true, updateSnapshotComp: false, includeOnlyDeployVersions: true, deployOnlyChanged: false]
+                     .collect { key, value -> dropPath(dod, [key], { it == value }) }.sum(0)
          }]
 ]
 Map hits = configRules.collectEntries { [(it.id): 0] }
