@@ -74,6 +74,24 @@ When a run differs, the script writes `<name>.actual.txt` next to the golden fil
 
 Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown, revoked or unpublished key; a key of another pipeline type or product; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_DB_URL` or one with credentials; every database error class (only network errors are retried, and the build description says the database is unavailable); an answer that is not JSON; an expiring password; a Windows bootstrap agent; the read in place inside a `node`; the recorded query script (`#!/bin/sh`, `set +x`, no key, no password); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
 
+### Compatibility scenarios (`test/sandbox/CompatibilityScenarios.groovy`)
+
+Runs the `ConfigLoader` of commit b815d55 (copied to `test/fixtures/b815d55`, compiled ahead of `src`) over `config.yaml` and `defaults.yaml`, and the portal `ConfigLoader` over portal documents, and compares what each leaves behind: `projectsAllCfg` and its order, `cfgDefaults`, `cfg`, the policy limits, the coverage minimum, the primary project, the run-state file, `PROJECT_NAMES`, `CURRENT_PROJECT_NAME`, `APPSCAN_SCAN_NAME` and `APPSCAN_KEY_ID`.
+
+- A, exact: documents that carry the same values as the two files, for the full and the security variant. Only the `[INIT]` and `[POLICY]` log lines go through two rules: the `[PORTAL]` lines are dropped and the `[POLICY]` header names the portal (L9).
+- B, normalised: the documents in `test/fixtures/portal/rendered`, which hold that `config.yaml` as the portal renders it. Both sides pass through the rules below before the comparison; the script prints each rule with the file and line of the code that reads the key, checks that every rule changes something, and checks that a key the portal dropped or a non-empty value of a listed key is still caught.
+
+| Rule | Reason |
+|------|--------|
+| R1: drop `asoc.keySecret`, `sast.scanName`, `sca.scanName`, `dast.scanName`, `build.maven.javaPath` | DEAD keys that no code reads |
+| R2: `""`, `[]` and `false` count as absent for `dast.presenceId`, `scm.bitbucket.targetBranch`, `scm.bitbucket.reviewers`, `asoc.insecureTls`, `tools.nexusIq.failOnNetworkError`, `goldenFix.timeZone` and `goldenFix.verify.commands.<kind>` only | each reader treats them like a missing key |
+| R3: `tests.<suite>` (all but `unitTests`) as `BuildService.normalizeTestJobs` expands it | the portal stores the expanded jobs (accepted difference 5) |
+| R4: `jenkins.pipeline.extendedPipeline` is dropped outside the security variant | only the security pipeline triggers the extended job |
+| R5: `incrementalVersion: true` of an UrbanCode Deploy component is dropped | it equals the code default |
+| R6: a literal `influx.token` counts as `influx.credentialsId: influxdb-token` | the portal names the Secret text credentials instead of storing the token |
+
+Documents exported from a real portal for the CertScanner demo product replace the files in `rendered` and must pass the same comparison.
+
 ## The fake Jenkins
 
 `test/sandbox/harness/devsecops/test`:
@@ -100,7 +118,7 @@ The fake behaves like Jenkins where the library depends on it:
 
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario.
 
-`test/fixtures` holds the configuration files of the library before the portal integration: `defaults.yaml` (formerly `resources/defaults.yaml`) and `CertScanner/config.yaml` (formerly `examples/CertScanner/config.yaml`), and `portal/` the documents a real DevSecOps portal rendered for its demo services. The pipeline and sandbox scenarios build their portal documents from `defaults.yaml` and `config.yaml`, so every pipeline run reads the same values as before.
+`test/fixtures` holds the configuration files of the library before the portal integration: `defaults.yaml` (formerly `resources/defaults.yaml`), `CertScanner/config.yaml` (formerly `examples/CertScanner/config.yaml`) and `b815d55/com/bbh/config/ConfigLoader.groovy`, the loader that read them. `portal/` holds documents a real DevSecOps portal rendered for its demo services, and `portal/rendered` the CertScanner `config.yaml` as the portal renders it. The pipeline and sandbox scenarios build their portal documents from `defaults.yaml` and `config.yaml`, so every pipeline run reads the same values as before.
 
 ## Adding a scenario
 

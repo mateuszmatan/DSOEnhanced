@@ -1,0 +1,307 @@
+{
+  "pipeline": {
+    "type": "full",
+    "entryPoint": "devSecOpsPipeline",
+    "product": "CERTSCANNER",
+    "projectNames": "gui",
+    "agentNames": [
+      "linux-agent",
+      "windows-agent"
+    ]
+  },
+  "platform": {
+    "jenkinsUrl": "https://jenkins.bbh.com",
+    "jenkinsLibrary": "DevSecOpsJenkinsLibrary",
+    "environment": {
+      "APPSCAN_SERVER_URL": "https://bbh.cloud.appscan.com",
+      "APPSCAN_HOST": "bbh.cloud.appscan.com",
+      "SA_LINUX_URL": "https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip",
+      "SA_WIN_URL": "https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip",
+      "PROXY_HOST": "tstproxy.bbh.com",
+      "PROXY_PORT": "9090",
+      "PROXY_USER": "PROXY_ASOCJenk"
+    },
+    "oisHost": "oisapi.bbh.com",
+    "nexusSnapshotRepositoryUrl": "http://tools.bbh.com/nexus/content/repositories/snapshots/",
+    "nexusSnapshotRepositoryId": "bbh-snapshots",
+    "iosBuildAgent": "mac002.bbh.com"
+  },
+  "defaults": {
+    "buildTool": "gradle",
+    "deployTarget": "vm",
+    "sourceDir": ".",
+    "coverage": {
+      "minLine": 60
+    },
+    "tools": {
+      "sonar": {
+        "qualityGate": {
+          "waitForQualityGate": true,
+          "timeoutMinutes": 5
+        }
+      },
+      "nexusIq": {
+        "maxCritical": 0,
+        "maxHigh": 0,
+        "maxMedium": 0
+      }
+    },
+    "sast": {
+      "prepareTimeoutMin": 120,
+      "pollTimeoutMin": 50,
+      "pollIntervalSec": 30,
+      "maxCritical": 0,
+      "maxHigh": 0,
+      "maxMedium": 0
+    },
+    "sca": {
+      "enabled": true,
+      "pollTimeoutMin": 40,
+      "pollIntervalSec": 30,
+      "maxCritical": 0,
+      "maxHigh": 0,
+      "maxMedium": 0
+    },
+    "dast": {
+      "pollTimeoutMin": 60,
+      "pollIntervalSec": 60,
+      "reportTimeoutMin": 30,
+      "reportIntervalSec": 30,
+      "maxCritical": 0,
+      "maxHigh": 0,
+      "maxMedium": 0
+    },
+    "tests": {
+      "maxParallel": 20
+    },
+    "releaseGate": {
+      "scanners": [
+        "sast",
+        "sca",
+        "niq",
+        "dast"
+      ],
+      "requireCoverage": true,
+      "stateFile": "release-gate.json"
+    },
+    "goldenFix": {
+      "enabled": true,
+      "onlyDirectDependencies": true,
+      "minThreatLevel": 2,
+      "ecosystems": [
+        "maven",
+        "npm",
+        "pypi"
+      ],
+      "goldenVersionTypes": [
+        "recommended-non-breaking-with-dependencies",
+        "recommended-non-breaking"
+      ],
+      "verify": {
+        "enabled": true,
+        "maxAttempts": 3,
+        "timeoutMinutes": 20
+      },
+      "commitAuthorName": "DevSecOps GoldenFix",
+      "commitAuthorEmail": "devsecops-goldenfix@noreply.local"
+    }
+  },
+  "projects": {
+    "gui": {
+      "appId": "209f44ac-dd06-4ca0-884e-d944904f8020",
+      "buildTool": "gradle",
+      "deployTarget": "vm",
+      "sourceDir": ".",
+      "javaPath": "/usr/lib/jvm/java-17-openjdk",
+      "asoc": {
+        "url": "https://bbh.cloud.appscan.com",
+        "keyId": "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
+      },
+      "influx": {
+        "enabled": true,
+        "project": "CertScanner",
+        "env": "test",
+        "url": "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s",
+        "credentialsId": "influxdb-token"
+      },
+      "tools": {
+        "sonar": {
+          "projectName": "CertScanner-GUI",
+          "projectKey": "cert-scanner-gui",
+          "serverUrl": "https://tools.bbh.com/sonar",
+          "credentialsId": "sonarqube-token",
+          "installationName": "SonarQube",
+          "authToken": "sonarqube-token",
+          "badgeToken": "sqb_95b6b9cfb2fe8f3fa0e45261ece1856d3fb1ebc",
+          "addBadges": true,
+          "fullBadges": true,
+          "gradle": {
+            "tasks": [
+              "sonarqube"
+            ]
+          }
+        },
+        "nexusIq": {
+          "application": "CertValidityMonitoring-GUI",
+          "serverUrl": "https://tools.bbh.com/IQ",
+          "credentialsId": "nexusiqP",
+          "scanPatterns": [
+            "**/gui/build/libs/*.jar"
+          ],
+          "stage": "build",
+          "failOnNetworkError": false
+        }
+      },
+      "dast": {
+        "enabled": true,
+        "targetUrl": "http://rdltaapps1.testbbh.com"
+      },
+      "build": {
+        "gradle": {
+          "tasks": [
+            "clean",
+            "build",
+            "bootJar"
+          ],
+          "flags": [
+            "--refresh-dependencies"
+          ]
+        }
+      },
+      "scm": {
+        "bitbucket": {
+          "url": "https://bitbucket.bbh.com/projects/TA/repos/cert-scanner",
+          "credentialsId": "bitbucket-http-credentials",
+          "authType": "basic"
+        }
+      },
+      "goldenFix": {
+        "enabled": true
+      },
+      "tests": {
+        "unitTests": {
+          "gradle": {
+            "tasks": [
+              "test",
+              "jacocoTestReport",
+              "jacocoTestCoverageVerification"
+            ]
+          },
+          "unitTestResult": "build/test-results/test/*.xml"
+        },
+        "regression": {
+          "maxParallel": 5,
+          "jobs": [
+            {
+              "name": "CertScanner-GUI - regression",
+              "type": "local",
+              "job": "cert-scanner/regression-tests",
+              "timeoutMin": 60
+            },
+            {
+              "name": "CertScanner-GUI - regression (certificates)",
+              "type": "local",
+              "job": "cert-scanner/regression-certificates",
+              "parameters": "ENV=rd",
+              "timeoutMin": 60
+            }
+          ]
+        },
+        "smoke": {
+          "maxParallel": 20,
+          "jobs": [
+            {
+              "type": "remote",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "name": "CertScanner-GUI - login smoke",
+              "url": "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-login"
+            },
+            {
+              "type": "remote",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "name": "CertScanner-GUI - certificate list smoke",
+              "url": "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-list"
+            },
+            {
+              "type": "remote",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "name": "CertScanner-GUI - notification smoke",
+              "job": "smoke/cert-scanner-notifications",
+              "remoteJenkins": "jenkins-b",
+              "parameters": "ENV=rd"
+            },
+            {
+              "type": "local",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "name": "CertScanner-GUI - local smoke",
+              "job": "cert-scanner/smoke-tests"
+            },
+            {
+              "type": "remote",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "url": "https://jenkins-c.bbh.com/job/smoke/job/cert-scanner-dashboard",
+              "name": "smoke/cert-scanner-dashboard"
+            },
+            {
+              "type": "remote",
+              "timeoutMin": 15,
+              "credentialsId": "remote-jenkins-api-token",
+              "url": "https://jenkins-b.bbh.com/job/smoke/job/cert-scanner-expiry",
+              "name": "smoke/cert-scanner-expiry"
+            }
+          ]
+        },
+        "performance": {
+          "jobs": [
+            {
+              "name": "CertScanner-GUI - performance",
+              "type": "local",
+              "job": "cert-scanner/performance-tests",
+              "timeoutMin": 120
+            }
+          ]
+        }
+      },
+      "deploy": {
+        "vm": {
+          "dod": {
+            "siteName": "deploy.bbh.com",
+            "deployProcess": "tomcat-app-process",
+            "applications": [
+              {
+                "applicationName": "CertScanner-GUI",
+                "components": [
+                  {
+                    "componentName": "CertScanner-GUI-app",
+                    "baseDir": "gui/build/libs",
+                    "fileIncludePatterns": "*.jar",
+                    "incrementalVersion": true
+                  }
+                ]
+              }
+            ]
+          },
+          "rd": {
+            "host": "rdltaapps1.testbbh.com",
+            "user": "taadmin",
+            "deployDir": "/opt/ta/CertScanner/gui/deployment",
+            "deployScript": "scripts/deployment/zero-downtime-deployment.sh",
+            "versionFile": "scripts/deployment/version.properties"
+          },
+          "qc": {
+            "host": "qcltaapps1.testbbh.com",
+            "user": "taadmin",
+            "deployDir": "/opt/ta/CertScanner/gui/deployment",
+            "deployScript": "scripts/deployment/zero-downtime-deployment.sh",
+            "versionFile": "scripts/deployment/version.properties"
+          }
+        }
+      }
+    }
+  }
+}
