@@ -298,7 +298,7 @@ The parameter 'buildTag'           = ${buildTag}
         if (script.params.RUN_EXTENDED_PIPELINE) {
             String job = extendedPipelineJob()
             if (!job) {
-                script.echo "Skipping extended pipeline - jenkins.pipeline.extendedPipeline is not set in config.yaml"
+                script.echo "Skipping extended pipeline - jenkins.pipeline.extendedPipeline is not set for the service in the DevSecOps portal"
                 return
             }
             script.echo "Running extended pipeline ${job}"

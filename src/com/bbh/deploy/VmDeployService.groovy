@@ -88,7 +88,7 @@ class VmDeployService implements Serializable {
         String extension = filePath.substring(filePath.lastIndexOf('.')+1)
         Map mavenCfg = ((state.cfg.delivery ?: [:]).maven ?: [:]) as Map
         if (!mavenCfg.goals) {
-            script.error "[NEXUS] delivery.maven.goals must be configured in config.yaml to publish the Maven artifact"
+            script.error "[NEXUS] delivery.maven.goals must be set for the service in the DevSecOps portal to publish the Maven artifact"
         }
         def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()

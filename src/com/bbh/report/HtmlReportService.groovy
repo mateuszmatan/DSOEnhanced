@@ -541,7 +541,7 @@ class HtmlReportService implements Serializable {
         if (status == 'NOT_CONFIGURED') {
             return [headline   : 'No upgrade request was opened - the repository address is missing.',
                     explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
-                            'Bitbucket repository is, so it had nowhere to propose them. Someone with access to config.yaml has to fill in ' +
+                            'Bitbucket repository is, so it had nowhere to propose them. Someone with access to the DevSecOps portal has to fill in ' +
                             'scm.bitbucket.url with the repository link and scm.bitbucket.credentialsId with the Jenkins credentials that may ' +
                             'write to it. The upgrades are then proposed automatically on the next run.']
         }

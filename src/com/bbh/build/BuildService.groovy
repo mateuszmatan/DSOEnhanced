@@ -118,7 +118,7 @@ class BuildService implements Serializable {
             }
 
             if (!xmlPaths) {
-                policy.missingCoverage("JaCoCo report not found (tried ${xmlPath}), add coverage.reportPath in config.yaml to point at it")
+                policy.missingCoverage("JaCoCo report not found (tried ${xmlPath}), set coverage.reportPath for the service in the DevSecOps portal to point at it")
                 return
             }
 
@@ -283,7 +283,7 @@ class BuildService implements Serializable {
         List<Map> jobs = normalizeTestJobs(testCfg)
         if (!jobs) {
             state.recordTestJobs(stageName, [])
-            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in config.yaml.")
+            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in the DevSecOps portal.")
             return
         }
 

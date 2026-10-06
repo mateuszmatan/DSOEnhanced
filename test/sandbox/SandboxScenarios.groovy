@@ -424,7 +424,7 @@ check('GoldenFix pre-check: every ecosystem whose manifest changed is verified, 
 check('GoldenFix pre-check: each changed manifest is verified in its own directory and a file it does not know is ignored',
         verifierDirs == ['gradle@', 'gradle@gui', 'maven@', 'npm@web', 'pip@api', 'pip@tools', 'pub@mobile'],
         verifierDirs)
-check('GoldenFix pre-check: the command of an ecosystem can be overridden in config.yaml',
+check('GoldenFix pre-check: the command of an ecosystem can be overridden per service',
         overridden.size() == 1 && (overridden[0] as Map).command == 'npm run build', overridden)
 
 Closure preCheckRun = { Closure buildOutcome ->
