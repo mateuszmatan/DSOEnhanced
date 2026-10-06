@@ -1,6 +1,7 @@
 package com.bbh.deploy
 
 import com.bbh.core.PipelineState
+import com.bbh.utils.BuildUtils
 
 class OpenshiftService implements Serializable {
     private final def         script
@@ -13,7 +14,7 @@ class OpenshiftService implements Serializable {
 
     void buildDockerImage(String projectName) {
         String baseArtifactName = state.cfg.baseArtifactName
-        def baseConfig = script.readYaml(file: 'config.yaml')
+        def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def osCfg = state.cfg.deploy?.openshift?.rd ?: [:]
         String buildPath = state.cfg.build?.buildPath?.substring(0,state.cfg.build?.buildPath?.lastIndexOf('/')) ?: 'build/libs'
         String appName = state.cfg.appName
@@ -68,7 +69,7 @@ The parameter 'projectBuildR'       = ${projectBuildR}
         }
         baseConfig.projects[projectName].deploy.openshift.rd.internalDockerUrl = osCfg.internalDockerUrl
         baseConfig.projects[projectName].deploy.openshift.rd.buildTag = osCfg.buildTag
-        script.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        script.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
     def checkDeploymentRepo() {

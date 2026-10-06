@@ -4,6 +4,7 @@ import devsecops.test.FakeQualityGate
 import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
+import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
 
@@ -38,8 +39,9 @@ Closure check = { String name, boolean ok, Object detail ->
     }
 }
 
-String defaultsText = new File(root, 'resources/defaults.yaml').text
-String configText = new File(root, 'examples/CertScanner/config.yaml').text
+String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
+String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
+Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
 
 List<String> classNames = []
 srcDir.eachFileRecurse { File f ->
@@ -742,11 +744,12 @@ Closure runScenario = { Map spec ->
             HAS_BUILD_TOOL_INSTALLED: 'true',
             PATH                    : '/usr/bin',
             GIT_BRANCH              : 'origin/develop',
-            APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com'
+            APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com',
+            DSO_PORTAL_DB_URL       : PortalFixtures.DATABASE_URL
     ])
     script.params.DEPLOY_HIGHER_ENV = spec.deployHigherEnv ?: false
-    script.resources['defaults.yaml'] = defaultsText
-    script.files['config.yaml'] = yaml.dump(projects)
+    script.resourcesDir = new File(root, 'resources')
+    List<String> keys = PortalFixtures.publishAll(script, spec.variant as String, defaults.defaults as Map, platform, projects.projects as Map)
     script.shHandler = { Map a ->
         if (a.returnStatus) return 0
         if (spec.fail && state?.currentProjectName == 'backend-api' && String.valueOf(a.label ?: '').startsWith('Maven: test')) {
@@ -826,6 +829,7 @@ Closure runScenario = { Map spec ->
             }
         }
         List<String> stages = stagesOf[spec.variant as String]
+        config.load(spec.variant as String, [pipelineKeys: keys])
 
         stage(MONITOR) {
             os.detect()

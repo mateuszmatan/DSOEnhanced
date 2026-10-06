@@ -9,6 +9,8 @@ class PipelineState implements Serializable {
     String commitSha        = ''
     String commitAuthor     = ''
     String currentProjectName = 'unknown'
+    List portalDocuments    = []
+    Map  platform           = [:]
 
     Map stageResults = [:]
     Map stageErrors  = [:]

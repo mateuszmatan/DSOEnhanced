@@ -151,7 +151,7 @@ class FlutterUtils implements Serializable {
         String path = "flutter-apk"
         String extension = "apk"
         String releaseVersion = "release"
-        def baseConfig = steps.readYaml(file: 'config.yaml')
+        def baseConfig = steps.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -166,14 +166,14 @@ class FlutterUtils implements Serializable {
         -Durl=http://tools.bbh.com/nexus/content/repositories/snapshots/
     """
         baseConfig.projects[projectName].delivery.buildTagAndroid = buildTag
-        steps.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        steps.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
     static def deliverToNexusIOS(String flavor= 'qc', String version, def steps, Map cfg, String projectName) {
         steps.unstash 'ios_artifact'
         String extension = "ipa"
         String file = "BBH.${extension}"
-        def baseConfig = steps.readYaml(file: 'config.yaml')
+        def baseConfig = steps.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -187,7 +187,7 @@ class FlutterUtils implements Serializable {
         -Durl=http://tools.bbh.com/nexus/content/repositories/snapshots/
     """
         baseConfig.projects[projectName].delivery.buildTagIOS = buildTag
-        steps.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        steps.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
 }

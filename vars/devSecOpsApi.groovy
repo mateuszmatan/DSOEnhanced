@@ -57,10 +57,13 @@ private void _setup() {
 
 def configure(String variant, Map config) {
     _setup()
-    _variant        = variant ?: 'full'
-    _pipelineConfig = config ?: [:]
-    if (_pipelineConfig.projectNames) env.PROJECT_NAMES = _pipelineConfig.projectNames
-    if (_pipelineConfig.securityPipeline) env.Security_Pipeline = _pipelineConfig.securityPipeline
+    _variant = variant ?: 'full'
+    Map pipeline = _config.load(_variant, config ?: [:])
+    _pipelineConfig = [:]
+    _pipelineConfig.putAll(config ?: [:])
+    _pipelineConfig.projectNames     = env.PROJECT_NAMES
+    _pipelineConfig.agentNames       = pipeline.agentNames
+    _pipelineConfig.securityPipeline = pipeline.securityPipeline
 }
 
 def pipelineConfig() { _setup(); return _pipelineConfig }

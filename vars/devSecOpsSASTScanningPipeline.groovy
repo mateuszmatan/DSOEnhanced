@@ -12,7 +12,7 @@ def call(Map config = [:]) {
         parameters {
             choice(
                 name:         'AGENT_NAME',
-                choices:      config.agentNames,
+                choices:      devSecOpsApi.pipelineConfig().agentNames,
                 description:  'Jenkins agent label'
             )
         }

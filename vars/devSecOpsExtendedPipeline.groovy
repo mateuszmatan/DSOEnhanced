@@ -18,7 +18,7 @@ def call(Map config = [:]) {
 
             choice(
                 name:         'AGENT_NAME',
-                choices:      config.agentNames,
+                choices:      devSecOpsApi.pipelineConfig().agentNames,
                 description:  'Jenkins agent label'
             )
         }
@@ -27,7 +27,7 @@ def call(Map config = [:]) {
 
         stages {
             stage('Monitor source changes (download sources)') {
-                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [copyArtifactsFrom: config.securityPipeline]) } }
+                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [copyArtifactsFrom: devSecOpsApi.pipelineConfig().securityPipeline]) } }
             }
 
             stage('Lower test region deployment') {

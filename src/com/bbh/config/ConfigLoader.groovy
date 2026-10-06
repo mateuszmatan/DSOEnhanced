@@ -1,42 +1,90 @@
 package com.bbh.config
 
 import com.bbh.core.PipelineState
+import com.bbh.utils.BuildUtils
+import com.cloudbees.groovy.cps.NonCPS
 
 class ConfigLoader implements Serializable {
 
-    private final def           script
-    private final PipelineState state
+    private final def                script
+    private final PipelineState      state
+    private final PortalConfigReader reader
 
     ConfigLoader(def script, PipelineState state) {
         this.script = script
         this.state  = state
+        this.reader = new PortalConfigReader(script)
+    }
+
+    Map load(String variant, Map jenkinsfile) {
+        Map entryPoints = [full: 'devSecOpsPipeline', security: 'devSecOpsSecurityPipeline',
+                           extended: 'devSecOpsExtendedPipeline', sast: 'devSecOpsSASTScanningPipeline']
+        def given = jenkinsfile.pipelineKeys ?: jenkinsfile.pipelineKey
+        List keys = given instanceof List ? (given as List) : (given ? [given] : [])
+        if (!keys) {
+            script.error "[PORTAL] No pipeline key: the DevSecOps portal issues one per service on the product page. " +
+                    "Write ${entryPoints[variant] ?: 'devSecOpsPipeline'}(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
+                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile"
+        }
+        List ignored = []
+        for (String name : ['projectNames', 'agentNames', 'securityPipeline']) {
+            if (jenkinsfile.containsKey(name)) ignored << name
+        }
+        if (ignored) script.echo "[PORTAL] The Jenkinsfile sets ${ignored.join(', ')}; the values from the DevSecOps portal are used instead"
+
+        List<Map> documents = reader.read(keys)
+        Map first    = documents[0]
+        Map pipeline = (((first.config as Map).pipeline) ?: [:]) as Map
+        Map services = [:]
+        for (Map document : documents) {
+            Map config = document.config as Map
+            Map own    = (config.pipeline ?: [:]) as Map
+            if (own.type != variant) {
+                script.error "[PORTAL] Key ${document.hint} configures a ${own.type} pipeline, ${entryPoints[variant] ?: variant} runs the ${variant} pipeline: use the key of the ${variant} pipeline of the service"
+            }
+            if (own.product != pipeline.product) {
+                script.error "[PORTAL] Key ${document.hint} belongs to product ${own.product}, key ${first.hint} to product ${pipeline.product}: the keys of one run must belong to one product"
+            }
+            List names = ((config.projects ?: [:]) as Map).keySet().toList()
+            for (def name : names) {
+                if (services.containsKey(name)) script.error "[PORTAL] Keys ${services[name]} and ${document.hint} both configure service ${name}: give each service once"
+                services[name] = document.hint
+            }
+        }
+        state.portalDocuments = documents
+        state.platform = (((first.config as Map).platform) ?: [:]) as Map
+        script.env.PROJECT_NAMES = services.keySet().join(',')
+        if (pipeline.securityPipeline) script.env.Security_Pipeline = pipeline.securityPipeline as String
+        return pipeline
     }
 
     void initialize() {
+        if (!state.portalDocuments) {
+            script.error "[INIT] No configuration from the DevSecOps portal is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize()"
+        }
         readCommitMetadata()
 
-        String defaultsText = script.libraryResource('defaults.yaml')
-        def defaultsYaml    = script.readYaml(text: defaultsText)
-        state.cfgDefaults   = defaultsYaml?.defaults ?: [:]
+        Map primary = (state.portalDocuments[0] as Map).config as Map
+        state.cfgDefaults = (primary.defaults ?: [:]) as Map
+        if (!state.cfgDefaults) {
+            script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
+        }
+        Map projects = loadedProjects()
+        String securityJob = ((primary.pipeline as Map)?.securityPipeline ?: '') as String
+        if (securityJob) overlayRunState(projects, securityJob)
+        script.writeYaml(file: BuildUtils.runStateFile(), data: [projects: projects], overwrite: true)
 
         def projectNames = resolveProjectNames()
         if (!projectNames) {
             script.echo "[INIT] No PROJECT_NAMES defined - using defaults."
             state.cfg = [:]
         } else {
-            if (!script.fileExists('config.yaml')) {
-                script.error "[INIT] config.yaml not found in workspace. Projects must provide config.yaml with a 'projects:' section."
-            }
-            def raw = script.readYaml(file: 'config.yaml')
-            if (!raw?.projects) {
-                script.error "[INIT] config.yaml must contain a 'projects:' section."
-            }
             for (int i = 0; i < projectNames.size(); i++) {
                 def pName = projectNames[i]
-                if (!raw.projects.containsKey(pName)) {
-                    script.error "[INIT] Project '${pName}' not found in config.yaml. Available: ${raw.projects.keySet().join(', ')}"
+                if (!projects.containsKey(pName)) {
+                    script.error "[INIT] Project '${pName}' is not configured by the pipeline keys of this run. Available: ${projects.keySet().join(', ')}"
                 }
-                state.projectsAllCfg[pName] = deepMerge(state.cfgDefaults, raw.projects[pName] as Map)
+                state.projectsAllCfg[pName] = deepMerge(state.cfgDefaults, projects[pName] as Map)
             }
             def primaryName = projectNames[0]
             state.cfg = state.projectsAllCfg[primaryName]
@@ -48,11 +96,57 @@ class ConfigLoader implements Serializable {
         }
 
         def keyId = state.cfg.asoc?.keyId?.trim()
-        if (!keyId) script.error "[INIT] asoc.keyId must be set in config.yaml"
+        if (!keyId) script.error "[INIT] asoc.keyId must be set for the service in the DevSecOps portal"
         script.env.APPSCAN_KEY_ID = keyId
 
         applyPolicy()
         script.echo "[INIT] OS: ${script.env.OS_TYPE ?: 'linux'}"
+    }
+
+    private void overlayRunState(Map projects, String job) {
+        String file = BuildUtils.runStateFile()
+        if (!script.fileExists(file)) {
+            script.error "[INIT] The last successful build of ${job} has no ${file}: it predates the DevSecOps portal integration; run ${job} once"
+        }
+        def copied = script.readYaml(file: file)
+        String problem = overlay(projects, ((copied instanceof Map ? copied.projects : null) ?: [:]) as Map, job)
+        if (problem) script.error "[INIT] ${problem}"
+    }
+
+    @NonCPS
+    private String overlay(Map projects, Map copied, String job) {
+        List paths = [['deploy', 'openshift', 'rd', 'buildTag'], ['deploy', 'openshift', 'rd', 'internalDockerUrl'],
+                      ['delivery'], ['delivery', 'buildTagAndroid'], ['delivery', 'buildTagIOS']]
+        for (def name : projects.keySet()) {
+            if (!(copied[name] instanceof Map)) {
+                return "Security pipeline ${job} builds ${copied.keySet().join(', ')}, this key builds ${name}".toString()
+            }
+            for (def p : paths) {
+                List path = p as List
+                def value = copied[name]
+                for (def step : path) value = value instanceof Map ? (value as Map)[step] : null
+                if (!(value instanceof String)) continue
+                if (!((value as String) ==~ /[A-Za-z0-9._:\/@+-]{1,512}/)) {
+                    return "${BuildUtils.runStateFile()} of ${job} holds an invalid ${path.join('.')} for ${name}: a run-time tag has 1 to 512 letters, digits and . _ : / @ + -".toString()
+                }
+                Map target = projects[name] as Map
+                for (int i = 0; i < path.size() - 1; i++) {
+                    if (!(target[path[i]] instanceof Map)) target[path[i]] = [:]
+                    target = target[path[i]] as Map
+                }
+                target[path[path.size() - 1]] = value
+            }
+        }
+        return ''
+    }
+
+    @NonCPS
+    private Map loadedProjects() {
+        Map projects = [:]
+        for (def document : state.portalDocuments) {
+            projects.putAll((((document as Map).config as Map).projects ?: [:]) as Map)
+        }
+        return projects
     }
 
     void readCommitMetadata() {
@@ -78,17 +172,9 @@ class ConfigLoader implements Serializable {
     List<String> resolveProjectNames() {
         def raw = (script.env.PROJECT_NAMES ?: script.env.PROJECT_NAME ?: '').trim()
         if (raw) return raw.split(',').collect { it.trim() }.findAll { it }
-        if (script.fileExists('config.yaml')) {
-            try {
-                def cfg = script.readYaml(file: 'config.yaml')
-                def keys = cfg?.projects?.keySet()?.toList() ?: []
-                if (keys) {
-                    script.echo "[INIT] PROJECT_NAMES not set - auto-detected from config.yaml: ${keys.join(', ')}"
-                    return keys
-                }
-            } catch (ignored) {}
-        }
-        return []
+        List keys = loadedProjects().keySet().toList()
+        if (keys) script.echo "[INIT] PROJECT_NAMES not set - taken from the pipeline keys of this run: ${keys.join(', ')}"
+        return keys
     }
 
     void switchProject(String projectName) {
@@ -113,7 +199,7 @@ class ConfigLoader implements Serializable {
     }
 
     private void logPolicy() {
-        script.echo "[POLICY] Library security policy (resources/defaults.yaml), projects cannot change it:"
+        script.echo "[POLICY] Global settings from the DevSecOps portal, projects cannot change them:"
         ['sast', 'sca', 'niq', 'dast'].each { key ->
             def limit = state.policyLimits[key] ?: [:]
             script.echo "[POLICY]   ${key.toUpperCase()}: critical<=${limit.maxCritical} high<=${limit.maxHigh} medium<=${limit.maxMedium}"

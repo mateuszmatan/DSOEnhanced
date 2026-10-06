@@ -23,12 +23,13 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `jdk-whitelist.groovy` | Every JDK constructor, static method and static field used by the library is on the real script-security whitelist |
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
 | `vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
-| `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
+| `no-comments.sh` | No comments and no commented-out code in `src`, `vars` and `resources/**/*.java` |
+| `ascii.sh` | `src`, `vars` and `resources` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
 
 ### Compilation
 
-`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here.
+`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here. `resources/com/bbh/config/PortalConfigQuery.java` is compiled with `javac --release 11 -Xlint:all -Werror` (it needs no Oracle driver to compile).
 
 ### Sandbox scenarios (`test/sandbox/SandboxScenarios.groovy`)
 
@@ -56,6 +57,15 @@ Every run is also compared with its golden file in `test/sandbox/golden`. A gold
 | `start_time`, `end_time`, `duration_ms`, `duration_s`, `lead_time_s` become `<n>` | stage and job timings are measured on the wall clock |
 | `duration=...` in the log and rendered durations in the report become `<d>` | durations are measured on the wall clock |
 
+The runs on the portal branch read the same values from portal documents (built from `test/fixtures/defaults.yaml` and `test/fixtures/CertScanner/config.yaml`) instead of `config.yaml` and `defaults.yaml`. Before the comparison both sides also pass through these rules:
+
+| Rule | Reason |
+|------|--------|
+| the steps before the pipeline's own `agent` are dropped | `configure()` reads the portal on a bootstrap agent (`node`, `withEnv`, `withCredentials`, the query `sh`, `deleteDir`) before `pipeline {}` starts |
+| `[PORTAL]` log lines are dropped | the portal read logs one line per key |
+| the `writeYaml pipeline-config.yaml` right after the commit is read is dropped | `ConfigLoader.initialize()` writes the run-state file at the start of the Monitor stage |
+| `config.yaml` becomes `pipeline-config.yaml` | the archived and copied run-state file is renamed (accepted difference 3) |
+
 When a run differs, the script writes `<name>.actual.txt` next to the golden file. Delete a golden file and run the suite again only when the behaviour changes on purpose, and review the new file before committing it.
 
 ## The fake Jenkins
@@ -65,6 +75,11 @@ When a run differs, the script writes `<name>.actual.txt` next to the golden fil
 | Class | Role |
 |-------|------|
 | `FakeScript` | The pipeline steps: `sh`, `readFile`, `writeFile`, `readYaml`, `withCredentials`, `build`, `junit`, `archiveArtifacts`, … Each scenario decides what a step returns |
+| `FakeCpsScript` | Base class of the loaded `vars` scripts: dispatches unknown calls to `FakeScript` like `CpsScript` does, and emulates the declarative `pipeline { }` block |
+| `FakeOpenShift` | The `openshift` global variable of the OpenShift Client plugin |
+| `SandboxHarness` | Compiles `src` and `vars` with the sandbox transformer and runs bodies inside the sandbox |
+| `PipelineDslWhitelist`, `VarsWhitelist`, `LibraryClassesWhitelist` | What Jenkins permits for steps, global variables and library classes |
+| `PortalFixtures` | Builds the DevSecOps portal documents of a scenario and publishes them under generated pipeline keys |
 
 The fake behaves like Jenkins where the library depends on it:
 
@@ -73,13 +88,13 @@ The fake behaves like Jenkins where the library depends on it:
 - `copyArtifacts` copies the files that match the filter from the scenario's `upstream` map, records the filter and fails when nothing matches;
 - `libraryResource` loads the real files under `resources/` and fails for a missing one; a scenario provides only the secret files that are not in the repository;
 - `withEnv` and `withCredentials` set their variables only for their body;
-- `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects (JSONObject, JSONArray, JSONNull) like the real step; set `jsonLib = false` for plain Groovy maps.
-| `FakeCpsScript` | Base class of the loaded `vars` scripts: dispatches unknown calls to `FakeScript` like `CpsScript` does, and emulates the declarative `pipeline { }` block |
-| `FakeOpenShift` | The `openshift` global variable of the OpenShift Client plugin |
-| `SandboxHarness` | Compiles `src` and `vars` with the sandbox transformer and runs bodies inside the sandbox |
-| `PipelineDslWhitelist`, `VarsWhitelist`, `LibraryClassesWhitelist` | What Jenkins permits for steps, global variables and library classes |
+- `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects (JSONObject, JSONArray, JSONNull) like the real step; set `jsonLib = false` for plain Groovy maps;
+- `dir` and `deleteDir` remove the files below a directory;
+- a `sh` script that runs `PortalConfigQuery.java` is answered by the fake portal: it writes the answer file named by `DSO_PORTAL_OUTPUT` from the scenario's `portal` map (key to document entry), or from `portalAnswer` when a scenario wants an error or a broken answer.
 
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario.
+
+`test/fixtures` holds the configuration files of the library before the portal integration: `defaults.yaml` (formerly `resources/defaults.yaml`) and `CertScanner/config.yaml` (formerly `examples/CertScanner/config.yaml`), and `portal/` the documents a real DevSecOps portal rendered for the CertScanner services. The scenarios build their portal documents from the first two, so every pipeline run reads the same values as before.
 
 ## Adding a scenario
 

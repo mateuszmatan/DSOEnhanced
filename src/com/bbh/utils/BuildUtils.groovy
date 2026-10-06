@@ -4,6 +4,10 @@ import com.cloudbees.groovy.cps.NonCPS
 
 class BuildUtils implements Serializable {
 
+    static String runStateFile() {
+        return 'pipeline-config.yaml'
+    }
+
     static def execSh(def steps, String cmd, String label, boolean returnStdout) {
         String script = """
             #!/usr/bin/env bash

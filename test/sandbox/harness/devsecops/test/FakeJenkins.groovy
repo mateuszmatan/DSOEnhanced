@@ -128,6 +128,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Map<String, Map<String, String>> upstream = [:]
     boolean unix = true
     boolean jsonLib = true
+    Map<String, Map> portal = [:]
+    Object portalAnswer = null
+    int portalExit = 0
+    String cwd = ''
     Closure shHandler = { Map args -> '' }
     Closure readFileHandler = null
     boolean recordEvents = false
@@ -160,7 +164,14 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     private Object shell(String kind, Object arg) {
         Map args = arg instanceof Map ? (Map) arg : [script: String.valueOf(arg)]
         calls << "${kind}${args.label ? ' [' + args.label + ']' : ''} ${args.script}".toString()
+        if (String.valueOf(args.script).contains('PortalConfigQuery.java')) return answerPortal()
         return shHandler.call(args)
+    }
+    private Object answerPortal() {
+        Object answer = portalAnswer != null ? portalAnswer
+                : [results: (env.vars.get('DSO_PORTAL_KEYS') ?: '').tokenize(',').collect { portal.get(it) }]
+        files.put(norm(env.vars.get('DSO_PORTAL_OUTPUT')), answer instanceof String ? (String) answer : groovy.json.JsonOutput.toJson(answer))
+        return portalExit
     }
     boolean isUnix() { unix }
     boolean fileExists(Object path) { files.containsKey(norm(path)) }
@@ -253,7 +264,19 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def string(Map args) { args }
     def timeout(Map args, Closure body) { body.call() }
     def sleep(Object args) {}
-    def dir(String path, Closure body) { body.call() }
+    def dir(String path, Closure body) {
+        String saved = cwd
+        cwd = norm(path)
+        try {
+            return body.call()
+        } finally {
+            cwd = saved
+        }
+    }
+    def deleteDir() {
+        calls << "deleteDir ${cwd}".toString()
+        files.keySet().removeAll { it.startsWith(cwd + '/') }
+    }
     def pwd() {
         String ws = env.vars.get('WORKSPACE')
         if (!ws) throw new FakeAbort('pwd needs a node: no workspace outside node')

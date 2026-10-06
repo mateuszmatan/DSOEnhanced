@@ -6,6 +6,7 @@ import devsecops.test.FakeQualityGate
 import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
+import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
 
@@ -13,8 +14,11 @@ File root = new File(args.length > 0 ? args[0] : '.').canonicalFile
 File srcDir = new File(root, 'src')
 File stubDir = new File(root, 'test/sandbox/stub')
 File varsDir = new File(root, 'vars')
-String defaultsText = new File(root, 'resources/defaults.yaml').text
-String configText = new File(root, 'examples/CertScanner/config.yaml').text
+String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
+String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
+Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
+Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast']
+String securityJob = 'DevSecOps/CertScanner-security-pipeline'
 
 String MONITOR = 'Monitor source changes (download sources)'
 String UNIT = 'Unit tests'
@@ -86,9 +90,11 @@ Closure runPipeline = { Map spec ->
         Map rd = ((((archived.projects as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd as Map
         rd.buildTag = '213-20260919-081500'
         rd.internalDockerUrl = 'image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee'
-        Map gate = [job: 'DevSecOps/CertScanner-security-pipeline', build: '213', allowed: !spec.upstreamViolations, violations: spec.upstreamViolations ?: []]
-        j.upstream['DevSecOps/CertScanner-security-pipeline'] = ['config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
+        Map gate = [job: securityJob, build: '213', allowed: !spec.upstreamViolations, violations: spec.upstreamViolations ?: []]
+        j.upstream[securityJob] = ['pipeline-config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
     }
+    List<String> keys = PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map,
+            spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:])
     Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
     j.env.vars.putAll([
@@ -97,13 +103,12 @@ Closure runPipeline = { Map spec ->
             BUILD_NUMBER: String.valueOf(spec.buildNumber),
             BUILD_ID    : String.valueOf(spec.buildNumber),
             GIT_BRANCH  : 'origin/develop',
-            PATH        : '/usr/bin'
+            PATH        : '/usr/bin',
+            DSO_PORTAL_DB_URL: PortalFixtures.DATABASE_URL
     ])
     j.params.putAll((spec.params ?: [:]) as Map)
     j.resourcesDir = new File(root, 'resources')
-    if (spec.coverageMinLine) j.resources['defaults.yaml'] = yaml.dump(defaults)
     secretResources.each { String name -> j.resources[name] = "fake ${name}".toString() }
-    j.files['config.yaml'] = yaml.dump(projects)
     j.files['gradlew'] = '#!/bin/sh'
     j.files['build/reports/jacoco/test/jacocoTestReport.xml'] = '<report/>'
     j.files['target/site/jacoco/jacoco.xml'] = '<report/>'
@@ -170,14 +175,13 @@ Closure runPipeline = { Map spec ->
     FakeCpsScript pipelineVar = globals[spec.var as String] as FakeCpsScript
     String crash = ''
     try {
-        harness.run { pipelineVar.call(spec.config as Map) }
+        harness.run { pipelineVar.call([pipelineKeys: keys]) }
     } catch (Throwable t) {
         crash = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
     return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String]
 }
 
-Map baseConfig = [projectNames: 'gui,backend-api', agentNames: ['linux-agent', 'windows-agent']]
 List<String> staticStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
 List<String> extendedStages = [MONITOR, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 List<String> fullStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
@@ -206,7 +210,15 @@ List<Map> baseRules = [
         rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
         rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><')
 ]
-List<Map> portalRules = []
+List<Map> portalRules = [
+        rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
+                /(?ms)\A== calls\n.*?^(?=agent )/, '== calls\n'),
+        rule('the portal read logs one [PORTAL] line per key (L2)', /(?m)^\[PORTAL\].*\n/, ''),
+        rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
+                /(?m)(^sh \[Read the commit under test\].*\n)writeYaml pipeline-config\.yaml\n/, '$1'),
+        rule('the run-state file is pipeline-config.yaml instead of config.yaml (accepted difference 3)',
+                /(?<![-\w])config\.yaml/, 'pipeline-config.yaml')
+]
 
 Closure normalise = { String text, List<Map> rules ->
     String out = text
@@ -216,33 +228,33 @@ Closure normalise = { String text, List<Map> rules ->
 
 List<Map> specs = [
         [name: 'security pipeline, green', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline', buildNumber: 212,
-         config: baseConfig, params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'],
          coverageMinLine: 75],
         [name: 'security pipeline, orange', var: 'devSecOpsSecurityPipeline', fail: true, job: 'CertScanner-security-pipeline', buildNumber: 213,
-         config: baseConfig, params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'security pipeline, Maven artifact to Nexus', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline',
-         buildNumber: 214, config: baseConfig, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [], result: 'SUCCESS',
+         buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [], result: 'SUCCESS',
          post: ['always', 'success'], mavenVmDelivery: true],
         [name: 'SAST pipeline, green', var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: 87,
-         config: baseConfig, params: [:], executed: [MONITOR, SAST], skipped: [], result: 'SUCCESS', post: ['always', 'success']],
+         params: [:], executed: [MONITOR, SAST], skipped: [], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'SAST pipeline, orange', var: 'devSecOpsSASTScanningPipeline', fail: true, job: 'CertScanner-sast-pipeline', buildNumber: 88,
-         config: baseConfig, params: [:], executed: [MONITOR, SAST], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [:], executed: [MONITOR, SAST], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'extended pipeline, green', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 118,
-         config: baseConfig + [securityPipeline: 'DevSecOps/CertScanner-security-pipeline'], params: [DEPLOY_HIGHER_ENV: true],
+         params: [DEPLOY_HIGHER_ENV: true],
          executed: extendedStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'], dastDisabledFor: 'backend-api'],
         [name: 'extended pipeline, orange', var: 'devSecOpsExtendedPipeline', fail: true, job: 'CertScanner-extended-pipeline', buildNumber: 119,
-         config: baseConfig + [securityPipeline: 'DevSecOps/CertScanner-security-pipeline'], params: [DEPLOY_HIGHER_ENV: true],
+         params: [DEPLOY_HIGHER_ENV: true],
          upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
-         config: baseConfig, params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
-         config: baseConfig, params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green but QC not selected', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 343,
-         config: baseConfig, params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [QC], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [QC], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, stage failure', var: 'devSecOpsPipeline', fail: false, breakSast: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 344,
-         config: baseConfig, params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: fullStages - [MONITOR, UNIT, NIQ, SAST],
+         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: fullStages - [MONITOR, UNIT, NIQ, SAST],
          result: 'FAILURE', post: ['always', 'failure'], failedStage: SAST]
 ]
 
@@ -290,9 +302,9 @@ specs.each { Map spec ->
             && ((j.jsonFiles['release-gate.json'] as Map).allowed as boolean) == (spec.result == 'SUCCESS' && !spec.failedStage),
             j.jsonFiles['release-gate.json'])
     if (spec.coverageMinLine) {
-        check("${name}: the report shows and checks the coverage required by defaults.yaml (${spec.coverageMinLine}%)",
+        check("${name}: the report shows and checks the coverage required by the portal's global settings (${spec.coverageMinLine}%)",
                 html.contains("required&nbsp;<b>${spec.coverageMinLine}%</b>".toString()) && !html.contains('required&nbsp;<b>60%</b>'),
-                'the report does not use the required coverage from defaults.yaml')
+                'the report does not use the required coverage from the portal defaults')
     }
     if (spec.var == 'devSecOpsSecurityPipeline') {
         boolean triggered = j.calls.contains('build DevSecOps/CertScanner-extended-pipeline (no wait)')
@@ -314,12 +326,12 @@ specs.each { Map spec ->
                 log.findAll { it.startsWith('[DAST]') }.join(' | '))
     }
     if (spec.var == 'devSecOpsExtendedPipeline') {
-        check("${name}: config.yaml and the release gate are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=config.yaml,release-gate.json'),
+        check("${name}: the run-state file and the release gate are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json'),
                 j.calls.findAll { it.startsWith('copyArtifacts') })
     }
     if (spec.mavenVmDelivery) {
         check("${name}: the Maven artifact is deployed to the Nexus snapshot repository and the version is written back",
-                j.calls.any { it.startsWith('writeYaml config.yaml') } && (j.log.any { it.contains('deploy:deploy-file') && it.contains('-Dfile=') }),
+                j.calls.count('writeYaml pipeline-config.yaml') == 2 && (j.log.any { it.contains('deploy:deploy-file') && it.contains('-Dfile=') }),
                 j.log.findAll { it.contains('Execute Maven Command') }.join(' | '))
     }
     if (spec.executed.contains(SNAPSHOT) && !spec.mavenVmDelivery) {

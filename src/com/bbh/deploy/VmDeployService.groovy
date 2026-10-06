@@ -90,7 +90,7 @@ class VmDeployService implements Serializable {
         if (!mavenCfg.goals) {
             script.error "[NEXUS] delivery.maven.goals must be configured in config.yaml to publish the Maven artifact"
         }
-        def baseConfig = script.readYaml(file: 'config.yaml')
+        def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -104,7 +104,7 @@ class VmDeployService implements Serializable {
         }
         runner.run()
         baseConfig.projects[projectName].delivery = buildTag
-        script.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        script.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
     void bumpVersion(String versionFile, String newVersion) {
