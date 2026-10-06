@@ -4,6 +4,7 @@ import com.cloudbees.groovy.cps.NonCPS
 
 class BuildUtils implements Serializable {
 
+    @NonCPS
     static String runStateFile() {
         return 'pipeline-config.yaml'
     }
@@ -46,12 +47,14 @@ class BuildUtils implements Serializable {
         return index >= 0 ? normalized.substring(index + 1) : normalized
     }
 
+    @NonCPS
     static String parentOf(String path) {
         String normalized = (path ?: '').replace('\\', '/')
         int index = normalized.lastIndexOf('/')
         return index >= 0 ? normalized.substring(0, index) : ''
     }
 
+    @NonCPS
     static String escapeForSingleQuotes(String value) {
         return value.replace("'", "'\"'\"'")
     }
