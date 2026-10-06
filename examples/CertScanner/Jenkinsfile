@@ -1,6 +1,3 @@
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(
-    projectNames: 'gui,backend-api',
-    agentNames:   ['linux-agent', 'windows-agent']
-)
+devSecOpsPipeline(pipelineKeys: ['<key of gui from the DevSecOps portal>', '<key of backend-api from the DevSecOps portal>'])
