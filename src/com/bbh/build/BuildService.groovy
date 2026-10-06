@@ -357,9 +357,17 @@ class BuildService implements Serializable {
                 } else {
                     script.echo "[${label}/${jobId}] Triggering remote job '${jobPath}'${remJenkins ? " on '" + remJenkins + "'" : ''}"
                     Map args = remoteTriggerArgs(jobCfg, jobPath, params, pollSec, remJenkins, remJenkinsUrl)
+                    String tokenId = (jobCfg.tokenCredentialsId?.toString()?.trim() ?: '') as String
                     def handle
                     script.timeout(time: tmMin, unit: 'MINUTES') {
-                        handle = script.triggerRemoteJob(args)
+                        if (tokenId) {
+                            script.withCredentials([script.string(credentialsId: tokenId, variable: 'REMOTE_JOB_TOKEN')]) {
+                                args.token = script.env.REMOTE_JOB_TOKEN
+                                handle = script.triggerRemoteJob(args)
+                            }
+                        } else {
+                            handle = script.triggerRemoteJob(args)
+                        }
                     }
                     try {
                         status = handle.getBuildResult()?.toString() ?: 'UNKNOWN'
