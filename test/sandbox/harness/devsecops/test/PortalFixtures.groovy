@@ -6,7 +6,7 @@ import groovy.json.JsonSlurperClassic
 class PortalFixtures {
 
     static final String RENDERED_AT = '2026-10-06T08:14:19.475Z'
-    static final String DATABASE_URL = 'jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL'
+    static final String PORTAL_URL = 'https://dso-portal.apps.bbh.com'
 
     static String key(int n) {
         return String.format('5e0f%04d-8c2b-4f6a-9d3e-1a7b2c4d%04d', n, n)

@@ -770,7 +770,7 @@ Closure runScenario = { Map spec ->
             PATH                    : '/usr/bin',
             GIT_BRANCH              : 'origin/develop',
             APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com',
-            DSO_PORTAL_DB_URL       : PortalFixtures.DATABASE_URL
+            DSO_PORTAL_URL          : PortalFixtures.PORTAL_URL
     ])
     script.params.DEPLOY_HIGHER_ENV = spec.deployHigherEnv ?: false
     script.resourcesDir = new File(root, 'resources')

@@ -36,7 +36,7 @@ Closure changed = { Map document, Map pipeline ->
 Closure jenkins = { Map env ->
     FakeScript j = new FakeScript()
     j.resourcesDir = new File(root, 'resources')
-    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_DB_URL: PortalFixtures.DATABASE_URL])
+    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_URL: PortalFixtures.PORTAL_URL])
     (env ?: [:]).each { k, v -> if (v == null) j.env.vars.remove(k) else j.env.vars.put(k as String, v as String) }
     return j
 }
@@ -93,19 +93,20 @@ check('malformed key: refused before anything runs', r.error.contains('is not a 
 j = jenkins([:])
 r = load(j, 'full', [pipelineKey: PortalFixtures.key(1)])
 check('unknown key: not issued by the portal, shown only as a hint',
-        r.error == "[PORTAL] Key ${PortalFixtures.hint(PortalFixtures.key(1))} was not issued by the DevSecOps portal".toString(), r.error)
+        r.error == "[PORTAL] Key ${PortalFixtures.hint(PortalFixtures.key(1))} was not issued by the DevSecOps portal at ${PortalFixtures.PORTAL_URL}".toString(), r.error)
 
 j = jenkins([:])
 j.portal[PortalFixtures.key(1)] = [keyStatus: 'REVOKED', revokeReason: 'service moved to the Payments team', renderedAt: PortalFixtures.RENDERED_AT, sha256: PortalFixtures.sha256(1)]
 r = load(j, 'full', [pipelineKey: PortalFixtures.key(1)])
 check('revoked key: the reason is shown with what to do',
-        r.error.contains('was invalidated in the DevSecOps portal: service moved to the Payments team; regenerate it in the portal and put the new key in the Jenkinsfile'),
+        r.error.contains('was invalidated in the DevSecOps portal (The DevSecOps pipeline key was invalidated on 2026-10-06T08:14:19.475Z: service moved to the Payments team); regenerate it in the portal and put the new key in the Jenkinsfile')
+                && !r.error.contains(PortalFixtures.key(1)),
         r.error)
 
 j = jenkins([:])
-j.portal[PortalFixtures.key(1)] = [keyStatus: 'ACTIVE', renderedAt: PortalFixtures.RENDERED_AT, sha256: PortalFixtures.sha256(1)]
+j.portalAnswer = [status: '200', sha256: PortalFixtures.sha256(1), body: '{}']
 r = load(j, 'full', [pipelineKey: PortalFixtures.key(1)])
-check('unpublished key: asks to save the service in the portal', r.error.contains('has no published configuration yet; save the service in the portal'), r.error)
+check('empty answer: the portal sent no configuration, the build stops', r.error.contains("the answer for key ${PortalFixtures.hint(PortalFixtures.key(1))} holds no configuration"), r.error)
 
 j = jenkins([:])
 String securityKey = PortalFixtures.publish(j, changed(gui, [type: 'security']))
@@ -138,9 +139,16 @@ check('several keys: the merged configuration is the global defaults under each 
         (r.state.projectsAllCfg.gui as Map).sast?.pollTimeoutMin == 50 && (r.state.projectsAllCfg.gui as Map).sast?.scanName == 'cert-scanner-gui-sast'
                 && (r.state.cfgDefaults as Map).coverage?.minLine == 60 && r.state.platform?.iosBuildAgent == 'mac002.bbh.com',
         r.state.projectsAllCfg.gui)
+Closure portalLine = { String key, String services, String sha ->
+    j.log.any { String line ->
+        String prefix = "[PORTAL] key ${PortalFixtures.hint(key)}: ${services} of CERTSCANNER, rendered ".toString()
+        String suffix = ", sha256 ${sha}".toString()
+        (line.startsWith(prefix) && line.endsWith(suffix)
+                && (line.substring(prefix.length(), line.length() - suffix.length()) ==~ /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/))
+    }
+}
 check('several keys: one [PORTAL] line per key and one for the ignored Jenkinsfile keys',
-        j.log.contains("[PORTAL] key ${PortalFixtures.hint(keys[0])}: backend-api of CERTSCANNER, rendered ${PortalFixtures.RENDERED_AT}, sha256 ${PortalFixtures.sha256(1)}".toString())
-                && j.log.contains("[PORTAL] key ${PortalFixtures.hint(keys[1])}: gui of CERTSCANNER, rendered ${PortalFixtures.RENDERED_AT}, sha256 ${PortalFixtures.sha256(2)}".toString())
+        portalLine(keys[0], 'backend-api', PortalFixtures.sha256(1)) && portalLine(keys[1], 'gui', PortalFixtures.sha256(2))
                 && j.log.contains('[PORTAL] The Jenkinsfile sets projectNames, agentNames; the values from the DevSecOps portal are used instead'),
         j.log.findAll { it.startsWith('[PORTAL]') })
 
@@ -185,51 +193,58 @@ check('configure(): the AGENT_NAME choices come from the portal and the Jenkinsf
         pipelineConfig.agentNames == ['linux-agent'] && pipelineConfig.appId == 'from-the-jenkinsfile' && pipelineConfig.projectNames == 'gui',
         pipelineConfig.findAll { k, v -> k != 'pipelineKey' })
 
-j = jenkins([DSO_PORTAL_DB_URL: null])
+j = jenkins([DSO_PORTAL_URL: null, DSO_PORTAL_DB_URL: 'jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL'])
 r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
-check('missing DSO_PORTAL_DB_URL: says where to set it, nothing runs',
-        r.error.contains('DSO_PORTAL_DB_URL is not set') && r.error.contains('Global properties') && j.calls.isEmpty(), r.error)
+check('missing DSO_PORTAL_URL: says where to set it, nothing runs, the old database URL is ignored',
+        r.error.contains('DSO_PORTAL_URL is not set') && r.error.contains('Global properties') && j.calls.isEmpty(), r.error)
 
-j = jenkins([DSO_PORTAL_DB_URL: 'jdbc:oracle:thin:dso_reader/s3cret@//portal-db.bbh.com:1521/DSOPORTAL'])
+['https://reader:s3cret@dso-portal.apps.bbh.com', 'jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL',
+ 'https://dso-portal.apps.bbh.com/?token=s3cret', 'dso-portal.apps.bbh.com'].each { String url ->
+    FakeScript s = jenkins([DSO_PORTAL_URL: url])
+    Map result = load(s, 'full', [pipelineKey: PortalFixtures.publish(s, gui)])
+    check("DSO_PORTAL_URL ${url.replace('s3cret', '***')}: refused before anything runs, the value is never repeated",
+            result.error.contains('DSO_PORTAL_URL is not the address of the DevSecOps portal') && !result.error.contains('s3cret')
+                    && !result.error.contains('portal-db') && s.calls.isEmpty(),
+            result.error)
+}
+
+j = jenkins([DSO_PORTAL_URL: 'https://dso-portal.apps.bbh.com/'])
 r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
-check('URL with credentials: refused, points to the credentials ID and never repeats the password',
-        r.error.contains('must not contain a user or password') && r.error.contains('dso-portal-db-reader') && !r.error.contains('s3cret') && j.calls.isEmpty(),
-        r.error)
+check('DSO_PORTAL_URL with a trailing slash: the slash is dropped before the read',
+        !r.error && j.calls.any { it.startsWith('withEnv ') && it.contains('DSO_PORTAL_URL=https://dso-portal.apps.bbh.com,') }, "${r.error} | ${j.calls}")
 
-[[name: 'network error with retry', answer: [error: 'network', message: 'ORA-12541: Cannot connect. No listener at host portal-db.bbh.com port 1521. (after 3 attempts)'],
-  text: 'cannot reach the DevSecOps portal database', description: true],
- [name: 'wrong password without retry', answer: [error: 'auth', message: 'ORA-01017: invalid credential or not authorized; logon denied'],
-  text: 'refused the user name or password', description: true],
- [name: 'locked account', answer: [error: 'locked', message: 'ORA-28000: The account is locked; login denied.'],
-  text: 'reader account is locked', description: true],
- [name: 'missing grant', answer: [error: 'grant', message: 'ORA-00904: "DSO_PORTAL"."DSO_LIBRARY_CONFIG": invalid identifier'],
-  text: 'may not run DSO_PORTAL.DSO_LIBRARY_CONFIG', description: true],
- [name: 'driver checksum mismatch', answer: [error: 'driver', message: 'driver checksum mismatch'],
-  text: 'DSO_PORTAL_JDBC_DRIVER_URL https://tools.bbh.com/nexus/repository/maven-central/com/oracle/database/jdbc/ojdbc11/23.26.3.0.0/ojdbc11-23.26.3.0.0.jar', description: true],
- [name: 'unclassified error', answer: [error: 'other', message: 'ORA-00600: internal error code'], text: 'read failed', description: false]
+[[name: 'unreachable portal', answer: [status: '000', error: "curl: (7) Failed to connect to dso-portal.apps.bbh.com port 443 after 3 ms: Couldn't connect to server\n" * 2
+        + "curl: (28) Failed to connect to dso-portal.apps.bbh.com port 443 after 10002 ms: Timeout was reached\n"],
+  text: "agent build-agent-7 cannot reach it (curl: (28) Failed to connect to dso-portal.apps.bbh.com port 443 after 10002 ms: Timeout was reached)"],
+ [name: 'untrusted certificate', answer: [status: '000', error: 'curl: (60) SSL certificate problem: unable to get local issuer certificate\nMore details here: https://curl.se/docs/sslcerts.html\n\ncurl failed to verify the legitimacy of the server\n'],
+  text: 'cannot reach it (curl: (60) SSL certificate problem: unable to get local issuer certificate)'],
+ [name: 'router without a portal behind it', answer: [status: '503', body: '<html><body>Application is not available</body></html>'],
+  text: 'it answered HTTP 503;'],
+ [name: 'wrong address', answer: [status: '404', body: '{"timestamp":"2026-10-06T08:14:19Z","status":404,"error":"Not Found","path":"/api/dso/config"}'],
+  text: 'it answered HTTP 404;'],
+ [name: 'portal failure', answer: [status: '500', body: FakeScript.problem('<key>', 500, 'Request failed', "The portal could not handle the request. The failure is in the portal's log.")],
+  text: "it answered HTTP 500 (The portal could not handle the request. The failure is in the portal's log.)"]
 ].each { Map spec ->
-    FakeScript s = jenkins([:])
+    FakeScript s = jenkins([NODE_NAME: 'build-agent-7', WORKSPACE: '/agent/ws'])
     s.portalAnswer = spec.answer
     Map result = load(s, 'full', [pipelineKey: PortalFixtures.publish(s, gui)])
-    String message = (spec.answer as Map).message as String
-    check("database ${spec.name}: one message with the ORA text, the database, the credentials ID and the DevSecOps team",
-            result.error.contains(spec.text as String) && result.error.contains(message) && result.error.contains('DSO_PORTAL_DB_URL //portal-db.bbh.com:1521/DSOPORTAL')
-                    && result.error.contains('DSO_PORTAL_DB_CREDENTIALS_ID dso-portal-db-reader') && result.error.endsWith('ask the DevSecOps team')
-                    && (s.currentBuild.description == 'DevSecOps portal database unavailable') == (spec.description as boolean),
+    check("portal ${spec.name}: one message with the cause, the portal address and the DevSecOps team, the build description says the portal is unavailable",
+            result.error.contains(spec.text as String) && result.error.contains("from the DevSecOps portal at ${PortalFixtures.PORTAL_URL}: ")
+                    && result.error.endsWith('ask the DevSecOps team') && !result.error.contains('<html>')
+                    && s.currentBuild.description == 'DevSecOps portal unavailable',
             "${result.error} | description ${s.currentBuild.description}")
 }
 
 j = jenkins([:])
-j.portalAnswer = 'Picked up _JAVA_OPTIONS {'
-r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
-check('broken answer: only its length is printed', r.error.contains('the answer of 25 characters is not JSON') && !r.error.contains('Picked up'), r.error)
+String leakedKey = PortalFixtures.publish(j, gui)
+j.portalAnswer = [status: '000', error: "curl: (28) Failed to read ${PortalFixtures.PORTAL_URL}/api/dso/config/${leakedKey}?format=json\n".toString()]
+r = load(j, 'full', [pipelineKey: leakedKey])
+check('an error text that holds the key shows only its hint', r.error.contains(PortalFixtures.hint(leakedKey)) && !r.error.contains(leakedKey), r.error)
 
 j = jenkins([:])
-String warnedKey = PortalFixtures.publish(j, gui)
-j.portalAnswer = [results: [j.portal[warnedKey]], warning: 'password expires soon']
-r = load(j, 'full', [pipelineKey: warnedKey])
-check('expiring reader password: the build goes on with a warning to rotate it',
-        !r.error && j.log.any { it.startsWith('[PORTAL] WARNING: the password of dso-portal-db-reader expires soon') }, "${r.error} ${j.log}")
+j.portalAnswer = [status: '200', body: 'Picked up _JAVA_OPTIONS {']
+r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
+check('broken answer: only its length is printed', r.error.contains('is not JSON (25 characters)') && !r.error.contains('Picked up'), r.error)
 
 j = jenkins([DSO_PORTAL_AGENT: 'portal-reader && linux'])
 j.unix = false
@@ -238,20 +253,24 @@ check('Windows bootstrap agent: refused with the setting to change',
         r.error.contains('set DSO_PORTAL_AGENT to a Linux or macOS label') && j.calls.contains('node portal-reader && linux') && querySh(j) == null,
         "${r.error} | ${j.calls}")
 
-j = jenkins([NODE_NAME: 'build-agent-7', WORKSPACE: '/agent/ws', DSO_PORTAL_DB_CREDENTIALS_ID: 'portal-reader-test'])
+j = jenkins([:])
+r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
+check('configure() outside a node reads on an agent of DSO_PORTAL_AGENT, default linux-agent',
+        !r.error && j.calls.contains('node linux-agent') && querySh(j) != null, j.calls.findAll { !it.startsWith('sh ') })
+
+j = jenkins([NODE_NAME: 'build-agent-7', WORKSPACE: '/agent/ws'])
 String inPlaceKey = PortalFixtures.publish(j, gui)
 r = load(j, 'full', [pipelineKey: inPlaceKey])
 String script = (querySh(j) ?: '').substring('sh [Read the configuration from the DevSecOps portal] '.length())
 String withEnv = j.calls.find { it.startsWith('withEnv ') } ?: ''
-check('configure() inside a node reads in place, in a per-build directory below the workspace tmp',
-        !r.error && !j.calls.any { it.startsWith('node ') } && withEnv.contains('DSO_PORTAL_DIR=/agent/ws@tmp/dso-portal-42')
-                && j.calls.contains('withCredentials [portal-reader-test]') && j.calls.contains('deleteDir /agent/ws@tmp/dso-portal-42')
-                && !j.files.keySet().any { it.contains('dso-portal-42') },
+check('configure() inside a node reads in place, in a per-build directory below the workspace tmp, without credentials',
+        !r.error && !j.calls.any { it.startsWith('node ') || it.startsWith('withCredentials') } && withEnv.contains('DSO_PORTAL_DIR=/agent/ws@tmp/dso-portal-42')
+                && j.calls.contains('deleteDir /agent/ws@tmp/dso-portal-42') && !j.files.keySet().any { it.contains('dso-portal-42') },
         "${r.error} | ${j.calls.findAll { !it.startsWith('sh ') }}")
-check('the query script is constant: #!/bin/sh, set +x, neither the key nor the password, the key only in the environment',
-        script.startsWith('#!/bin/sh\nset +x\n') && !script.contains(inPlaceKey) && !script.contains('fake-DSO_PORTAL_DB_PASSWORD')
-                && !script.contains('dso-portal-42') && script.contains('driver checksum mismatch') && script.contains('needs a JDK 11+ with jdk.compiler')
-                && withEnv.contains("DSO_PORTAL_KEYS=${inPlaceKey}") && !withEnv.contains('PASSWORD'),
+check('the query script is constant: #!/bin/sh, set +x, no key, one GET per key with retries, the key only in the environment',
+        script.startsWith('#!/bin/sh\nset +x\n') && !script.contains(inPlaceKey) && !script.contains('dso-portal-42') && !script.contains('dso-portal.apps')
+                && script.contains('"$DSO_PORTAL_URL/api/dso/config/$key?format=json"') && script.contains('--retry 2') && !script.contains('-X ')
+                && withEnv.contains("DSO_PORTAL_KEYS=${inPlaceKey}") && withEnv.contains("DSO_PORTAL_URL=${PortalFixtures.PORTAL_URL}"),
         script)
 
 Map extendedGui = changed(gui, [type: 'extended', securityPipeline: securityJob])
