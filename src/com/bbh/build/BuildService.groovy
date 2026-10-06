@@ -62,6 +62,7 @@ class BuildService implements Serializable {
     void unitTests() {
         def tool = setupBuildTool()
         script.echo "[TEST] Tool: ${tool}"
+        long startMs = System.currentTimeMillis()
         switch (tool) {
             case ['gradle', 'maven']:
                 if (state.cfg.tests.unitTests) {
@@ -87,6 +88,7 @@ class BuildService implements Serializable {
             default:
                 script.error "[TEST] Unknown build tool: ${tool}"
         }
+        state.recordUnitTests([durationMs: System.currentTimeMillis() - startMs])
     }
 
     void checkCoverage() {
@@ -195,6 +197,7 @@ class BuildService implements Serializable {
         if (tool == 'flutter') {
             def counts = script.fileExists('test_report.json') ? parseFlutterTestReport() : [passed: 0, failed: 0, skipped: 0]
             script.echo "[TEST] Flutter report: passed=${counts.passed} failed=${counts.failed} skipped=${counts.skipped}"
+            state.recordUnitTests([total: (counts.passed as int) + (counts.failed as int) + (counts.skipped as int), failed: counts.failed, skipped: counts.skipped])
             script.reportUnitTest(
                 applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
                 applicationVersion:   script.env.BUILD_NUMBER,
@@ -211,6 +214,7 @@ class BuildService implements Serializable {
 
         String pattern = (state.cfg.tests?.unitTests?.unitTestResult ?: '**/build/test-results/test/*.xml') as String
         def result  = script.junit allowEmptyResults: true, testResults: pattern
+        state.recordUnitTests([total: result.totalCount, failed: result.failCount, skipped: result.skipCount])
         script.reportUnitTest(
             applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
             applicationVersion:   script.env.BUILD_NUMBER,
@@ -262,7 +266,8 @@ class BuildService implements Serializable {
             """.stripIndent()
         )
 
-        script.junit testResults: "${safeReportOutDir}/*.xml", allowEmptyResults: "${allowEmptyResults}"
+        def result = script.junit testResults: "${safeReportOutDir}/*.xml", allowEmptyResults: "${allowEmptyResults}"
+        state.recordUnitTests([total: result.totalCount, failed: result.failCount, skipped: result.skipCount])
         script.reportSurefireTest(
                 applicationName: 'data-service-api',
                 applicationVersion: script.env.BUILD_NUMBER,

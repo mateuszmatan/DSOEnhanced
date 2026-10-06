@@ -18,6 +18,8 @@ class PipelineMetrics implements Serializable {
         out.addAll(findings(state, base, now))
         out.addAll(coverage(state, base, now))
         out.addAll(tests(state, base, now))
+        out.addAll(unitTests(state, base, now))
+        out.addAll(evidence(state, base, context, now))
         out.addAll(gate(state, base, context, now))
         out.addAll(goldenFix(state, base, now))
         return out.findAll { it }
@@ -234,6 +236,68 @@ class PipelineMetrics implements Serializable {
             }
         }
         return out
+    }
+
+    @NonCPS
+    static List<String> unitTests(PipelineState state, Map base, long now) {
+        List<String> out = []
+        for (def entry : ((state.projectsUnitTests ?: [:]) as Map).entrySet()) {
+            Map value = (entry.value ?: [:]) as Map
+            if (!value.containsKey('total')) continue
+            int total = intOf(value.total)
+            int failed = intOf(value.failed)
+            int skipped = intOf(value.skipped)
+            int passed = total - failed - skipped
+            out << MetricLine.of('test_execution', base + [module: entry.key as String, suite: 'unit'], [
+                    total         : MetricLine.integer(total),
+                    passed        : MetricLine.integer(passed),
+                    failed        : MetricLine.integer(failed),
+                    skipped       : MetricLine.integer(skipped),
+                    not_configured: MetricLine.integer(0),
+                    duration_ms   : MetricLine.integer(value.durationMs),
+                    success_rate  : MetricLine.number(total > 0 ? (passed * 100.0d / total) : 0.0d)
+            ], now)
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<String> evidence(PipelineState state, Map base, Map context, long now) {
+        List<String> out = []
+        String artifactBase = context.buildUrl ? "${context.buildUrl}artifact/".toString() : ''
+        Map documents = [:]
+        for (def item : (state.portalDocuments ?: [])) {
+            Map document = (item ?: [:]) as Map
+            for (def name : ((((document.config ?: [:]) as Map).projects ?: [:]) as Map).keySet()) documents[name] = document
+        }
+        for (def entry : ((state.projectsAllCfg ?: [:]) as Map).entrySet()) {
+            String module = entry.key as String
+            Map cfg = (entry.value ?: [:]) as Map
+            Map scans = ((state.projectsScanResults ?: [:]).get(module) ?: [:]) as Map
+            Map sonar = ((state.projectsSonarResults ?: [:]).get(module) ?: [:]) as Map
+            Map niq = ((state.projectsNexusIqResults ?: [:]).get(module) ?: [:]) as Map
+            Map document = (documents.get(module) ?: [:]) as Map
+            def delivery = cfg.delivery
+            String version = (cfg.deploy?.openshift?.rd?.buildTag ?: (delivery instanceof String ? delivery : null) ?: context.buildNumber ?: '') as String
+            String qualityGate = (sonar.qualityGate ?: '') as String
+            out << MetricLine.of('build_evidence', base + [module: module], [
+                    artifact_version  : optional(version),
+                    sonar_quality_gate: MetricLine.text(qualityGate in ['OK', 'WARN', 'ERROR'] ? qualityGate : 'NONE'),
+                    sast_report_url   : optional(artifactBase && scans.sast_file ? artifactBase + scans.sast_file : ''),
+                    dast_report_url   : optional(artifactBase && scans.dast_file ? artifactBase + scans.dast_file : ''),
+                    nexusiq_report_url: optional(niq.url),
+                    sonar_report_url  : optional(sonar.url),
+                    config_rendered_at: optional(document.renderedAt),
+                    config_sha256     : optional(document.sha256)
+            ], now)
+        }
+        return out
+    }
+
+    @NonCPS
+    static String optional(def value) {
+        String text = (value ?: '') as String
+        return text ? MetricLine.text(text) : null
     }
 
     @NonCPS

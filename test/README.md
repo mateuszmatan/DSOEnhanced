@@ -65,6 +65,8 @@ The runs on the portal branch read the same values from portal documents (built 
 | `[PORTAL]` log lines are dropped | the portal read logs one line per key |
 | the `writeYaml pipeline-config.yaml` right after the commit is read is dropped | `ConfigLoader.initialize()` writes the run-state file at the start of the Monitor stage |
 | `config.yaml` becomes `pipeline-config.yaml` | the archived and copied run-state file is renamed (accepted difference 3) |
+| `build_evidence` lines and `test_execution` lines with `suite=unit` are dropped, and the logged number of InfluxDB lines becomes `<n>` | the change evidence for the portal is new data (L10) |
+| the `DevSecOps portal: key ..., rendered ..., sha256 ...` part of the report header is dropped | the report header names the documents the run used (accepted difference 1) |
 
 When a run differs, the script writes `<name>.actual.txt` next to the golden file. Delete a golden file and run the suite again only when the behaviour changes on purpose, and review the new file before committing it.
 

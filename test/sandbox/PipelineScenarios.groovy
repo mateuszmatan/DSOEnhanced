@@ -217,7 +217,12 @@ List<Map> portalRules = [
         rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
                 /(?m)(^sh \[Read the commit under test\].*\n)writeYaml pipeline-config\.yaml\n/, '$1'),
         rule('the run-state file is pipeline-config.yaml instead of config.yaml (accepted difference 3)',
-                /(?<![-\w])config\.yaml/, 'pipeline-config.yaml')
+                /(?<![-\w])config\.yaml/, 'pipeline-config.yaml'),
+        rule('build_evidence is a new InfluxDB measurement (L10)', /(?m)^build_evidence,.*\n/, ''),
+        rule('the unit test counts are a new test_execution point with suite=unit (L10)', /(?m)^test_execution,[^ ]*,suite=unit .*\n/, ''),
+        rule('the logged number of InfluxDB lines counts those new points (L10)', /(?m)^\[INFLUX\] \d+ metric line/, '[INFLUX] <n> metric line'),
+        rule('the report header names the portal keys with renderedAt and sha256 (accepted difference 1)',
+                /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: [^\n]*?<\/div>/, '')
 ]
 
 Closure normalise = { String text, List<Map> rules ->

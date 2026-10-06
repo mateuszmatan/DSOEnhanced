@@ -321,7 +321,11 @@ List metricLines = metricsHarness.run {
     def st = metricsHarness.type('com.bbh.core.PipelineState').newInstance()
     st.commitTime = System.currentTimeMillis() - 7200000L
     st.commitSha = 'ab12cd34ef567890'
-    st.projectsAllCfg = [gui: [:], 'backend-api': [:]]
+    st.projectsAllCfg = [gui: [deploy: [openshift: [rd: [buildTag: '212-20261006-081500']]]], 'backend-api': [:]]
+    st.portalDocuments = [[hint: '5e0f0001...0001', renderedAt: '2026-10-06T08:14:19.475Z', sha256: '0f1e2d3c4b5a6901', config: [projects: [gui: [:]]]]]
+    st.projectsUnitTests = [gui: [total: 214, failed: 2, skipped: 3, durationMs: 42000L]]
+    st.projectsSonarResults = [gui: [status: 'PASS', qualityGate: 'OK', url: 'https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui']]
+    st.projectsNexusIqResults = [gui: [url: 'https://tools.bbh.com/IQ/ui/links/application/cert-scanner-gui/report/0f1e2d3c']]
     st.stageResults = ['Monitor source changes (download sources)': 'PASS', 'Unit tests': 'WARN',
                        'SAST - Static Application Security Tests - HCL AppScan': 'WARN',
                        'Lower test region deployment': 'PASS', 'Smoke tests': 'PASS',
@@ -333,13 +337,14 @@ List metricLines = metricsHarness.run {
                        dast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], niq: [maxCritical: 0, maxHigh: 0, maxMedium: 0]]
     st.policyStatus = [sast: 'WARN', sca: 'PASS', dast: 'SKIP', coverage: 'WARN', sonar: 'PASS']
     st.projectsVulnCounts = [gui: [sast: [critical: 0, high: 2, medium: 3, low: 5]]]
-    st.projectsScanResults = [gui: [sast: 'WARN']]
+    st.projectsScanResults = [gui: [sast: 'WARN', sast_file: 'appscan-report-gui.html']]
     st.projectsCoverage = [gui: [enabled: true, line: 45.0, covered: 450, missed: 550, total: 1000, minRequired: 75]]
     st.projectsRemoteTestResults = [gui: ['Smoke tests': [[name: 'gui smoke, one', status: 'SUCCESS', durationMs: 64000L, type: 'remote'],
                                                           [name: 'gui-smoke-2', status: 'FAILURE', durationMs: 12000L, type: 'local']]]]
     st.projectsGoldenFix = [gui: [status: 'PR_CREATED', fixes: [1, 2, 3], changes: [1, 2], unresolved: [1], verified: true]]
     Map ctx = [project: 'Cert Scanner', env: 'test', variant: 'security', result: 'UNSTABLE', failed: true,
                durationSeconds: 512L, buildNumber: '212', job: 'DevSecOps/CertScanner', branch: 'develop',
+               buildUrl: 'https://jenkins.bbh.com/job/DevSecOps/job/CertScanner/212/',
                timestamp: (t / 1000L) as long, deployed: true, released: false,
                releaseGate: [allowed: false, violations: ['gui SAST high 2 > 0'], reason: 'blocked']]
     metricsHarness.type('com.bbh.metrics.PipelineMetrics').lines(st, ctx)
@@ -352,8 +357,8 @@ boolean wellFormed = metricLines.every { String l ->
     List sections = l.split(' ') as List
     sections.size() >= 3 && (sections[-1] ==~ /\d+/) && l.contains('=')
 }
-check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate and remediation',
-        measurements == ['build_duration', 'change_failure', 'code_coverage', 'deployments', 'dora', 'goldenfix',
+check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate, remediation and the change evidence (build_evidence, added for the portal Change Evidence tab)',
+        measurements == ['build_duration', 'build_evidence', 'change_failure', 'code_coverage', 'deployments', 'dora', 'goldenfix',
                          'pipeline_run', 'policy_status', 'release_gate', 'security_findings', 'stage_event',
                          'stage_metric', 'test_execution', 'test_job', 'vulnerabilities'],
         measurements)
@@ -371,6 +376,26 @@ check('InfluxDB: a stage point is stamped at the end of that stage and carries i
         stageLine)
 check('InfluxDB: a test job name with a comma is escaped rather than breaking the line',
         jobLine && metricLines.any { (it as String).contains('name="gui smoke, one"') }, jobLine)
+String unitLine = metricLines.find { (it as String).startsWith('test_execution,') && it.contains('suite=unit') } as String
+check('InfluxDB: the unit test counts of a module are a test_execution point with suite=unit',
+        unitLine && unitLine.startsWith('test_execution,project=Cert\\ Scanner,env=test,module=gui,suite=unit ')
+                && unitLine.contains('total=214i,passed=209i,failed=2i,skipped=3i,not_configured=0i,duration_ms=42000i,success_rate=97.66'),
+        unitLine)
+List<String> evidenceLines = metricLines.findAll { (it as String).startsWith('build_evidence,') } as List<String>
+String guiEvidence = evidenceLines.find { it.contains('module=gui ') }
+String apiEvidence = evidenceLines.find { it.contains('module=backend-api ') }
+check('InfluxDB: build_evidence records the artifact version, the quality gate, the report links and the portal document of each module',
+        evidenceLines.size() == 2 && guiEvidence && guiEvidence.contains('artifact_version="212-20261006-081500"')
+                && guiEvidence.contains('sonar_quality_gate="OK"')
+                && guiEvidence.contains('sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner/212/artifact/appscan-report-gui.html"')
+                && guiEvidence.contains('nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/cert-scanner-gui/report/0f1e2d3c"')
+                && guiEvidence.contains('sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui"')
+                && guiEvidence.contains('config_rendered_at="2026-10-06T08:14:19.475Z"') && guiEvidence.contains('config_sha256="0f1e2d3c4b5a6901"')
+                && !guiEvidence.contains('dast_report_url'),
+        guiEvidence)
+check('InfluxDB: build_evidence leaves empty values out and falls back to the build number and NONE',
+        apiEvidence && apiEvidence.contains('artifact_version="212",sonar_quality_gate="NONE" ') && !apiEvidence.contains('_url') && !apiEvidence.contains('config_'),
+        apiEvidence)
 
 SandboxHarness flutterHarness = new SandboxHarness(srcDir, stubDir)
 String flutterLcov = 'SF:/ws/lib/main.dart\nDA:1,3\nDA:2,0\nend_of_record\nSF:/ws/lib/api/client.dart\nDA:4,1\nend_of_record\n'

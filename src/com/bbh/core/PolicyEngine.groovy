@@ -159,6 +159,7 @@ class PolicyEngine implements Serializable {
                 script.echo "[POLICY] SonarQube quality gate could not be read: ${e.message}"
             }
             script.echo "[POLICY] SonarQube quality gate status: ${status}"
+            state.sonarResults['qualityGate'] = status
             if (status != 'OK') problems << "SonarQube quality gate is ${status}".toString()
         } else {
             script.echo "[POLICY] SonarQube quality gate not required."
