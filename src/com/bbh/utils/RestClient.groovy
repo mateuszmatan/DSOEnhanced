@@ -197,8 +197,8 @@ curl -sS -X '${method}' ${authArgs(auth)} -H 'Accept: application/json' ${bodyAr
         if (value.getClass().getName() == 'net.sf.json.JSONNull') return null
         if (value instanceof Map) {
             Map out = [:]
-            for (def entry : ((Map) value).entrySet()) {
-                out[entry.key] = withoutJsonNulls(entry.value)
+            for (def key : ((Map) value).keySet()) {
+                out[key] = withoutJsonNulls(((Map) value).get(key))
             }
             return out
         }

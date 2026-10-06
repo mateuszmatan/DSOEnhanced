@@ -127,7 +127,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     File resourcesDir = null
     Map<String, Map<String, String>> upstream = [:]
     boolean unix = true
-    boolean jsonLib = false
+    boolean jsonLib = true
     Closure shHandler = { Map args -> '' }
     Closure readFileHandler = null
     boolean recordEvents = false

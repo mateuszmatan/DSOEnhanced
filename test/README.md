@@ -73,7 +73,7 @@ The fake behaves like Jenkins where the library depends on it:
 - `copyArtifacts` copies the files that match the filter from the scenario's `upstream` map, records the filter and fails when nothing matches;
 - `libraryResource` loads the real files under `resources/` and fails for a missing one; a scenario provides only the secret files that are not in the repository;
 - `withEnv` and `withCredentials` set their variables only for their body;
-- `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects, like the real step, when `jsonLib` is set.
+- `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects (JSONObject, JSONArray, JSONNull) like the real step; set `jsonLib = false` for plain Groovy maps.
 | `FakeCpsScript` | Base class of the loaded `vars` scripts: dispatches unknown calls to `FakeScript` like `CpsScript` does, and emulates the declarative `pipeline { }` block |
 | `FakeOpenShift` | The `openshift` global variable of the OpenShift Client plugin |
 | `SandboxHarness` | Compiles `src` and `vars` with the sandbox transformer and runs bodies inside the sandbox |
