@@ -98,7 +98,7 @@ class GoldenFixService implements DependencyRemediation {
         String title = (pr.title ?: "GoldenFix-${timestamp(cfg.timeZone as String)}") as String
         String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
         if (!targetBranch) {
-            script.error("[GOLDENFIX] Cannot determine the pull request target branch - set scm.bitbucket.targetBranch in config.yaml")
+            script.error("[GOLDENFIX] Cannot determine the pull request target branch - set scm.bitbucket.targetBranch for the service in the DevSecOps portal")
         }
         result.prTitle      = title
         result.branch       = title

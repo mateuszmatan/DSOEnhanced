@@ -147,11 +147,11 @@ class FlutterUtils implements Serializable {
         steps.echo "All lcov files merged into: $totalLcov"
     }
 
-    static def deliverToNexusAndroid(String flavour = 'qc', String version, def steps, Map cfg, String projectName) {
+    static def deliverToNexusAndroid(String flavour = 'qc', String version, def steps, Map cfg, String projectName, Map platform) {
         String path = "flutter-apk"
         String extension = "apk"
         String releaseVersion = "release"
-        def baseConfig = steps.readYaml(file: 'config.yaml')
+        def baseConfig = steps.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -162,18 +162,18 @@ class FlutterUtils implements Serializable {
         steps.sh """
         mvn -B ${plugin} -DgroupId=${group} \
         -DartifactId=${artifact}-android -Dversion=${buildTag}-SNAPSHOT -Dpackaging=${extension} \
-        -Dfile=build/app/outputs/${path}/${file} -DgeneratePom=false -DrepositoryId=bbh-snapshots \
-        -Durl=http://tools.bbh.com/nexus/content/repositories/snapshots/
+        -Dfile=build/app/outputs/${path}/${file} -DgeneratePom=false -DrepositoryId=${platform?.nexusSnapshotRepositoryId ?: 'bbh-snapshots'} \
+        -Durl=${platform?.nexusSnapshotRepositoryUrl ?: 'http://tools.bbh.com/nexus/content/repositories/snapshots/'}
     """
         baseConfig.projects[projectName].delivery.buildTagAndroid = buildTag
-        steps.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        steps.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
-    static def deliverToNexusIOS(String flavor= 'qc', String version, def steps, Map cfg, String projectName) {
+    static def deliverToNexusIOS(String flavor= 'qc', String version, def steps, Map cfg, String projectName, Map platform) {
         steps.unstash 'ios_artifact'
         String extension = "ipa"
         String file = "BBH.${extension}"
-        def baseConfig = steps.readYaml(file: 'config.yaml')
+        def baseConfig = steps.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -183,11 +183,11 @@ class FlutterUtils implements Serializable {
         steps.sh """
         mvn -B ${plugin} -DgroupId=${group} \
         -DartifactId=${artifact}-ios -Dversion=${buildTag}-SNAPSHOT -Dpackaging=${extension} \
-        -Dfile="build/ios/release/${flavor}/${file}" -DgeneratePom=false -DrepositoryId=bbh-snapshots \
-        -Durl=http://tools.bbh.com/nexus/content/repositories/snapshots/
+        -Dfile="build/ios/release/${flavor}/${file}" -DgeneratePom=false -DrepositoryId=${platform?.nexusSnapshotRepositoryId ?: 'bbh-snapshots'} \
+        -Durl=${platform?.nexusSnapshotRepositoryUrl ?: 'http://tools.bbh.com/nexus/content/repositories/snapshots/'}
     """
         baseConfig.projects[projectName].delivery.buildTagIOS = buildTag
-        steps.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        steps.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
 }

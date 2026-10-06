@@ -41,7 +41,7 @@ class BuildService implements Serializable {
                     def flavorLicense = flavour == "prod" ? script.prodLicense : script.testLicense
                     script.echo "[BUILD] Cannot run build ios on windows agent. Changing to a MAC agent for current step"
                     script.timeout(time: 30, unit: 'MINUTES'){
-                        script.node("mac002.bbh.com"){
+                        script.node((state.platform?.iosBuildAgent ?: 'mac002.bbh.com') as String){
                             script.checkout script.scm
                             FlutterUtils.initializeFlutter(state.cfg, script)
                             script.sh("flutter build ipa --flavor ${flavour} -t lib/main_${flavour}.dart --export-options-plist=ios/ExportOptions.plist --verbose --obfuscate --split-debug-info=build/ios/release/debug-info --no-tree-shake-icons --dart-define=CERTIFICATE_PASSWORD=${script.password} --dart-define=MISNAP_LICENSE=${flavorLicense}")
@@ -62,6 +62,7 @@ class BuildService implements Serializable {
     void unitTests() {
         def tool = setupBuildTool()
         script.echo "[TEST] Tool: ${tool}"
+        long startMs = System.currentTimeMillis()
         switch (tool) {
             case ['gradle', 'maven']:
                 if (state.cfg.tests.unitTests) {
@@ -87,6 +88,7 @@ class BuildService implements Serializable {
             default:
                 script.error "[TEST] Unknown build tool: ${tool}"
         }
+        state.recordUnitTests([durationMs: System.currentTimeMillis() - startMs])
     }
 
     void checkCoverage() {
@@ -118,7 +120,7 @@ class BuildService implements Serializable {
             }
 
             if (!xmlPaths) {
-                policy.missingCoverage("JaCoCo report not found (tried ${xmlPath}), add coverage.reportPath in config.yaml to point at it")
+                policy.missingCoverage("JaCoCo report not found (tried ${xmlPath}), set coverage.reportPath for the service in the DevSecOps portal to point at it")
                 return
             }
 
@@ -195,6 +197,7 @@ class BuildService implements Serializable {
         if (tool == 'flutter') {
             def counts = script.fileExists('test_report.json') ? parseFlutterTestReport() : [passed: 0, failed: 0, skipped: 0]
             script.echo "[TEST] Flutter report: passed=${counts.passed} failed=${counts.failed} skipped=${counts.skipped}"
+            state.recordUnitTests([total: (counts.passed as int) + (counts.failed as int) + (counts.skipped as int), failed: counts.failed, skipped: counts.skipped])
             script.reportUnitTest(
                 applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
                 applicationVersion:   script.env.BUILD_NUMBER,
@@ -211,6 +214,7 @@ class BuildService implements Serializable {
 
         String pattern = (state.cfg.tests?.unitTests?.unitTestResult ?: '**/build/test-results/test/*.xml') as String
         def result  = script.junit allowEmptyResults: true, testResults: pattern
+        state.recordUnitTests([total: result.totalCount, failed: result.failCount, skipped: result.skipCount])
         script.reportUnitTest(
             applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
             applicationVersion:   script.env.BUILD_NUMBER,
@@ -262,7 +266,8 @@ class BuildService implements Serializable {
             """.stripIndent()
         )
 
-        script.junit testResults: "${safeReportOutDir}/*.xml", allowEmptyResults: "${allowEmptyResults}"
+        def result = script.junit testResults: "${safeReportOutDir}/*.xml", allowEmptyResults: "${allowEmptyResults}"
+        state.recordUnitTests([total: result.totalCount, failed: result.failCount, skipped: result.skipCount])
         script.reportSurefireTest(
                 applicationName: 'data-service-api',
                 applicationVersion: script.env.BUILD_NUMBER,
@@ -283,7 +288,7 @@ class BuildService implements Serializable {
         List<Map> jobs = normalizeTestJobs(testCfg)
         if (!jobs) {
             state.recordTestJobs(stageName, [])
-            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in config.yaml.")
+            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in the DevSecOps portal.")
             return
         }
 
@@ -357,9 +362,17 @@ class BuildService implements Serializable {
                 } else {
                     script.echo "[${label}/${jobId}] Triggering remote job '${jobPath}'${remJenkins ? " on '" + remJenkins + "'" : ''}"
                     Map args = remoteTriggerArgs(jobCfg, jobPath, params, pollSec, remJenkins, remJenkinsUrl)
+                    String tokenId = (jobCfg.tokenCredentialsId?.toString()?.trim() ?: '') as String
                     def handle
                     script.timeout(time: tmMin, unit: 'MINUTES') {
-                        handle = script.triggerRemoteJob(args)
+                        if (tokenId) {
+                            script.withCredentials([script.string(credentialsId: tokenId, variable: 'REMOTE_JOB_TOKEN')]) {
+                                args.token = script.env.REMOTE_JOB_TOKEN
+                                handle = script.triggerRemoteJob(args)
+                            }
+                        } else {
+                            handle = script.triggerRemoteJob(args)
+                        }
                     }
                     try {
                         status = handle.getBuildResult()?.toString() ?: 'UNKNOWN'

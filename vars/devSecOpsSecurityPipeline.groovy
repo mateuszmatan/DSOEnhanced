@@ -13,12 +13,12 @@ def call(Map config = [:]) {
             booleanParam(
                 name:         'RUN_EXTENDED_PIPELINE',
                 defaultValue: false,
-                description:  'Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of config.yaml'
+                description:  'Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in the DevSecOps portal'
             )
 
             choice(
                 name:         'AGENT_NAME',
-                choices:      config.agentNames,
+                choices:      devSecOpsApi.pipelineConfig().agentNames,
                 description:  'Jenkins agent label'
             )
         }
@@ -56,7 +56,7 @@ def call(Map config = [:]) {
                 script {
                     devSecOpsApi.finishPipeline(
                         type:      'security',
-                        artifacts: 'report/pipeline-report.html,appscan-report*.html,config.yaml,release-gate.json'
+                        artifacts: 'report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json'
                     )
                 }
             }

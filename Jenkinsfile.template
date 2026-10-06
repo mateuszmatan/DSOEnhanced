@@ -1,6 +1,3 @@
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(
-    projectNames: 'my-app',
-    agentNames:   ['linux-agent']
-)
+devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')

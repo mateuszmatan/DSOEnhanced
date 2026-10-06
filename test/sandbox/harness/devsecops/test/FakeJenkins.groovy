@@ -124,11 +124,18 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Map<String, String> files = [:]
     Map<String, Object> jsonFiles = [:]
     Map<String, String> resources = [:]
+    File resourcesDir = null
+    Map<String, Map<String, String>> upstream = [:]
+    boolean unix = true
+    boolean jsonLib = true
+    Map<String, Map> portal = [:]
+    Object portalAnswer = null
+    int portalExit = 0
+    String cwd = ''
     Closure shHandler = { Map args -> '' }
     Closure readFileHandler = null
     boolean recordEvents = false
     List<String> events = []
-    Closure yamlHandler = { Map args -> [:] }
     Map<String, Closure> steps = [:]
 
     private String norm(Object path) {
@@ -151,10 +158,22 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         log << "[unstable] ${message}".toString()
         if (currentBuild.result != 'FAILURE') currentBuild.result = 'UNSTABLE'
     }
-    def sh(Object arg) { shHandler.call(arg instanceof Map ? (Map) arg : [script: String.valueOf(arg)]) }
-    def bat(Object arg) { sh(arg) }
-    def powershell(Object arg) { sh(arg) }
-    boolean isUnix() { true }
+    def sh(Object arg) { shell('sh', arg) }
+    def bat(Object arg) { shell('bat', arg) }
+    def powershell(Object arg) { shell('powershell', arg) }
+    private Object shell(String kind, Object arg) {
+        Map args = arg instanceof Map ? (Map) arg : [script: String.valueOf(arg)]
+        calls << "${kind}${args.label ? ' [' + args.label + ']' : ''} ${args.script}".toString()
+        if (String.valueOf(args.script).contains('PortalConfigQuery.java')) return answerPortal()
+        return shHandler.call(args)
+    }
+    private Object answerPortal() {
+        Object answer = portalAnswer != null ? portalAnswer
+                : [results: (env.vars.get('DSO_PORTAL_KEYS') ?: '').tokenize(',').collect { portal.get(it) }]
+        files.put(norm(env.vars.get('DSO_PORTAL_OUTPUT')), answer instanceof String ? (String) answer : groovy.json.JsonOutput.toJson(answer))
+        return portalExit
+    }
+    boolean isUnix() { unix }
     boolean fileExists(Object path) { files.containsKey(norm(path)) }
     String readFile(Object arg) {
         String path = norm(arg instanceof Map ? ((Map) arg).file : arg)
@@ -169,16 +188,34 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         files.put(norm(args.file), String.valueOf(args.text))
     }
     Object readJSON(Map args) {
-        if (args.text != null) return new groovy.json.JsonSlurperClassic().parseText(String.valueOf(args.text))
-        return jsonFiles.get(norm(args.file))
+        String text = args.text != null ? String.valueOf(args.text) : readFile(args.file)
+        if (jsonLib && !args.returnPojo) return net.sf.json.JSONSerializer.toJSON(text)
+        return new groovy.json.JsonSlurperClassic().parseText(text)
     }
     void writeJSON(Map args) {
         jsonFiles.put(norm(args.file), args.json)
         files.put(norm(args.file), groovy.json.JsonOutput.toJson(args.json))
     }
-    Object readYaml(Map args) { yamlHandler.call(args) }
-    void writeYaml(Map args) { calls << "writeYaml ${args.file}".toString() }
-    String libraryResource(String name) { resources.get(name) ?: '' }
+    Object readYaml(Map args) {
+        if (args.text != null) return new org.yaml.snakeyaml.Yaml().load(String.valueOf(args.text))
+        String path = norm(args.file)
+        if (!files.containsKey(path)) throw new FileNotFoundException(path)
+        return new org.yaml.snakeyaml.Yaml().load(files.get(path))
+    }
+    void writeYaml(Map args) {
+        calls << "writeYaml ${args.file}".toString()
+        String path = norm(args.file)
+        if (files.containsKey(path) && !args.overwrite) throw new FakeAbort("${path} already exists")
+        org.yaml.snakeyaml.DumperOptions options = new org.yaml.snakeyaml.DumperOptions()
+        options.defaultFlowStyle = org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK
+        files.put(path, new org.yaml.snakeyaml.Yaml(options).dump(args.data))
+    }
+    String libraryResource(String name) {
+        if (resources.containsKey(name)) return resources.get(name)
+        File file = resourcesDir == null ? null : new File(resourcesDir, name)
+        if (file != null && file.file) return file.getText('UTF-8')
+        throw new FakeAbort("No such library resource ${name} could be found.")
+    }
     Object findFiles(Map args) {
         String glob = String.valueOf(args.glob ?: '*')
         String regex = glob.replace('.', '\\.').replace('**/', '(.*/)?').replace('*', '[^/]*')
@@ -188,26 +225,77 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         return out as FakeFile[]
     }
     def withCredentials(List credentials, Closure body) {
+        calls << "withCredentials ${credentials.collect { it instanceof Map ? ((Map) it).credentialsId : it }}".toString()
+        Map<String, String> saved = [:]
         credentials.each { c ->
             if (c instanceof Map) {
                 ['variable', 'usernameVariable', 'passwordVariable'].each { k ->
-                    if (c[k]) env.vars.put(c[k] as String, "fake-${c[k]}".toString())
+                    if (c[k]) {
+                        saved.put(c[k] as String, env.vars.get(c[k] as String))
+                        env.vars.put(c[k] as String, "fake-${c[k]}".toString())
+                    }
                 }
             }
         }
-        body.call()
+        try {
+            return body.call()
+        } finally {
+            saved.each { k, v -> if (v == null) env.vars.remove(k) else env.vars.put(k, v) }
+        }
     }
     def withEnv(List vars, Closure body) {
+        calls << "withEnv ${vars}".toString()
         if (recordEvents) events << "[WITHENV] ${vars.join(' | ')}".toString()
-        body.call()
+        Map<String, String> saved = [:]
+        vars.each { v ->
+            String text = String.valueOf(v)
+            int eq = text.indexOf('=')
+            String name = text.substring(0, eq)
+            saved.put(name, env.vars.get(name))
+            env.vars.put(name, text.substring(eq + 1))
+        }
+        try {
+            return body.call()
+        } finally {
+            saved.each { k, v -> if (v == null) env.vars.remove(k) else env.vars.put(k, v) }
+        }
     }
     def usernamePassword(Map args) { args }
     def string(Map args) { args }
     def timeout(Map args, Closure body) { body.call() }
     def sleep(Object args) {}
-    def dir(String path, Closure body) { body.call() }
-    def pwd() { env.vars.get('WORKSPACE') }
-    def node(Object label, Closure body) { body.call() }
+    def dir(String path, Closure body) {
+        String saved = cwd
+        cwd = norm(path)
+        try {
+            return body.call()
+        } finally {
+            cwd = saved
+        }
+    }
+    def deleteDir() {
+        calls << "deleteDir ${cwd}".toString()
+        files.keySet().removeAll { it.startsWith(cwd + '/') }
+    }
+    def pwd() {
+        String ws = env.vars.get('WORKSPACE')
+        if (!ws) throw new FakeAbort('pwd needs a node: no workspace outside node')
+        return ws
+    }
+    def pwd(Map args) { args.tmp ? pwd() + '@tmp' : pwd() }
+    def node(Object label, Closure body) {
+        calls << "node ${label}".toString()
+        return onAgent(label, body)
+    }
+    def onAgent(Object label, Closure body) {
+        Map<String, String> saved = [NODE_NAME: env.vars.get('NODE_NAME'), WORKSPACE: env.vars.get('WORKSPACE'), WORKSPACE_TMP: env.vars.get('WORKSPACE_TMP')]
+        env.vars.putAll([NODE_NAME: String.valueOf(label), WORKSPACE: '/ws', WORKSPACE_TMP: '/ws@tmp'])
+        try {
+            return body.call()
+        } finally {
+            saved.each { k, v -> if (v == null) env.vars.remove(k) else env.vars.put(k, v) }
+        }
+    }
     def sshagent(Object credentials, Closure body) { body.call() }
     def checkout(Object args) { calls << 'checkout' }
     def git(Map args) { calls << "git ${args.url}".toString() }
@@ -229,7 +317,22 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def addSonarBadgesToDescription(Object... args) {}
     def triggerRemoteJob(Map args) { step('triggerRemoteJob', args) }
     def build(Map args) { calls << "build ${args.job}${args.wait == false ? ' (no wait)' : ''}".toString(); step('build', args) }
-    def copyArtifacts(Map args) { calls << "copyArtifacts ${args.projectName}".toString() }
+    def copyArtifacts(Map args) {
+        calls << "copyArtifacts ${args.projectName} filter=${args.filter}".toString()
+        Map<String, String> archived = upstream.get(String.valueOf(args.projectName))
+        if (archived == null) throw new FakeAbort("Unable to find project for artifact copy: ${args.projectName}")
+        List<String> copied = []
+        String.valueOf(args.filter ?: '**').split(',').each { String pattern ->
+            String regex = pattern.trim().replace('.', '\\.').replace('**/', '(.*/)?').replace('*', '[^/]*')
+            archived.each { String name, String text ->
+                if (name ==~ regex) {
+                    files.put(name, text)
+                    copied << name
+                }
+            }
+        }
+        if (copied.isEmpty()) throw new FakeAbort("Failed to copy artifacts from ${args.projectName} with filter: ${args.filter}")
+    }
     def step(Map args) { calls << "step ${args.get('$class')}".toString() }
     def waitUntil(Closure body) {
         int attempts = 0

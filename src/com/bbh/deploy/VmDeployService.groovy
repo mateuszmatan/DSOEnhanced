@@ -79,8 +79,8 @@ class VmDeployService implements Serializable {
         }
         if (state.cfg.buildTool?.trim() == 'flutter') {
             script.echo "${script.env.version}"
-            FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName)
-            FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName)
+            FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName, state.platform)
+            FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName, state.platform)
         }
     }
 
@@ -88,9 +88,9 @@ class VmDeployService implements Serializable {
         String extension = filePath.substring(filePath.lastIndexOf('.')+1)
         Map mavenCfg = ((state.cfg.delivery ?: [:]).maven ?: [:]) as Map
         if (!mavenCfg.goals) {
-            script.error "[NEXUS] delivery.maven.goals must be configured in config.yaml to publish the Maven artifact"
+            script.error "[NEXUS] delivery.maven.goals must be set for the service in the DevSecOps portal to publish the Maven artifact"
         }
-        def baseConfig = script.readYaml(file: 'config.yaml')
+        def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def now = new Date()
         def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
         def  buildTag= "$version-$nowFormat"
@@ -104,7 +104,7 @@ class VmDeployService implements Serializable {
         }
         runner.run()
         baseConfig.projects[projectName].delivery = buildTag
-        script.writeYaml file: 'config.yaml', data: baseConfig, overwrite: true
+        script.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
     void bumpVersion(String versionFile, String newVersion) {

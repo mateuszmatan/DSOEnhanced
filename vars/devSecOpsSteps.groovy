@@ -8,7 +8,7 @@ def monitorSources(def api, Map options = [:]) {
         }
         String upstream = (options.copyArtifactsFrom ?: '') as String
         if (upstream) {
-            copyArtifacts(projectName: upstream, filter: 'config.yaml,release-gate.json', selector: lastSuccessful())
+            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json', selector: lastSuccessful())
         }
         api.initialize()
     }

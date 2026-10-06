@@ -9,6 +9,8 @@ class PipelineState implements Serializable {
     String commitSha        = ''
     String commitAuthor     = ''
     String currentProjectName = 'unknown'
+    List portalDocuments    = []
+    Map  platform           = [:]
 
     Map stageResults = [:]
     Map stageErrors  = [:]
@@ -46,6 +48,7 @@ class PipelineState implements Serializable {
     Map projectsRemoteTestResults = [:]
     Map projectsGoldenFix         = [:]
     Map projectsCoverage          = [:]
+    Map projectsUnitTests         = [:]
     Map goldenFixPullRequest      = [:]
 
     void stagePass(String name) {
@@ -128,6 +131,12 @@ class PipelineState implements Serializable {
     @NonCPS
     void recordCoverage(Map coverageOfProject) {
         projectsCoverage[currentProjectName] = new HashMap(coverageOfProject ?: [:])
+    }
+
+    @NonCPS
+    void recordUnitTests(Map values) {
+        Map current = (projectsUnitTests[currentProjectName] ?: [:]) as Map
+        projectsUnitTests[currentProjectName] = current + (values ?: [:])
     }
 
     @NonCPS

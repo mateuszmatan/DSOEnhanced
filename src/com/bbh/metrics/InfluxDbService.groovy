@@ -60,6 +60,7 @@ class InfluxDbService implements Serializable {
                 durationSeconds: ((script.currentBuild.duration ?: 0) as long) / 1000L,
                 buildNumber    : (script.env.BUILD_NUMBER ?: '0') as String,
                 job            : (script.env.JOB_NAME ?: '') as String,
+                buildUrl       : (script.env.BUILD_URL ?: '') as String,
                 branch         : (script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String,
                 timestamp      : (System.currentTimeMillis() / 1000L) as long,
                 deployed       : deployedStage(),
