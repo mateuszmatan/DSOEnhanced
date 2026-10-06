@@ -72,6 +72,12 @@ else
   grep -v WARNING "$BUILD/vars.log"; status=1
 fi
 
+if javac --release 11 -Xlint:all -Werror -d "$BUILD/portal" "$ROOT/resources/com/bbh/config/PortalConfigQuery.java" > "$BUILD/portal.log" 2>&1; then
+  echo "PortalConfigQuery.java compiled for Java 11"
+else
+  grep -v JAVA_TOOL_OPTIONS "$BUILD/portal.log"; status=1
+fi
+
 echo "=== sandbox scenarios and example reports ==="
 if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/test/*.groovy > "$BUILD/harness.log" 2>&1; then
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/SandboxScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
