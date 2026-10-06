@@ -41,7 +41,7 @@ class BuildService implements Serializable {
                     def flavorLicense = flavour == "prod" ? script.prodLicense : script.testLicense
                     script.echo "[BUILD] Cannot run build ios on windows agent. Changing to a MAC agent for current step"
                     script.timeout(time: 30, unit: 'MINUTES'){
-                        script.node("mac002.bbh.com"){
+                        script.node((state.platform?.iosBuildAgent ?: 'mac002.bbh.com') as String){
                             script.checkout script.scm
                             FlutterUtils.initializeFlutter(state.cfg, script)
                             script.sh("flutter build ipa --flavor ${flavour} -t lib/main_${flavour}.dart --export-options-plist=ios/ExportOptions.plist --verbose --obfuscate --split-debug-info=build/ios/release/debug-info --no-tree-shake-icons --dart-define=CERTIFICATE_PASSWORD=${script.password} --dart-define=MISNAP_LICENSE=${flavorLicense}")

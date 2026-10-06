@@ -79,8 +79,8 @@ class VmDeployService implements Serializable {
         }
         if (state.cfg.buildTool?.trim() == 'flutter') {
             script.echo "${script.env.version}"
-            FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName)
-            FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName)
+            FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName, state.platform)
+            FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName, state.platform)
         }
     }
 

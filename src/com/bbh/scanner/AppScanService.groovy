@@ -812,8 +812,10 @@ env -u APPSCAN_DOMAIN \\
     }
 
     private void fetchProxyPassword() {
+        String oisHost = (state.platform?.oisHost ?: 'oisapi.bbh.com') as String
+        if (!(oisHost ==~ /[A-Za-z0-9.-]+/)) script.error "[APPSCAN] platform.oisHost '${oisHost}' of the DevSecOps portal is not a host name"
         if (os.isWindows()) {
-            script.powershell '''
+            script.powershell('''
                 $ErrorActionPreference = "Stop"
              
                 $certsDir   = Join-Path $env:WORKSPACE "DevSecOpsJenkinsLibrary"
@@ -911,10 +913,10 @@ env -u APPSCAN_DOMAIN \\
                 \$utf8WithoutBom = New-Object System.Text.UTF8Encoding(\$false)
                 [IO.File]::WriteAllText("$env:APPSCAN_LOG_DIR\\proxy.pass", \$proxyPass, \$utf8WithoutBom)    
                     
-            '''
+            '''.replace('oisapi.bbh.com', oisHost))
 
         } else {
-            script.sh '''#!/usr/bin/env bash
+            script.sh('''#!/usr/bin/env bash
 set -euo pipefail; set -x
 mkdir -p "$APPSCAN_LOG_DIR"
 chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh 2>/dev/null || true
@@ -927,7 +929,7 @@ PROXY_PASS="$(cat DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.keypsw | DevSecOpsJenki
 if [[ "$PROXY_PASS" == *"error"* ]]; then echo "[ERROR] Failed to retrieve proxy password."; exit 1; fi
 printf '%s' "$PROXY_PASS" > "$APPSCAN_LOG_DIR/proxy.pass"
 chmod 600 "$APPSCAN_LOG_DIR/proxy.pass"
-'''
+'''.replace('oisapi.bbh.com', oisHost))
         }
     }
 

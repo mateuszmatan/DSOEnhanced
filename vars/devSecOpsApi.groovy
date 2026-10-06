@@ -73,13 +73,14 @@ private HtmlReportService reportService() {
 }
 
 private void applyToolEnvironment() {
-    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip'
-    env.SA_WIN_URL         = env.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip'
-    env.PROXY_HOST         = env.PROXY_HOST         ?: 'tstproxy.bbh.com'
-    env.PROXY_PORT         = env.PROXY_PORT         ?: '9090'
-    env.PROXY_USER         = env.PROXY_USER         ?: 'PROXY_ASOCJenk'
-    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com'
-    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com'
+    Map portal = (_state.platform?.environment ?: [:]) as Map
+    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: (portal.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip') as String
+    env.SA_WIN_URL         = env.SA_WIN_URL         ?: (portal.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip') as String
+    env.PROXY_HOST         = env.PROXY_HOST         ?: (portal.PROXY_HOST         ?: 'tstproxy.bbh.com') as String
+    env.PROXY_PORT         = env.PROXY_PORT         ?: (portal.PROXY_PORT         ?: '9090') as String
+    env.PROXY_USER         = env.PROXY_USER         ?: (portal.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
+    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (portal.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
+    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (portal.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
     env.APPSCAN_TOOLS_DIR  = env.APPSCAN_TOOLS_DIR  ?: "${env.WORKSPACE}/.appscan-tools"
     env.APPSCAN_LOG_DIR    = env.APPSCAN_LOG_DIR    ?: "${env.WORKSPACE}/.appscan-logs"
     env.APPSCAN_HOME_DIR   = env.APPSCAN_HOME_DIR   ?: "${env.WORKSPACE}/.appscan-home"
