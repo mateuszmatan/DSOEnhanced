@@ -31,6 +31,10 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 
 `src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here. `resources/com/bbh/config/PortalConfigQuery.java` is compiled with `javac --release 11 -Xlint:all -Werror` (it needs no Oracle driver to compile).
 
+### The portal query program (`test/portal/query-scenarios.sh`)
+
+Runs `PortalConfigQuery.java` the way the library launches it, as a single source file, against `test/portal/FakeOracleDriver.java`, a JDBC driver that checks the connection properties, the login and query timeouts, the statement, `autoCommit` off and the rollback, and answers by the mode in its URL (`jdbc:fake:<mode>`). The scenarios check the answer file for: one result per key in key order with `null` for an unknown key; the ASCII escaping without `\/` and the sha256 of the UTF-8 text; a TCPS URL without the native encryption properties; the password expiry warning; a wrong password and a locked account reported after one attempt; a network error retried twice after 5 and 15 seconds; a missing grant whose message holds neither the key nor the password; a bad schema name and a missing password refused before connecting. The retry makes this step take about 20 seconds.
+
 ### Sandbox scenarios (`test/sandbox/SandboxScenarios.groovy`)
 
 Runs the library classes inside `GroovySandbox.runInSandbox` with the real `generic-whitelist` and `jenkins-whitelist` and a fake Jenkins:

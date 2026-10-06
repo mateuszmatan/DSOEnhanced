@@ -79,7 +79,7 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 | **Same configuration semantics** | The services are merged with the global defaults exactly as `config.yaml` was merged with `defaults.yaml`. The run-state file is now `pipeline-config.yaml`; the extended pipeline takes its own key's settings plus only the run-time build tags of its security run. A compatibility test runs the former loader beside the new one and proves both produce the same configuration. |
 | **Platform values and secrets** | The AppScan, proxy and Nexus addresses and the iOS build agent come from the portal, with the agent's own environment still winning and today's values as the fallback. Remote test job tokens are bound from Jenkins credentials (`tokenCredentialsId`). |
 | **Change evidence** | Each build records which configuration it used (key hint, rendering time, sha256 hint) in the console, the report header and a new `build_evidence` InfluxDB measurement, together with the artifact version, the SonarQube quality gate and the report links; unit test totals are written as `test_execution` with `suite=unit`. |
-| **Tests** | Golden runs recorded on the previous release pin every pipeline's steps, log, release gate, metrics and report; new scenarios cover every portal failure, the extended handoff and the compatibility comparison. The check suite now holds 251 checks, all passing. |
+| **Tests** | Golden runs recorded on the previous release pin every pipeline's steps, log, release gate, metrics and report; new scenarios cover every portal failure, the query program against a fake Oracle driver, the extended handoff and the compatibility comparison. The check suite now holds 260 checks, all passing. |
 
 ---
 

@@ -74,6 +74,9 @@ fi
 
 if javac --release 11 -Xlint:all -Werror -d "$BUILD/portal" "$ROOT/resources/com/bbh/config/PortalConfigQuery.java" > "$BUILD/portal.log" 2>&1; then
   echo "PortalConfigQuery.java compiled for Java 11"
+  echo "=== PortalConfigQuery.java against a fake Oracle driver ==="
+  bash "$ROOT/test/portal/query-scenarios.sh" 2>&1 | grep -v JAVA_TOOL_OPTIONS
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
 else
   grep -v JAVA_TOOL_OPTIONS "$BUILD/portal.log"; status=1
 fi
