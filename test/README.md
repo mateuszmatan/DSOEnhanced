@@ -20,6 +20,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `api-consistency.sh` | Every call on a library type matches a method with that argument count |
 | `closure-calls.groovy` | No unqualified call inside a closure of a static method |
 | `closure-field-writes.groovy` | No closure assigns a field of its own class |
+| `noncps-calls.groovy` | No `@NonCPS` method calls a library method that is CPS-transformed (Jenkins would run it with the wrong result) |
 | `jdk-whitelist.groovy` | Every JDK constructor, static method and static field used by the library is on the real script-security whitelist |
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
 | `vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
@@ -72,7 +73,7 @@ The runs on the portal branch read the same values from portal documents (built 
 | `build_evidence` lines and `test_execution` lines with `suite=unit` are dropped, and the logged number of InfluxDB lines becomes `<n>` | the change evidence for the portal is new data (L10) |
 | the `DevSecOps portal: key ..., rendered ..., sha256 ...` part of the report header is dropped | the report header names the documents the run used (accepted difference 1) |
 
-When a run differs, the script writes `<name>.actual.txt` next to the golden file. Delete a golden file and run the suite again only when the behaviour changes on purpose, and review the new file before committing it.
+When a run differs, the script writes `<name>.actual.txt` next to the golden file. A missing golden file fails the check. Record a new one with `RECORD_GOLDEN=1` only when the behaviour changes on purpose, and review the new file before committing it.
 
 ### DevSecOps portal scenarios (`test/sandbox/PortalScenarios.groovy`)
 

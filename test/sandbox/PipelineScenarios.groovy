@@ -359,10 +359,15 @@ specs.each { Map spec ->
     String slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/, '-')
     String actual = normalise(goldenView(r), baseRules)
     File golden = new File(goldenDir, "${slug}.txt")
-    if (!golden.exists()) {
+    if (!golden.exists() && System.getenv('RECORD_GOLDEN') == '1') {
         golden.parentFile.mkdirs()
         golden.text = actual
         println "      note: golden output recorded at ${golden}"
+    }
+    if (!golden.exists()) {
+        check("${name}: a golden output recorded on the library before the portal integration exists", false,
+                "${golden} is missing; record it on b815d55 with RECORD_GOLDEN=1")
+        return
     }
     boolean same = normalise(golden.text, portalRules) == normalise(actual, portalRules)
     File diffFile = new File(goldenDir, "${slug}.actual.txt")

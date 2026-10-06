@@ -142,7 +142,7 @@ List<Map> configRules = [
          }],
         [id    : 'R4',
          reason: 'jenkins.pipeline.extendedPipeline is read only by OpenshiftService.groovy:319-322, which only devSecOpsSecurityPipeline.groovy:65 and :74 run; ' +
-                 'the portal renders it into security documents only',
+                 'the portal renders it into security documents only; a custom Jenkinsfile that calls devSecOpsApi.runExtendedPipeline() uses the security key (accepted difference 5)',
          apply : { Map cfg, String variant -> variant == 'security' ? 0 : dropPath(cfg, ['jenkins', 'pipeline', 'extendedPipeline'], always) }],
         [id    : 'R5',
          reason: 'SAME+: incrementalVersion true equals the code default of VmDeployService.groovy:254 and :327 (BuildUtils.booleanValue(..., true))',

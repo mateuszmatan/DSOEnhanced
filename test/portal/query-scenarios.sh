@@ -65,5 +65,31 @@ check "a schema that is not an Oracle name is refused before connecting" \
 check "a missing password is refused before connecting" \
   "$(query ok "$KEY" '')" '{"error":"config","message":"DSO_PORTAL_DB_URL, DSO_PORTAL_DB_USER, DSO_PORTAL_DB_PASSWORD and DSO_PORTAL_KEYS must be set"}'
 
+(cd "$WORK/driver" && env -u JAVA_TOOL_OPTIONS jar cf "$WORK/fake-driver.jar" .)
+sed -n "/return '''#!/,/^'''$/p" "$ROOT/src/com/bbh/config/PortalConfigReader.groovy" | sed -e "1s/^.*return '''//" -e '$d' > "$WORK/launch.sh"
+DRIVER_SHA="$(sha256sum "$WORK/fake-driver.jar" | cut -d' ' -f1)"
+mkdir -p "$WORK/jre"
+printf '#!/bin/sh\necho java.base@21\n' > "$WORK/jre/java"
+chmod +x "$WORK/jre/java"
+
+launch() {
+  rm -rf "$WORK/launch"
+  mkdir -p "$WORK/launch"
+  cp "$PROGRAM" "$WORK/launch/"
+  env JAVA_TOOL_OPTIONS=-Dprobe=1 DSO_PORTAL_JAVA="${2-}" DSO_PORTAL_DIR="$WORK/launch" DSO_PORTAL_OUTPUT="$WORK/launch/result.json" \
+    DSO_PORTAL_DB_URL=jdbc:fake:ok DSO_PORTAL_DB_USER=DSO_LIBRARY DSO_PORTAL_DB_PASSWORD="$PASSWORD" DSO_PORTAL_DB_SCHEMA=DSO_PORTAL \
+    DSO_PORTAL_KEYS="$KEY" DSO_PORTAL_JDBC_DRIVER_URL="file://$WORK/fake-driver.jar" DSO_PORTAL_JDBC_DRIVER_SHA256="$1" \
+    sh "$WORK/launch.sh" > "$WORK/stdout.log" 2>&1
+  echo "exit $?" >> "$WORK/stdout.log"
+  cat "$WORK/launch/result.json" 2>/dev/null
+}
+
+check "the bootstrap script of PortalConfigReader downloads the driver, checks its SHA-256 and runs the program without JAVA_TOOL_OPTIONS" \
+  "$(launch "$DRIVER_SHA") $(stat -c %a "$WORK/launch") $(grep -c 'Picked up' "$WORK/stdout.log")" '{"results":['"$DOCUMENT"']} 700 0'
+check "the bootstrap script refuses a driver whose SHA-256 differs" \
+  "$(launch "$(printf %064d 0)")" '{"error":"driver","message":"driver checksum mismatch"}'
+check "the bootstrap script refuses a java without jdk.compiler" \
+  "$(launch "$DRIVER_SHA" "$WORK/jre/java")" '{"error":"config","message":"needs a JDK 11+ with jdk.compiler: set DSO_PORTAL_JAVA"}'
+
 [ "$failures" -eq 0 ] && echo "ALL PORTAL QUERY SCENARIOS PASSED" || echo "$failures PORTAL QUERY SCENARIO CHECK(S) FAILED"
 [ "$failures" -eq 0 ]
