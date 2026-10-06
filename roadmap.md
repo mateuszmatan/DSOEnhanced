@@ -69,6 +69,18 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 | **Single-page documentation** | The overview, the onboarding guide with a chapter per pipeline, the worked examples and the Grafana queries were consolidated into one document, replacing five separate files. The source is `documentation.confluence`, written in Confluence wiki markup so it can be published without conversion, and `documentation.html` is generated from it. |
 | **Reference documentation** | The documentation, `defaults.yaml` and `config.yaml.template` were updated for every behavioural change, including the new configuration surface for report polling and pre-check commands. A chapter stating the business case for the shared pipeline, with published industry benchmarks, was added to the overview. |
 
+## 9. Configuration from the DevSecOps portal
+
+| Change | Description |
+|--------|-------------|
+| **Pipeline keys instead of config.yaml** | A Jenkinsfile now names only the pipeline key the DevSecOps portal issued for a service (`pipelineKey`, or `pipelineKeys` for several services, primary first). Every pipeline and step setting, and the global thresholds that lived in `resources/defaults.yaml`, come from the portal; `config.yaml`, `config.yaml.template` and `resources/defaults.yaml` are gone from the library. Invalidating a key in the portal stops its pipeline. |
+| **Read-only database access** | `PortalConfigReader` reads the published configuration of each key from the portal's Oracle database through a function the reader account may only execute, so it cannot list keys, read tables or lock rows. The query runs as a small Java program on a Linux or macOS agent, with the JDBC driver checked against its SHA-256, the password bound from Jenkins credentials, and no key or password in any script or log. |
+| **Fail-closed checks** | A missing, malformed, unknown, invalidated or unpublished key, a key of another pipeline type or product, a service given twice and every class of database error stop the build before it starts, each with a message that names what to do and whom to ask. |
+| **Same configuration semantics** | The services are merged with the global defaults exactly as `config.yaml` was merged with `defaults.yaml`. The run-state file is now `pipeline-config.yaml`; the extended pipeline takes its own key's settings plus only the run-time build tags of its security run. A compatibility test runs the former loader beside the new one and proves both produce the same configuration. |
+| **Platform values and secrets** | The AppScan, proxy and Nexus addresses and the iOS build agent come from the portal, with the agent's own environment still winning and today's values as the fallback. Remote test job tokens are bound from Jenkins credentials (`tokenCredentialsId`). |
+| **Change evidence** | Each build records which configuration it used (key hint, rendering time, sha256 hint) in the console, the report header and a new `build_evidence` InfluxDB measurement, together with the artifact version, the SonarQube quality gate and the report links; unit test totals are written as `test_execution` with `suite=unit`. |
+| **Tests** | Golden runs recorded on the previous release pin every pipeline's steps, log, release gate, metrics and report; new scenarios cover every portal failure, the extended handoff and the compatibility comparison. The check suite now holds 251 checks, all passing. |
+
 ---
 
 ## Known limitations
@@ -76,4 +88,5 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
 - The GoldenFix pre-check compiles and resolves dependencies by default rather than running a full build with tests. A stronger check is one configuration setting away, at a cost in runtime.
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
+- Every build depends on the portal database at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the portal-integrated library is used outside test.
 - SonarQube indexes Dart as an unknown language, so a Flutter project's quality gate rests on imported coverage and imported findings rather than on rules SonarQube executes itself.
