@@ -4,6 +4,7 @@ import devsecops.test.FakeQualityGate
 import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
+import devsecops.test.GoldenFixResponder
 import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
@@ -16,6 +17,7 @@ reportsDir.mkdirs()
 
 String MONITOR = 'Monitor source changes (download sources)'
 String UNIT = 'Unit tests'
+String BUILD = 'Build artifact'
 String NIQ = 'Dependencies scan (Nexus IQ)'
 String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
@@ -341,7 +343,10 @@ List metricLines = metricsHarness.run {
     st.projectsCoverage = [gui: [enabled: true, line: 45.0, covered: 450, missed: 550, total: 1000, minRequired: 75]]
     st.projectsRemoteTestResults = [gui: ['Smoke tests': [[name: 'gui smoke, one', status: 'SUCCESS', durationMs: 64000L, type: 'remote'],
                                                           [name: 'gui-smoke-2', status: 'FAILURE', durationMs: 12000L, type: 'local']]]]
-    st.projectsGoldenFix = [gui: [status: 'PR_CREATED', fixes: [1, 2, 3], changes: [1, 2], unresolved: [1], verified: true]]
+    st.projectsGoldenFix = [gui          : [status: 'PR_CREATED', fixes: [1, 2, 3], changes: [1, 2], unresolved: [1], verified: true,
+                                           prUrl : GoldenFixResponder.PULL_REQUEST_URL, prTitle: "GoldenFix-${GoldenFixResponder.STAMP}".toString()],
+                            'backend-api': [status: 'BUILD_FAILED', fixes: [1], changes: [1], unresolved: [], verified: false,
+                                           prTitle: "GoldenFix-${GoldenFixResponder.STAMP}".toString()]]
     Map ctx = [project: 'Cert Scanner', env: 'test', variant: 'security', result: 'UNSTABLE', failed: true,
                durationSeconds: 512L, buildNumber: '212', job: 'DevSecOps/CertScanner', branch: 'develop',
                buildUrl: 'https://jenkins.bbh.com/job/DevSecOps/job/CertScanner/212/',
@@ -396,6 +401,13 @@ check('InfluxDB: build_evidence records the artifact version, the quality gate, 
 check('InfluxDB: build_evidence leaves empty values out and falls back to the build number and NONE',
         apiEvidence && apiEvidence.contains('artifact_version="212",sonar_quality_gate="NONE" ') && !apiEvidence.contains('_url') && !apiEvidence.contains('config_'),
         apiEvidence)
+List<String> goldenFixLines = metricLines.findAll { (it as String).startsWith('goldenfix,') } as List<String>
+String raisedLine = goldenFixLines.find { it.contains(',module=gui,') }
+String notRaisedLine = goldenFixLines.find { it.contains(',module=backend-api,') }
+check('InfluxDB: the goldenfix point carries pr_url and pr_title when a pull request was raised and leaves them out otherwise',
+        raisedLine && raisedLine.contains("pr_raised=1i,build_check=1i,build_failed=0i,pr_url=\"${GoldenFixResponder.PULL_REQUEST_URL}\",pr_title=\"GoldenFix-${GoldenFixResponder.STAMP}\" ".toString())
+                && notRaisedLine && notRaisedLine.contains('pr_raised=0i,build_check=0i,build_failed=1i ') && !notRaisedLine.contains('pr_url') && !notRaisedLine.contains('pr_title'),
+        goldenFixLines.join('\n      '))
 
 SandboxHarness flutterHarness = new SandboxHarness(srcDir, stubDir)
 String flutterLcov = 'SF:/ws/lib/main.dart\nDA:1,3\nDA:2,0\nend_of_record\nSF:/ws/lib/api/client.dart\nDA:4,1\nend_of_record\n'
@@ -629,112 +641,14 @@ Closure dataFor = { Random r, boolean fail, String project ->
 Map<String, List<String>> stagesOf = [
         security: [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT],
         sast    : [MONITOR, SAST],
+        nexusiq : [MONITOR, BUILD, NIQ],
         full    : [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 ]
 Map<String, List<Integer>> minutesOf = [
-        (MONITOR): [1, 2], (UNIT): [4, 9], (NIQ): [2, 4], (SAST): [18, 34], (SONAR): [3, 6], (SNAPSHOT): [1, 3],
+        (MONITOR): [1, 2], (UNIT): [4, 9], (BUILD): [3, 7], (NIQ): [2, 4], (SAST): [18, 34], (SONAR): [3, 6], (SNAPSHOT): [1, 3],
         (RD): [2, 5], (REGRESSION): [11, 24], (SMOKE): [3, 8], (PERFORMANCE): [12, 19], (DAST): [26, 44],
         (RELEASE): [1, 2], (QC): [2, 4]
 ]
-
-String gfStamp = '202609191405'
-String gfWorktree = "/ws@tmp/goldenfix/GoldenFix-${gfStamp}".toString()
-String gfPullRequestUrl = 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner/pull-requests/318'
-Map<String, String> gfManifests = [
-        'gradle.properties': 'org.gradle.jvmargs=-Xmx2g\nnettyVersion=4.1.86.Final\n',
-        'gui/build.gradle' : """plugins {
-    id 'java'
-    id 'jacoco'
-}
-
-dependencies {
-    implementation 'org.apache.commons:commons-text:1.9'
-    implementation "com.fasterxml.jackson.core:jackson-databind:2.13.4"
-    implementation "io.netty:netty-codec-http:\${nettyVersion}"
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-}
-""".toString()
-]
-Closure iqComponent = { String g, String a, String v, int threat, Boolean direct, boolean waived ->
-    [packageUrl         : "pkg:maven/${g}/${a}@${v}?type=jar".toString(),
-     componentIdentifier: [format: 'maven', coordinates: [groupId: g, artifactId: a, version: v, classifier: '', extension: 'jar']],
-     dependencyData     : [directDependency: direct],
-     violations         : [[policyName: threat >= 8 ? 'Security-Critical' : 'Security-High', policyThreatLevel: threat, waived: waived]]]
-}
-Map iqPolicyReport = [components: [
-        iqComponent('org.apache.commons', 'commons-text', '1.9', 10, true, false),
-        iqComponent('com.fasterxml.jackson.core', 'jackson-databind', '2.13.4', 8, true, false),
-        iqComponent('io.netty', 'netty-codec-http', '4.1.86.Final', 7, true, false),
-        iqComponent('org.yaml', 'snakeyaml', '1.33', 8, true, false),
-        iqComponent('com.google.protobuf', 'protobuf-java', '3.21.7', 8, false, false),
-        iqComponent('ch.qos.logback', 'logback-classic', '1.2.11', 7, true, true),
-        iqComponent('org.apache.commons', 'commons-compress', '1.21', 1, true, false)
-]]
-Map iqRemediations = [
-        'commons-text'    : [['next-no-violations', '1.10.0']],
-        'jackson-databind': [['next-non-failing', '2.13.5'], ['next-no-violations', '2.15.4']],
-        'netty-codec-http': [['next-no-violations-with-dependencies', '4.1.108.Final']],
-        'snakeyaml'       : [['next-no-violations', '2.2']]
-]
-Closure iqRespond
-Closure goldenFixSh = { FakeScript s, Map a, List<String> calls ->
-    String text = String.valueOf(a.script ?: '')
-    String label = String.valueOf(a.label ?: '')
-    if (label.startsWith('GoldenFix:')) calls << label
-    if (text.contains('date +%Y%m%d%H%M')) return gfStamp + '\n'
-    if (label == 'GoldenFix: find dependency manifests') return gfManifests.keySet().sort().join('\n') + '\n'
-    if (label == 'GoldenFix: commit changes') return 'c0ffee1d2e3f40516273849a5b6c7d8e9f001122\n'
-    if (text.contains('run_one() {')) {
-        StringBuilder batch = new StringBuilder()
-        int batched = 0
-        def counter = (text =~ /(?m)^run_one (\d+) '([^']+)' &$/)
-        while (counter.find()) batched++
-        calls << "BATCH sh with ${batched} request(s)".toString()
-        def calls2 = (text =~ /(?m)^run_one (\d+) '([^']+)' &$/)
-        while (calls2.find()) {
-            int index = calls2.group(1) as int
-            String batchUrl = calls2.group(2)
-            def body = (text =~ /(?s)cat > body-${index}\.json <<'DEVSECOPS_BODY_${index}'\n(.*?)\nDEVSECOPS_BODY_${index}\n/)
-            def parsedBody = body.find() ? new groovy.json.JsonSlurper().parseText(body.group(1)) : null
-            calls << "POST ${batchUrl}".toString()
-            batch.append("===DEVSECOPS-RESPONSE ${index}===\n")
-            batch.append(iqRespond('POST', batchUrl, parsedBody, calls)).append('\n')
-        }
-        return batch.toString()
-    }
-    def curl = text =~ /(?m)curl -sS -X '(\w+)'.*'(https?:\/\/[^']+)'\s*$/
-    if (!curl.find()) return null
-    String method = curl.group(1)
-    String url = curl.group(2)
-    def bodyFile = text =~ /@'([^']+\.json)'/
-    def payload = bodyFile.find() ? s.jsonFiles[bodyFile.group(1)] : null
-    calls << "${method} ${url}".toString()
-    return iqRespond(method, url, payload, calls)
-}
-
-iqRespond = { String method, String url, def payload, List calls ->
-    if (url.contains('/api/v2/applications?publicId=')) {
-        String app = url.substring(url.indexOf('publicId=') + 9)
-        return groovy.json.JsonOutput.toJson([applications: [[id: '7d3b2c1a9e8f4a6b8c0d1e2f3a4b5c6d', publicId: app, name: app]]]) + '\n200'
-    }
-    if (url.contains('/reports/') && url.endsWith('/policy')) {
-        return groovy.json.JsonOutput.toJson(url.contains('CertValidityMonitoring-GUI') ? iqPolicyReport : [components: []]) + '\n200'
-    }
-    if (url.contains('/api/v2/components/remediation/application/')) {
-        Map coordinates = (payload?.componentIdentifier?.coordinates ?: [:]) as Map
-        List changes = ((iqRemediations[coordinates.artifactId] ?: []) as List).collect { List t ->
-            [type: t[0], data: [component: [componentIdentifier: [format: 'maven', coordinates: [groupId: coordinates.groupId, artifactId: coordinates.artifactId, version: t[1]]],
-                                            packageUrl         : "pkg:maven/${coordinates.groupId}/${coordinates.artifactId}@${t[1]}?type=jar".toString()]]]
-        }
-        return groovy.json.JsonOutput.toJson([remediation: [versionChanges: changes]]) + '\n200'
-    }
-    if (url.endsWith('/rest/api/1.0/projects/TA/repos/cert-scanner/pull-requests') && method == 'POST') {
-        calls << "PR ${payload?.title} ${payload?.fromRef?.id} -> ${payload?.toRef?.id}".toString()
-        return groovy.json.JsonOutput.toJson([id: 318, title: payload?.title, links: [self: [[href: gfPullRequestUrl]]]]) + '\n201'
-    }
-    return '{}\n404'
-}
 
 Closure runScenario = { Map spec ->
     Random random = new Random(spec.seed as long)
@@ -758,7 +672,7 @@ Closure runScenario = { Map spec ->
     def state = null
     List<String> stageErrors = []
     List<String> goldenFixCalls = []
-    gfManifests.each { String file, String text -> script.files["${gfWorktree}/${file}".toString()] = text }
+    GoldenFixResponder.plantManifests(script)
 
     script.env.vars.putAll([
             WORKSPACE               : '/ws',
@@ -798,7 +712,7 @@ Closure runScenario = { Map spec ->
             return "${Math.round(c * 1000.0 / (c + m)) / 10.0},${c},${m}"
         }
         if (text.contains('facets=severities')) return "${d.sonar.c},${d.sonar.h},${d.sonar.m},${d.sonar.l}"
-        return goldenFixSh(script, a, goldenFixCalls) ?: ''
+        return GoldenFixResponder.sh(script, a, goldenFixCalls) ?: ''
     }
     Closure jobStatus = { -> random.nextDouble() < (data[state.currentProjectName].failRate as double) ? (random.nextBoolean() ? 'FAILURE' : 'UNSTABLE') : 'SUCCESS' }
     script.steps['build'] = { Map a ->
@@ -869,6 +783,9 @@ Closure runScenario = { Map spec ->
                 build.unitTests()
                 build.checkCoverage()
             }
+        }
+        if (stages.contains(BUILD)) stage(BUILD) {
+            eachProject { String p -> build.buildArtifact() }
         }
         if (stages.contains(NIQ)) {
             stage(NIQ) {
@@ -957,6 +874,10 @@ List<Map> scenarios = [
          job: 'CertScanner-sast-pipeline', buildNumber: 87, influx: 'sast'],
         [name: 'sast-pipeline-fail', title: 'SAST pipeline', outcome: 'fail', variant: 'sast', fail: true, seed: 2202L,
          job: 'CertScanner-sast-pipeline', buildNumber: 88, influx: 'sast'],
+        [name: 'nexusiq-pipeline-pass', title: 'Nexus IQ GoldenFix pipeline', outcome: 'pass', variant: 'nexusiq', fail: false, seed: 4401L,
+         job: 'CertScanner-nexusiq-pipeline', buildNumber: 61, influx: 'nexusiq'],
+        [name: 'nexusiq-pipeline-fail', title: 'Nexus IQ GoldenFix pipeline', outcome: 'fail', variant: 'nexusiq', fail: true, seed: 4402L,
+         job: 'CertScanner-nexusiq-pipeline', buildNumber: 62, influx: 'nexusiq'],
         [name: 'full-pipeline-pass', title: 'Full DevSecOps pipeline', outcome: 'pass', variant: 'full', fail: false, seed: 3301L, deployHigherEnv: true,
          extraSmokeUrls: 6, job: 'CertScanner-devsecops-pipeline', buildNumber: 341, influx: ''],
         [name: 'full-pipeline-fail', title: 'Full DevSecOps pipeline', outcome: 'fail', variant: 'full', fail: true, seed: 3302L, deployHigherEnv: true,
@@ -980,6 +901,12 @@ scenarios.each { Map spec ->
         check("${spec.name}: only SAST content in the SAST report", !html.contains('Nexus IQ') && !html.contains('SCA (SonarQube)')
                 && !html.contains('Smoke tests') && !html.contains('Release policy') && !html.contains('TESTS WERE NOT EXECUTED'), 'foreign content rendered')
     }
+    if (spec.variant == 'nexusiq') {
+        check("${spec.name}: the build and the Nexus IQ scan${pass ? '' : ' with its GoldenFix card'} and no SAST, SonarQube or release content in the report",
+                html.contains('Build artifact') && html.contains('Nexus IQ') && (pass || html.contains('<h2>Nexus IQ GoldenFix</h2>'))
+                        && !html.contains('SAST (AppScan)') && !html.contains('SCA (SonarQube)') && !html.contains('Smoke tests')
+                        && !html.contains('Release policy') && !html.contains('TESTS WERE NOT EXECUTED'), 'Nexus IQ content missing or foreign content rendered')
+    }
     if (spec.variant == 'full' && !pass) {
         check("${spec.name}: release and QC blocked with the banner", html.contains('NEXUS RELEASE AND QC DEPLOYMENT BLOCKED'), 'banner missing')
         check("${spec.name}: failing unit tests turn the stage orange and the pipeline goes on", html.contains('Unit tests failed (script returned exit code 1)')
@@ -993,10 +920,10 @@ scenarios.each { Map spec ->
         Map gui = (((r.goldenFix ?: [:]) as Map).gui ?: [:]) as Map
         List<String> calls = r.goldenFixCalls as List<String>
         Map files = r.files as Map
-        String gradle = (files["${gfWorktree}/gui/build.gradle".toString()] ?: '') as String
-        String properties = (files["${gfWorktree}/gradle.properties".toString()] ?: '') as String
+        String gradle = (files["${GoldenFixResponder.WORKTREE}/gui/build.gradle".toString()] ?: '') as String
+        String properties = (files["${GoldenFixResponder.WORKTREE}/gradle.properties".toString()] ?: '') as String
         check("${spec.name}: GoldenFix runs through the production wiring and raises the pull request", gui.status == 'PR_CREATED'
-                && gui.prTitle == "GoldenFix-${gfStamp}".toString() && gui.targetBranch == 'develop' && gui.prUrl == gfPullRequestUrl,
+                && gui.prTitle == "GoldenFix-${GoldenFixResponder.STAMP}".toString() && gui.targetBranch == 'develop' && gui.prUrl == GoldenFixResponder.PULL_REQUEST_URL,
                 "${gui.status}: ${gui.message}")
         check("${spec.name}: every Nexus IQ remediation lookup of a project is one sh step, not one per component",
                 calls.count { it.startsWith('BATCH sh with ') } == 1 && calls.contains('BATCH sh with 4 request(s)'),
@@ -1011,9 +938,9 @@ scenarios.each { Map spec ->
         check("${spec.name}: GoldenFix lists the BOM managed component as not applied", ((gui.unresolved ?: []) as List).any { it.component == 'org.yaml:snakeyaml' }, gui.unresolved)
         check("${spec.name}: GoldenFix prepares the worktree, commits, pushes, opens the pull request and removes the worktree",
                 ['GoldenFix: prepare worktree', 'GoldenFix: commit changes', 'GoldenFix: git push', 'POST https://bitbucket.bbh.com/rest/api/1.0/projects/TA/repos/cert-scanner/pull-requests',
-                 "PR GoldenFix-${gfStamp} refs/heads/GoldenFix-${gfStamp} -> refs/heads/develop", 'GoldenFix: remove worktree'].every { String step -> calls.any { it.startsWith(step) } },
+                 "PR GoldenFix-${GoldenFixResponder.STAMP} refs/heads/GoldenFix-${GoldenFixResponder.STAMP} -> refs/heads/develop", 'GoldenFix: remove worktree'].every { String step -> calls.any { it.startsWith(step) } },
                 calls.join('\n      '))
-        check("${spec.name}: GoldenFix pull request is linked in the report", html.contains('pull-requests/318') && html.contains("GoldenFix-${gfStamp}")
+        check("${spec.name}: GoldenFix pull request is linked in the report", html.contains('pull-requests/318') && html.contains("GoldenFix-${GoldenFixResponder.STAMP}")
                 && html.contains('nettyVersion') && html.contains('org.yaml:snakeyaml'), 'GoldenFix card incomplete')
         check("${spec.name}: the GoldenFix pull request is shown only for the project that raised it", html.count('Automatic dependency upgrade proposed for review') == 1, html.count('Automatic dependency upgrade proposed for review'))
     }
@@ -1022,7 +949,7 @@ scenarios.each { Map spec ->
 
 Closure esc = { String s -> (s ?: '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;') }
 StringBuilder cards = new StringBuilder()
-['security', 'sast', 'full'].each { String variant ->
+['security', 'sast', 'nexusiq', 'full'].each { String variant ->
     results.findAll { it.spec.variant == variant }.each { Map r ->
         Map spec = r.spec as Map
         boolean pass = spec.outcome == 'pass'
@@ -1032,6 +959,8 @@ StringBuilder cards = new StringBuilder()
                            'Orange stages keep the build running. The snapshot is still published, the release and the QC deployment are blocked.'],
                 sast    : ['SAST found nothing above the policy.',
                            'SAST findings above the policy. They will block the Nexus release and the QC deployment.'],
+                nexusiq : ['Nexus IQ found no dependency above the policy, so GoldenFix had nothing to upgrade.',
+                           'Dependencies above the Nexus IQ policy turn the scan orange. GoldenFix raised a pull request with the safe versions.'],
                 full    : ['Every stage green. The artifact is released to Nexus and deployed to QC.',
                            'Orange stages keep the build running. The Nexus release and the QC deployment stay blocked.']
         ]
@@ -1084,7 +1013,7 @@ footer { margin-top: 28px; font-size: .76rem; color: #64748b; line-height: 1.5; 
 <div class='wrap'>
 <header>
   <h1>DevSecOps pipeline reports</h1>
-  <p>Six builds of the CertScanner example with two projects, a Gradle GUI deployed to a VM and a Maven API deployed to OpenShift. Each pipeline is shown once with every stage green and once with policy violations, which turn stages orange and block the Nexus release and the QC deployment.</p>
+  <p>Eight builds of the CertScanner example with two projects, a Gradle GUI deployed to a VM and a Maven API deployed to OpenShift. Each pipeline is shown once with every stage green and once with policy violations, which turn stages orange and block the Nexus release and the QC deployment.</p>
 </header>
 <div class='grid'>
 ${cards.toString()}</div>

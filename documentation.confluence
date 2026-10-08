@@ -24,26 +24,27 @@ h2. Contents
 * [10. Integration Guide: Security Pipeline|#ch10]
 * [11. Integration Guide: Extended Pipeline|#ch11]
 * [12. Integration Guide: SAST Scanning Pipeline|#ch12]
-* [13. Reference Implementation Examples|#ch13]
+* [13. Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]
+* [14. Reference Implementation Examples|#ch14]
 
 *Part III - Configuration and Behaviour Reference*
 
-* [14. Configuration Reference: the DevSecOps Portal|#ch14]
-* [15. Pipeline Stage Reference|#ch15]
-* [16. Security Policy Thresholds|#ch16]
-* [17. Supported Build Tools|#ch17]
-* [18. Supported Deployment Targets|#ch18]
-* [19. Programmatic API Reference|#ch19]
+* [15. Configuration Reference: the DevSecOps Portal|#ch15]
+* [16. Pipeline Stage Reference|#ch16]
+* [17. Security Policy Thresholds|#ch17]
+* [18. Supported Build Tools|#ch18]
+* [19. Supported Deployment Targets|#ch19]
+* [20. Programmatic API Reference|#ch20]
 
 *Part IV - Operations*
 
-* [20. Monitoring and Metrics|#ch20]
-* [21. Grafana Dashboard Query Reference|#ch21]
-* [22. Troubleshooting Guide|#ch22]
+* [21. Monitoring and Metrics|#ch21]
+* [22. Grafana Dashboard Query Reference|#ch22]
+* [23. Troubleshooting Guide|#ch23]
 
 *Part V - Library Development*
 
-* [23. Library Development and Test Suite|#ch23]
+* [24. Library Development and Test Suite|#ch24]
 
 ----
 
@@ -69,13 +70,14 @@ The library executes the following pipeline automatically when you call {{devSec
 
 h3. Which pipeline to use
 
-The library ships four entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in {{vars/devSecOpsSteps.groovy}}. Each stage method takes the {{devSecOpsApi}} instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build|#ch19].
+The library ships five entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in {{vars/devSecOpsSteps.groovy}}. Each stage method takes the {{devSecOpsApi}} instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build|#ch20].
 
 ||Entry point||Runs||Use it when||
 |{{devSecOpsPipeline}}|All thirteen stages in one build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|One job should cover the whole flow|
 |{{devSecOpsSecurityPipeline}}|Unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives {{pipeline-config.yaml}} and the release gate verdict, and triggers the extended job when {{RUN_EXTENDED_PIPELINE}} is selected|The static part runs on every commit and the rest is a separate job|
 |{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|Downstream of the security pipeline, which its pipeline key names; it inherits the release verdict through the copied {{release-gate.json}}|
 |{{devSecOpsSASTScanningPipeline}}|Monitor sources and SAST only|A job that executes the AppScan static scan only; its report contains the SAST stage and the SAST findings|
+|{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
 
 After all stages, the library always:
 * Generates an HTML pipeline report with the stage flow, vulnerability counts, policy status, SonarQube badges and coverage
@@ -83,7 +85,7 @@ After all stages, the library always:
 * Adds a *Nexus IQ GoldenFix* card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically
 * Adds a *Release policy* card stating whether the artifact may be released to Nexus and deployed to QC
 * Archives the HTML reports, the DAST PDF report and the release gate verdict ({{release-gate.json}}) as build artifacts
-* Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics|#ch20]
+* Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics|#ch21]
 
 ----
 
@@ -94,7 +96,7 @@ After all stages, the library always:
 {anchor:ch2}
 h1. 2. Benefits of DevSecOps at BBH
 
-This chapter states the business case for operating application delivery through the shared DevSecOps pipeline rather than through pipelines maintained independently by each application team. The figures quoted are published industry benchmarks, cited for order of magnitude; they are not measurements of BBH systems. Section [Monitoring and Metrics|#ch20] describes how the equivalent figures are measured for BBH applications once the pipeline is in operation.
+This chapter states the business case for operating application delivery through the shared DevSecOps pipeline rather than through pipelines maintained independently by each application team. The figures quoted are published industry benchmarks, cited for order of magnitude; they are not measurements of BBH systems. Section [Monitoring and Metrics|#ch21] describes how the equivalent figures are measured for BBH applications once the pipeline is in operation.
 
 h2. Risk reduction
 
@@ -219,6 +221,8 @@ When Nexus IQ reports a policy violation the library prepares the upgrade itself
 * The version is chosen by two rules: *only the patch version may change*, and of those the *newest one without known vulnerabilities* wins.
 * Before anything is proposed the project is *built with the new versions*; a failing build lowers them and retries, and if nothing builds, no pull request is opened.
 
+The Nexus IQ GoldenFix pipeline runs the dependency scan and this remediation on their own, after building the artifact, without the other stages.
+
 h3. Build, test and delivery
 
 Gradle, Maven and Flutter builds with the project's own tasks. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it, and container images built and copied to Nexus for OpenShift projects.
@@ -258,10 +262,11 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 ├── documentation.confluence       <- this document, Confluence wiki markup, the single source
 ├── documentation.html             <- the same documentation as a single HTML page, generated from it
 ├── vars/                          <- Jenkins global variables: the entry points and the composition root
-│   ├── devSecOpsPipeline.groovy               <- entry point: all thirteen stages
-│   ├── devSecOpsSecurityPipeline.groovy       <- entry point: static analysis part
-│   ├── devSecOpsExtendedPipeline.groovy       <- entry point: deployment and test part
-│   ├── devSecOpsSASTScanningPipeline.groovy   <- entry point: SAST only
+│   ├── devSecOpsPipeline.groovy                  <- entry point: all thirteen stages
+│   ├── devSecOpsSecurityPipeline.groovy          <- entry point: static analysis part
+│   ├── devSecOpsExtendedPipeline.groovy          <- entry point: deployment and test part
+│   ├── devSecOpsSASTScanningPipeline.groovy      <- entry point: SAST only
+│   ├── devSecOpsNexusIqGoldenFixPipeline.groovy  <- entry point: build, Nexus IQ and the GoldenFix pull request
 │   ├── devSecOpsSteps.groovy      <- one method per stage, included by every entry point
 │   └── devSecOpsApi.groovy        <- composition root: builds every service and exposes the helper methods
 ├── src/com/bbh/
@@ -300,7 +305,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── report/HtmlReportService.groovy     <- one report template, the variant only selects the stage layout
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
 ├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html
-├── test/                          <- the library test suite, see section 17
+├── test/                          <- the library test suite, see section 24
 │   ├── run-all.sh                 <- one command: static checks, compilation, sandbox scenarios, demo reports
 │   ├── checks/                    <- static checks of the sources
 │   └── sandbox/                   <- the library running under the real Jenkins script sandbox
@@ -461,7 +466,7 @@ h3. Script security
 
 The library runs inside the Jenkins script sandbox and uses no construct that requires an administrator to approve a signature. Collections are built from literals, JSON is read and written with the {{readJSON}} and {{writeJSON}} steps, and regular expressions use the Groovy operators. Nothing has to be approved under *Manage Jenkins, In-process Script Approval* to onboard a new project.
 
-Every class of the library is loaded and every pipeline is executed under the real script-security sandbox by the test suite before a release, so a rejected signature is found in the test run and never in your build. Section 17 lists the rules this imposes on the library code.
+Every class of the library is loaded and every pipeline is executed under the real script-security sandbox by the test suite before a release, so a rejected signature is found in the test run and never in your build. [Library Development and Test Suite|#ch24] lists the rules this imposes on the library code.
 
 h3. Jenkins global configuration
 
@@ -635,7 +640,7 @@ You should now have written down: the *Nexus IQ application ID*, the *SonarQube 
 {anchor:ch8}
 h1. 8. Detailed Description Guide for Application Integration
 
-This chapter is the same for all four pipelines. Do it once, then go to the chapter of the pipeline you chose.
+This chapter is the same for all five pipelines. Do it once, then go to the chapter of the pipeline you chose.
 
 *You do not write any pipeline code.* Your application needs one new file, a {{Jenkinsfile}} of two lines, and its service in the DevSecOps portal. Everything else comes from the library.
 
@@ -659,7 +664,7 @@ h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsf
 
 *Who:* a developer on your team with access to the DevSecOps portal.
 
-# *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch14].
+# *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch15].
 # *Save it.* The next build reads what you saved.
 # *Commit the Jenkinsfile.* Copy the Jenkinsfile the product page offers with the pipeline key of the service into the *root* of the repository, on the branch the pipeline will build:
 
@@ -669,7 +674,7 @@ h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsf
 devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
 {code}
 
-The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}} or {{devSecOpsSASTScanningPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so.
+The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}}, {{devSecOpsSASTScanningPipeline}} or {{devSecOpsNexusIqGoldenFixPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so.
 
 *The life of a pipeline key:*
 * The portal issues one key per service and pipeline type. The key selects a configuration and is the only thing a build shows the portal: whoever holds it can read the configuration of that pipeline, as anyone could read {{config.yaml}} in the repository before. It never unlocks a secret, because the configuration holds credential IDs only.
@@ -715,7 +720,7 @@ On the build page choose *Pipeline Report* in the left menu.
 # *Read the reasons.* Each orange or red stage carries its reason underneath, naming the counts and the consequence.
 # *Check the Release policy card.* It lists every reason the release and the higher environment deployment are blocked. When it is empty, your application is releasable.
 
-*An initial run is unlikely to complete without findings.* The usual first run findings are coverage below the required minimum, dependencies with known vulnerabilities, and test jobs that do not exist yet. Work through them one at a time — the pipeline provides value before every finding is resolved. [Troubleshooting|#ch22] lists what each message means.
+*An initial run is unlikely to complete without findings.* The usual first run findings are coverage below the required minimum, dependencies with known vulnerabilities, and test jobs that do not exist yet. Work through them one at a time — the pipeline provides value before every finding is resolved. [Troubleshooting|#ch23] lists what each message means.
 
 ----
 
@@ -968,7 +973,84 @@ h3. Specific to this pipeline
 ----
 
 {anchor:ch13}
-h1. 13. Reference Implementation Examples
+h1. 13. Integration Guide: Nexus IQ GoldenFix Pipeline
+
+*Entry point:* {{devSecOpsNexusIqGoldenFixPipeline}} · *Parameters:* {{AGENT_NAME}}
+
+h3. Applicability
+
+The dependency check on its own: it builds the artifact, has Nexus IQ evaluate it, and when the policy is violated GoldenFix raises the golden pull request with the safe dependency versions. Use it when the third party dependencies of an application should be checked and upgraded on their own schedule, without the unit tests, AppScan, SonarQube, delivery or deployment of the other pipelines — typically nightly, for an application whose main pipeline lives elsewhere, or beside the SAST scanning pipeline, which covers the source code.
+
+*Three stages:* source checkout · artifact build · Nexus IQ with GoldenFix.
+
+h3. Jenkinsfile
+
+{code:groovy}
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')
+{code}
+
+The key is the one the portal issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type {{nexusiq}}. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline {{DevSecOps/<CODE>/<service>-nexusiq}}.
+
+h3. Settings in the DevSecOps portal
+
+This pipeline needs the Nexus IQ application and the artifact it scans, the build that produces that artifact, and the repository GoldenFix raises the pull request in.
+
+{code:yaml}
+projects:
+  my-app:
+    appId:     "<AppScan application ID>"
+    buildTool: gradle
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+      keyId: "<AppScan key ID>"
+
+    tools:
+      nexusIq:
+        application:   "<Nexus IQ application ID>"
+        serverUrl:     "https://tools.bbh.com/IQ"
+        credentialsId: "nexusiqP"
+        scanPatterns:  ["**/build/libs/*.jar"]
+
+    build:
+      gradle:
+        tasks: ['clean', 'assemble']
+
+    scm:
+      bitbucket:
+        url:           "http://rdtools.testbbh.com:7990/projects/MYAPP/repos/myapp"
+        credentialsId: "<your Bitbucket credential ID>"
+        targetBranch:  "develop"
+
+    goldenFix:
+      enabled: true
+{code}
+
+* {{tools.nexusIq}} names the Nexus IQ application and the credential, and {{scanPatterns}} must match the artifacts the build produces. A service without the application or its scan patterns stops the pipeline at the start with *The Nexus IQ GoldenFix pipeline would scan nothing for <service>*, because a green run that scanned nothing would prove nothing.
+* {{buildTool}}, {{build}} and {{javaPath}} (or {{buildToolAutoSetup: true}}) build the artifact; without a JDK the Build artifact stage stops with *JAVA_HOME parameter is not specified*.
+* {{scm.bitbucket}} is where the {{GoldenFix-YYYYMMDDHHMM}} branch is pushed and the pull request is raised, into {{targetBranch}} or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
+* {{goldenFix}} is on by default; every setting of [the configuration reference|#ch15] applies, such as {{minThreatLevel}}, {{ecosystems}} and the pre-check build under {{goldenFix.verify}}.
+* {{appId}} and {{asoc.keyId}} *stay required* although this pipeline runs no AppScan scan: the portal asks for the AppScan identifiers of every service, and the library checks {{asoc.keyId}} at the start of every pipeline.
+
+h3. Specific to this pipeline
+
+* *Linux or macOS agent.* GoldenFix works in a git worktree and runs the pre-check build with the shell, so the agent of {{AGENT_NAME}} needs git, {{curl}} and the build tool.
+* *This pipeline checks out the source itself* and sets up the JDK, because there is no unit test stage. The *Build artifact* stage then builds every project with the command of its {{build}} section, so Nexus IQ evaluates what was built. It checks no coverage, but the command runs as configured: Gradle {{build}} and Maven {{verify}} or {{package}} run the unit tests as well, so use Gradle {{assemble}} or Maven {{package -DskipTests}} to build without them. A build error, a failing test included, is a red stage and stops the pipeline, because there is nothing to scan.
+* *The Nexus IQ stage is the one of the other pipelines.* It turns orange on a policy violation and GoldenFix raises one pull request for all projects of the build, as described in [the stage reference|#ch16]. GoldenFix never changes the stage result.
+* *Put it on a schedule* if the dependencies should be checked independently of commits, for example {{H 3 * * *}} under *Build periodically* for a nightly run: Nexus IQ learns about new vulnerabilities in components that did not change.
+* *The report* shows the source checkout, the Build artifact stage and the Nexus IQ stage, one Nexus IQ row per project in the Security Gates table with a link to the Nexus IQ report, and on a violation the *Nexus IQ GoldenFix* card with the pull request, the applied upgrades and the fixes that could not be applied automatically. There is no release policy card, because this pipeline releases nothing, and no SAST, SonarQube or test rows.
+* *Release gate.* The pipeline writes {{release-gate.json}} like every pipeline and does not archive it, because no pipeline takes it over. Its verdict follows the stages: allowed when all three are green, blocked when the Nexus IQ stage is orange, including a scan that could not be completed.
+* *Metrics.* Every run writes the measurements of [Monitoring and Metrics|#ch21] with {{variant=nexusiq}} and the project tag {{influx.project}} followed by {{nexusiq}}, for example {{MyAppnexusiq}}. The {{goldenfix}} point of a project also carries the address and the title of the pull request ({{pr_url}}, {{pr_title}}) when one was raised. The Nexus IQ counts of the run are in {{vulnerabilities}} with {{scanner=nexusiq}}; the {{security_findings}} points with {{scanner=niq}} carry the status of the stage with every count at 0, as in every pipeline, so panels built on {{security_findings}} show no Nexus IQ findings.
+
+----
+
+----
+
+{anchor:ch14}
+h1. 14. Reference Implementation Examples
 
 The library ships a complete, working example under {{examples/CertScanner/}}, and the test suite regenerates a set of demo reports under {{examples/reports/}} on every run so you can see exactly what the pipeline produces before you run it yourself.
 
@@ -1017,11 +1099,19 @@ devSecOpsExtendedPipeline(pipelineKeys: ['<extended key of gui>', '<extended key
 
 The static job starts the extended one when its {{RUN_EXTENDED_PIPELINE}} parameter is selected. The job it starts is the one named as the extended pipeline in the portal ({{jenkins.pipeline.extendedPipeline}}), and it is started after the static job finishes, also when that job ended unstable. The extended job inherits the verdict of the static one through the copied {{release-gate.json}}, so findings from the static part still block the Nexus release and the QC deployment.
 
+A separate job that only builds the artifacts, checks their dependencies with Nexus IQ and raises the GoldenFix pull request runs the Nexus IQ GoldenFix pipeline with the keys of that pipeline type:
+
+{code:groovy}
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: ['<nexusiq key of gui>', '<nexusiq key of backend-api>'])
+{code}
+
 h3. What the thresholds are
 
 Nothing in these files or in the settings of a service sets a security threshold or a coverage minimum. Both come from the Global Settings of the DevSecOps portal and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
 
-Step by step onboarding instructions are in [Detailed Description Guide for Application Integration|#ch8] and in the four integration guide chapters that follow it.
+Step by step onboarding instructions are in [Detailed Description Guide for Application Integration|#ch8] and in the five integration guide chapters that follow it.
 
 h3. Demo reports
 
@@ -1032,6 +1122,8 @@ h3. Demo reports
 |{{security-pipeline-fail.html}}|static security|orange stages, release and QC blocked|
 |{{sast-pipeline-pass.html}}|SAST only|no findings|
 |{{sast-pipeline-fail.html}}|SAST only|findings above the policy|
+|{{nexusiq-pipeline-pass.html}}|Nexus IQ GoldenFix|no dependency above the policy|
+|{{nexusiq-pipeline-fail.html}}|Nexus IQ GoldenFix|dependencies above the policy, GoldenFix pull request|
 |{{full-pipeline-pass.html}}|all thirteen stages|released to Nexus and deployed to QC|
 |{{full-pipeline-fail.html}}|all thirteen stages|orange stages, GoldenFix pull request, release and QC blocked|
 
@@ -1039,8 +1131,8 @@ h3. Demo reports
 
 ----
 
-{anchor:ch14}
-h1. 14. Configuration Reference: the DevSecOps Portal
+{anchor:ch15}
+h1. 15. Configuration Reference: the DevSecOps Portal
 
 The DevSecOps portal publishes one document per pipeline key with four parts: {{pipeline}} (type, product, agent labels, the linked security job), {{platform}} (AppScan, proxy and Nexus addresses, the iOS build agent), {{defaults}} (the Global Settings) and {{projects}}, the settings of the service. You edit the settings in the portal; there is no file in the repository. Below is the {{projects}} part with every key the library reads and its default. A key the portal does not model is not available (see [Differences from config.yaml|#ch4]).
 
@@ -1273,9 +1365,9 @@ h3. Which fields are required
 |{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret; without it the credential named like {{asoc.keyId}} is used|
 |{{appId}}|YES|Needed for AppScan SAST and DAST|
 |{{tools.sonar.projectKey}}|Recommended|SonarQube scan is skipped silently without it|
-|{{tools.nexusIq.application}}|Recommended|Nexus IQ scan is skipped silently without it|
+|{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
 |{{dast.targetUrl}}|Only if {{dast.enabled: true}}|Pipeline fails at DAST stage without it|
-|{{javaPath}} or {{buildToolAutoSetup: true}}|YES|Without one of them the Unit tests stage stops with *JAVA_HOME parameter is not specified*|
+|{{javaPath}} or {{buildToolAutoSetup: true}}|YES|Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified*|
 |{{deploy.vm.dod}}|Only if {{deployTarget: vm}} and you use {{devSecOpsPipeline}}|The lower test region deployment of the full pipeline uses UrbanCode Deploy|
 |{{deploy.vm.rd}}, {{deploy.vm.qc}}|Only if {{deployTarget: vm}}|SSH deployment of the extended pipeline and of the QC stage|
 |{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|{{appName}} and {{artifactName}} are required as well|
@@ -1290,8 +1382,8 @@ h3. Which fields are required
 
 ----
 
-{anchor:ch15}
-h1. 15. Pipeline Stage Reference
+{anchor:ch16}
+h1. 16. Pipeline Stage Reference
 
 h3. Stage 1: Monitor source changes (download sources)
 
@@ -1300,7 +1392,7 @@ Performs:
 * Applies the library policy to the state, so every later stage compares against the same thresholds
 * Detects the agent operating system and makes {{gradlew}} executable
 * Sets the tool environment: ASoC URLs, proxy host, port and user (a value in the agent's environment first, then the platform value of the portal), and the AppScan working directories
-* {{devSecOpsSASTScanningPipeline}} also runs {{checkout scm}} and pins {{JAVA_HOME}} before this
+* {{devSecOpsSASTScanningPipeline}} and {{devSecOpsNexusIqGoldenFixPipeline}} also run {{checkout scm}} and pin {{JAVA_HOME}} before this
 
 Fails if:
 * the portal sent no global defaults
@@ -1318,6 +1410,8 @@ Performs, once per project:
 The stage never fails the pipeline. Below the required value the stage turns *orange*, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always the one from the Global Settings, so changing it there changes both the check and the report.
 
 A compilation error of the artifact build is a real failure and stops the pipeline, because nothing can be scanned or deployed without an artifact.
+
+The Nexus IQ GoldenFix pipeline runs a *Build artifact* stage in place of the unit tests: it builds every project with the command of the {{build}} section, so that Nexus IQ evaluates what was built, and runs no unit test command and no coverage check. A build command that runs the tests, such as Gradle {{build}} or Maven {{verify}}, still runs them, and a build error or a failing test stops that pipeline in the same way.
 
 h3. Stage 3: Dependencies scan (Nexus IQ)
 
@@ -1414,8 +1508,8 @@ Each pipeline evaluates the results it owns and hands its verdict to the next on
 
 ----
 
-{anchor:ch16}
-h1. 16. Security Policy Thresholds
+{anchor:ch17}
+h1. 17. Security Policy Thresholds
 
 All thresholds are Global Settings of the DevSecOps portal, which only the DevSecOps team edits. A project *cannot* change any of them: the library takes them from the global defaults only. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
@@ -1438,8 +1532,8 @@ The required coverage is shown in the report exactly as configured in the Global
 
 ----
 
-{anchor:ch17}
-h1. 17. Supported Build Tools
+{anchor:ch18}
+h1. 18. Supported Build Tools
 
 ||Tool||Build||Unit tests||Coverage||Release publish||
 |Gradle|{{./gradlew}} + {{build.gradle.tasks}} and {{flags}}|{{./gradlew}} + {{tests.unitTests.gradle.tasks}}|JaCoCo XML|{{./gradlew publish}}|
@@ -1475,8 +1569,8 @@ Searched in order:
 
 ----
 
-{anchor:ch18}
-h1. 18. Supported Deployment Targets
+{anchor:ch19}
+h1. 19. Supported Deployment Targets
 
 h3. VM deployment over SSH
 
@@ -1534,8 +1628,8 @@ For this to work:
 
 ----
 
-{anchor:ch19}
-h1. 19. Programmatic API Reference
+{anchor:ch20}
+h1. 20. Programmatic API Reference
 
 h3. One devSecOpsApi instance per build
 
@@ -1552,7 +1646,7 @@ That is why the stage methods take the instance as an argument instead of readin
 The rule to follow when adding a stage or an entry point: the entry point resolves {{devSecOpsApi}} once and hands it to {{devSecOpsSteps}}, and nothing under {{vars/}} other than the entry points reads the global. {{test/checks/vars-api.sh}} fails the build when that rule is broken, and the pipeline scenarios in {{test/sandbox/PipelineScenarios.groovy}} resolve globals the way Jenkins does, so a second instance shows up there as a report full of grey boxes.
 
 
-If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use {{devSecOpsApi}}, the global variable that holds the services and every helper method. The four entry points are thin declarative skeletons built on top of it and on {{devSecOpsSteps}}, which carries one method per stage. {{devSecOpsSteps}} holds no state of its own: every one of its methods takes the {{devSecOpsApi}} instance to work with, so a custom pipeline calls {{devSecOpsSteps.sast(devSecOpsApi)}}, never {{devSecOpsSteps.sast()}}.
+If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use {{devSecOpsApi}}, the global variable that holds the services and every helper method. The five entry points are thin declarative skeletons built on top of it and on {{devSecOpsSteps}}, which carries one method per stage. {{devSecOpsSteps}} holds no state of its own: every one of its methods takes the {{devSecOpsApi}} instance to work with, so a custom pipeline calls {{devSecOpsSteps.sast(devSecOpsApi)}}, never {{devSecOpsSteps.sast()}}.
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
@@ -1622,8 +1716,8 @@ pipeline {
 h3. Complete method reference
 
 ||Method||Description||
-|{{initialize()}}|Set the tool environment variables, merge the configuration of the pipeline keys, write {{pipeline-config.yaml}}, apply the library policy, detect OS|
-|{{configure(String variant, Map config)}}|Read the documents of {{config.pipelineKey}} or {{config.pipelineKeys}} from the DevSecOps portal, check them against the variant ({{full}}, {{security}}, {{extended}}, {{sast}}), select the report variant and keep the entry point configuration; call it before {{initialize()}}|
+|{{initialize()}}|Set the tool environment variables, merge the configuration of the pipeline keys, write {{pipeline-config.yaml}}, check that the Nexus IQ GoldenFix pipeline has an application and scan patterns for every service, apply the library policy, detect OS|
+|{{configure(String variant, Map config)}}|Read the documents of {{config.pipelineKey}} or {{config.pipelineKeys}} from the DevSecOps portal, check them against the variant ({{full}}, {{security}}, {{extended}}, {{sast}}, {{nexusiq}}), select the report variant and keep the entry point configuration; call it before {{initialize()}}|
 |{{runStage(String name, Closure body)}}|Run a stage body with the bookkeeping: start, result, duration, and a red stage on an exception|
 |{{eachProject(Closure body)}}|Run the body once per configured project, switching the project context first|
 |{{finishPipeline(Map options)}}|Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call|
@@ -1655,7 +1749,7 @@ h3. Complete method reference
 |{{deployOpenshift(String env)}}|Deploy to OpenShift, env {{rd}} or {{qc}}|
 |{{publishArtifactQC()}}|Release delivery: {{./gradlew publish}} or {{mvn deploy}}|
 |{{pushToNexus(String projectName)}}|Snapshot delivery of a Maven or Flutter artifact with the {{delivery}} command|
-|{{vulnerabilitySummary()}}|One line with the SAST and DAST findings above the policy severity|
+|{{vulnerabilitySummary()}}|One line with the SAST and DAST findings above the policy severity; in the Nexus IQ GoldenFix pipeline the Nexus IQ critical, high and medium counts|
 |{{runExtendedPipeline()}}|Start the job of {{jenkins.pipeline.extendedPipeline}} when {{RUN_EXTENDED_PIPELINE}} is selected|
 |{{nexusDelivery(String env)}}|Tag the image in the registry|
 |{{buildDockerImage(String projectName)}}, {{copyImageToNexus()}}, {{checkDeploymentRepo()}}|OpenShift image build and promotion|
@@ -1676,8 +1770,8 @@ h3. Complete method reference
 
 ----
 
-{anchor:ch20}
-h1. 20. Monitoring and Metrics
+{anchor:ch21}
+h1. 21. Monitoring and Metrics
 
 Every run writes one batch of InfluxDB line protocol from {{post { always }}}, so a failed run is recorded exactly like a successful one. Nothing is sampled: the batch covers the run, every stage, every scanner, every module, every test suite, the release gate and the remediation outcome.
 
@@ -1687,12 +1781,12 @@ h3. What is written
 |{{pipeline_run}}|project, env, variant, result, branch|One row per run: outcome, duration, and how many stages passed, warned, failed, were blocked or skipped|
 |{{dora}}|project, env, variant|Deployment, lead time from the commit under test, change failure and whether a release was published|
 |{{stage_event}}|project, env, stage, status|Per stage: duration, whether it was executed, its order and the reason when it was not green. *Stamped at the end of that stage*, so the timeline is accurate|
-|{{security_findings}}|project, env, module, scanner, status|Severity counts per scanner per module, the policy limits, and how many findings are above them|
+|{{security_findings}}|project, env, module, scanner, status|Severity counts per scanner per module, the policy limits, and how many findings are above them; for {{scanner=niq}} only the status, the Nexus IQ counts are in {{vulnerabilities}} with {{scanner=nexusiq}}|
 |{{policy_status}}|project, env, scanner, status|Which gates were evaluated and which held|
 |{{code_coverage}}|project, env, module, measured|Line coverage against the required minimum, and the shortfall|
 |{{test_execution}} / {{test_job}}|project, env, module, suite, status, type|Suite totals and success rate, and each individual job|
 |{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it|
-|{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one|
+|{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one, and the address and title of a raised pull request|
 |{{test_execution}} with {{suite=unit}}|project, env, module, suite|Unit test totals of each module: total, passed, failed, skipped, success rate and duration|
 |{{build_evidence}}|project, env, module|The change evidence the DevSecOps portal shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used ({{config_rendered_at}}, {{config_sha256}}). Empty values are left out|
 
@@ -1705,7 +1799,7 @@ The four metrics are derived from the {{dora}} measurement:
 * *Deployment frequency* - the {{deployment}} field is 1 when a deployment stage completed green.
 * *Lead time for changes* - {{lead_time_s}} measures from the timestamp of the commit under test, read with {{git log -1}} during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
 * *Change failure rate* - {{change_failure}} is 1 for any run that did not end {{SUCCESS}}.
-* *Time to restore* - derived in Grafana from the {{change_failure}} series; the query is in [Grafana dashboards and queries|#ch21].
+* *Time to restore* - derived in Grafana from the {{change_failure}} series; the query is in [Grafana dashboards and queries|#ch22].
 
 h3. Configuration
 
@@ -1720,18 +1814,20 @@ influx:
 
 These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal.
 
+The {{variant}} tag names the pipeline that wrote the run: {{full}}, {{security}}, {{extended}}, {{sast}} or {{nexusiq}}. Every pipeline except the full one also appends its variant to the {{project}} tag, so the Nexus IQ GoldenFix pipeline of {{influx.project: MyApp}} writes {{project=MyAppnexusiq}}.
+
 A bucket keeps the data for its retention period, and the cumulative "since the beginning" panels reach only as far back as that. Set the retention to infinite, or to the period the organisation reports on.
 
 h3. Dashboards
 
-[Grafana dashboards and queries|#ch21] holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under {{grafana/}} are unchanged and continue to work.
+[Grafana dashboards and queries|#ch22] holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under {{grafana/}} continue to work; the stage panels of {{devSecOpsDashboard}} show the Build artifact stage of the Nexus IQ GoldenFix pipeline as {{Build}}.
 
 ----
 
 ----
 
-{anchor:ch21}
-h1. 21. Grafana Dashboard Query Reference
+{anchor:ch22}
+h1. 22. Grafana Dashboard Query Reference
 
 Every build writes one batch of InfluxDB line protocol from {{post { always }}}, so a run that failed is recorded exactly like a run that succeeded. This document lists what is written and the Flux to put on a dashboard.
 
@@ -1758,14 +1854,14 @@ h3. What the pipeline writes
 |{{pipeline_run}}|project, env, variant, result, branch|build, duration_s, success, unstable, stages_total, passed, warned, failed, blocked, skipped, not_required, modules, commit, job|One row per run: outcome and shape|
 |{{dora}}|project, env, variant|deployment, lead_time_s, change_failure, duration_s, released|The four DORA metrics|
 |{{stage_event}}|project, env, stage, status|duration_ms, duration_s, ok, executed, order, reason|Per stage, stamped at the end of that stage|
-|{{security_findings}}|project, env, module, scanner, status|critical, high, medium, low, total, above_policy, max_*, exceeded|Findings per scanner per module against policy|
+|{{security_findings}}|project, env, module, scanner, status|critical, high, medium, low, total, above_policy, max_*, exceeded; every count is 0 for {{scanner=niq}}|Findings per scanner per module against policy|
 |{{policy_status}}|project, env, scanner, status|ok, measured|Which gates were evaluated and which held|
 |{{code_coverage}}|project, env, module, measured|line_pct, covered, missed, total, required, met, gap|Coverage per module against the required minimum|
 |{{test_execution}}|project, env, module, suite|total, passed, failed, not_configured, duration_ms, success_rate; skipped for {{suite=unit}}|Smoke, regression and performance suites, and the unit tests of each module ({{suite=unit}})|
 |{{build_evidence}}|project, env, module|artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_rendered_at, config_sha256|The change evidence of a build and the portal configuration it used|
 |{{test_job}}|project, env, module, suite, status, type|duration_ms, name, ok|Individual test jobs|
 |{{release_gate}}|project, env, allowed|allowed, blocked, violations, reason|Whether the release was permitted|
-|{{goldenfix}}|project, env, module, status|offered, applied, unresolved, pr_raised, build_check, build_failed|Automated dependency remediation|
+|{{goldenfix}}|project, env, module, status|offered, applied, unresolved, pr_raised, build_check, build_failed; pr_url and pr_title only when a pull request was raised|Automated dependency remediation|
 |{{deployments}}, {{change_failure}}, {{build_duration}}, {{stage_metric}}, {{vulnerabilities}}, {{test_coverage}}|—|—|Kept unchanged so dashboards built before this revision keep working|
 
 {info}
@@ -2228,7 +2324,7 @@ h3. Suggested dashboard layout
 |*Remediation*|Pull requests raised (6.1) · Remediation funnel (6.2) · Upgrades withheld (6.3)|
 |*Detail*|Failure reasons (3.6) · Recent builds table (7.6)|
 
-The two dashboard definitions under {{grafana/}} — {{devSecOpsDashboard}} and {{devSecOpsSecurityDashboard}} — were built against the measurements marked as kept in section 1 and continue to work unchanged. Panels from sections 2 to 7 are additions rather than replacements.
+The two dashboard definitions under {{grafana/}} — {{devSecOpsDashboard}} and {{devSecOpsSecurityDashboard}} — were built against the measurements marked as kept in section 1 and continue to work. The stage panels of {{devSecOpsDashboard}} also map the Build artifact stage of the Nexus IQ GoldenFix pipeline to {{Build}}. Panels from sections 2 to 7 are additions rather than replacements.
 
 h3. Retention
 
@@ -2238,8 +2334,8 @@ The cumulative panels in section 7 read from the beginning of the bucket, so the
 
 ----
 
-{anchor:ch22}
-h1. 22. Troubleshooting Guide
+{anchor:ch23}
+h1. 23. Troubleshooting Guide
 
 h3. "[PORTAL] No pipeline key" or "is not a key of the DevSecOps portal"
 
@@ -2376,6 +2472,7 @@ h3. Problems on a first run
 ||What you see||What it means and what to do||
 |{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names no pipeline key, or the job builds a branch with an older {{Jenkinsfile}}. Check the branch in the job configuration.|
 |{{asoc.keyId must be set}}|The AppScan key ID is missing from the service in the DevSecOps portal.|
+|{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the DevSecOps portal. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
 |Coverage shows {{not measured}}|The build produced no coverage report. Confirm your test task generates JaCoCo XML, or point {{coverage.reportPath}} at it.|
@@ -2399,8 +2496,8 @@ h3. Where to go for help
 
 ----
 
-{anchor:ch23}
-h1. 23. Library Development and Test Suite
+{anchor:ch24}
+h1. 24. Library Development and Test Suite
 
 This section is for the team that changes the library, not for the projects that use it.
 
@@ -2424,14 +2521,14 @@ h3. What it runs
 |{{test/checks/noncps-calls.groovy}}|No {{@NonCPS}} method calls a library method that is CPS-transformed (Jenkins would run it with the wrong result)|
 |{{test/checks/jdk-whitelist.groovy}}|Every JDK constructor, static method and static field is on the script-security whitelist|
 |{{test/checks/architecture.sh}}|Adapters depend on the core and the ports, never the other way round|
-|{{test/checks/vars-api.sh}}|The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service|
+|{{test/checks/vars-api.sh}}|The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), and every manifest updater is wired into the GoldenFix service|
 |{{test/checks/no-comments.sh}}|No comments and no commented-out code in {{src}} and {{vars}}|
 |{{test/checks/ascii.sh}}|{{src}} and {{vars}} hold printable ASCII only|
 |compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration|
 |{{test/portal/query-scenarios.sh}}|The query script of {{PortalConfigReader}}, run with the real {{curl}} against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key|
-|{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; 200 smoke jobs run with the configured parallelism; six service level pipelines produce the demo reports|
-|{{test/sandbox/PipelineScenarios.groovy}}|The four entry points run end to end under the real sandbox, green and orange, including the report, the release gate, the metrics and the deployments, and match the golden runs recorded before the portal integration|
-|{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff|
+|{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; 200 smoke jobs run with the configured parallelism; the {{goldenfix}} point carries {{pr_url}} and {{pr_title}} only when a pull request was raised; eight service level pipelines produce the demo reports|
+|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added|
+|{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key|
 |{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of the {{config.yaml}} library and the portal loader produce the same configuration, exactly for documents with the same values and after declared rules for the documents the portal renders|
 
 The sandbox tests execute the library inside {{GroovySandbox.runInSandbox}} with the real {{script-security}} whitelists and a fake Jenkins ({{test/sandbox/harness}}), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.

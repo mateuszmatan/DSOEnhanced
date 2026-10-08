@@ -112,7 +112,7 @@ def buildService = jobsHarness.type('com.bbh.build.BuildService')
 List<Map> configRules = [
         [id    : 'R1',
          reason: 'DEAD keys no code reads: asoc.keySecret (AppScanService.groovy:47 binds asoc.token or APPSCAN_KEY_ID), ' +
-                 'sast/sca/dast.scanName (the scan name comes from tools.sonar.projectName, ConfigLoader.groovy:94 and :187), ' +
+                 'sast/sca/dast.scanName (the scan name comes from tools.sonar.projectName, ConfigLoader.groovy:96 and :201), ' +
                  'build.maven.javaPath (BuildService.groovy:590 reads javaPath of the service)',
          apply : { Map cfg, String variant ->
              [['asoc', 'keySecret'], ['sast', 'scanName'], ['sca', 'scanName'], ['dast', 'scanName'], ['build', 'maven', 'javaPath']].sum { dropPath(cfg, it, always) }
@@ -130,7 +130,7 @@ List<Map> configRules = [
          }],
         [id    : 'R3',
          reason: 'tests.<suite> compared as BuildService.normalizeTestJobs (BuildService.groovy:428, called at :288 for the suites ' +
-                 'devSecOpsApi.groovy:209-211 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
+                 'devSecOpsApi.groovy:214-216 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
          apply : { Map cfg, String variant ->
              Map tests = (cfg.tests ?: [:]) as Map
              List suites = tests.keySet().findAll { it != 'unitTests' && tests[it] instanceof Map }.toList()

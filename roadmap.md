@@ -2,7 +2,7 @@
 
 A record of the work delivered on this library, grouped by theme and ordered as it was released. Each entry states what changed and why it mattered. Details for any item are in `documentation.confluence`, the complete single-page documentation of the library, and in the `documentation.html` rendered from it.
 
-**Delivered across six releases** — 30 files changed, six new components, and the automated check suite grown from 176 to 191 checks, all passing.
+**Sections 1 to 8, delivered across six releases** — 30 files changed, six new components, and the automated check suite grown from 176 to 191 checks, all passing. Sections 9 and 10 bring the suite to 329 checks.
 
 ---
 
@@ -81,6 +81,16 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 | **Change evidence** | Each build records which configuration it used (key hint, rendering time, sha256 hint) in the console, the report header and a new `build_evidence` InfluxDB measurement, together with the artifact version, the SonarQube quality gate and the report links; unit test totals are written as `test_execution` with `suite=unit`. |
 | **Tests** | Golden runs recorded on the previous release pin every pipeline's steps, log, release gate, metrics and report; new scenarios cover every portal failure, the query script with the real `curl` against a local HTTP portal, the extended handoff and the compatibility comparison. The check suite now holds 266 checks, all passing. |
 
+## 10. Nexus IQ GoldenFix pipeline
+
+| Change | Description |
+|--------|-------------|
+| **A fifth entry point** | `devSecOpsNexusIqGoldenFixPipeline` runs the dependency side of the flow on its own: source checkout, an artifact build and the Nexus IQ scan, after which GoldenFix raises the golden pull request with the safe versions when the policy is violated. It is configured by a pipeline key of the new portal pipeline type `nexusiq`, refuses a key of any other type and a service without a Nexus IQ application or scan patterns, so a green run always means a scan, and its Jenkins job is `DevSecOps/<CODE>/<service>-nexusiq`. The GoldenFix mechanism and the Nexus IQ stage are unchanged; the only new stage method is `buildArtifacts`. |
+| **Its own report layout** | The report shows the checkout, the Build artifact and the Nexus IQ stages, one Nexus IQ row per project and the GoldenFix card with the pull request. It has no SonarQube rows and no release policy card, because the pipeline releases nothing, and the closing console line gives the Nexus IQ critical, high and medium counts instead of the SAST and DAST totals. |
+| **Pull request in the metrics** | Runs are tagged `variant=nexusiq` and `project=<influx.project>nexusiq`. The `goldenfix` point carries `pr_url` and `pr_title` when a pull request was raised, so the portal and dashboards can link it; a point without a pull request is written exactly as before. The pipeline dashboard shows the Build artifact stage as `Build`. |
+| **Tests** | The pipeline runs green, orange and with a failing build under the real sandbox; the orange run raises the pull request through the real wiring, and the three runs are pinned by new golden files, recorded when the pipeline was added and compared exactly. The portal scenarios refuse a mismatched key in either direction and a service the pipeline would not scan, and the demo reports gain a passing and a failing Nexus IQ GoldenFix page. The check suite now holds 329 checks, all passing. |
+| **Documentation** | A new chapter, *Integration Guide: Nexus IQ GoldenFix Pipeline*, follows the SAST chapter; the later chapters are renumbered, and the entry point tables, the stage, API and metrics references, the demo reports and the test suite description name the new pipeline. |
+
 ---
 
 ## Known limitations
@@ -89,4 +99,5 @@ A record of the work delivered on this library, grouped by theme and ordered as 
 - The GoldenFix pre-check compiles and resolves dependencies by default rather than running a full build with tests. A stronger check is one configuration setting away, at a cost in runtime.
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
 - Every build depends on the portal at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the portal-integrated library is used outside test.
+- The `security_findings` points with `scanner=niq` carry the Nexus IQ stage status with every count at 0, in every pipeline; the Nexus IQ counts are only in `vulnerabilities` with `scanner=nexusiq`. Correcting it changes the recorded golden runs of the security and full pipelines.
 - SonarQube indexes Dart as an unknown language, so a Flutter project's quality gate rests on imported coverage and imported findings rather than on rules SonarQube executes itself.

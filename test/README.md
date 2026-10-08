@@ -23,7 +23,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `noncps-calls.groovy` | No `@NonCPS` method calls a library method that is CPS-transformed (Jenkins would run it with the wrong result) |
 | `jdk-whitelist.groovy` | Every JDK constructor, static method and static field used by the library is on the real script-security whitelist |
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
-| `vars-api.sh` | The shared methods resolve, the full pipeline equals security plus extended, and every manifest updater is wired into the GoldenFix service |
+| `vars-api.sh` | The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), and every manifest updater is wired into the GoldenFix service |
 | `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
 | `ascii.sh` | `src` and `vars` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
@@ -45,13 +45,16 @@ Runs the library classes inside `GroovySandbox.runInSandbox` with the real `gene
 - the GoldenFix version choice follows the rules (the Nexus IQ Golden Version first, otherwise the nearest backward compatible version without violations),
 - GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml` through the ports and raises the pull request,
 - 200 smoke jobs run with at most `maxParallel` at a time and every one of them reaches the report,
-- six service level pipelines (static security, SAST and full, each green and orange) produce `examples/reports`.
+- the `goldenfix` InfluxDB point carries `pr_url` and `pr_title` when a pull request was raised and leaves them out otherwise,
+- eight service level pipelines (static security, SAST, Nexus IQ GoldenFix and full, each green and orange) produce `examples/reports`; the Nexus IQ GoldenFix pages show the Build artifact and Nexus IQ stages and, when orange, the GoldenFix card, and no SAST, SonarQube, test or release policy content.
 
 ### Pipeline scenarios (`test/sandbox/PipelineScenarios.groovy`)
 
-Loads the real `vars` under the sandbox with a fake declarative engine and runs all four entry points, green and orange: stage order, skipped stages, `post` conditions, the report, the release gate verdict, the archived artifacts, the InfluxDB metrics, the UrbanCode Deploy and OpenShift calls, the GoldenFix pull request and the trigger of the extended pipeline.
+Loads the real `vars` under the sandbox with a fake declarative engine and runs all five entry points, green and orange, and the Nexus IQ GoldenFix pipeline also with a failing build: stage order, skipped stages, `post` conditions, the report, the release gate verdict, the archived artifacts, the InfluxDB metrics, the UrbanCode Deploy and OpenShift calls, the GoldenFix pull request and the trigger of the extended pipeline.
 
-Every run is also compared with its golden file in `test/sandbox/golden`. A golden file holds the recorded steps (`node`, `sh`, `withCredentials`, `withEnv`, `writeYaml`, `copyArtifacts`, `archiveArtifacts`, ...), the build log without the `[INIT]` and `[POLICY]` lines, `release-gate.json`, the InfluxDB lines and the report. The files were recorded on the library before the DevSecOps portal integration (commit b815d55), so they pin today's behaviour. Values that depend on the wall clock are replaced before the comparison; the rules are the `baseRules` list of the script, each with its reason:
+The orange run of the Nexus IQ GoldenFix pipeline raises the golden pull request through the real wiring of `devSecOpsApi`: the Nexus IQ policy report and the batched remediation lookups, the GoldenFix worktree, the pre-check build of each changed manifest, the commit, the push and the Bitbucket pull request, answered by `GoldenFixResponder`. The scenario also checks that the checkout and the artifact build run before the Nexus IQ evaluation, that the report holds no SAST, SonarQube, test or release policy content, that a failing build stops the pipeline before Nexus IQ evaluates anything while the report keeps its Nexus IQ row and no SonarQube row, and that the InfluxDB lines carry `variant=nexusiq`, the project tag with `nexusiq` appended, and `pr_url` and `pr_title` on the `goldenfix` point.
+
+Every run is also compared with its golden file in `test/sandbox/golden`. A golden file holds the recorded steps (`node`, `sh`, `withCredentials`, `withEnv`, `writeYaml`, `copyArtifacts`, `archiveArtifacts`, ...), the build log without the `[INIT]` and `[POLICY]` lines, `release-gate.json`, the InfluxDB lines and the report. The eleven files of the full, security, extended and SAST pipelines were recorded on the library before the DevSecOps portal integration (commit b815d55), so they pin the behaviour of that release. The three files of the Nexus IQ GoldenFix pipeline (`nexus-iq-goldenfix-pipeline-*.txt`) were recorded with `RECORD_GOLDEN=1` when that pipeline was added and reviewed by hand; they pin its behaviour from then on and are not evidence of the earlier release. The `baselines` map of the script names, for every golden, when it was recorded and which extra rules apply. Values that depend on the wall clock are replaced before every comparison; the rules are the `baseRules` list of the script, each with its reason:
 
 | Rule | Reason |
 |------|--------|
@@ -61,8 +64,9 @@ Every run is also compared with its golden file in `test/sandbox/golden`. A gold
 | the trailing epoch second of an InfluxDB line becomes `<s>` | InfluxDB points carry the epoch second of the run |
 | `start_time`, `end_time`, `duration_ms`, `duration_s`, `lead_time_s` become `<n>` | stage and job timings are measured on the wall clock |
 | `duration=...` in the log and rendered durations in the report become `<d>` | durations are measured on the wall clock |
+| `yyyy-MM-ddTHH:mm:ssZ` becomes `<time>` | the portal documents are stamped with the UTC time they were read |
 
-The runs on the portal branch read the same values from portal documents (built from `test/fixtures/defaults.yaml` and `test/fixtures/CertScanner/config.yaml`) instead of `config.yaml` and `defaults.yaml`. Before the comparison both sides also pass through these rules:
+The runs on the portal branch read the same values from portal documents (built from `test/fixtures/defaults.yaml` and `test/fixtures/CertScanner/config.yaml`) instead of `config.yaml` and `defaults.yaml`. Before the comparison with a b815d55 golden both sides also pass through these rules; the Nexus IQ GoldenFix goldens are compared with the base rules only, so the portal read, the run-state file, `build_evidence` and the report header are pinned exactly:
 
 | Rule | Reason |
 |------|--------|
@@ -77,7 +81,7 @@ When a run differs, the script writes `<name>.actual.txt` next to the golden fil
 
 ### DevSecOps portal scenarios (`test/sandbox/PortalScenarios.groovy`)
 
-Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown or revoked key; an empty answer; a key of another pipeline type or product; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_URL` and addresses with a user, a query or no scheme (never repeated in the message); a trailing slash; an unreachable portal, an untrusted certificate, a router without a portal, a wrong address and a failing portal (one message with the cause, the address and the DevSecOps team, and the build description says the portal is unavailable); a `curl` error that holds the key; an answer that is not JSON; a Windows bootstrap agent; the read in place inside a `node`; the bootstrap agent `linux-agent` outside a node; the recorded query script (`#!/bin/sh`, `set +x`, no key, one GET per key with retries); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
+Drives `ConfigLoader.load()` and `initialize()`, the entry points and `devSecOpsApi` against the fake portal: a missing, malformed, unknown or revoked key; a missing key in the Nexus IQ GoldenFix entry point (the message names its call and its variant); an empty answer; a key of another pipeline type or product, including a Nexus IQ GoldenFix key in another entry point and another key in the Nexus IQ GoldenFix entry point; a service the Nexus IQ GoldenFix pipeline would not scan (no Nexus IQ application or no scan patterns), which stops it at the start and no other pipeline; two keys for one service; several keys (the first is the primary project, the order is kept in `PROJECT_NAMES`, `projectsAllCfg` and `pipeline-config.yaml`); `initialize()` without `configure()`; a missing `DSO_PORTAL_URL` and addresses with a user, a query or no scheme (never repeated in the message); a trailing slash; an unreachable portal, an untrusted certificate, a router without a portal, a wrong address and a failing portal (one message with the cause, the address and the DevSecOps team, and the build description says the portal is unavailable); a `curl` error that holds the key; an answer that is not JSON; a Windows bootstrap agent; the read in place inside a `node`; the bootstrap agent `linux-agent` outside a node; the recorded query script (`#!/bin/sh`, `set +x`, no key, one GET per key with retries); the extended handoff (the overlay of the run-time tags, a missing `pipeline-config.yaml`, a service the security run did not build, a tag that is not a plain tag); a standalone extended pipeline; an agent-level `PROXY_HOST` over the portal value; and remote test jobs with `tokenCredentialsId`.
 
 ### Compatibility scenarios (`test/sandbox/CompatibilityScenarios.groovy`)
 
@@ -109,6 +113,7 @@ Documents exported from a real portal for the CertScanner demo product replace t
 | `SandboxHarness` | Compiles `src` and `vars` with the sandbox transformer and runs bodies inside the sandbox |
 | `PipelineDslWhitelist`, `VarsWhitelist`, `LibraryClassesWhitelist` | What Jenkins permits for steps, global variables and library classes |
 | `PortalFixtures` | Builds the DevSecOps portal documents of a scenario and publishes them under generated pipeline keys |
+| `GoldenFixResponder` | Answers the GoldenFix shell steps and the Nexus IQ and Bitbucket REST calls of the CertScanner `gui` service (policy report, remediation versions, worktree manifests, commit, pull request); shared by the sandbox and the pipeline scenarios |
 
 The fake behaves like Jenkins where the library depends on it:
 
