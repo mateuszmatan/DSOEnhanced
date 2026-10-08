@@ -24,6 +24,14 @@ def unitTests(def api) {
     }
 }
 
+def buildArtifacts(def api) {
+    api.runStage('Build artifact') {
+        api.eachProject {
+            api.buildArtifact()
+        }
+    }
+}
+
 def dependenciesScan(def api) {
     api.runStage('Dependencies scan (Nexus IQ)') {
         api.eachProject {

@@ -6,6 +6,7 @@ import devsecops.test.FakeQualityGate
 import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
+import devsecops.test.GoldenFixResponder
 import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
@@ -17,11 +18,13 @@ File varsDir = new File(root, 'vars')
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
 Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
-Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast']
+Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast',
+                devSecOpsNexusIqGoldenFixPipeline: 'nexusiq']
 String securityJob = 'DevSecOps/CertScanner-security-pipeline'
 
 String MONITOR = 'Monitor source changes (download sources)'
 String UNIT = 'Unit tests'
+String BUILD = 'Build artifact'
 String NIQ = 'Dependencies scan (Nexus IQ)'
 String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
@@ -118,6 +121,8 @@ Closure runPipeline = { Map spec ->
     j.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/bin/appscan.sh'
     j.files['.appscan-logs/proxy.pass'] = 'proxy-secret'
     j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
+    List<String> goldenFixCalls = []
+    if (spec.goldenFix) GoldenFixResponder.plantManifests(j)
 
     Closure project = { -> (j.env.CURRENT_PROJECT_NAME ?: 'gui') as String }
     Closure relative = { String path -> path.startsWith('/ws/') ? path.substring(4) : path }
@@ -127,6 +132,7 @@ Closure runPipeline = { Map spec ->
         Map d = data[project()] ?: data.gui
         if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
         if (spec.breakSast && text.contains('api_login')) throw new FakeAbort('script returned exit code 1')
+        if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
         if (a.returnStatus) return 0
         def move = text =~ /mv '([^']+)' '([^']+)'/
         if (move.find() && j.files.containsKey(relative(move.group(1)))) j.files[relative(move.group(2))] = j.files.remove(relative(move.group(1)))
@@ -136,6 +142,8 @@ Closure runPipeline = { Map spec ->
         if (dastDownload.find()) j.files[relative(dastDownload.group(1))] = dastDownload.group(1).endsWith('.pdf') ? '%PDF-1.7' : issuesHtml(d.dast as List)
         if (text.contains('.irx')) j.files["${j.env.APPSCAN_SCAN_NAME}.irx".toString()] = 'irx'
         if (!a.returnStdout) return null
+        Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls) : null
+        if (goldenFix != null) return goldenFix
         List c = d.coverage as List
         if (text.contains("findall('package')")) return "com.bbh.certscanner,CertificateService,CertificateService.java,${c[0]},${c[1]},${c[2]},${(c[1] as int) + (c[2] as int)}"
         if (text.contains('xml.etree.ElementTree')) return "${c[0]},${c[1]},${c[2]}"
@@ -154,7 +162,9 @@ Closure runPipeline = { Map spec ->
         if (text.contains('head -n 1')) return project() == 'gui' ? 'build/libs/cert-scanner-gui.jar' : 'target/certscanner-api.jar'
         return ''
     }
+    List<Integer> evaluatedAt = []
     j.steps['nexusPolicyEvaluation'] = { Map a ->
+        evaluatedAt << j.calls.size()
         List n = data[project()].niq as List
         new FakeIqEvaluation(criticalComponentCount: n[0] as int, severeComponentCount: n[1] as int, moderateComponentCount: n[2] as int,
                 applicationCompositionReportUrl: "https://tools.bbh.com/IQ/ui/links/application/${a.iqApplication}/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0".toString())
@@ -179,7 +189,8 @@ Closure runPipeline = { Map spec ->
     } catch (Throwable t) {
         crash = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
-    return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String]
+    return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String,
+            goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt]
 }
 
 List<String> staticStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
@@ -188,13 +199,16 @@ List<String> fullStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRES
 
 File goldenDir = new File(root, 'test/sandbox/golden')
 
+Closure influxOf = { FakeScript j ->
+    j.files.findAll { k, v -> (k as String).startsWith('influx_payload_') }.collect { k, v -> v as String }.join('\n')
+}
+
 Closure goldenView = { Map r ->
     FakeScript j = r.j as FakeScript
-    List<String> influx = j.files.findAll { k, v -> (k as String).startsWith('influx_payload_') }.collect { k, v -> v as String }
     return ['== calls', j.calls.join('\n'),
             '== log', j.log.findAll { !it.startsWith('[INIT]') && !it.startsWith('[POLICY]') }.join('\n'),
             '== release-gate.json', (j.files['release-gate.json'] ?: '') as String,
-            '== influx', influx.join('\n'),
+            '== influx', influxOf(j),
             '== report', r.html as String].join('\n') + '\n'
 }
 
@@ -208,7 +222,8 @@ List<Map> baseRules = [
         rule('InfluxDB points carry the epoch second of the run', /(?m) \d{10}$/, ' <s>'),
         rule('stage and job timings are measured on the wall clock', /\b(start_time|end_time|duration_ms|duration_s|lead_time_s)=\d+i/, '$1=<n>i'),
         rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
-        rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><')
+        rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
+        rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>')
 ]
 List<Map> portalRules = [
         rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
@@ -231,6 +246,11 @@ Closure normalise = { String text, List<Map> rules ->
     return out
 }
 
+Map baselines = [
+        b815d55: [recorded: 'on the library before the portal integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: portalRules],
+        nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
+]
+
 List<Map> specs = [
         [name: 'security pipeline, green', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline', buildNumber: 212,
          params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'],
@@ -244,6 +264,12 @@ List<Map> specs = [
          params: [:], executed: [MONITOR, SAST], skipped: [], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'SAST pipeline, orange', var: 'devSecOpsSASTScanningPipeline', fail: true, job: 'CertScanner-sast-pipeline', buildNumber: 88,
          params: [:], executed: [MONITOR, SAST], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
+        [name: 'Nexus IQ GoldenFix pipeline, green', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, job: 'CertScanner-nexusiq-pipeline', buildNumber: 61,
+         params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'SUCCESS', post: ['always', 'success'], baseline: 'nexusiq'],
+        [name: 'Nexus IQ GoldenFix pipeline, orange', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: true, goldenFix: true, job: 'CertScanner-nexusiq-pipeline',
+         buildNumber: 62, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable'], baseline: 'nexusiq'],
+        [name: 'Nexus IQ GoldenFix pipeline, build failure', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, breakBuild: true, job: 'CertScanner-nexusiq-pipeline',
+         buildNumber: 63, params: [:], executed: [MONITOR], skipped: [NIQ], result: 'FAILURE', post: ['always', 'failure'], failedStage: BUILD, baseline: 'nexusiq'],
         [name: 'extended pipeline, green', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 118,
          params: [DEPLOY_HIGHER_ENV: true],
          executed: extendedStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'], dastDisabledFor: 'backend-api'],
@@ -324,6 +350,40 @@ specs.each { Map spec ->
         check("${name}: sources are checked out and only the SAST content is reported", j.calls.contains('checkout')
                 && !html.contains('Nexus IQ') && !html.contains('Release policy'), 'checkout missing or foreign content rendered')
     }
+    if (spec.var == 'devSecOpsNexusIqGoldenFixPipeline') {
+        List builds = j.calls.findIndexValues { it.startsWith('sh [Gradle: ') || it.startsWith('sh [Maven: ') }
+        List evaluatedAt = r.evaluatedAt as List
+        if (spec.failedStage) {
+            check("${name}: the failed build stops the pipeline before Nexus IQ evaluates anything and the report keeps the Nexus IQ summary row",
+                    j.calls.contains('checkout') && builds.size() == 1 && evaluatedAt.isEmpty() && html.contains("<td style='padding:10px 14px;font-weight:600;'>Nexus IQ</td>"),
+                    "builds at ${builds}, Nexus IQ evaluations at ${evaluatedAt}")
+        } else {
+            check("${name}: sources are checked out and every service is built before Nexus IQ evaluates the built artifacts",
+                    j.calls.contains('checkout') && builds.size() == 2 && evaluatedAt.size() == 2 && (builds.max() as int) < (evaluatedAt.min() as int),
+                    "builds at ${builds}, Nexus IQ evaluations at ${evaluatedAt}")
+        }
+        check("${name}: the report shows the Nexus IQ scan${spec.goldenFix ? ', the Nexus IQ GoldenFix card and the pull request' : ''}, no SAST, SonarQube or release policy, and the missing test banner only when the scan did not run",
+                html.contains('Nexus IQ') && (!spec.goldenFix || (html.contains('<h2>Nexus IQ GoldenFix</h2>') && html.contains(GoldenFixResponder.PULL_REQUEST_URL)))
+                        && !html.contains('SAST (AppScan)') && !html.contains('SCA (SonarQube)') && !html.contains('Release policy')
+                        && html.contains('TESTS WERE NOT EXECUTED') == (spec.failedStage != null),
+                'Nexus IQ content missing or foreign content rendered')
+        String influx = influxOf(j)
+        String goldenFixLine = influx.readLines().find { it.startsWith('goldenfix,') && it.contains(',module=gui,') } ?: ''
+        check("${name}: the metrics carry project=CertScannernexusiq and variant=nexusiq${spec.goldenFix ? ', the goldenfix point the pull request' : ''}",
+                influx.contains('pipeline_run,project=CertScannernexusiq,env=test,variant=nexusiq,') && influx.contains('dora,project=CertScannernexusiq,env=test,variant=nexusiq ')
+                        && (!spec.goldenFix || (goldenFixLine.contains(',status=PR_CREATED ')
+                        && goldenFixLine.contains(",pr_url=\"${GoldenFixResponder.PULL_REQUEST_URL}\",pr_title=\"GoldenFix-${GoldenFixResponder.STAMP}\" ".toString()))),
+                influx.readLines().findAll { it.startsWith('pipeline_run,') || it.startsWith('goldenfix,') }.join('\n      '))
+    }
+    if (spec.goldenFix) {
+        List<String> gfCalls = r.goldenFixCalls as List<String>
+        check("${name}: the Nexus IQ policy violation raises the golden pull request through the real vars and production wiring",
+                gfCalls.contains("PR GoldenFix-${GoldenFixResponder.STAMP} refs/heads/GoldenFix-${GoldenFixResponder.STAMP} -> refs/heads/develop".toString())
+                        && gfCalls.contains('BATCH sh with 4 request(s)')
+                        && ['GoldenFix: prepare worktree', 'GoldenFix: pre-check gradle', 'GoldenFix: git push', 'GoldenFix: remove worktree'].every { String step -> j.calls.any { it.startsWith("sh [${step}".toString()) } }
+                        && log.contains("[GOLDENFIX] GoldenFix pull request GoldenFix-${GoldenFixResponder.STAMP} raised: ${GoldenFixResponder.PULL_REQUEST_URL}".toString()),
+                (gfCalls + log.findAll { it.startsWith('[GOLDENFIX]') }).join('\n      '))
+    }
     if (spec.dastDisabledFor) {
         check("${name}: DAST is marked as not required for the project that does not configure it and nothing is blocked",
                 log.any { it.contains('[DAST] Disabled in config') } && html.contains('NOT REQUIRED')
@@ -357,6 +417,7 @@ specs.each { Map spec ->
     List unhandled = j.unhandled.unique()
     if (unhandled) println "      note: steps not emulated by the fake Jenkins: ${unhandled}"
     String slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/, '-')
+    Map baseline = baselines[spec.baseline ?: 'b815d55'] as Map
     String actual = normalise(goldenView(r), baseRules)
     File golden = new File(goldenDir, "${slug}.txt")
     if (!golden.exists() && System.getenv('RECORD_GOLDEN') == '1') {
@@ -365,14 +426,13 @@ specs.each { Map spec ->
         println "      note: golden output recorded at ${golden}"
     }
     if (!golden.exists()) {
-        check("${name}: a golden output recorded on the library before the portal integration exists", false,
-                "${golden} is missing; record it on b815d55 with RECORD_GOLDEN=1")
+        check("${name}: a golden output recorded ${baseline.recorded} exists", false, "${golden} is missing; ${baseline.record}")
         return
     }
-    boolean same = normalise(golden.text, portalRules) == normalise(actual, portalRules)
+    boolean same = normalise(golden.text, baseline.rules as List<Map>) == normalise(actual, baseline.rules as List<Map>)
     File diffFile = new File(goldenDir, "${slug}.actual.txt")
     if (same) diffFile.delete() else diffFile.text = actual
-    check("${name}: the run matches the golden output recorded on the library before the portal integration", same,
+    check("${name}: the run matches the golden output recorded ${baseline.recorded}", same,
             "compare ${golden} with ${diffFile}")
 }
 

@@ -50,6 +50,7 @@ expected = {
     'vars/devSecOpsSecurityPipeline.groovy': security,
     'vars/devSecOpsExtendedPipeline.groovy': extended,
     'vars/devSecOpsSASTScanningPipeline.groovy': [monitor, 'SAST - Static Application Security Tests - HCL AppScan'],
+    'vars/devSecOpsNexusIqGoldenFixPipeline.groovy': [monitor, 'Build artifact', 'Dependencies scan (Nexus IQ)'],
 }
 for f, want in expected.items():
     got = re.findall(r"^\s+stage\('(.+?)'\)", open(f).read(), re.M)

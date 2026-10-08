@@ -9,6 +9,7 @@ class ConfigLoader implements Serializable {
     private final def                script
     private final PipelineState      state
     private final PortalConfigReader reader
+    private String                   variant = ''
 
     ConfigLoader(def script, PipelineState state) {
         this.script = script
@@ -17,8 +18,9 @@ class ConfigLoader implements Serializable {
     }
 
     Map load(String variant, Map jenkinsfile) {
-        Map entryPoints = [full: 'devSecOpsPipeline', security: 'devSecOpsSecurityPipeline',
-                           extended: 'devSecOpsExtendedPipeline', sast: 'devSecOpsSASTScanningPipeline']
+        this.variant = variant
+        Map entryPoints = [full: 'devSecOpsPipeline', security: 'devSecOpsSecurityPipeline', extended: 'devSecOpsExtendedPipeline',
+                           sast: 'devSecOpsSASTScanningPipeline', nexusiq: 'devSecOpsNexusIqGoldenFixPipeline']
         def given = jenkinsfile.pipelineKeys ?: jenkinsfile.pipelineKey
         List keys = given instanceof List ? (given as List) : (given ? [given] : [])
         if (!keys) {
@@ -98,6 +100,8 @@ class ConfigLoader implements Serializable {
         def keyId = state.cfg.asoc?.keyId?.trim()
         if (!keyId) script.error "[INIT] asoc.keyId must be set for the service in the DevSecOps portal"
         script.env.APPSCAN_KEY_ID = keyId
+        List unscanned = variant == 'nexusiq' ? withoutNexusIqScan(projectNames as List) : []
+        if (unscanned) script.error "[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for ${unscanned.join(', ')}: set tools.nexusIq.application and its scanPatterns for the service in the DevSecOps portal"
 
         applyPolicy()
         script.echo "[INIT] OS: ${script.env.OS_TYPE ?: 'linux'}"
@@ -138,6 +142,16 @@ class ConfigLoader implements Serializable {
             }
         }
         return ''
+    }
+
+    @NonCPS
+    private List withoutNexusIqScan(List names) {
+        return names.findAll { name ->
+            Map niq = (state.projectsAllCfg[name]?.tools?.nexusIq ?: [:]) as Map
+            def app = niq.application
+            Map apps = app instanceof Map ? app as Map : (app ? [(app): niq] : [:])
+            !apps || apps.values().any { !(it instanceof Map) || !(it as Map).scanPatterns }
+        }
     }
 
     @NonCPS

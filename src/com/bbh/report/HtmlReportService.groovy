@@ -833,7 +833,7 @@ class HtmlReportService implements Serializable {
 
         if (showScannerSummaryRows()) {
             sb.append(nexusIqSingleRow(ctx))
-            sb.append(sonarSingleRow(ctx))
+            if (variant != 'nexusiq') sb.append(sonarSingleRow(ctx))
         }
         return sb.toString()
     }
@@ -1093,7 +1093,7 @@ class HtmlReportService implements Serializable {
         return banner('TESTS WERE NOT EXECUTED')
     }
     @NonCPS protected boolean showsReleasePolicy() {
-        return variant != 'sast'
+        return variant != 'sast' && variant != 'nexusiq'
     }
     @NonCPS protected String failureReasonHtml(String firstFailed) {
         if (!firstFailed) return ''
@@ -1231,6 +1231,7 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
     static Map layout(String variant) {
         String monitor     = 'Monitor source changes (download sources)'
         String unit        = 'Unit tests'
+        String build       = 'Build artifact'
         String niq         = 'Dependencies scan (Nexus IQ)'
         String sast        = 'SAST - Static Application Security Tests - HCL AppScan'
         String sonar       = 'SCA (SonarQube)'
@@ -1256,6 +1257,18 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
                             [label: 'Static security scan', color: '#2563eb', stages: [sast]]
                     ],
                     reportsToParse: ['sast']
+            ]
+        }
+        if (variant == 'nexusiq') {
+            return [
+                    appscanScnrs  : [],
+                    stageOrder    : [monitor, build, niq],
+                    secStageNames : [niq],
+                    phaseGroups   : [
+                            [label: 'Dev', color: '#3b82f6', stages: [monitor, build]],
+                            [label: 'Dependency scan & GoldenFix', color: '#2563eb', stages: [niq]]
+                    ],
+                    reportsToParse: []
             ]
         }
         if (variant == 'security') {

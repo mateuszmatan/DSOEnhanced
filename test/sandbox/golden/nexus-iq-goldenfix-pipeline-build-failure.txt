@@ -1,0 +1,131 @@
+== calls
+node linux-agent
+withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-63, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
+sh [Read the configuration from the DevSecOps portal] #!/bin/sh
+set +x
+umask 077
+mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
+i=0
+for key in $DSO_PORTAL_KEYS; do
+  : > "body-$i"
+  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
+    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
+  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
+  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
+  i=$((i + 1))
+done
+
+deleteDir /ws@tmp/dso-portal-63
+agent linux-agent
+checkout
+sh uname -s 2>/dev/null || echo Linux
+sh chmod +x 'gradlew' 2>/dev/null || true
+sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: clean build bootJar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh mkdir -p /ws/report
+sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
+sh rm -f 'influx_payload_<ms>.txt'
+archiveArtifacts report/pipeline-report.html
+publishHTML pipeline-report.html
+cleanWs
+== log
+[PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
+[PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
+------------------------------------------------------------
+[STAGE]  Monitor source changes (download sources)
+[RESULT] PASS
+------------------------------------------------------------
+Detected tool from config file is gradle
+[BUILD] Tool: gradle OS: linux
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] FAIL
+------------------------------------------------------------
+[REPORT] Pipeline report written to pipeline-report.html
+[RELEASE-GATE] State written to release-gate.json (allowed=false)
+[INFLUX] 20 metric line(s) for CertScannernexusiq (test), build 63, result FAILURE
+[INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+Vulnerabilities above the policy severity: Nexus IQ critical=0, high=0, medium=0
+-----------------------------------------------------------------
+--- Pipeline finished ---
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+--- Pipeline FAILED ---
+-----------------------------------------------------------------
+== release-gate.json
+{"job":"DevSecOps/CertScanner-nexusiq-pipeline","build":"63","allowed":false,"violations":["stage 'Build artifact' is FAIL"]}
+== influx
+deployments,project=CertScannernexusiq,env=test count=1 <s>
+change_failure,project=CertScannernexusiq,env=test value=1i <s>
+build_duration,project=CertScannernexusiq,env=test value=0i <s>
+stage_metric,project=CertScannernexusiq,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannernexusiq,env=test,stage=Build\ artifact result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+vulnerabilities,project=CertScannernexusiq,env=test,scanner=sast critical=0i,high=0i,medium=0i,low=0i <s>
+vulnerabilities,project=CertScannernexusiq,env=test,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
+pipeline_run,project=CertScannernexusiq,env=test,variant=nexusiq,result=FAILURE,branch=origin/develop build=63i,duration_s=<n>i,success=0i,unstable=0i,stages_total=2i,passed=1i,warned=0i,failed=1i,blocked=0i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-nexusiq-pipeline" <s>
+dora,project=CertScannernexusiq,env=test,variant=nexusiq deployment=0i,change_failure=1i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
+stage_event,project=CertScannernexusiq,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
+stage_event,project=CertScannernexusiq,env=test,stage=Build\ artifact,status=FAIL duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=2i,reason="" <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sca,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=dast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=iast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=coverage,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
+build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="63",sonar_quality_gate="NONE",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
+build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="63",sonar_quality_gate="NONE",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
+release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=2i,reason="Nexus release and QC deployment blocked: stage 'Build artifact' is FAIL (previous pipeline) | stage 'Build artifact' is FAIL" <s>
+== report
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Pipeline Report - DevSecOps/CertScanner-nexusiq-pipeline #63</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; min-height: 100vh; }
+.container { margin: 0 auto; padding: 16px; }
+h2 { font-size: 0.95rem; margin-bottom: 12px; color: #111827; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.card { background: #fff; border-radius: 4px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+td { border-bottom: 1px solid #f1f5f9; }
+tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class='container' style='max-width:1250px;width:100%;box-sizing:border-box;'>
+<div style='background:linear-gradient(135deg,#b91c1c,#ef4444);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
+<div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>FAILURE</div>
+<div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-nexusiq-pipeline &nbsp;&bull;&nbsp; Build #63</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
+<div style='margin-top:6px;background:rgba(0,0,0,0.25);border-radius:3px;padding:5px 10px;font-size:0.8rem;font-weight:600;letter-spacing:0.1px;'>Failed at stage: Build artifact</div>
+</div>
+<div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
+<div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
+<h2>Pipeline Stages</h2>
+<div style='display:flex;flex-direction:column;gap:0;'><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#3b82f6;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dev</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fca5a5;border-left:3px solid #dc2626;background:#fef2f2;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Build artifact - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#dc2626;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>FAIL</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fca5a5;border-left:3px solid #dc2626;background:#fef2f2;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Build artifact - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#dc2626;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>FAIL</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#2563eb;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dependency scan & GoldenFix</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #fca5a5;border-left:3px solid #dc2626;background:#fef2f2;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#dc2626;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>FAIL</span></div></div></div><div style='background:#fef2f2;border:1px solid #fca5a5;border-top:none;border-left:3px solid #dc2626;padding:5px 10px 5px 35px;font-size:0.78rem;color:#991b1b;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> Stage not executed - pipeline blocked by previous failure</div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #fca5a5;border-left:3px solid #dc2626;background:#fef2f2;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - backend-api</span></div></div><div style='flex:0 0 auto;'><span style='background:#dc2626;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>FAIL</span></div></div></div><div style='background:#fef2f2;border:1px solid #fca5a5;border-top:none;border-left:3px solid #dc2626;padding:5px 10px 5px 35px;font-size:0.78rem;color:#991b1b;overflow-wrap:anywhere;word-break:break-word;'><strong>Reason:</strong> Stage not executed - pipeline blocked by previous failure</div></div></div></div>
+</div>
+<div style='flex:1.4;min-width:620px;'>
+<div class='card' style='margin-top:0;'>
+<h2>Security Gates</h2><div style='background:#dc2626;color:#fff;font-weight:700;text-align:center;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:0.85rem;letter-spacing:0.5px;'>TESTS WERE NOT EXECUTED</div><div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Scanner</th><th style='text-align:center;'>Critical</th><th style='text-align:center;'>High</th><th style='text-align:center;'>Medium</th><th style='text-align:center;'>Low</th><th style='text-align:center;'>Policy</th><th style='text-align:center;white-space:nowrap;'>Report / Dashboard</th></tr></thead><tbody><tr><td style='padding:10px 14px;font-weight:600;'>Nexus IQ</td><td style='text-align:center;padding:6px 10px;color:#9ca3af;'><d></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;'><d></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;'><d></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;'><d></td><td style='text-align:center;padding:6px 10px;'><span style='background:#6b7280;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>SKIP</span></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;'><d></td></tr></tbody></table></div>
+</div>
+
+
+
+
+
+</div>
+</div>
+</div>
+</body>
+</html>

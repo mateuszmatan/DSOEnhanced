@@ -9,6 +9,7 @@ import com.bbh.core.ReleaseGate
 import com.bbh.deploy.OpenshiftService
 import com.bbh.deploy.VmDeployService
 import com.bbh.metrics.InfluxDbService
+import com.bbh.metrics.PipelineMetrics
 import com.bbh.remediation.GoldenFixService
 import com.bbh.remediation.updater.GradleUpdater
 import com.bbh.remediation.updater.MavenPomUpdater
@@ -159,6 +160,10 @@ def finishPipeline(Map options = [:]) {
 
 def vulnerabilitySummary() {
     _setup()
+    if (_variant == 'nexusiq') {
+        Map niq = PipelineMetrics.nexusIqTotals(_state)
+        return "Vulnerabilities above the policy severity: Nexus IQ critical=${niq.critical ?: 0}, high=${niq.high ?: 0}, medium=${niq.medium ?: 0}"
+    }
     def sast = _state.vulnCounts.sast ?: [critical: 0, high: 0, medium: 0]
     def dast = _state.vulnCounts.dast ?: [critical: 0, high: 0, medium: 0]
     int sastTotal = ((sast.critical ?: 0) as int) + ((sast.high ?: 0) as int) + ((sast.medium ?: 0) as int)

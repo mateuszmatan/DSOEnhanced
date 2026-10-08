@@ -1,0 +1,158 @@
+== calls
+node linux-agent
+withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-61, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
+sh [Read the configuration from the DevSecOps portal] #!/bin/sh
+set +x
+umask 077
+mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
+i=0
+for key in $DSO_PORTAL_KEYS; do
+  : > "body-$i"
+  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
+    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
+  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
+  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
+  i=$((i + 1))
+done
+
+deleteDir /ws@tmp/dso-portal-61
+agent linux-agent
+checkout
+sh uname -s 2>/dev/null || echo Linux
+sh chmod +x 'gradlew' 2>/dev/null || true
+sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: clean build bootJar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh mvn -v
+sh mvn -version
+withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
+sh [Maven: clean verify] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'clean' 'verify' '-B' '-U'
+        
+sh mkdir -p /ws/report
+sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
+sh rm -f 'influx_payload_<ms>.txt'
+archiveArtifacts report/pipeline-report.html
+publishHTML pipeline-report.html
+cleanWs
+== log
+[PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
+[PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
+------------------------------------------------------------
+[STAGE]  Monitor source changes (download sources)
+[RESULT] PASS
+------------------------------------------------------------
+Detected tool from config file is gradle
+[BUILD] Tool: gradle OS: linux
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+Detected tool from config file is maven
+[BUILD] Tool: maven OS: linux
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] PASS
+------------------------------------------------------------
+[DEP-SCAN] Application: CertValidityMonitoring-GUI | Server: https://tools.bbh.com/IQ
+[DEP-SCAN] Application: CertValidityMonitoring-GUI - C:0 H:0 M:0
+[DEP-SCAN] Policy satisfied.
+[DEP-SCAN] Application: CertValidityMonitoring-Backend | Server: https://tools.bbh.com/IQ
+[DEP-SCAN] Application: CertValidityMonitoring-Backend - C:0 H:0 M:0
+[DEP-SCAN] Policy satisfied.
+------------------------------------------------------------
+[STAGE]  Dependencies scan (Nexus IQ)
+[RESULT] PASS
+------------------------------------------------------------
+[REPORT] Pipeline report written to pipeline-report.html
+[RELEASE-GATE] State written to release-gate.json (allowed=true)
+[INFLUX] 25 metric line(s) for CertScannernexusiq (test), build 61, result SUCCESS
+[INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+Vulnerabilities above the policy severity: Nexus IQ critical=0, high=0, medium=0
+-----------------------------------------------------------------
+--- Pipeline finished ---
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+--- Pipeline completed successfully! ---
+-----------------------------------------------------------------
+== release-gate.json
+{"job":"DevSecOps/CertScanner-nexusiq-pipeline","build":"61","allowed":true,"violations":[]}
+== influx
+deployments,project=CertScannernexusiq,env=test count=1 <s>
+change_failure,project=CertScannernexusiq,env=test value=0i <s>
+build_duration,project=CertScannernexusiq,env=test value=0i <s>
+stage_metric,project=CertScannernexusiq,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannernexusiq,env=test,stage=Build\ artifact result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannernexusiq,env=test,stage=Dependencies\ scan\ (Nexus\ IQ) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+vulnerabilities,project=CertScannernexusiq,env=test,scanner=sast critical=0i,high=0i,medium=0i,low=0i <s>
+vulnerabilities,project=CertScannernexusiq,env=test,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
+vulnerabilities,project=CertScannernexusiq,env=test,scanner=nexusiq critical=0i,high=0i,medium=0i,low=0i <s>
+pipeline_run,project=CertScannernexusiq,env=test,variant=nexusiq,result=SUCCESS,branch=origin/develop build=61i,duration_s=<n>i,success=1i,unstable=0i,stages_total=3i,passed=3i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-nexusiq-pipeline" <s>
+dora,project=CertScannernexusiq,env=test,variant=nexusiq deployment=0i,change_failure=0i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
+stage_event,project=CertScannernexusiq,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
+stage_event,project=CertScannernexusiq,env=test,stage=Build\ artifact,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=CertScannernexusiq,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
+security_findings,project=CertScannernexusiq,env=test,module=gui,scanner=niq,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannernexusiq,env=test,module=backend-api,scanner=niq,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sca,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=dast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=iast,status=PASS ok=1i,measured=1i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=coverage,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=CertScannernexusiq,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
+build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="61",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
+build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="61",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
+release_gate,project=CertScannernexusiq,env=test,allowed=yes allowed=1i,blocked=0i,violations=0i,reason="" <s>
+== report
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Pipeline Report - DevSecOps/CertScanner-nexusiq-pipeline #61</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; min-height: 100vh; }
+.container { margin: 0 auto; padding: 16px; }
+h2 { font-size: 0.95rem; margin-bottom: 12px; color: #111827; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.card { background: #fff; border-radius: 4px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+td { border-bottom: 1px solid #f1f5f9; }
+tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class='container' style='max-width:1250px;width:100%;box-sizing:border-box;'>
+<div style='background:linear-gradient(135deg,#15803d,#22c55e);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
+<div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>SUCCESS</div>
+<div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-nexusiq-pipeline &nbsp;&bull;&nbsp; Build #61</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
+
+</div>
+<div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
+<div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
+<h2>Pipeline Stages</h2>
+<div style='display:flex;flex-direction:column;gap:0;'><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#3b82f6;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dev</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Build artifact - gui</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Build artifact - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#2563eb;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dependency scan & GoldenFix</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - gui</span></div><div style='margin-top:2px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;S:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;M:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span></div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>Nexus IQ</a></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3.2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Dependencies scan (Nexus IQ) - backend-api</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:2px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;S:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span>&nbsp;&nbsp;M:&nbsp;<span style='color:#166534;font-size:0.7rem;font-weight:700;'>0</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;0</span></div><div style='margin-top:3px;padding-left:25px;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>Nexus IQ</a></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div></div>
+</div>
+<div style='flex:1.4;min-width:620px;'>
+<div class='card' style='margin-top:0;'>
+<h2>Security Gates</h2><div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Project / Scanner</th><th style='text-align:center;'>Critical</th><th style='text-align:center;'>High</th><th style='text-align:center;'>Medium</th><th style='text-align:center;'>Low</th><th style='text-align:center;'>Policy</th><th style='text-align:center;white-space:nowrap;'>Report / Dashboard</th></tr></thead><tbody><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='7' style='padding:6px 14px;font-size:0.82rem;font-weight:700;color:#1d4ed8;letter-spacing:0.3px;'>gui</td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>Nexus IQ</td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;font-weight:600'><d></td><td style='text-align:center;padding:6px 10px;font-weight:600;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='text-align:center;padding:6px 10px;font-weight:600;line-height:1.7;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a><br><a href='https://tools.bbh.com/IQ/assets/index.html#/developer/priorities/CertValidityMonitoring-GUI/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Golden Fix</a></td></tr><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='7' style='padding:6px 14px;font-size:0.82rem;font-weight:700;color:#1d4ed8;letter-spacing:0.3px;'>backend-api</td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>Nexus IQ</td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;background:#f0fdf4;padding:5px 10px;'><span style='color:#166534;font-weight:700;font-size:0.88rem;'>0&nbsp;/&nbsp;0</span></td><td style='text-align:center;padding:6px 10px;color:#9ca3af;font-weight:600'><d></td><td style='text-align:center;padding:6px 10px;font-weight:600;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='text-align:center;padding:6px 10px;font-weight:600;line-height:1.7;'><a href='https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Dashboard</a><br><a href='https://tools.bbh.com/IQ/assets/index.html#/developer/priorities/CertValidityMonitoring-Backend/0f1e2d3c4b5a69788796a5b4c3d2e1f0' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Golden Fix</a></td></tr></tbody></table></div>
+</div>
+
+
+
+
+
+</div>
+</div>
+</div>
+</body>
+</html>

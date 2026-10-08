@@ -71,21 +71,31 @@ Closure initialize = { Map r ->
 
 Closure querySh = { FakeScript j -> j.calls.find { it.startsWith('sh [Read the configuration from the DevSecOps portal] ') } as String }
 
-FakeScript j = jenkins([:])
-Map<String, Object> globals = new SandboxHarness(srcDir, stubDir).loadVars(varsDir, j)
-FakeCpsScript entryPoint = globals['devSecOpsPipeline'] as FakeCpsScript
-String crash = ''
-try {
-    new SandboxHarness(srcDir, stubDir).run { entryPoint.call([:]) }
-} catch (Throwable t) {
-    crash = failureOf(t)
+Closure runWithoutKey = { String name ->
+    FakeScript s = jenkins([:])
+    FakeCpsScript entryPoint = new SandboxHarness(srcDir, stubDir).loadVars(varsDir, s)[name] as FakeCpsScript
+    String crash = ''
+    try {
+        new SandboxHarness(srcDir, stubDir).run { entryPoint.call([:]) }
+    } catch (Throwable t) {
+        crash = failureOf(t)
+    }
+    boolean untouched = entryPoint.executedStages.isEmpty() && !s.files.containsKey('report/pipeline-report.html') && s.calls.isEmpty()
+    return [crash: crash, untouched: untouched, detail: "${crash} | stages ${entryPoint.executedStages} | calls ${s.calls}".toString()]
 }
-check('no key: the entry point fails before pipeline {} with the call to write and the portal',
-        crash.contains("devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')") && crash.contains('DevSecOps portal')
-                && entryPoint.executedStages.isEmpty() && !j.files.containsKey('report/pipeline-report.html') && j.calls.isEmpty(),
-        "${crash} | stages ${entryPoint.executedStages} | calls ${j.calls}")
 
-j = jenkins([:])
+Map noKey = runWithoutKey('devSecOpsPipeline')
+check('no key: the entry point fails before pipeline {} with the call to write and the portal',
+        noKey.crash.contains("devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')") && noKey.crash.contains('DevSecOps portal') && noKey.untouched,
+        noKey.detail)
+
+noKey = runWithoutKey('devSecOpsNexusIqGoldenFixPipeline')
+check('no key: the Nexus IQ GoldenFix entry point names its own call and its variant',
+        noKey.crash.contains("devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')")
+                && noKey.crash.contains("devSecOpsApi.configure('nexusiq', [pipelineKey: '<key from the DevSecOps portal>'])") && noKey.untouched,
+        noKey.detail)
+
+FakeScript j = jenkins([:])
 Map r = load(j, 'full', [pipelineKey: 'cert-scanner-gui'])
 check('malformed key: refused before anything runs', r.error.contains('is not a key of the DevSecOps portal') && j.calls.isEmpty(),
         "${r.error} | ${j.calls}")
@@ -113,6 +123,16 @@ String securityKey = PortalFixtures.publish(j, changed(gui, [type: 'security']))
 r = load(j, 'full', [pipelineKey: securityKey])
 check('type mismatch: names the type of the key and the type of the entry point',
         r.error.contains('configures a security pipeline') && r.error.contains('runs the full pipeline'), r.error)
+
+j = jenkins([:])
+r = load(j, 'sast', [pipelineKey: PortalFixtures.publish(j, changed(gui, [type: 'nexusiq']))])
+check('type mismatch: a Nexus IQ GoldenFix key run by another entry point is refused',
+        r.error.contains('configures a nexusiq pipeline, devSecOpsSASTScanningPipeline runs the sast pipeline'), r.error)
+
+j = jenkins([:])
+r = load(j, 'nexusiq', [pipelineKey: PortalFixtures.publish(j, changed(gui, [type: 'sast']))])
+check('type mismatch: the Nexus IQ GoldenFix entry point refuses the key of another pipeline type',
+        r.error.contains('configures a sast pipeline, devSecOpsNexusIqGoldenFixPipeline runs the nexusiq pipeline: use the key of the nexusiq pipeline of the service'), r.error)
 
 j = jenkins([:])
 List<String> keys = [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, changed(backend, [product: 'PAYHUB']))]
@@ -327,6 +347,23 @@ check('standalone extended pipeline: no copy, its own documents with the pinned 
                 && ((((r.state.projectsAllCfg as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd.buildTag == '200-20260901-000000'
                 && j.files.containsKey('pipeline-config.yaml'),
         initError)
+
+Closure nexusIqInit = { String variant, List<Map> documents ->
+    FakeScript s = jenkins([:])
+    Map loaded = load(s, variant, [pipelineKeys: documents.collect { PortalFixtures.publish(s, it) }])
+    return loaded.error ?: initialize(loaded)
+}
+Map noApplication = changed(gui, [type: 'nexusiq'])
+((((noApplication.projects as Map).gui as Map).tools as Map).nexusIq as Map).remove('application')
+Map noPatterns = changed(backend, [type: 'nexusiq'])
+((((noPatterns.projects as Map)['backend-api'] as Map).tools as Map).nexusIq as Map).scanPatterns = []
+String unscannedError = nexusIqInit('nexusiq', [noApplication, noPatterns])
+String fullError = nexusIqInit('full', [changed(noApplication, [type: 'full'])])
+String completeError = nexusIqInit('nexusiq', [changed(gui, [type: 'nexusiq']), changed(backend, [type: 'nexusiq'])])
+check('Nexus IQ GoldenFix pipeline: a service it would not scan stops the build at the start, the other pipelines and complete services are not affected',
+        unscannedError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui, backend-api: set tools.nexusIq.application and its scanPatterns for the service in the DevSecOps portal'
+                && !fullError && !completeError,
+        "${unscannedError} | ${fullError} | ${completeError}")
 
 j = jenkins([:])
 SandboxHarness buildHarness = new SandboxHarness(srcDir, stubDir)

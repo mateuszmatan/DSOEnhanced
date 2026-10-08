@@ -46,7 +46,7 @@ class PipelineMetrics implements Serializable {
             Map counts = (state.vulnCounts[scanner] ?: [:]) as Map
             out << MetricLine.of('vulnerabilities', base + [scanner: scanner], severityFields(counts), now)
         }
-        Map niq = totals((state.projectsNexusIqResults ?: [:]) as Map, (state.nexusIqResults ?: [:]) as Map)
+        Map niq = nexusIqTotals(state)
         if (niq) out << MetricLine.of('vulnerabilities', base + [scanner: 'nexusiq'], severityFields(niq), now)
         Map sonar = totals((state.projectsSonarResults ?: [:]) as Map, (state.sonarResults ?: [:]) as Map)
         if (sonar) out << MetricLine.of('vulnerabilities', base + [scanner: 'sonar'], severityFields(sonar), now)
@@ -326,7 +326,9 @@ class PipelineMetrics implements Serializable {
                     unresolved : MetricLine.integer(((value.unresolved ?: []) as List).size()),
                     pr_raised  : MetricLine.flag(raised),
                     build_check: MetricLine.flag(value.verified == true),
-                    build_failed: MetricLine.flag(status == 'BUILD_FAILED')
+                    build_failed: MetricLine.flag(status == 'BUILD_FAILED'),
+                    pr_url     : optional(raised ? value.prUrl : null),
+                    pr_title   : optional(raised ? value.prTitle : null)
             ], now)
         }
         return out
@@ -370,6 +372,11 @@ class PipelineMetrics implements Serializable {
                 medium  : MetricLine.integer(counts?.medium),
                 low     : MetricLine.integer(counts?.low)
         ]
+    }
+
+    @NonCPS
+    static Map nexusIqTotals(PipelineState state) {
+        return totals((state.projectsNexusIqResults ?: [:]) as Map, (state.nexusIqResults ?: [:]) as Map)
     }
 
     @NonCPS
