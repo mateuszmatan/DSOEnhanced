@@ -94,7 +94,9 @@ class GoldenFixService implements DependencyRemediation {
             return
         }
 
-        Map pr = (state.goldenFixPullRequest ?: [:]) as Map
+        Map prsByRepo = (state.goldenFixPullRequestsByRepo ?: [:]) as Map
+        String repoKey = normalizeRepoKey((scmCfg.url ?: scmCfg.cloneUrl ?: '') as String)
+        Map pr = (prsByRepo[repoKey] ?: [:]) as Map
         String title = (pr.title ?: "GoldenFix-${timestamp(cfg.timeZone as String)}") as String
         String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
         if (!targetBranch) {
@@ -142,7 +144,10 @@ class GoldenFixService implements DependencyRemediation {
                         sourceBranch: title,
                         targetBranch: targetBranch
                 ])
-                state.goldenFixPullRequest = [title: title, branch: title, targetBranch: targetBranch, url: created.url, id: created.id]
+                Map prEntry = [title: title, branch: title, targetBranch: targetBranch, url: created.url, id: created.id]
+                state.goldenFixPullRequest = prEntry
+                if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
+                state.goldenFixPullRequestsByRepo[repoKey] = prEntry
                 result.prUrl = created.url
                 finish(result, 'PR_CREATED', "GoldenFix pull request ${title} raised: ${created.url}")
             }
@@ -394,5 +399,10 @@ class GoldenFixService implements DependencyRemediation {
         sb.append("\n> Lock files (package-lock.json, yarn.lock, poetry.lock, pinned requirements) are not regenerated. ")
         sb.append("Rebuild and run the tests before merging.\n")
         return sb.toString()
+    }
+
+    @NonCPS
+    private static String normalizeRepoKey(String url) {
+        return (url ?: '').trim().toLowerCase().replaceAll(/\.git$/, '').replaceAll(/\/+$/, '')
     }
 }

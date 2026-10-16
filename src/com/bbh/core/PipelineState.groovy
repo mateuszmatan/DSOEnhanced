@@ -49,7 +49,8 @@ class PipelineState implements Serializable {
     Map projectsGoldenFix         = [:]
     Map projectsCoverage          = [:]
     Map projectsUnitTests         = [:]
-    Map goldenFixPullRequest      = [:]
+    Map goldenFixPullRequest        = [:]
+    Map goldenFixPullRequestsByRepo = [:]
 
     void stagePass(String name) {
         List kept = ['NOT_REQUIRED', 'BLOCKED', 'WARN', 'FAIL']
