@@ -798,8 +798,13 @@ sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshif
 sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:212
 sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:latest
 sh mkdir -p /ws/report
-sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
-sh rm -f 'influx_payload_<ms>.txt'
+withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
+sh set +x
+code=$(curl -sS -o "$INFLUX_RESPONSE" -w '%{http_code}' -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE") || exit $?
+echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
+[ "$code" -lt 300 ]
+
+sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,config.yaml,release-gate.json
 publishHTML pipeline-report.html
 cleanWs

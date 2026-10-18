@@ -1053,7 +1053,7 @@ pipeline {
   <span class="k">env</span>:     <span class="s">&quot;test&quot;</span>
   <span class="k">url</span>:     &quot;http://influx.example.com:8086/api/v2/write?org=DevSecOps&amp;bucket=DORA-metrics&amp;precision=s<span class="s">&quot;
   <span class="k">credentialsId</span>: &quot;</span>influxdb-token&quot;    <span class="c"># Jenkins Secret text credential with the token</span></code></pre>
-<p>These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal.</p>
+<p>These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal. A run with several pipeline keys writes its metrics with the settings of the service of the first key, the primary service.</p>
 <p>The <code>variant</code> tag names the pipeline that wrote the run: <code>full</code>, <code>security</code>, <code>extended</code>, <code>sast</code> or <code>nexusiq</code>. Every pipeline except the full one also appends its variant to the <code>project</code> tag, so the Nexus IQ GoldenFix pipeline of <code>influx.project: MyApp</code> writes <code>project=MyAppnexusiq</code>.</p>
 <p>A bucket keeps the data for its retention period, and the cumulative "since the beginning" panels reach only as far back as that. Set the retention to infinite, or to the period the organisation reports on.</p>
 <h4>Dashboards</h4>

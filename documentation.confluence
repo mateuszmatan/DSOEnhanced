@@ -1812,7 +1812,7 @@ influx:
   credentialsId: "influxdb-token"    # Jenkins Secret text credential with the token
 {code}
 
-These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal.
+These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal. A run with several pipeline keys writes its metrics with the settings of the service of the first key, the primary service.
 
 The {{variant}} tag names the pipeline that wrote the run: {{full}}, {{security}}, {{extended}}, {{sast}} or {{nexusiq}}. Every pipeline except the full one also appends its variant to the {{project}} tag, so the Nexus IQ GoldenFix pipeline of {{influx.project: MyApp}} writes {{project=MyAppnexusiq}}.
 
