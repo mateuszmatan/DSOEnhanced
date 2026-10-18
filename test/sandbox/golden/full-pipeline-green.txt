@@ -851,9 +851,13 @@ sh scp ./scripts/deployment/zero-downtime-deployment.sh taadmin@qcltaapps1.testb
 sh scp ./scripts/deployment/version.properties taadmin@qcltaapps1.testbbh.com:/opt/ta/CertScanner/gui/deployment/
 sh ssh -o StrictHostKeyChecking=no taadmin@qcltaapps1.testbbh.com "/opt/ta/CertScanner/gui/deployment/zero-downtime-deployment.sh"
 sh mkdir -p /ws/report
-withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
-sh curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"
-sh rm -f 'influx_payload_<ms>.txt'
+withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
+sh set +x
+code=$(curl -sS -o "$INFLUX_RESPONSE" -w '%{http_code}' -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE") || exit $?
+echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
+[ "$code" -lt 300 ]
+
+sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
 cleanWs

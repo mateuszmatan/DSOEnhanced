@@ -33,10 +33,12 @@ class InfluxDbService implements Serializable {
         script.echo "[INFLUX] ${lines.size()} metric line(s) for ${context.project} (${context.env}), build ${context.buildNumber}, result ${context.result}"
         script.echo "[INFLUX] Sending metrics to ${url}"
 
-        def tmpFile = "influx_payload_${System.currentTimeMillis()}.txt"
+        long stamp = System.currentTimeMillis()
+        def tmpFile = "influx_payload_${stamp}.txt"
+        def responseFile = "influx_response_${stamp}.txt"
         script.writeFile file: tmpFile, text: payload
         try {
-            List vars = ["INFLUX_URL=${url}", "INFLUX_FILE=${tmpFile}"]
+            List vars = ["INFLUX_URL=${url}", "INFLUX_FILE=${tmpFile}", "INFLUX_RESPONSE=${responseFile}"]
             if (credId) {
                 script.withCredentials([script.string(credentialsId: credId, variable: 'INFLUX_TOKEN')]) {
                     sendPayload(vars)
@@ -46,8 +48,8 @@ class InfluxDbService implements Serializable {
             }
         } catch (e) { script.echo "[INFLUX] Failed to send metrics: ${e.message}" }
         finally {
-            if (os.isWindows()) script.powershell "Remove-Item -Force '${tmpFile}' -ErrorAction SilentlyContinue"
-            else                script.sh "rm -f '${tmpFile}'"
+            if (os.isWindows()) script.powershell "Remove-Item -Force '${tmpFile}', '${responseFile}' -ErrorAction SilentlyContinue"
+            else                script.sh "rm -f '${tmpFile}' '${responseFile}'"
         }
     }
 
@@ -88,8 +90,19 @@ class InfluxDbService implements Serializable {
 
     private void sendPayload(List vars) {
         script.withEnv(vars) {
-            if (os.isWindows()) script.powershell 'curl.exe -sS -f -X POST "$env:INFLUX_URL" -H "Authorization: Token $env:INFLUX_TOKEN" --data-binary "@$env:INFLUX_FILE"; exit $LASTEXITCODE'
-            else                script.sh 'curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"'
+            if (os.isWindows()) {
+                script.powershell '''$code = curl.exe -sS -o "$env:INFLUX_RESPONSE" -w '%{http_code}' -X POST "$env:INFLUX_URL" -H "Authorization: Token $env:INFLUX_TOKEN" --data-binary "@$env:INFLUX_FILE"
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+Write-Host "[INFLUX] HTTP $code $(Get-Content -Raw $env:INFLUX_RESPONSE -ErrorAction SilentlyContinue)"
+if ([int]$code -ge 300) { exit 1 }
+'''
+            } else {
+                script.sh '''set +x
+code=$(curl -sS -o "$INFLUX_RESPONSE" -w '%{http_code}' -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE") || exit $?
+echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
+[ "$code" -lt 300 ]
+'''
+            }
         }
     }
 }

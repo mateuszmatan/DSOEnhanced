@@ -235,12 +235,46 @@ check('several keys: the metrics carry the InfluxDB settings of the primary serv
         !apiError && j.env.CURRENT_PROJECT_NAME == 'backend-api' && influxLines.any { it.startsWith('pipeline_run,project=CERTSCANNER-gui,env=test,') }
                 && !influxLines.any { it.contains('project=CERTSCANNER-backend-api') },
         "${apiError} | ${influxLines.findAll { it.startsWith('pipeline_run,') }}")
-String influxSh = j.calls.find { it.startsWith('sh curl ') } ?: ''
-check('InfluxDB upload: the token, the address and the payload file reach curl through the environment, and curl fails on an HTTP error',
-        influxSh == 'sh curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"'
+String influxSh = j.calls.find { it.contains('curl ') && it.contains('$INFLUX_URL') } ?: ''
+check('InfluxDB upload: the token, the address, the payload and the response file reach curl through the environment, the answer of InfluxDB is printed, a curl error or an HTTP status of 300 or more fails the step, and both files are removed',
+        influxSh == '''sh set +x
+code=$(curl -sS -o "$INFLUX_RESPONSE" -w '%{http_code}' -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE") || exit $?
+echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
+[ "$code" -lt 300 ]
+'''
                 && j.calls.contains('withCredentials [influxdb-token]') && !j.calls.any { it.contains('fake-INFLUX_TOKEN') }
-                && j.calls.any { it.startsWith('withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_') },
-        j.calls.findAll { it.contains('INFLUX') || it.startsWith('withCredentials') })
+                && j.calls.any { it ==~ /withEnv \[INFLUX_URL=http:\/\/qcwsecopsmon1\.testbbh\.com:8086\/api\/v2\/write\?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_(\d+)\.txt, INFLUX_RESPONSE=influx_response_\1\.txt\]/ }
+                && j.calls.any { it ==~ /sh rm -f 'influx_payload_(\d+)\.txt' 'influx_response_\1\.txt'/ },
+        j.calls.findAll { it.contains('INFLUX') || it.contains('influx_') || it.startsWith('withCredentials') })
+
+j = jenkins([:])
+apiHarness = new SandboxHarness(srcDir, stubDir)
+api = apiHarness.loadVars(varsDir, j)['devSecOpsApi'] as FakeCpsScript
+keys = [PortalFixtures.publish(j, gui)]
+apiError = ''
+try {
+    apiHarness.run {
+        api.configure('full', [pipelineKeys: keys])
+        j.unix = false
+        j.onAgent('windows-agent') {
+            api.initialize()
+            api.feedInfluxDB('')
+        }
+    }
+} catch (Throwable t) {
+    apiError = failureOf(t)
+}
+String influxPs = j.calls.find { it.contains('curl.exe ') } ?: ''
+check('InfluxDB upload on Windows: the same environment reaches curl.exe, the answer of InfluxDB is printed, a curl error or an HTTP status of 300 or more fails the step, and both files are removed',
+        !apiError && influxPs == '''powershell $code = curl.exe -sS -o "$env:INFLUX_RESPONSE" -w '%{http_code}' -X POST "$env:INFLUX_URL" -H "Authorization: Token $env:INFLUX_TOKEN" --data-binary "@$env:INFLUX_FILE"
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+Write-Host "[INFLUX] HTTP $code $(Get-Content -Raw $env:INFLUX_RESPONSE -ErrorAction SilentlyContinue)"
+if ([int]$code -ge 300) { exit 1 }
+'''
+                && j.calls.contains('withCredentials [influxdb-token]')
+                && j.calls.any { it ==~ /withEnv \[INFLUX_URL=\S+, INFLUX_FILE=influx_payload_(\d+)\.txt, INFLUX_RESPONSE=influx_response_\1\.txt\]/ }
+                && j.calls.any { it ==~ /powershell Remove-Item -Force 'influx_payload_(\d+)\.txt', 'influx_response_\1\.txt' -ErrorAction SilentlyContinue/ },
+        "${apiError} | ${j.calls.findAll { it.contains('INFLUX') || it.contains('influx_') || it.startsWith('withCredentials') }}")
 
 j = jenkins([DSO_PORTAL_URL: null, DSO_PORTAL_DB_URL: 'jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL'])
 r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
