@@ -213,6 +213,35 @@ check('configure(): the AGENT_NAME choices come from the portal and the Jenkinsf
         pipelineConfig.agentNames == ['linux-agent'] && pipelineConfig.appId == 'from-the-jenkinsfile' && pipelineConfig.projectNames == 'gui',
         pipelineConfig.findAll { k, v -> k != 'pipelineKey' })
 
+j = jenkins([:])
+keys = [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, backend)]
+apiHarness = new SandboxHarness(srcDir, stubDir)
+api = apiHarness.loadVars(varsDir, j)['devSecOpsApi'] as FakeCpsScript
+apiError = ''
+try {
+    apiHarness.run {
+        api.configure('full', [pipelineKeys: keys])
+        j.onAgent('linux-agent') {
+            api.initialize()
+            api.eachProject { String name -> }
+            api.feedInfluxDB('')
+        }
+    }
+} catch (Throwable t) {
+    apiError = failureOf(t)
+}
+List<String> influxLines = j.files.findAll { k, v -> (k as String).startsWith('influx_payload_') }.collect { k, v -> v as String }.join('\n').readLines()
+check('several keys: the metrics carry the InfluxDB settings of the primary service, not of the service handled last',
+        !apiError && j.env.CURRENT_PROJECT_NAME == 'backend-api' && influxLines.any { it.startsWith('pipeline_run,project=CERTSCANNER-gui,env=test,') }
+                && !influxLines.any { it.contains('project=CERTSCANNER-backend-api') },
+        "${apiError} | ${influxLines.findAll { it.startsWith('pipeline_run,') }}")
+String influxSh = j.calls.find { it.startsWith('sh curl ') } ?: ''
+check('InfluxDB upload: the token, the address and the payload file reach curl through the environment, and curl fails on an HTTP error',
+        influxSh == 'sh curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"'
+                && j.calls.contains('withCredentials [influxdb-token]') && !j.calls.any { it.contains('fake-INFLUX_TOKEN') }
+                && j.calls.any { it.startsWith('withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_') },
+        j.calls.findAll { it.contains('INFLUX') || it.startsWith('withCredentials') })
+
 j = jenkins([DSO_PORTAL_URL: null, DSO_PORTAL_DB_URL: 'jdbc:oracle:thin:@//portal-db.bbh.com:1521/DSOPORTAL'])
 r = load(j, 'full', [pipelineKey: PortalFixtures.publish(j, gui)])
 check('missing DSO_PORTAL_URL: says where to set it, nothing runs, the old database URL is ignored',

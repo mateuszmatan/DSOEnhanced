@@ -152,7 +152,7 @@ List<Map> configRules = [
          }],
         [id    : 'R6',
          reason: 'a literal influx.token counts as influx.credentialsId influxdb-token, the Secret text credentials the portal names instead ' +
-                 '(InfluxDbService.groovy:24-25 accepts either, :37-42 binds the credentials)',
+                 '(InfluxDbService.groovy:26-27 accepts either, :40-45 binds the credentials)',
          apply : { Map cfg, String variant ->
              Map influx = cfg.influx as Map
              if (!influx?.token) return 0

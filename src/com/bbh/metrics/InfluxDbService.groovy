@@ -3,6 +3,7 @@ package com.bbh.metrics
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.ReleaseGate
+import com.cloudbees.groovy.cps.NonCPS
 
 class InfluxDbService implements Serializable {
     private final def         script
@@ -16,10 +17,11 @@ class InfluxDbService implements Serializable {
     }
 
     void send(String pipelineType) {
-        def influxCfg = state.cfg.influx ?: [:]
+        Map cfg = primaryCfg()
+        def influxCfg = cfg.influx ?: [:]
         if (!(influxCfg.enabled as boolean)) { script.echo "[INFLUX] InfluxDB disabled or not configured."; return }
         def url     = influxCfg.url
-        def project = influxCfg.project ?: state.cfg.tools?.sonar?.projectName ?: script.env.PROJECT_NAME ?: "UnknownProject"
+        def project = influxCfg.project ?: cfg.tools?.sonar?.projectName ?: script.env.PROJECT_NAME ?: "UnknownProject"
         def envName = influxCfg.env     ?: "dev"
         def token   = influxCfg.token
         def credId  = influxCfg.credentialsId ?: ''
@@ -34,18 +36,25 @@ class InfluxDbService implements Serializable {
         def tmpFile = "influx_payload_${System.currentTimeMillis()}.txt"
         script.writeFile file: tmpFile, text: payload
         try {
+            List vars = ["INFLUX_URL=${url}", "INFLUX_FILE=${tmpFile}"]
             if (credId) {
                 script.withCredentials([script.string(credentialsId: credId, variable: 'INFLUX_TOKEN')]) {
-                    sendPayload(url, script.env.INFLUX_TOKEN, tmpFile)
+                    sendPayload(vars)
                 }
             } else {
-                sendPayload(url, token, tmpFile)
+                sendPayload(vars + ["INFLUX_TOKEN=${token}"])
             }
         } catch (e) { script.echo "[INFLUX] Failed to send metrics: ${e.message}" }
         finally {
             if (os.isWindows()) script.powershell "Remove-Item -Force '${tmpFile}' -ErrorAction SilentlyContinue"
             else                script.sh "rm -f '${tmpFile}'"
         }
+    }
+
+    @NonCPS
+    private Map primaryCfg() {
+        Map all = (state.projectsAllCfg ?: [:]) as Map
+        return (all ? all.values().iterator().next() : state.cfg) as Map
     }
 
     private Map buildContext(String project, String pipelineType, String envName) {
@@ -77,8 +86,10 @@ class InfluxDbService implements Serializable {
         return false
     }
 
-    private void sendPayload(String url, String token, String tmpFile) {
-        if (os.isWindows()) script.powershell "curl.exe -s -X POST \"${url}\" -H \"Authorization: Token ${token}\" --data-binary \"@${tmpFile}\""
-        else                script.sh "curl -s -X POST \"${url}\" -H \"Authorization: Token ${token}\" --data-binary \"@${tmpFile}\""
+    private void sendPayload(List vars) {
+        script.withEnv(vars) {
+            if (os.isWindows()) script.powershell 'curl.exe -sS -f -X POST "$env:INFLUX_URL" -H "Authorization: Token $env:INFLUX_TOKEN" --data-binary "@$env:INFLUX_FILE"; exit $LASTEXITCODE'
+            else                script.sh 'curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"'
+        }
     }
 }

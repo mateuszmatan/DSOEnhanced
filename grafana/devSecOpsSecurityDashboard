@@ -170,7 +170,7 @@
             "uid": "dfj90zkyausxsc"
           },
           "hide": false,
-          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"nexusiq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
           "refId": "B"
         }
       ],
@@ -277,7 +277,7 @@
             "uid": "dfj90zkyausxsc"
           },
           "hide": false,
-          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"niq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] != \"nexusiq\" and r[\"scanner\"] != \"sonar\" )\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\" or r[\"_field\"] == \"medium\" or r[\"_field\"] == \"low\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> group(columns: [\"scanner\", \"_time\"])\r\n  |> sum()\r\n  |> group(columns: [\"scanner\"])\r\n  |> yield(name: \"Vulnerability Trend\")",
           "refId": "B"
         }
       ],
@@ -404,7 +404,7 @@
             "type": "influxdb",
             "uid": "dfj90zkyausxsc"
           },
-          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] == \"nexusiq\" or r[\"scanner\"] == \"sca\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
+          "query": "from(bucket: \"DORA-metrics\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vulnerabilities\")\r\n  |> filter(fn: (r) => r[\"project\"] == \"${project}\")\r\n  |> filter(fn: (r) => r[\"scanner\"] == \"nexusiq\" or r[\"scanner\"] == \"sonar\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"critical\" or r[\"_field\"] == \"high\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\r\n  |> yield(name: \"Vulnerability Trend\")",
           "refId": "A"
         }
       ],

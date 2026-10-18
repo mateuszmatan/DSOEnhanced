@@ -30,7 +30,8 @@ sh [Gradle: clean build bootJar]
             './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
         
 sh mkdir -p /ws/report
-sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
+withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
+sh curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"
 sh rm -f 'influx_payload_<ms>.txt'
 archiveArtifacts report/pipeline-report.html
 publishHTML pipeline-report.html

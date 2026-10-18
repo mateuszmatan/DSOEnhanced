@@ -854,7 +854,8 @@ sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Aut
 sh [ -f '/ws/appscan-dast-report.html' ] && mv '/ws/appscan-dast-report.html' '/ws/appscan-dast-report-certscanner-backend.html' || true
 sh [ -f '/ws/appscan-dast-report.pdf' ] && mv '/ws/appscan-dast-report.pdf' '/ws/appscan-dast-report-certscanner-backend.pdf' || true
 sh mkdir -p /ws/report
-sh curl -s -X POST "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s" -H "Authorization: Token 3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==" --data-binary "@influx_payload_<ms>.txt"
+withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
+sh curl -sS -f -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE"
 sh rm -f 'influx_payload_<ms>.txt'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
