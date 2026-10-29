@@ -23,21 +23,31 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
     Map createPullRequest(Map scmCfg, Map pullRequest) {
         Map repo = parse(scmCfg)
         if (repo.error) script.error("[GOLDENFIX] ${repo.error}")
+        List reviewers = (scmCfg.reviewers instanceof List) ? (scmCfg.reviewers as List) : []
+        Map result = authorized(scmCfg) { Map auth -> create(repo, pullRequest, reviewers, auth) } as Map
+        script.echo "[GOLDENFIX] Pull request ${result.existing ? 'already existed' : 'created'}: ${result.url}"
+        return result
+    }
+
+    void addComment(Map scmCfg, Map pullRequest, String text) {
+        Map repo = parse(scmCfg)
+        if (repo.error) script.error("[GOLDENFIX] ${repo.error}")
+        authorized(scmCfg) { Map auth -> comment(repo, pullRequest.id as String, text, auth) }
+    }
+
+    def authorized(Map scmCfg, Closure body) {
         String credentialsId = (scmCfg.credentialsId ?: '') as String
         if (!credentialsId) script.error("[GOLDENFIX] scm.bitbucket.credentialsId is required to raise a pull request")
-        List reviewers = (scmCfg.reviewers instanceof List) ? (scmCfg.reviewers as List) : []
-
-        Map result = null
+        def result = null
         if (isBearer(scmCfg)) {
             script.withCredentials([script.string(credentialsId: credentialsId, variable: 'BB_GF_TOKEN')]) {
-                result = create(repo, pullRequest, reviewers, [type: 'bearer', tokenVar: 'BB_GF_TOKEN'])
+                result = body.call([type: 'bearer', tokenVar: 'BB_GF_TOKEN'])
             }
         } else {
             script.withCredentials([script.usernamePassword(credentialsId: credentialsId, usernameVariable: 'BB_GF_USER', passwordVariable: 'BB_GF_PASS')]) {
-                result = create(repo, pullRequest, reviewers, [type: 'basic', userVar: 'BB_GF_USER', passVar: 'BB_GF_PASS'])
+                result = body.call([type: 'basic', userVar: 'BB_GF_USER', passVar: 'BB_GF_PASS'])
             }
         }
-        script.echo "[GOLDENFIX] Pull request ${result.existing ? 'already existed' : 'created'}: ${result.url}"
         return result
     }
 
@@ -45,6 +55,15 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
         return repo.type == 'cloud'
                 ? createCloud(repo, pullRequest, reviewers, auth)
                 : createServer(repo, pullRequest, reviewers, auth)
+    }
+
+    Map comment(Map repo, String id, String text, Map auth) {
+        boolean cloud = repo.type == 'cloud'
+        String api = cloud ? "${cloudPullRequests(repo)}/${id}/comments" : "${repo.apiBase}/pull-requests/${id}/comments"
+        Map response = rest.request('POST', api, cloud ? [content: [raw: truncate(text)]] : [text: truncate(text)], auth,
+                "Bitbucket: comment on pull request ${id}")
+        rest.ensureSuccess(response, 'Bitbucket: comment on pull request')
+        return response
     }
 
     private Map createServer(Map repo, Map pullRequest, List reviewers, Map auth) {
@@ -63,13 +82,18 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
     }
 
     private Map createCloud(Map repo, Map pullRequest, List reviewers, Map auth) {
-        String api = "${repo.apiBase}/repositories/${RestClient.urlEncode(repo.workspace as String)}/${RestClient.urlEncode(repo.repoSlug as String)}/pullrequests"
+        String api = cloudPullRequests(repo)
         Map response = rest.request('POST', api, cloudPayload(pullRequest, reviewers), auth,
                 "Bitbucket Cloud: create pull request ${pullRequest.title}")
         rest.ensureSuccess(response, 'Bitbucket Cloud: create pull request')
         def json = rest.parseJson(response.body as String)
         String url = (json?.links?.html?.href ?: "${repo.webUrl}/pull-requests/${json?.id}") as String
         return [id: json?.id?.toString(), url: url, existing: false]
+    }
+
+    @NonCPS
+    private static String cloudPullRequests(Map repo) {
+        return "${repo.apiBase}/repositories/${RestClient.urlEncode(repo.workspace as String)}/${RestClient.urlEncode(repo.repoSlug as String)}/pullrequests".toString()
     }
 
     @NonCPS
