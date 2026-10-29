@@ -111,6 +111,7 @@ Closure runPipeline = { Map spec ->
             DSO_PORTAL_URL: PortalFixtures.PORTAL_URL
     ])
     j.params.putAll((spec.params ?: [:]) as Map)
+    j.missingCredentials.addAll((spec.missingCredentials ?: []) as List)
     j.resourcesDir = new File(root, 'resources')
     secretResources.each { String name -> j.resources[name] = "fake ${name}".toString() }
     j.files['gradlew'] = '#!/bin/sh'
@@ -450,6 +451,13 @@ Closure loginsOf = { FakeScript j, String marker, String pattern ->
     }
 }
 
+Closure resultOf = { Map r, String stage ->
+    List<String> log = (r.j as FakeScript).log
+    int i = log.indexOf("[STAGE]  ${stage}".toString())
+    i < 0 ? 'not run' : log[i + 1].replace('[RESULT] ', '')
+}
+Closure sonarCfgOf = { Map p, String project -> (((p[project] as Map).tools as Map).sonar as Map) }
+
 String guiKey = 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9'
 String backendKey = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
 Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: { Map p ->
@@ -480,6 +488,30 @@ check('full pipeline, AppScan settings per service: sast.scanName names the SAST
                 && ['appscan-report-certscanner-backend.html', 'appscan-dast-report-certscanner-backend.html'].every { perServiceJenkins.files.containsKey(it) }
                 && dastPayload.contains('"ScanName": "certscanner-backend-dast_351"'),
         queued + [dastPayload.readLines().find { it.contains('ScanName') }])
+
+Closure badgesOf = { Map r -> ((r.html as String) =~ /project=([^&']+)&metric=[^&']+&token=([^&']+)'/).collect { "${it[1]} ${it[2]}".toString() }.unique() }
+Map badges = focused([name: 'full pipeline, SonarQube badge token from credentials', buildNumber: 352, configure: { Map p ->
+    sonarCfgOf(p, 'gui').badgeCredentialsId = 'sonar-badge-token'
+    sonarCfgOf(p, 'gui').badgeToken = 'gui-literal-badge-token'
+    sonarCfgOf(p, 'backend-api').badgeToken = 'backend-literal-badge-token'
+}])
+check('full pipeline, SonarQube badge token from credentials: tools.sonar.badgeCredentialsId is read as Secret text and wins over a literal badgeToken, which is used without it',
+        (badges.j as FakeScript).calls.count('withCredentials [sonar-badge-token]') == 1
+                && badgesOf(badges) == ['cert-scanner-gui fake-SONAR_BADGE_TOKEN', 'cert-scanner-backend backend-literal-badge-token'],
+        badgesOf(badges))
+Map missingBadge = focused([name: 'full pipeline, SonarQube badge credentials missing', buildNumber: 353, missingCredentials: ['sonar-badge-token'], configure: { Map p ->
+    sonarCfgOf(p, 'gui').badgeCredentialsId = 'sonar-badge-token'
+    sonarCfgOf(p, 'gui').badgeToken = 'gui-literal-badge-token'
+    sonarCfgOf(p, 'backend-api').badgeCredentialsId = 'sonar-badge-token'
+}])
+List sonarLines = (missingBadge.j as FakeScript).log.findAll { it.startsWith('[SONAR] Badge token') }
+String notFound = "[SONAR] Badge token credentials sonar-badge-token could not be read (Could not find credentials entry with ID 'sonar-badge-token')"
+check('full pipeline, SonarQube badge credentials missing: the run says so, falls back to the literal badgeToken or shows no badges, and the SCA stage result does not change',
+        sonarLines == ["${notFound} - the badges use tools.sonar.badgeToken".toString(), "${notFound} - the report shows no SonarQube badges".toString()]
+                && badgesOf(missingBadge) == ['cert-scanner-gui gui-literal-badge-token']
+                && resultOf(missingBadge, SONAR) == 'PASS' && resultOf(badges, SONAR) == 'PASS',
+        sonarLines + badgesOf(missingBadge) + [resultOf(missingBadge, SONAR)])
+
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

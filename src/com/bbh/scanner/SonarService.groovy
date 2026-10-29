@@ -31,6 +31,8 @@ class SonarService implements Serializable {
         boolean fullBadges = sonarCfg.fullBadges ?: false
         def sonarUrl    = sonarCfg.serverUrl?.trim() ?: 'https://tools.bbh.com/sonar'
         def tool        = build.detectTool()
+        String badgeToken = resolveBadgeToken(sonarCfg)
+        state.sonarResults['badgeToken'] = badgeToken
         def sonarArgs = [
             "-Dsonar.host.url=${sonarUrl}",
             projectKey  ? "-Dsonar.projectKey=${projectKey}"    : null,
@@ -58,8 +60,8 @@ class SonarService implements Serializable {
                 }
             }
         state.sonarResults['url']      = projectKey ? "${sonarUrl}/dashboard?id=${projectKey}" : ''
-        state.sonarResults['badgeUrl'] = (projectKey && sonarCfg.badgeToken?.trim())
-                ? "${sonarUrl}/api/project_badges/quality_gate?project=${projectKey}&token=${sonarCfg.badgeToken.trim()}" : ''
+        state.sonarResults['badgeUrl'] = (projectKey && badgeToken)
+                ? "${sonarUrl}/api/project_badges/quality_gate?project=${projectKey}&token=${badgeToken}" : ''
         state.sonarResults['status']   = 'SKIP'
         } catch (e) {
             scaFailReason = "[SONAR] Scan failed: ${e.message ?: e.getClass().getSimpleName()}"
@@ -76,6 +78,22 @@ class SonarService implements Serializable {
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
+    }
+
+    private String resolveBadgeToken(Map sonarCfg) {
+        String token = ((sonarCfg.badgeToken ?: '') as String).trim()
+        String credentialsId = ((sonarCfg.badgeCredentialsId ?: '') as String).trim()
+        if (!credentialsId) return token
+        String bound = ''
+        try {
+            script.withCredentials([script.string(credentialsId: credentialsId, variable: 'SONAR_BADGE_TOKEN')]) {
+                bound = ((script.env.SONAR_BADGE_TOKEN ?: '') as String).trim()
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[SONAR] Badge token credentials ${credentialsId} could not be read (${e.message}) - ${token ? 'the badges use tools.sonar.badgeToken' : 'the report shows no SonarQube badges'}"
+        }
+        return bound ?: token
     }
 
     private void scanFlutter(Map sonarCfg, List sonarArgs, String installationName) {
