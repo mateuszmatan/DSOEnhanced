@@ -543,6 +543,9 @@ check('full pipeline, Nexus delivery disabled for the only service: without a pi
                 && notDeployed == ['RD', 'QC'].collect { "[OPENSHIFT] backend-api: ${it} deployment not required - Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled and no buildTag is pinned".toString() }
                 && !(onlyBackend.openshift as FakeOpenShift).calls.any { it.startsWith('rollout') },
         [SNAPSHOT, RD, QC].collect { resultOf(onlyBackend, it) } + notDeployed)
+String onlyBackendDora = influxOf(onlyBackend.j as FakeScript).readLines().find { it.startsWith('dora,') } ?: ''
+check('full pipeline, Nexus delivery disabled for the only service: the dora point counts no deployment, because the deployment stages are NOT_REQUIRED',
+        onlyBackendDora.contains(' deployment=0i,'), onlyBackendDora)
 
 Map oneDelivery = focused([name: 'full pipeline, Nexus delivery disabled for one service', buildNumber: 356, configure: { Map p ->
     rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false

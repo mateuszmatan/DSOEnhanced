@@ -1333,7 +1333,7 @@ projects:
       openshift:                     # used when deployTarget: openshift
         rd:
           nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service
-          buildTag:           ""     # the image tag RD and QC deploy when nexusDeliveryEnabled is false; skipped as not required without it
+          buildTag:           ""     # the image tag RD, and QC without its own buildTag, deploy when nexusDeliveryEnabled is false; a region without a tag is skipped as not required
           projectBuildR:      ""     # namespace where the image is built
           buildConfigPath:    ""     # BuildConfig template in the repository
           dockerFilePath:     ""     # Dockerfile in the repository
@@ -1355,7 +1355,7 @@ projects:
             url:         ""
             branch:      ""
             credentials: ""
-        qc:                          # the same keys; buildTag defaults to the image built in this run
+        qc:                          # the same keys; buildTag pins the QC image even when the run builds one, empty means rd.buildTag
           projectDeploymentR: ""
           qcDockerRepoPull:   ""
           deployConfigPath:   ""
@@ -1477,7 +1477,7 @@ h3. Stages 6–10: Delivery and tests
 
 Stage 6 publishes the snapshot artifact and stage 7 deploys to the lower test region. Both always run, even when an earlier stage is orange, so developers always get a build on the lower test region.
 
-A service with {{deploy.<target>.rd.nexusDeliveryEnabled: false}} is not published to Nexus: stage 6 still reports its build and unit tests and logs {{[NEXUS] <service>: Nexus delivery is disabled}}, and the stage is {{NOT_REQUIRED}} when no service of the run was published. An OpenShift service without delivery has no image of this run, so its RD deployment, and its QC deployment, use a pinned {{deploy.openshift.rd.buildTag}}; without one they are skipped as not required with an {{[OPENSHIFT]}} line. The release delivery of stage 12 is not affected.
+A service with {{deploy.<target>.rd.nexusDeliveryEnabled: false}} is not published to Nexus: stage 6 still reports its build and unit tests and logs {{[NEXUS] <service>: Nexus delivery is disabled}}, and the stage is {{NOT_REQUIRED}} when Nexus delivery is off for every service of the run. An OpenShift service without delivery has no image of this run: RD deploys a pinned {{deploy.openshift.rd.buildTag}}, and QC its own {{deploy.openshift.qc.buildTag}} or, without it, the RD tag. A region without a tag is skipped as not required with an {{[OPENSHIFT]}} line, and its deployment stage is {{NOT_REQUIRED}} when every service of the run skipped it. The release delivery of stage 12 is not affected.
 
 What stage 6 does depends on the project: a Maven project on a VM is uploaded to the Nexus snapshot repository with the {{delivery.maven}} command and the delivered version is written back into {{pipeline-config.yaml}}; an OpenShift project has its image built in the build namespace and copied to the Nexus docker registry with {{skopeo}}; a Gradle project on a VM reports the build and the unit test results, and is published to Nexus by the release delivery ({{./gradlew publish}}). Stage 7 deploys with UrbanCode Deploy ({{devSecOpsPipeline}}, {{deploy.vm.dod}}), over SSH ({{devSecOpsExtendedPipeline}}, {{deploy.vm.rd}}) or to OpenShift ({{deploy.openshift.rd}}).
 
@@ -1737,6 +1737,8 @@ h3. Complete method reference
 |{{eachProject(Closure body)}}|Run the body once per configured project, switching the project context first|
 |{{finishPipeline(Map options)}}|Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call|
 |{{deployTarget()}}|{{vm}} or {{openshift}} for the current project|
+|{{nexusDeliveryEnabled()}}|{{false}} when {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the current project|
+|{{notRequired(String reason)}}|Log the reason and mark the current project not required in the current stage; the stage ends {{NOT_REQUIRED}} when every project is|
 |{{appscanSetup()}}|Download and extract SAClientUtil|
 |{{appscanLogin()}}|Authenticate the AppScan CLI|
 |{{appscanResolveSourceDir(String path = null)}}|Set the IRX source directory|
@@ -1763,11 +1765,11 @@ h3. Complete method reference
 |{{deployQC()}}|Deploy to the QC environment|
 |{{deployOpenshift(String env)}}|Deploy to OpenShift, env {{rd}} or {{qc}}|
 |{{publishArtifactQC()}}|Release delivery: {{./gradlew publish}} or {{mvn deploy}}|
-|{{pushToNexus(String projectName)}}|Snapshot delivery of a Maven or Flutter artifact with the {{delivery}} command|
+|{{pushToNexus(String projectName)}}|Snapshot delivery of a Maven or Flutter artifact with the {{delivery}} command. It does not check {{nexusDeliveryEnabled()}}: a custom stage guards it with that method, as {{devSecOpsSteps.nexusSnapshotDelivery}} does|
 |{{vulnerabilitySummary()}}|One line with the SAST and DAST findings above the policy severity; in the Nexus IQ GoldenFix pipeline the Nexus IQ critical, high and medium counts|
 |{{runExtendedPipeline()}}|Start the job of {{jenkins.pipeline.extendedPipeline}} when {{RUN_EXTENDED_PIPELINE}} is selected|
 |{{nexusDelivery(String env)}}|Tag the image in the registry|
-|{{buildDockerImage(String projectName)}}, {{copyImageToNexus()}}, {{checkDeploymentRepo()}}|OpenShift image build and promotion|
+|{{buildDockerImage(String projectName)}}, {{copyImageToNexus()}}, {{checkDeploymentRepo()}}|OpenShift image build and promotion. {{buildDockerImage}} and {{copyImageToNexus}} do not check {{nexusDeliveryEnabled()}}: a custom stage guards them with that method, as {{devSecOpsSteps.nexusSnapshotDelivery}} does|
 |{{bumpVersion(String file, String version)}}|Update {{APP_VERSION}} in version.properties|
 |{{generateHtmlReport()}}|Generate the HTML pipeline report|
 |{{feedInfluxDB(String pipelineType)}}|Send DORA metrics to InfluxDB|
@@ -1811,7 +1813,7 @@ h3. DORA
 
 The four metrics are derived from the {{dora}} measurement:
 
-* *Deployment frequency* - the {{deployment}} field is 1 when a deployment stage completed green.
+* *Deployment frequency* - the {{deployment}} field is 1 when a deployment stage passed ({{PASS}}). A {{NOT_REQUIRED}} deployment stage rolled nothing out and is not counted.
 * *Lead time for changes* - {{lead_time_s}} measures from the timestamp of the commit under test, read with {{git log -1}} during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
 * *Change failure rate* - {{change_failure}} is 1 for any run that did not end {{SUCCESS}}.
 * *Time to restore* - derived in Grafana from the {{change_failure}} series; the query is in [Grafana dashboards and queries|#ch22].
@@ -2488,7 +2490,7 @@ h3. Problems on a first run
 |{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names no pipeline key, or the job builds a branch with an older {{Jenkinsfile}}. Check the branch in the job configuration.|
 |{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the DevSecOps portal.|
 |{{[SONAR] Badge token credentials ... could not be read}}|The credential named in {{tools.sonar.badgeCredentialsId}} does not exist or is not Secret text. The stage result does not change; the report uses {{badgeToken}} or shows no badges.|
-|{{[OPENSHIFT] <service>: RD deployment not required}}|Nexus delivery is off for the service and no {{deploy.openshift.rd.buildTag}} is pinned, so there is no image to deploy. Pin a tag or turn the delivery on.|
+|{{[OPENSHIFT] <service>: RD deployment not required}}, {{QC deployment not required}}|Nexus delivery is off for the service and the region has no build tag, so there is no image to deploy: RD needs {{deploy.openshift.rd.buildTag}}, QC its own {{deploy.openshift.qc.buildTag}} or the RD tag. Pin a tag or turn the delivery on.|
 |{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the DevSecOps portal. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|

@@ -83,7 +83,7 @@ Six more runs of the full pipeline have no golden file. Each changes the CertSca
 
 - AppScan settings per service: SAST logs in with the key and the secret of each service (`asoc.token`, or the credentials named like `asoc.keyId` without it) before its IRX is queued and before its results are read, DAST signs in with the same credentials, no step names `hcl-app-scan-acount`, and `sast.scanName` names the SAST scan of its service while the IRX, the queue log, the scan ID file, the report names and the DAST scan name keep `APPSCAN_SCAN_NAME`;
 - the SonarQube badge token: `tools.sonar.badgeCredentialsId` is read as Secret text and wins over a literal `badgeToken`; when the credentials cannot be read (`missingCredentials`), the run logs a `[SONAR]` line, falls back to `badgeToken` or shows no badges, and the SCA stage result stays `PASS`;
-- `deploy.<target>.rd.nexusDeliveryEnabled: false`: for every service, the snapshot stage is `NOT_REQUIRED`, publishes nothing and still reports the build and the unit tests, and a pinned `rd.buildTag` is still deployed; for the only service, the snapshot, RD and QC stages are `NOT_REQUIRED` and nothing is rolled out; for one of two services, the stages stay `PASS`.
+- `deploy.<target>.rd.nexusDeliveryEnabled: false`: for every service, the snapshot stage is `NOT_REQUIRED`, publishes nothing and still reports the build and the unit tests, and a pinned `rd.buildTag` is still deployed; for the only service, the snapshot, RD and QC stages are `NOT_REQUIRED`, nothing is rolled out and the `dora` point counts no deployment; for one of two services, the stages stay `PASS`.
 
 ### DevSecOps portal scenarios (`test/sandbox/PortalScenarios.groovy`)
 
