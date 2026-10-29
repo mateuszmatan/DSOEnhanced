@@ -610,5 +610,51 @@ check('full pipeline, Node.js build failure: the stage fails hard, the later sta
                 && !boxOf(failureHtml, 'Node.js build - gui').contains('pipeline blocked by previous failure'),
         [nodeFailure.crash, nodeFailureVar.executedStages, nodeFailureVar.stageFailures, boxesOf(failureHtml).take(6)])
 
+Closure irxExcluded = { FakeScript j ->
+    j.calls.findAll { it.startsWith('withEnv [APPSCAN_CMD_RUNTIME=') && it.contains('APPSCAN_SOURCE_DIR_RUNTIME=') }.collect { (it =~ /APPSCAN_EXCLUDED_FOLDERS=(.*?), APPSCAN_OPTS=/)[0][1] }
+}
+Closure sastRun = { String name, int buildNumber, Closure configure ->
+    Map r = runPipeline([name: name, var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: buildNumber,
+                         params: [:], defaults: nodeDefaults, configure: configure])
+    check("${name}: the pipeline var runs to the end without a stage failure, with the Node.js build after Monitor",
+            !r.crash && (r.var as FakeCpsScript).stageFailures.isEmpty() && (r.var as FakeCpsScript).executedStages == [MONITOR, NODE, SAST],
+            ([r.crash] + (r.var as FakeCpsScript).stageFailures + (r.var as FakeCpsScript).executedStages).join('\n      '))
+    return r
+}
+Map sastFirst = sastRun('SAST pipeline, Node.js build for the first service', 89) { Map p ->
+    nodeOf(p, 'gui').node = [enabled: true, dir: 'gui/frontend']
+    nodeOf(p, 'backend-api').node = [enabled: true]
+    ((p['backend-api'] as Map).asoc as Map).doCompile = false
+    (p['backend-api'] as Map).excludedDirs = 'test'
+}
+FakeScript sastFirstJenkins = sastFirst.j as FakeScript
+check('SAST pipeline, Node.js build for the first service: the Node.js build runs before the SAST compile, a service whose SAST scan does not compile is not built, '
+        + 'and every IRX excludes node_modules',
+        firstCall(sastFirstJenkins, 'sh [Node.js: npm run build]') < firstCall(sastFirstJenkins, 'sh [Gradle: ')
+                && sastFirstJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
+                && sastFirstJenkins.log.contains('[NODE] backend-api: the SAST scan does not compile this service - no Node.js build')
+                && irxExcluded(sastFirstJenkins) == ['test,node_modules', 'test,node_modules'],
+        irxExcluded(sastFirstJenkins) + sastFirstJenkins.log.findAll { it.startsWith('[NODE]') })
+Map sastLast = sastRun('SAST pipeline, Node.js build for the last service', 90) { Map p ->
+    nodeOf(p, 'backend-api').node = [enabled: true, nodePath: '/opt/node-20', npmrcCredentialsId: 'npmrc-file']
+    (p.gui as Map).excludedDirs = 'node_modules'
+}
+FakeScript sastLastJenkins = sastLast.j as FakeScript
+int npmrcAt = sastLastJenkins.calls.indexOf('withCredentials [npmrc-file]')
+check('SAST pipeline, Node.js build for the last service: nodePath wins over the Library default installation, the .npmrc credentials replace the registry export, '
+        + 'Library defaults alone do not enable the build, and every IRX excludes node_modules',
+        npmrcAt >= 0 && sastLastJenkins.calls[npmrcAt + 1] == 'withEnv [PATH+NODEJS=/opt/node-20/bin]'
+                && sastLastJenkins.calls[npmrcAt + 2].startsWith('sh [Node.js: npm ci]')
+                && sastLastJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: build.node.enabled is not set - no Node.js build',
+                                                                            '[NODE] backend-api: Node.js from /opt/node-20 in the workspace: npm ci && npm run build']
+                && irxExcluded(sastLastJenkins) == ['node_modules', 'node_modules'],
+        irxExcluded(sastLastJenkins) + sastLastJenkins.log.findAll { it.startsWith('[NODE]') } + (npmrcAt >= 0 ? sastLastJenkins.calls.subList(npmrcAt, npmrcAt + 3) : []))
+Map sastIncluded = sastRun('SAST pipeline, Node.js build with included folders', 91) { Map p ->
+    nodeOf(p, 'gui').node = [enabled: true]
+    (p['backend-api'] as Map).includedDirs = 'src'
+}
+check('SAST pipeline, Node.js build with included folders: the IRX keeps its folders when includedDirs is set',
+        irxExcluded(sastIncluded.j as FakeScript) == ['', ''], irxExcluded(sastIncluded.j as FakeScript))
+
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
