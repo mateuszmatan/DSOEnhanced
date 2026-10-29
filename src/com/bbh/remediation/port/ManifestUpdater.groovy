@@ -6,6 +6,8 @@ interface ManifestUpdater extends Serializable {
 
     List<String> filePatterns()
 
+    void useCatalogs(Map catalogs)
+
     boolean supports(String relativePath)
 
     Map updateDeclarations(String relativePath, String content, List<Map> fixes)

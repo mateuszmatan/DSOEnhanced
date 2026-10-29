@@ -104,7 +104,7 @@ fi
 sh [GoldenFix: find dependency manifests] #!/bin/bash
 set -euo pipefail
 cd '/ws@tmp/goldenfix/GoldenFix-202609191405'
-find . \( -name '.git' -o -name 'node_modules' -o -name 'bower_components' -o -name 'target' -o -name 'build' -o -name '.gradle' -o -name 'dist' -o -name 'venv' -o -name '.venv' -o -name '__pycache__' -o -name '.tox' -o -name 'site-packages' \) -prune -o -type f \( -name 'pom.xml' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradle.properties' -o -name '*.versions.toml' \) -print | sed 's|^\./||' | LC_ALL=C sort
+find . \( -name '.git' -o -name 'node_modules' -o -name 'bower_components' -o -name 'target' -o -name 'build' -o -name '.gradle' -o -name 'dist' -o -name 'venv' -o -name '.venv' -o -name '__pycache__' -o -name '.tox' -o -name 'site-packages' \) -prune -o -type f \( -name 'pom.xml' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradle.properties' -o -name '*.versions.toml' -o -name 'settings.gradle' -o -name 'settings.gradle.kts' \) -print | sed 's|^\./||' | LC_ALL=C sort
 
 sh [GoldenFix: pre-check gradle] #!/bin/bash
 set +e

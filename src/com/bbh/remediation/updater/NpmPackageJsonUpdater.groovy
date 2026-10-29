@@ -15,6 +15,8 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
 
     List<String> filePatterns() { return ['package.json'] }
 
+    void useCatalogs(Map catalogs) { }
+
     @NonCPS
     boolean supports(String relativePath) {
         String normalized = (relativePath ?: '').replace('\\', '/')
