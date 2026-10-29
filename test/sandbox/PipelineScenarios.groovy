@@ -168,8 +168,10 @@ Closure runPipeline = { Map spec ->
         return ''
     }
     List<Integer> evaluatedAt = []
+    List<Map> evaluations = []
     j.steps['nexusPolicyEvaluation'] = { Map a ->
         evaluatedAt << j.calls.size()
+        evaluations << a
         List n = data[project()].niq as List
         new FakeIqEvaluation(criticalComponentCount: n[0] as int, severeComponentCount: n[1] as int, moderateComponentCount: n[2] as int,
                 applicationCompositionReportUrl: "https://tools.bbh.com/IQ/ui/links/application/${a.iqApplication}/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0".toString())
@@ -195,7 +197,7 @@ Closure runPipeline = { Map spec ->
         crash = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
     return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String,
-            goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt]
+            goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt, evaluations: evaluations]
 }
 
 List<String> staticStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
@@ -655,6 +657,20 @@ Map sastIncluded = sastRun('SAST pipeline, Node.js build with included folders',
 }
 check('SAST pipeline, Node.js build with included folders: the IRX keeps its folders when includedDirs is set',
         irxExcluded(sastIncluded.j as FakeScript) == ['', ''], irxExcluded(sastIncluded.j as FakeScript))
+
+check('full pipeline, Node.js build for one service: nexusIqScan false keeps the Nexus IQ scan patterns of the service',
+        (nodeRun.evaluations as List<Map>).collect { it.iqScanPatterns } == [[[scanPattern: '**/gui/build/libs/*.jar']], [[scanPattern: '**/api/target/*.jar']]],
+        (nodeRun.evaluations as List<Map>).collect { it.iqScanPatterns })
+
+Map nexusIqNode = runPipeline([name: 'Nexus IQ GoldenFix pipeline, Node.js build', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, job: 'CertScanner-nexusiq-pipeline',
+                               buildNumber: 64, params: [:], configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true, dir: 'gui/frontend'] }])
+FakeScript nexusIqNodeJenkins = nexusIqNode.j as FakeScript
+check('Nexus IQ GoldenFix pipeline, Node.js build: the Node.js build runs before Build artifact and package-lock.json of its folder joins the Nexus IQ scan of that service only',
+        !nexusIqNode.crash && (nexusIqNode.var as FakeCpsScript).executedStages == [MONITOR, NODE, BUILD, NIQ]
+                && firstCall(nexusIqNodeJenkins, 'sh [Node.js: npm run build]') < firstCall(nexusIqNodeJenkins, 'sh [Gradle: ')
+                && (nexusIqNode.evaluations as List<Map>).collect { it.iqScanPatterns } == [[[scanPattern: '**/gui/build/libs/*.jar'], [scanPattern: 'gui/frontend/package-lock.json']],
+                                                                                          [[scanPattern: '**/api/target/*.jar']]],
+        [nexusIqNode.crash, (nexusIqNode.var as FakeCpsScript).executedStages, (nexusIqNode.evaluations as List<Map>).collect { it.iqScanPatterns }])
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
