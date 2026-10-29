@@ -12,6 +12,7 @@ import com.bbh.utils.BuildUtils
 class AppScanService implements Serializable {
     private final def script
     private String token
+    private String cliLoginKey = ''
     private final PipelineState state
     private final OsHelper os
     private final PolicyEngine policy
@@ -43,8 +44,10 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
     }
 
     void cliLogin() {
+        String loginKey = "${script.env.APPSCAN_KEY_ID} ${keySecretCredentialsId()}"
+        if (loginKey == cliLoginKey) return
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
-            script.withCredentials([script.string(credentialsId: state.cfg.asoc.token ?: "${script.env.APPSCAN_KEY_ID}", variable: "APPSCAN_KEY_SECRET")]) {
+            script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: "APPSCAN_KEY_SECRET")]) {
                 if (os.isWindows()) {
                     def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
                     script.powershell """
@@ -78,6 +81,11 @@ echo "[INFO] AppScan CLI login succeeded."
                 }
             }
         }
+        cliLoginKey = loginKey
+    }
+
+    private String keySecretCredentialsId() {
+        return (state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
     }
 
     void resolveSourceDir(String param = null) {
@@ -411,14 +419,8 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         script.echo "[DAST] Starting API Authentication"
 
         String response = ''
-        script.withCredentials([
-                script.usernamePassword(
-                        credentialsId: 'hcl-app-scan-acount',
-                        passwordVariable: 'Secret',
-                        usernameVariable: 'ID'
-                )
-        ]) {
-            String credentials = "-d \"{\\\"KeyId\\\":\\\"${script.env.ID}\\\",\\\"KeySecret\\\":\\\"${script.env.Secret}\\\"}\""
+        script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: 'APPSCAN_KEY_SECRET')]) {
+            String credentials = "-d \"{\\\"KeyId\\\":\\\"${script.env.APPSCAN_KEY_ID}\\\",\\\"KeySecret\\\":\\\"${script.env.APPSCAN_KEY_SECRET}\\\"}\""
             response = script.sh(
                     script: curlCommand(['-H "Content-Type: application/json"', credentials], appscanApiUrl('Account/ApiKeyLogin')),
                     returnStdout: true

@@ -47,12 +47,13 @@ def sast(def api) {
         api.eachProject {
             api.appscanResolveSourceDir()
         }
-        api.appscanLogin()
         api.eachProject {
+            api.appscanLogin()
             api.appscanGenerateIRX()
             api.appscanQueue(config)
         }
         api.eachProject {
+            api.appscanLogin()
             api.appscanWait()
             api.appscanDownloadReports()
             api.appscanRenameSastReport()

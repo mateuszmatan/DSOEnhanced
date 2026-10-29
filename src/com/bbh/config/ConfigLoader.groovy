@@ -87,6 +87,7 @@ class ConfigLoader implements Serializable {
                     script.error "[INIT] Project '${pName}' is not configured by the pipeline keys of this run. Available: ${projects.keySet().join(', ')}"
                 }
                 state.projectsAllCfg[pName] = deepMerge(state.cfgDefaults, projects[pName] as Map)
+                appScanKeyId(pName)
             }
             def primaryName = projectNames[0]
             state.cfg = state.projectsAllCfg[primaryName]
@@ -97,9 +98,7 @@ class ConfigLoader implements Serializable {
             script.echo "[INIT] APPSCAN_SCAN_NAME=${script.env.APPSCAN_SCAN_NAME}"
         }
 
-        def keyId = state.cfg.asoc?.keyId?.trim()
-        if (!keyId) script.error "[INIT] asoc.keyId must be set for the service in the DevSecOps portal"
-        script.env.APPSCAN_KEY_ID = keyId
+        script.env.APPSCAN_KEY_ID = appScanKeyId(state.currentProjectName)
         List unscanned = variant == 'nexusiq' ? withoutNexusIqScan(projectNames as List) : []
         if (unscanned) script.error "[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for ${unscanned.join(', ')}: set tools.nexusIq.application and its scanPatterns for the service in the DevSecOps portal"
 
@@ -199,6 +198,13 @@ class ConfigLoader implements Serializable {
         state.currentProjectName = projectName
         script.env.CURRENT_PROJECT_NAME = projectName
         script.env.APPSCAN_SCAN_NAME = buildScanName(state.cfg.tools?.sonar?.projectName ?: projectName)
+        script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
+    }
+
+    private String appScanKeyId(String projectName) {
+        String keyId = ((state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
+        if (!keyId) script.error "[INIT] asoc.keyId must be set for the service ${projectName} in the DevSecOps portal"
+        return keyId
     }
 
     void applyPolicy() {

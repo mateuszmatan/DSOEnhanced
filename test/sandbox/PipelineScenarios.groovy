@@ -88,6 +88,7 @@ Closure runPipeline = { Map spec ->
                                             '-DgroupId=com.bbh.certscanner', '-DartifactId=certscanner-api', '-DgeneratePom=true']]]
     }
     (projects.projects as Map).each { k, v -> Map sonarCfg = (((v as Map).tools ?: [:]) as Map).sonar as Map; if (sonarCfg) sonarCfg.badgeToken = '' }
+    if (spec.configure) (spec.configure as Closure).call(projects.projects as Map)
     if (spec.var == 'devSecOpsExtendedPipeline') {
         Map archived = yaml.load(yaml.dump(projects)) as Map
         Map rd = ((((archived.projects as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd as Map
@@ -435,6 +436,37 @@ specs.each { Map spec ->
     check("${name}: the run matches the golden output recorded ${baseline.recorded}", same,
             "compare ${golden} with ${diffFile}")
 }
+
+Closure focused = { Map spec ->
+    Map r = runPipeline([var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec)
+    check("${spec.name}: the pipeline var runs to the end without a stage failure", !r.crash && (r.var as FakeCpsScript).stageFailures.isEmpty(),
+            ([r.crash] + (r.var as FakeCpsScript).stageFailures).join('\n      '))
+    return r
+}
+Closure loginsOf = { FakeScript j, String marker, String pattern ->
+    j.calls.findIndexValues { it.contains(marker) }.collect { idx ->
+        int i = idx as int
+        "${j.calls[i - 1]} ${(j.calls[i] =~ pattern)[0][1]}".toString()
+    }
+}
+
+String guiKey = 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9'
+String backendKey = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
+Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: { Map p ->
+    ((p.gui as Map).asoc as Map).token = 'gui-appscan-key-secret'
+    ((p['backend-api'] as Map).asoc as Map).keyId = backendKey
+}])
+FakeScript perServiceJenkins = perService.j as FakeScript
+List sastLogins = loginsOf(perServiceJenkins, ' api_login ', /-u "([^"]+)"/)
+List guiThenBackend = ["withCredentials [gui-appscan-key-secret] ${guiKey}".toString(), "withCredentials [${backendKey}] ${backendKey}".toString()]
+check('full pipeline, AppScan settings per service: SAST logs in with the key of each service before its IRX is queued and before its results are read, '
+        + 'the secret from asoc.token or, without it, from the credentials named like the key ID', sastLogins == guiThenBackend + guiThenBackend, sastLogins)
+List dastLogins = loginsOf(perServiceJenkins, 'Account/ApiKeyLogin', /(\{.*\})/).collect { (it as String).replace('\\"', '"') }
+check('full pipeline, AppScan settings per service: DAST signs in with the key ID and the Secret text of each service',
+        dastLogins == ["withCredentials [gui-appscan-key-secret] {\"KeyId\":\"${guiKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString(),
+                       "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
+                && !perServiceJenkins.calls.any { it.contains('hcl-app-scan-acount') },
+        dastLogins)
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

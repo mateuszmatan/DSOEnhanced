@@ -172,6 +172,25 @@ check('several keys: one [PORTAL] line per key and one for the ignored Jenkinsfi
                 && j.log.contains('[PORTAL] The Jenkinsfile sets projectNames, agentNames; the values from the DevSecOps portal are used instead'),
         j.log.findAll { it.startsWith('[PORTAL]') })
 
+Map otherKey = PortalFixtures.copy(backend)
+(((otherKey.projects as Map)['backend-api'] as Map).asoc as Map).keyId = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
+j = jenkins([:])
+r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, otherKey)]])
+initError = r.error ?: initialize(r)
+String primaryKeyId = j.env.APPSCAN_KEY_ID
+if (!initError) r.harness.run { r.loader.switchProject('backend-api') }
+check('an AppScan key per service: APPSCAN_KEY_ID is the key of the primary service after the start and the key of the current service after switchProject',
+        !initError && primaryKeyId == 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9' && j.env.APPSCAN_KEY_ID == 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5',
+        "${initError} | ${primaryKeyId} | ${j.env.APPSCAN_KEY_ID}")
+
+Map keyless = PortalFixtures.copy(backend)
+(((keyless.projects as Map)['backend-api'] as Map).asoc as Map).remove('keyId')
+j = jenkins([:])
+r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, keyless)]])
+initError = r.error ?: initialize(r)
+check('an AppScan key per service: a service without asoc.keyId stops the build at the start, also when it is not the primary service',
+        initError == '[INIT] asoc.keyId must be set for the service backend-api in the DevSecOps portal', initError)
+
 j = jenkins([:])
 SandboxHarness apiHarness = new SandboxHarness(srcDir, stubDir)
 FakeCpsScript api = apiHarness.loadVars(varsDir, j)['devSecOpsApi'] as FakeCpsScript
