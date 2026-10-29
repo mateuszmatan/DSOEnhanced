@@ -59,7 +59,7 @@ The library executes the following pipeline automatically when you call {{devSec
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
 |4|SAST – HCL AppScan|Static Application Security Testing, queued per project|
 |5|SCA (SonarQube)|Static code analysis and quality gate|
-|6|Nexus delivery (static analysis passed)|Publish the snapshot artifact, always, even when an earlier stage is orange|
+|6|Nexus delivery (static analysis passed)|Publish the snapshot artifact, even when an earlier stage is orange, unless {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the service|
 |7|Lower test region deployment|Deploy to the lower test region: VM with UrbanCode Deploy ({{devSecOpsPipeline}}) or over SSH ({{devSecOpsExtendedPipeline}}), or OpenShift|
 |8|Regression tests|Trigger regression jobs, at least one job must be configured|
 |9|Smoke tests|Trigger smoke jobs, at least one job must be configured|
@@ -345,7 +345,7 @@ The portal integration keeps every stage, scanner, deployment, report, metric, r
 # A failure before {{pipeline {}}} (no key, a bad, unknown or invalidated key, a type or product mismatch, an unreachable portal) ends the build without a report, {{release-gate.json}} or InfluxDB point. {{build_duration}} and the DORA duration include the read.
 # The archived run-state file is {{pipeline-config.yaml}}, not {{config.yaml}}; the first extended build after the cutover needs one security build made by the new library.
 # The extended pipeline uses the services of its own key plus the run-time tags of the security build, not the whole {{config.yaml}} the security build archived.
-# Keys the portal does not model are gone from {{getCFG()}}, such as custom keys a team added to {{config.yaml}}. {{tests.<suite>.defaults}}, test jobs given as a bare URL and {{urls}} lists are expanded into jobs when a service is migrated. {{jobs[].auth}} maps other than credential IDs, OpenShift {{appName}}, {{imageNamespace}}, {{cluster}} and {{credentialsId}} (read only by the unused {{nexusDelivery}} method) and the keys no code reads ({{asoc.keySecret}}, {{sast.scanName}}, {{sca.scanName}}, {{dast.scanName}}, {{build.maven.javaPath}}) are not modelled. {{jenkins.pipeline.extendedPipeline}} is in the documents of security pipelines only, so a custom Jenkinsfile that calls {{devSecOpsApi.runExtendedPipeline()}} configures itself with the key of the security pipeline.
+# Keys the portal does not model are gone from {{getCFG()}}, such as custom keys a team added to {{config.yaml}}. {{tests.<suite>.defaults}}, test jobs given as a bare URL and {{urls}} lists are expanded into jobs when a service is migrated. {{jobs[].auth}} maps other than credential IDs, OpenShift {{appName}}, {{imageNamespace}}, {{cluster}} and {{credentialsId}} (read only by the unused {{nexusDelivery}} method) and the keys no code reads ({{asoc.keySecret}}, {{sca.scanName}}, {{dast.scanName}}, {{build.maven.javaPath}}) are not modelled. {{jenkins.pipeline.extendedPipeline}} is in the documents of security pipelines only, so a custom Jenkinsfile that calls {{devSecOpsApi.runExtendedPipeline()}} configures itself with the key of the security pipeline.
 # Selecting projects through {{PROJECT_NAMES}} or {{PROJECT_NAME}} without keys is gone; the keys decide.
 # Messages that named {{config.yaml}} or {{defaults.yaml}} now name the portal, also where they reach the report, {{release-gate.json}} and InfluxDB. A {{securityPipeline}} in the Jenkinsfile of a full, security or SAST pipeline is ignored, which shows the Nexus IQ and SonarQube summary rows it used to hide.
 # Nexus IQ report links appear for every service, because the Nexus IQ server address is a global setting; GoldenFix stays governed by its own switch per service.
@@ -378,10 +378,10 @@ Before onboarding a project to the DevSecOps pipeline, the application and its r
   Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}.
 
 * *HCL AppScan on Cloud (ASoC) application registered.*
-  The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in the Jenkins credentials. Both SAST and DAST scans are uploaded to this application.
+  The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal for every service: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
 
 * *SonarQube project registered.*
-  A project must exist in SonarQube with a unique {{projectKey}}. A badge token ({{badgeToken}}) is required for SonarQube metric badges to appear in the HTML pipeline report. The SonarQube server must be reachable from the Jenkins agent.
+  A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
 
 * *Nexus IQ application registered.*
   The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the {{scanPatterns}} configured for the service in the DevSecOps portal. The Nexus IQ server must be reachable from the Jenkins agent.
@@ -476,6 +476,8 @@ h3. Jenkins global configuration
 
 ||Credential ID||Type||Used for||
 |{{nexusiqP}}|Username/Password|Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions)|
+|{{asoc.token}} of the service, otherwise a credential named like its {{asoc.keyId}}|Secret text|The AppScan key secret of the service, for the SAST login and the DAST sign-in; the portal stores only the key ID and the credentials ID|
+|{{tools.sonar.badgeCredentialsId}} of the service (optional)|Secret text|The SonarQube badge token for the badges in the report|
 |{{scm.bitbucket.credentialsId}}|Username/Password (or Secret text with {{authType: bearer}})|GoldenFix: push of branch {{GoldenFix-YYYYMMDDHHMM}} and pull request creation (repository write permission)|
 |{{tests.*.jobs[].credentialsId}} (optional)|Username/Password (user + API token)|Triggering remote test jobs referenced by full URL|
 |{{openshift-rd-token}}|Secret text|OpenShift RD cluster token|
@@ -582,7 +584,7 @@ h3. SonarQube — code quality
 
 # *Create the project.* Choose *Create Project → Manually*, give it a display name such as {{MyApp-GUI}} and a project key such as {{myapp-gui}}. The key must be unique across BBH, so prefix it with your application name.
 # *Generate a token to read results back.* *My Account → Security → Generate token*. Give it to the Jenkins administrators to store as a *Secret text* credential and note the credential ID.
-# *Optional: generate a badge token.* *Project Settings → Badges*. Adding it to the configuration makes the quality metrics appear in the pipeline report.
+# *Optional: generate a badge token.* *Project Settings → Badges*. Give it to the Jenkins administrators to store as a *Secret text* credential and name it in {{tools.sonar.badgeCredentialsId}}; the quality metrics then appear in the pipeline report.
 # *Write down the project key and the credential ID.* They go into the DevSecOps portal as {{tools.sonar.projectKey}} and {{tools.sonar.authToken}}.
 
 *Flutter applications:* SonarQube Community has no Dart analyser and the library does not need one. It converts the coverage report and the {{dart analyze}} findings into the generic import formats SonarQube accepts for any language. No additional component is required; create the project as described above.
@@ -593,7 +595,7 @@ h3. HCL AppScan — SAST
 
 # *Request an AppScan application.* Ask the DevSecOps team to create one for your product, giving them the application name and your team.
 # *Receive the Application ID.* It looks like {{109f44ac-cc06-4ca0-884e-d944904f7019}} and goes into the DevSecOps portal as {{appId}}.
-# *Receive the API key ID.* It looks like {{bbh_b81fbc9f-...}} and goes into the DevSecOps portal as {{asoc.keyId}}. The matching secret is *not* put in the portal — it lives in the Jenkins credential {{hcl-app-scan-acount}}.
+# *Receive the API key ID and its secret.* The key ID looks like {{bbh_b81fbc9f-...}} and goes into the DevSecOps portal as {{asoc.keyId}} of the service. The matching secret is *not* put in the portal — the Jenkins administrators store it as a *Secret text* credential, and its ID goes into the portal as {{asoc.token}}. Without {{asoc.token}} the library reads the credential whose ID is the key ID. SAST and DAST both use this key.
 # *Confirm your agent can reach AppScan.* Ask the DevSecOps team to confirm the proxy service account and the OIS certificate are installed on your agent label. This is the most common reason a first SAST run fails.
 
 {info}
@@ -622,10 +624,11 @@ h3. Credentials that must exist in Jenkins
 Most of these are shared across all applications and will already exist. Check with the administrators and request only what is missing.
 
 ||Credential ID||Type||Needed for||Scope||
-|{{hcl-app-scan-acount}}|Username with password|The AppScan key ID and key secret, for SAST and DAST|shared|
+|your AppScan key secret ({{asoc.token}})|Secret text|The AppScan login of SAST and DAST, with the key ID of the service|per service|
 |{{nexusiqP}}|Username with password|Nexus IQ evaluation and remediation lookups|shared|
 |your Bitbucket credential|Username with password, or HTTP access token|Pushing the upgrade branch and opening the pull request; needs *write* access|per application|
 |your SonarQube token|Secret text|Reading issue counts back after the analysis|per application|
+|your SonarQube badge token ({{tools.sonar.badgeCredentialsId}})|Secret text|The SonarQube badges in the pipeline report|optional|
 |{{remote-jenkins-api-token}}|Username with API token|Only if your tests run on another Jenkins instance|optional|
 |{{openshift-rd-token}}, {{openshift-qc-token}}|Secret text|Only if you deploy to OpenShift|optional|
 
@@ -760,6 +763,7 @@ projects:
     asoc:
       url:   "https://bbh.cloud.appscan.com"
       keyId: "<AppScan key ID>"
+      token: "<Jenkins credential ID of your AppScan key secret>"
 
     tools:
       sonar:
@@ -960,6 +964,7 @@ projects:
     asoc:
       url:   "https://bbh.cloud.appscan.com"
       keyId: "<AppScan key ID>"
+      token: "<Jenkins credential ID of your AppScan key secret>"
 {code}
 
 h3. Specific to this pipeline
@@ -1007,6 +1012,7 @@ projects:
     asoc:
       url:   "https://bbh.cloud.appscan.com"
       keyId: "<AppScan key ID>"
+      token: "<Jenkins credential ID of your AppScan key secret>"
 
     tools:
       nexusIq:
@@ -1033,7 +1039,7 @@ projects:
 * {{buildTool}}, {{build}} and {{javaPath}} (or {{buildToolAutoSetup: true}}) build the artifact; without a JDK the Build artifact stage stops with *JAVA_HOME parameter is not specified*.
 * {{scm.bitbucket}} is where the {{GoldenFix-YYYYMMDDHHMM}} branch is pushed and the pull request is raised, into {{targetBranch}} or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
 * {{goldenFix}} is on by default; every setting of [the configuration reference|#ch15] applies, such as {{minThreatLevel}}, {{ecosystems}} and the pre-check build under {{goldenFix.verify}}.
-* {{appId}} and {{asoc.keyId}} *stay required* although this pipeline runs no AppScan scan: the portal asks for the AppScan identifiers of every service, and the library checks {{asoc.keyId}} at the start of every pipeline.
+* {{appId}} and {{asoc.keyId}} *stay required* although this pipeline runs no AppScan scan: the portal asks for the AppScan identifiers of every service, and the library checks {{asoc.keyId}} of every service at the start of every pipeline.
 
 h3. Specific to this pipeline
 
@@ -1155,9 +1161,9 @@ projects:
         extendedPipeline: ""         # security pipeline only: the extended job named in the portal, started when RUN_EXTENDED_PIPELINE is selected
 
     asoc:                            # HCL AppScan on Cloud (required)
-      url:         "https://bbh.cloud.appscan.com"
-      keyId:       ""
-      token:       ""                # optional: Jenkins Secret text credential holding the key secret
+      url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
+      keyId:       ""                # AppScan API key ID of this service, for SAST and DAST
+      token:       ""                # Jenkins Secret text credential holding the key secret [default: a credential named like keyId]
       insecureTls: false             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false
       doCompile:   true              # compile the project before the IRX is generated
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
@@ -1166,6 +1172,9 @@ projects:
         tasks: ['classes', 'testClasses']
       maven:
         goals: ['clean', 'compile']
+
+    sast:
+      scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
 
     influx:                          # InfluxDB DORA metrics (optional)
       enabled:   false
@@ -1184,9 +1193,10 @@ projects:
         projectKey:       ""         # unique project key in SonarQube
         serverUrl:        "https://tools.bbh.com/sonar"
         installationName: "SonarQube"  # SonarQube installation registered in Jenkins
-        credentialsId:    ""         # Jenkins credential with the SonarQube token
-        authToken:        ""         # alternative: credential ID used for the REST queries of the report
-        badgeToken:       ""         # token for the SonarQube badges in the HTML report
+        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis
+        authToken:        ""         # Jenkins Secret text credential for the issue counts the report queries
+        badgeCredentialsId: ""       # Jenkins Secret text credential with the badge token, wins over badgeToken
+        badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
         addBadges:        false      # add the badges to the build description
         fullBadges:       false      # all badges instead of the quality gate badge only
       nexusIq:
@@ -1308,6 +1318,7 @@ projects:
                   version:             ""        # [default: <versionPrefix>_<BUILD_ID>]
                   incrementalVersion:  true
         rd:                          # lower test environment over SSH (devSecOpsExtendedPipeline)
+          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus
           host:         ""
           user:         "taadmin"
           deployDir:    ""           # remote directory for deployment scripts
@@ -1321,6 +1332,8 @@ projects:
           versionFile:  "scripts/deployment/version.properties"
       openshift:                     # used when deployTarget: openshift
         rd:
+          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service
+          buildTag:           ""     # the image tag RD and QC deploy when nexusDeliveryEnabled is false; skipped as not required without it
           projectBuildR:      ""     # namespace where the image is built
           buildConfigPath:    ""     # BuildConfig template in the repository
           dockerFilePath:     ""     # Dockerfile in the repository
@@ -1361,10 +1374,10 @@ projects:
 h3. Which fields are required
 
 ||Field||Required||Notes||
-|{{asoc.keyId}}|YES|Pipeline fails at init without it|
-|{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret; without it the credential named like {{asoc.keyId}} is used|
+|{{asoc.keyId}}|YES, for every service|Pipeline fails at init without it|
+|{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like {{asoc.keyId}} is used|
 |{{appId}}|YES|Needed for AppScan SAST and DAST|
-|{{tools.sonar.projectKey}}|Recommended|SonarQube scan is skipped silently without it|
+|{{tools.sonar.projectKey}}|Recommended|Without it the analysis still runs, but the report has no SonarQube link, issue counts or badges|
 |{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
 |{{dast.targetUrl}}|Only if {{dast.enabled: true}}|Pipeline fails at DAST stage without it|
 |{{javaPath}} or {{buildToolAutoSetup: true}}|YES|Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified*|
@@ -1398,7 +1411,7 @@ Fails if:
 * the portal sent no global defaults
 * a name in {{PROJECT_NAMES}} is not a service of the pipeline keys
 * an extended pipeline finds no {{pipeline-config.yaml}} in the last successful build of its security job, a service of the run is missing from it, or a tag in it is not a plain tag
-* {{asoc.keyId}} is empty
+* {{asoc.keyId}} is empty for a service of the run
 
 h3. Stage 2: Unit tests
 
@@ -1419,7 +1432,7 @@ Runs {{nexusPolicyEvaluation}} with your configured scan patterns and compares t
 
 h3. Stage 4: SAST – HCL AppScan
 
-Downloads and unpacks SAClientUtil (the AppScan CLI), logs in with the ASoC key pair, compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the Global Settings in the DevSecOps portal (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
+Downloads and unpacks SAClientUtil (the AppScan CLI), compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. Before a project is queued and before its results are read, the CLI logs in with the key of that project ({{asoc.keyId}} and the secret of {{asoc.token}}). The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the Global Settings in the DevSecOps portal (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
 
 h4. GoldenFix remediation (automatic pull request)
 
@@ -1464,6 +1477,8 @@ h3. Stages 6–10: Delivery and tests
 
 Stage 6 publishes the snapshot artifact and stage 7 deploys to the lower test region. Both always run, even when an earlier stage is orange, so developers always get a build on the lower test region.
 
+A service with {{deploy.<target>.rd.nexusDeliveryEnabled: false}} is not published to Nexus: stage 6 still reports its build and unit tests and logs {{[NEXUS] <service>: Nexus delivery is disabled}}, and the stage is {{NOT_REQUIRED}} when no service of the run was published. An OpenShift service without delivery has no image of this run, so its RD deployment, and its QC deployment, use a pinned {{deploy.openshift.rd.buildTag}}; without one they are skipped as not required with an {{[OPENSHIFT]}} line. The release delivery of stage 12 is not affected.
+
 What stage 6 does depends on the project: a Maven project on a VM is uploaded to the Nexus snapshot repository with the {{delivery.maven}} command and the delivered version is written back into {{pipeline-config.yaml}}; an OpenShift project has its image built in the build namespace and copied to the Nexus docker registry with {{skopeo}}; a Gradle project on a VM reports the build and the unit test results, and is published to Nexus by the release delivery ({{./gradlew publish}}). Stage 7 deploys with UrbanCode Deploy ({{devSecOpsPipeline}}, {{deploy.vm.dod}}), over SSH ({{devSecOpsExtendedPipeline}}, {{deploy.vm.rd}}) or to OpenShift ({{deploy.openshift.rd}}).
 
 Then the tests run in the order regression, smoke, performance, followed by DAST. Each test stage needs at least one configured job.
@@ -1472,9 +1487,9 @@ Every test stage runs *all* configured jobs, even when some of them fail, and th
 
 h3. Stage 11: DAST – HCL AppScan
 
-Runs only for projects with {{dast.enabled: true}}. Queues a DAST scan against {{dast.targetUrl}}. Uses optional {{dast.presenceId}} for scanning internal (non-internet-accessible) environments.
+Runs only for projects with {{dast.enabled: true}}. Signs in to the AppScan REST API with the key of the project ({{asoc.keyId}} and the secret of {{asoc.token}}) and queues a DAST scan against {{dast.targetUrl}}. Uses optional {{dast.presenceId}} for scanning internal (non-internet-accessible) environments.
 
-The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as *PDF*. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the *HCL AppScan* console page of the scan and the PDF report. Above the DAST thresholds of the Global Settings in the DevSecOps portal the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
+The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as *PDF*. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the *HCL AppScan* console page of the scan (under {{asoc.url}}, otherwise {{APPSCAN_SERVER_URL}}) and the PDF report. Above the DAST thresholds of the Global Settings in the DevSecOps portal the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
 
 h3. Stage 12: Nexus delivery (safe artifact)
 
@@ -1493,7 +1508,7 @@ No security or test finding stops the pipeline. Every stage from the unit tests 
 |Dependencies scan (Nexus IQ)|Orange, with critical / high / medium counts, GoldenFix pull request raised|Release and QC blocked|
 |SAST|Orange, with critical / high / medium counts|Release and QC blocked|
 |SCA (SonarQube)|Orange, with the quality gate status|Release and QC blocked|
-|Nexus delivery (snapshot)|Always runs|–|
+|Nexus delivery (snapshot)|Always runs; {{NOT_REQUIRED}} when no service has Nexus delivery on|–|
 |Lower test region deployment (RD)|Always runs|–|
 |Regression, smoke, performance|Orange, with the failed jobs|Release and QC blocked|
 |DAST|Orange, with critical / high / medium counts|Release and QC blocked|
@@ -2363,9 +2378,9 @@ h3. "The last successful build of ... has no pipeline-config.yaml"
 
 The extended pipeline copies {{pipeline-config.yaml}} from the security job the portal names, and the last successful build of that job was made by a library before the portal integration. Run the security job once.
 
-h3. "asoc.keyId must be set for the service in the DevSecOps portal"
+h3. "asoc.keyId must be set for the service <service> in the DevSecOps portal"
 
-Set the AppScan key ID of the service in the portal. The key secret is a Jenkins credential, never a portal setting.
+Set the AppScan key ID of the named service in the portal; every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a portal setting.
 
 h3. "JAVA_HOME parameter is not specified"
 
@@ -2471,7 +2486,9 @@ h3. Problems on a first run
 
 ||What you see||What it means and what to do||
 |{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names no pipeline key, or the job builds a branch with an older {{Jenkinsfile}}. Check the branch in the job configuration.|
-|{{asoc.keyId must be set}}|The AppScan key ID is missing from the service in the DevSecOps portal.|
+|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the DevSecOps portal.|
+|{{[SONAR] Badge token credentials ... could not be read}}|The credential named in {{tools.sonar.badgeCredentialsId}} does not exist or is not Secret text. The stage result does not change; the report uses {{badgeToken}} or shows no badges.|
+|{{[OPENSHIFT] <service>: RD deployment not required}}|Nexus delivery is off for the service and no {{deploy.openshift.rd.buildTag}} is pinned, so there is no image to deploy. Pin a tag or turn the delivery on.|
 |{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the DevSecOps portal. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
