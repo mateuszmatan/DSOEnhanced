@@ -583,5 +583,32 @@ check('full pipeline, Node.js build for one service: one [NODE] line per service
                 && ((nodeJenkins.jsonFiles['release-gate.json'] as Map).allowed as boolean),
         nodeJenkins.log.findAll { it.startsWith('[NODE]') })
 
+Closure boxesOf = { String html -> (html =~ />([0-9.]+)<\/span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>([^<]+)<\/span>/).collect { "${it[1]} ${it[2]}".toString() } }
+Closure boxOf = { String html, String name ->
+    int at = html.indexOf(">${name}</span>".toString())
+    int next = html.indexOf("<div style='border:1px solid", at)
+    at < 0 ? '' : html.substring(at, next < 0 ? html.length() : next)
+}
+List<String> nodeBoxes = boxesOf(nodeRun.html as String)
+check('full pipeline, Node.js build for one service: the report shows it as stage 0 after Monitor, the later stages keep their numbers, and InfluxDB gets its stage_event',
+        nodeBoxes.take(6) == ['1.1 Monitor source changes (download sources) - gui', '1.2 Monitor source changes (download sources) - backend-api',
+                              '0.1 Node.js build - gui', '0.2 Node.js build - backend-api', '2.1 Unit tests - gui', '2.2 Unit tests - backend-api']
+                && nodeBoxes.contains('13.2 Higher test environment deployment - backend-api')
+                && influxOf(nodeJenkins).readLines().any { it.startsWith('stage_event,') && it.contains('stage=Node.js\\ build') },
+        nodeBoxes.take(6))
+
+Map nodeFailure = runPipeline([name: 'full pipeline, Node.js build failure', var: 'devSecOpsPipeline', fail: false, breakNode: true, job: 'CertScanner-devsecops-pipeline',
+                               buildNumber: 358, params: [DEPLOY_HIGHER_ENV: true], configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
+FakeCpsScript nodeFailureVar = nodeFailure.var as FakeCpsScript
+String failureHtml = nodeFailure.html as String
+check('full pipeline, Node.js build failure: the stage fails hard, the later stages are skipped, the report is written and Unit tests is numbered 2 and blocked',
+        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == fullStages.drop(1)
+                && nodeFailureVar.stageFailures.size() == 1 && nodeFailureVar.stageFailures[0].startsWith(NODE)
+                && (nodeFailure.j as FakeScript).currentBuild.currentResult == 'FAILURE' && resultOf(nodeFailure, NODE) == 'FAIL'
+                && boxesOf(failureHtml).take(6).drop(2) == ['0.1 Node.js build - gui', '0.2 Node.js build - backend-api', '2.1 Unit tests - gui', '2.2 Unit tests - backend-api']
+                && boxOf(failureHtml, 'Unit tests - gui').contains('pipeline blocked by previous failure')
+                && !boxOf(failureHtml, 'Node.js build - gui').contains('pipeline blocked by previous failure'),
+        [nodeFailure.crash, nodeFailureVar.executedStages, nodeFailureVar.stageFailures, boxesOf(failureHtml).take(6)])
+
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
