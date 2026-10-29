@@ -53,8 +53,8 @@ printf '%s' "$APPSCAN_CMD" > "$APPSCAN_LOG_DIR/appscan.cmd"
 sh chmod +x "$APPSCAN_BIN_DIR/gradle"
 sh mkdir -p '/ws/.appscan-home/.appscan'
 sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
-withCredentials [hcl-app-scan-acount]
-sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Content-Type: application/json" -d "{\"KeyId\":\"fake-ID\",\"KeySecret\":\"fake-Secret\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
+withCredentials [bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9]
+sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Content-Type: application/json" -d "{\"KeyId\":\"bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @dast_payload.json "https://bbh.cloud.appscan.com/api/v4/Scans/Dast"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Scans/Dast/DAST-SCAN-ID"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"
@@ -65,8 +65,8 @@ sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Aut
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -o "appscan-dast-report.pdf" "https://bbh.cloud.appscan.com/api/v4/Reports/REPORT-ID/Download"
 sh [ -f '/ws/appscan-dast-report.html' ] && mv '/ws/appscan-dast-report.html' '/ws/appscan-dast-report-certscanner-gui.html' || true
 sh [ -f '/ws/appscan-dast-report.pdf' ] && mv '/ws/appscan-dast-report.pdf' '/ws/appscan-dast-report-certscanner-gui.pdf' || true
-withCredentials [hcl-app-scan-acount]
-sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Content-Type: application/json" -d "{\"KeyId\":\"fake-ID\",\"KeySecret\":\"fake-Secret\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
+withCredentials [bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9]
+sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Content-Type: application/json" -d "{\"KeyId\":\"bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @dast_payload.json "https://bbh.cloud.appscan.com/api/v4/Scans/Dast"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Scans/Dast/DAST-SCAN-ID"
 sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" -d @report_payload.json "https://bbh.cloud.appscan.com/api/v4/Reports/Security/Scan/DAST-SCAN-ID"

@@ -136,6 +136,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     boolean recordEvents = false
     List<String> events = []
     Map<String, Closure> steps = [:]
+    Set<String> missingCredentials = [] as Set
 
     private String norm(Object path) {
         String p = String.valueOf(path)
@@ -240,7 +241,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         return out as FakeFile[]
     }
     def withCredentials(List credentials, Closure body) {
-        calls << "withCredentials ${credentials.collect { it instanceof Map ? ((Map) it).credentialsId : it }}".toString()
+        List ids = credentials.collect { it instanceof Map ? ((Map) it).credentialsId : it }
+        calls << "withCredentials ${ids}".toString()
+        String missing = ids.find { missingCredentials.contains(String.valueOf(it)) }
+        if (missing) throw new FakeAbort("Could not find credentials entry with ID '${missing}'")
         Map<String, String> saved = [:]
         credentials.each { c ->
             if (c instanceof Map) {

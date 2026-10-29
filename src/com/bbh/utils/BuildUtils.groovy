@@ -41,6 +41,11 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String scanName(String base) {
+        return base.replaceAll(/[^a-zA-Z0-9_-]/, '-').replaceAll(/-+/, '-').toLowerCase().trim()
+    }
+
+    @NonCPS
     static String fileNameOf(String path) {
         String normalized = (path ?: '').replace('\\', '/')
         int index = normalized.lastIndexOf('/')
@@ -70,6 +75,11 @@ class BuildUtils implements Serializable {
         }
 
         return value.toString().toBoolean()
+    }
+
+    @NonCPS
+    static boolean nexusDeliveryEnabled(Map cfg) {
+        return booleanValue(cfg.deploy?.get(cfg.deployTarget ?: 'vm')?.rd?.nexusDeliveryEnabled, true)
     }
 
     static String requiredString(def script, def value, String propertyName) {

@@ -118,7 +118,7 @@ class HtmlReportService implements Serializable {
                 new HashMap(state.nexusIqResults ?: [:]),
                 new HashMap(state.remoteTestResults ?: [:]),
                 (state.cfg?.tools?.sonar?.projectKey  ?: '') as String,
-                (state.cfg?.tools?.sonar?.badgeToken  ?: '') as String,
+                (state.sonarResults?.badgeToken ?: state.cfg?.tools?.sonar?.badgeToken ?: '') as String,
                 new HashMap(state.projectsVulnCounts     ?: [:]),
                 new HashMap(state.projectsNexusIqResults ?: [:]),
                 new HashMap(state.projectsScanResults    ?: [:]),
@@ -1070,7 +1070,7 @@ class HtmlReportService implements Serializable {
             String project = (ctx.projectKeys as List).get(i)?.toString() ?: ''
             def cfg = project ? projectsAllCfg.get(project) : null
             def projectKey = cfg ? cfg.get('tools')?.get('sonar')?.get('projectKey') : ctx.sonarProjectKey
-            def badgeToken = cfg ? cfg.get('tools')?.get('sonar')?.get('badgeToken') : ctx.sonarBadgeToken
+            def badgeToken = cfg ? (((projectsSonarResults.get(project) ?: [:]) as Map).get('badgeToken') ?: cfg.get('tools')?.get('sonar')?.get('badgeToken')) : ctx.sonarBadgeToken
             def serverUrl = (cfg ? cfg.get('tools')?.get('sonar')?.get('serverUrl') : null) ?: 'https://tools.bbh.com/sonar'
             if (!projectKey || !badgeToken) continue
             def badgesHtml = new StringBuilder()

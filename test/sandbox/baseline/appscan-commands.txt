@@ -24,7 +24,7 @@ echo "[INFO] AppScan CLI login succeeded."
 ===== apiLogin =====
 ---
 [SH]
-curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Content-Type: application/json" -d "{\"KeyId\":\"fake-ID\",\"KeySecret\":\"fake-Secret\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Content-Type: application/json" -d "{\"KeyId\":\"keyid\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
 ---
 ===== dastStartScan =====
 ---

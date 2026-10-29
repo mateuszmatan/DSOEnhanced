@@ -88,6 +88,7 @@ Closure runPipeline = { Map spec ->
                                             '-DgroupId=com.bbh.certscanner', '-DartifactId=certscanner-api', '-DgeneratePom=true']]]
     }
     (projects.projects as Map).each { k, v -> Map sonarCfg = (((v as Map).tools ?: [:]) as Map).sonar as Map; if (sonarCfg) sonarCfg.badgeToken = '' }
+    if (spec.configure) (spec.configure as Closure).call(projects.projects as Map)
     if (spec.var == 'devSecOpsExtendedPipeline') {
         Map archived = yaml.load(yaml.dump(projects)) as Map
         Map rd = ((((archived.projects as Map)['backend-api'] as Map).deploy as Map).openshift as Map).rd as Map
@@ -110,6 +111,7 @@ Closure runPipeline = { Map spec ->
             DSO_PORTAL_URL: PortalFixtures.PORTAL_URL
     ])
     j.params.putAll((spec.params ?: [:]) as Map)
+    j.missingCredentials.addAll((spec.missingCredentials ?: []) as List)
     j.resourcesDir = new File(root, 'resources')
     secretResources.each { String name -> j.resources[name] = "fake ${name}".toString() }
     j.files['gradlew'] = '#!/bin/sh'
@@ -435,6 +437,125 @@ specs.each { Map spec ->
     check("${name}: the run matches the golden output recorded ${baseline.recorded}", same,
             "compare ${golden} with ${diffFile}")
 }
+
+Closure focused = { Map spec ->
+    Map r = runPipeline([var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec)
+    check("${spec.name}: the pipeline var runs to the end without a stage failure", !r.crash && (r.var as FakeCpsScript).stageFailures.isEmpty(),
+            ([r.crash] + (r.var as FakeCpsScript).stageFailures).join('\n      '))
+    return r
+}
+Closure loginsOf = { FakeScript j, String marker, String pattern ->
+    j.calls.findIndexValues { it.contains(marker) }.collect { idx ->
+        int i = idx as int
+        "${j.calls[i - 1]} ${(j.calls[i] =~ pattern)[0][1]}".toString()
+    }
+}
+
+Closure resultOf = { Map r, String stage ->
+    List<String> log = (r.j as FakeScript).log
+    int i = log.indexOf("[STAGE]  ${stage}".toString())
+    i < 0 ? 'not run' : log[i + 1].replace('[RESULT] ', '')
+}
+Closure sonarCfgOf = { Map p, String project -> (((p[project] as Map).tools as Map).sonar as Map) }
+Closure rdOf = { Map p, String project, String target -> ((((p[project] as Map).deploy as Map)[target] as Map).rd as Map) }
+
+String guiKey = 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9'
+String backendKey = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
+Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: { Map p ->
+    ((p.gui as Map).asoc as Map).token = 'gui-appscan-key-secret'
+    ((p.gui as Map).sast as Map).remove('scanName')
+    ((p['backend-api'] as Map).asoc as Map).keyId = backendKey
+    ((p['backend-api'] as Map).sast as Map).scanName = 'CertScanner Backend.Nightly'
+}])
+FakeScript perServiceJenkins = perService.j as FakeScript
+List sastLogins = loginsOf(perServiceJenkins, ' api_login ', /-u "([^"]+)"/)
+List guiThenBackend = ["withCredentials [gui-appscan-key-secret] ${guiKey}".toString(), "withCredentials [${backendKey}] ${backendKey}".toString()]
+check('full pipeline, AppScan settings per service: SAST logs in with the key of each service before its IRX is queued and before its results are read, '
+        + 'the secret from asoc.token or, without it, from the credentials named like the key ID', sastLogins == guiThenBackend + guiThenBackend, sastLogins)
+List dastLogins = loginsOf(perServiceJenkins, 'Account/ApiKeyLogin', /(\{.*\})/).collect { (it as String).replace('\\"', '"') }
+check('full pipeline, AppScan settings per service: DAST signs in with the key ID and the Secret text of each service',
+        dastLogins == ["withCredentials [gui-appscan-key-secret] {\"KeyId\":\"${guiKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString(),
+                       "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
+                && !perServiceJenkins.calls.any { it.contains('hcl-app-scan-acount') },
+        dastLogins)
+List queued = perServiceJenkins.calls.findAll { it.contains('queue_analysis -a') }.collect { String c ->
+    "${(c =~ /-f "([^"]+)"/)[0][1]} ${(c =~ /-n "([^"]+)"/)[0][1]} ${(c =~ /queue-([^"]+)\.log/)[0][1]}".toString()
+}
+String dastPayload = perServiceJenkins.files.find { it.key.endsWith('dast_payload.json') }?.value ?: ''
+check('full pipeline, AppScan settings per service: sast.scanName names the SAST scan of its service, sanitised, and a service without it keeps <scan name>-sast; '
+        + 'the IRX, the queue log, the scan ID file, the report names and the DAST scan name stay as they were',
+        queued == ['/ws/certscanner-gui.irx certscanner-gui-sast certscanner-gui-sast', '/ws/certscanner-backend.irx certscanner-backend-nightly certscanner-backend-sast']
+                && ['scan-sast-certscanner-gui.id', 'scan-sast-certscanner-backend.id'].every { String id -> perServiceJenkins.files.keySet().any { it.endsWith(id) } }
+                && ['appscan-report-certscanner-backend.html', 'appscan-dast-report-certscanner-backend.html'].every { perServiceJenkins.files.containsKey(it) }
+                && dastPayload.contains('"ScanName": "certscanner-backend-dast_351"'),
+        queued + [dastPayload.readLines().find { it.contains('ScanName') }])
+
+Closure badgesOf = { Map r -> ((r.html as String) =~ /project=([^&']+)&metric=[^&']+&token=([^&']+)'/).collect { "${it[1]} ${it[2]}".toString() }.unique() }
+Map badges = focused([name: 'full pipeline, SonarQube badge token from credentials', buildNumber: 352, configure: { Map p ->
+    sonarCfgOf(p, 'gui').badgeCredentialsId = 'sonar-badge-token'
+    sonarCfgOf(p, 'gui').badgeToken = 'gui-literal-badge-token'
+    sonarCfgOf(p, 'backend-api').badgeToken = 'backend-literal-badge-token'
+}])
+check('full pipeline, SonarQube badge token from credentials: tools.sonar.badgeCredentialsId is read as Secret text and wins over a literal badgeToken, which is used without it',
+        (badges.j as FakeScript).calls.count('withCredentials [sonar-badge-token]') == 1
+                && badgesOf(badges) == ['cert-scanner-gui fake-SONAR_BADGE_TOKEN', 'cert-scanner-backend backend-literal-badge-token'],
+        badgesOf(badges))
+Map missingBadge = focused([name: 'full pipeline, SonarQube badge credentials missing', buildNumber: 353, missingCredentials: ['sonar-badge-token'], configure: { Map p ->
+    sonarCfgOf(p, 'gui').badgeCredentialsId = 'sonar-badge-token'
+    sonarCfgOf(p, 'gui').badgeToken = 'gui-literal-badge-token'
+    sonarCfgOf(p, 'backend-api').badgeCredentialsId = 'sonar-badge-token'
+}])
+List sonarLines = (missingBadge.j as FakeScript).log.findAll { it.startsWith('[SONAR] Badge token') }
+String notFound = "[SONAR] Badge token credentials sonar-badge-token could not be read (Could not find credentials entry with ID 'sonar-badge-token')"
+check('full pipeline, SonarQube badge credentials missing: the run says so, falls back to the literal badgeToken or shows no badges, and the SCA stage result does not change',
+        sonarLines == ["${notFound} - the badges use tools.sonar.badgeToken".toString(), "${notFound} - the report shows no SonarQube badges".toString()]
+                && badgesOf(missingBadge) == ['cert-scanner-gui gui-literal-badge-token']
+                && resultOf(missingBadge, SONAR) == 'PASS' && resultOf(badges, SONAR) == 'PASS',
+        sonarLines + badgesOf(missingBadge) + [resultOf(missingBadge, SONAR)])
+
+String pinnedTag = '340-20261020-101500'
+Map noDelivery = focused([name: 'full pipeline, Nexus delivery disabled for every service', buildNumber: 354, configure: { Map p ->
+    rdOf(p, 'gui', 'vm').nexusDeliveryEnabled = false
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+    rdOf(p, 'backend-api', 'openshift').buildTag = pinnedTag
+}])
+FakeScript noDeliveryJenkins = noDelivery.j as FakeScript
+FakeOpenShift noDeliveryOpenShift = noDelivery.openshift as FakeOpenShift
+check('full pipeline, Nexus delivery disabled for every service: the snapshot stage is NOT_REQUIRED, publishes nothing and still reports the build and the unit tests',
+        resultOf(noDelivery, SNAPSHOT) == 'NOT_REQUIRED'
+                && noDeliveryJenkins.log.containsAll(['[NEXUS] gui: Nexus delivery is disabled by deploy.vm.rd.nexusDeliveryEnabled - the artifact is not published',
+                                                      '[NEXUS] backend-api: Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled - the artifact is not published'])
+                && !noDeliveryOpenShift.calls.any { it.startsWith('startBuild') } && !noDeliveryJenkins.calls.any { it.contains('skopeo copy') }
+                && ['reportBuild', 'reportUnitTest'].every { noDeliveryJenkins.calls.contains(it) },
+        [resultOf(noDelivery, SNAPSHOT)] + noDeliveryOpenShift.calls.findAll { it.startsWith('startBuild') })
+check('full pipeline, Nexus delivery disabled for every service: a pinned rd.buildTag is still deployed to RD and QC',
+        resultOf(noDelivery, RD) == 'PASS' && resultOf(noDelivery, QC) == 'PASS'
+                && noDeliveryJenkins.log.count { it.contains("Set image on image stream: docker-qc.tools.bbh.com/ta/certscanner-api:${pinnedTag}") } == 2,
+        [resultOf(noDelivery, RD), resultOf(noDelivery, QC)])
+
+Map onlyBackend = focused([name: 'full pipeline, Nexus delivery disabled for the only service', buildNumber: 355, configure: { Map p ->
+    p.remove('gui')
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+}])
+List<String> notDeployed = (onlyBackend.j as FakeScript).log.findAll { it.startsWith('[OPENSHIFT]') }
+check('full pipeline, Nexus delivery disabled for the only service: without a pinned buildTag the snapshot, RD and QC stages are NOT_REQUIRED and nothing is rolled out',
+        [SNAPSHOT, RD, QC].collect { resultOf(onlyBackend, it) } == ['NOT_REQUIRED'] * 3
+                && notDeployed == ['RD', 'QC'].collect { "[OPENSHIFT] backend-api: ${it} deployment not required - Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled and no buildTag is pinned".toString() }
+                && !(onlyBackend.openshift as FakeOpenShift).calls.any { it.startsWith('rollout') },
+        [SNAPSHOT, RD, QC].collect { resultOf(onlyBackend, it) } + notDeployed)
+String onlyBackendDora = influxOf(onlyBackend.j as FakeScript).readLines().find { it.startsWith('dora,') } ?: ''
+check('full pipeline, Nexus delivery disabled for the only service: the dora point counts no deployment, because the deployment stages are NOT_REQUIRED',
+        onlyBackendDora.contains(' deployment=0i,'), onlyBackendDora)
+
+Map oneDelivery = focused([name: 'full pipeline, Nexus delivery disabled for one service', buildNumber: 356, configure: { Map p ->
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+}])
+check('full pipeline, Nexus delivery disabled for one service: the stages stay PASS for the service that delivered and deployed, and the other service is skipped',
+        [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) } == ['PASS'] * 3
+                && !(oneDelivery.openshift as FakeOpenShift).calls.any { it.startsWith('startBuild') || it.startsWith('rollout') }
+                && (oneDelivery.j as FakeScript).calls.count('step UCDeployPublisher') == 2
+                && (oneDelivery.j as FakeScript).log.count { it.startsWith('[OPENSHIFT] backend-api:') } == 2,
+        [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) })
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

@@ -12,9 +12,11 @@ class PipelineState implements Serializable {
     List portalDocuments    = []
     Map  platform           = [:]
 
+    String currentStage = ''
     Map stageResults = [:]
     Map stageErrors  = [:]
     Map stageTimes   = [:]
+    Map notRequiredProjects = [:]
 
     Map vulnCounts = [
         sast: [critical: 0, high: 0, medium: 0, low: 0],
@@ -55,9 +57,21 @@ class PipelineState implements Serializable {
     void stagePass(String name) {
         List kept = ['NOT_REQUIRED', 'BLOCKED', 'WARN', 'FAIL']
         if (!kept.contains(stageResults[name] as String)) {
-            stageResults[name] = 'PASS'
+            stageResults[name] = notRequiredForAll(name) ? 'NOT_REQUIRED' : 'PASS'
             stageErrors.remove(name)
         }
+    }
+
+    void projectNotRequired() {
+        List names = (notRequiredProjects[currentStage] ?: []) as List
+        names << currentProjectName
+        notRequiredProjects[currentStage] = names
+    }
+
+    @NonCPS
+    private boolean notRequiredForAll(String name) {
+        List names = (notRequiredProjects[name] ?: []) as List
+        return names && projectsAllCfg.keySet().every { names.contains(it) }
     }
 
     String stageStatus(String name) {
@@ -67,7 +81,7 @@ class PipelineState implements Serializable {
     void stageFail(String name)                 { stageResults[name] = 'FAIL' }
     void stageWarn(String name)                 { if (stageResults[name] != 'BLOCKED') stageResults[name] = 'WARN' }
     void stageError(String name, String reason) { stageErrors[name] = reason }
-    void stageStart(String name)                { stageTimes[name] = [start: System.currentTimeMillis(), end: 0L] }
+    void stageStart(String name)                { currentStage = name; stageTimes[name] = [start: System.currentTimeMillis(), end: 0L] }
     void stageDone(String name)                 { if (stageTimes.containsKey(name)) stageTimes[name].end = System.currentTimeMillis() }
 
     void recordVulns(String scanner, Map counts) {

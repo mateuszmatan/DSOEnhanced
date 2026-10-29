@@ -206,6 +206,11 @@ The parameter 'openshiftCertDir'  = ${openshiftCertDir}
         String configPathR = osCfg.configPathR
         boolean skipConfigDeploy = osCfg.skipConfigDeploy
 
+        if (!buildTag && !BuildUtils.nexusDeliveryEnabled(state.cfg)) {
+            script.echo "[OPENSHIFT] ${state.currentProjectName}: ${envName.toUpperCase()} deployment not required - Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled and no buildTag is pinned"
+            state.projectNotRequired()
+            return
+        }
         if (!buildTag)
             script.error "The required parameter (buildTag) is not defined"
 

@@ -83,7 +83,7 @@ class InfluxDbService implements Serializable {
     private boolean deployedStage() {
         List names = ['Lower test region deployment', 'Higher test environment deployment']
         for (String name : names) {
-            if (PipelineMetrics.green(state.stageStatus(name))) return true
+            if (state.stageStatus(name) == 'PASS') return true
         }
         return false
     }

@@ -47,12 +47,13 @@ def sast(def api) {
         api.eachProject {
             api.appscanResolveSourceDir()
         }
-        api.appscanLogin()
         api.eachProject {
+            api.appscanLogin()
             api.appscanGenerateIRX()
             api.appscanQueue(config)
         }
         api.eachProject {
+            api.appscanLogin()
             api.appscanWait()
             api.appscanDownloadReports()
             api.appscanRenameSastReport()
@@ -75,7 +76,9 @@ def nexusSnapshotDelivery(def api) {
         api.eachProject { String projectName ->
             api.reportArtifactBuild()
             api.reportUnitTests()
-            if (api.deployTarget() == 'openshift') {
+            if (!api.nexusDeliveryEnabled()) {
+                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
+            } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
                 api.copyImageToNexus()
             } else {

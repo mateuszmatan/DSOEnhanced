@@ -12,6 +12,7 @@ import com.bbh.utils.BuildUtils
 class AppScanService implements Serializable {
     private final def script
     private String token
+    private String cliLoginKey = ''
     private final PipelineState state
     private final OsHelper os
     private final PolicyEngine policy
@@ -43,8 +44,10 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
     }
 
     void cliLogin() {
+        String loginKey = "${script.env.APPSCAN_KEY_ID} ${keySecretCredentialsId()}"
+        if (loginKey == cliLoginKey) return
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
-            script.withCredentials([script.string(credentialsId: state.cfg.asoc.token ?: "${script.env.APPSCAN_KEY_ID}", variable: "APPSCAN_KEY_SECRET")]) {
+            script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: "APPSCAN_KEY_SECRET")]) {
                 if (os.isWindows()) {
                     def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
                     script.powershell """
@@ -78,6 +81,11 @@ echo "[INFO] AppScan CLI login succeeded."
                 }
             }
         }
+        cliLoginKey = loginKey
+    }
+
+    private String keySecretCredentialsId() {
+        return (state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
     }
 
     void resolveSourceDir(String param = null) {
@@ -357,7 +365,9 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void queueSast(Map config) {
         script.echo "Start queue sast"
-        def scanId = queueAnalysis("${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast",
+        String defaultName = "${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast"
+        String scanName = ((state.cfg.sast?.scanName ?: '') as String).trim()
+        def scanId = queueAnalysis(scanName ? BuildUtils.scanName(scanName) : defaultName, defaultName,
                 "${script.env.WORKSPACE}/${script.env.APPSCAN_SCAN_NAME ?: 'my-project'}.irx", config)
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
     }
@@ -411,14 +421,8 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         script.echo "[DAST] Starting API Authentication"
 
         String response = ''
-        script.withCredentials([
-                script.usernamePassword(
-                        credentialsId: 'hcl-app-scan-acount',
-                        passwordVariable: 'Secret',
-                        usernameVariable: 'ID'
-                )
-        ]) {
-            String credentials = "-d \"{\\\"KeyId\\\":\\\"${script.env.ID}\\\",\\\"KeySecret\\\":\\\"${script.env.Secret}\\\"}\""
+        script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: 'APPSCAN_KEY_SECRET')]) {
+            String credentials = "-d \"{\\\"KeyId\\\":\\\"${script.env.APPSCAN_KEY_ID}\\\",\\\"KeySecret\\\":\\\"${script.env.APPSCAN_KEY_SECRET}\\\"}\""
             response = script.sh(
                     script: curlCommand(['-H "Content-Type: application/json"', credentials], appscanApiUrl('Account/ApiKeyLogin')),
                     returnStdout: true
@@ -768,7 +772,7 @@ done
         }
     }
 
-    private String queueAnalysis(String name, String filePath, Map config) {
+    private String queueAnalysis(String name, String logName, String filePath, Map config) {
         def appId = state.cfg.appId?.trim()
         if (!appId) {
             appId = config.appId?.trim()
@@ -787,7 +791,7 @@ done
 \$opts = "\$env:APPSCAN_OPTS -Dhttp.proxyPassword=\$pp -Dhttps.proxyPassword=\$pp"
 \$env:APPSCAN_OPTS = \$opts
 \$out = & ${appscanPath} queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" 2>&1
-\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR\\queue-${name}.log" -Encoding UTF8
+\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR\\queue-${logName}.log" -Encoding UTF8
 \$out
 """).trim()
             } else {
@@ -798,14 +802,14 @@ env -u APPSCAN_DOMAIN \\
     PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
     APPSCAN_OPTS="\${_OPTS}" \\
 "\$APPSCAN_CMD_RUNTIME" queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" \\
-    2>&1 | tee "\$APPSCAN_LOG_DIR/queue-${name}.log" | grep -v "^Picked up " || true
+    2>&1 | tee "\$APPSCAN_LOG_DIR/queue-${logName}.log" | grep -v "^Picked up " || true
 """).trim()
             }
         }
         def m = (output =~ /(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)
         if (!m) {
-            script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${name}.log"
-            script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${name}.log"
+            script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
+            script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
         }
         script.echo "[INFO] '${name}' queued - Scan ID: ${m[0]}"
         return m[0]
