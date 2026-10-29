@@ -31,12 +31,12 @@ fi
         return dir
     }
 
-    List<String> findFiles(String dir, List<String> namePatterns, List<String> excludeDirs) {
-        if (!namePatterns) return []
+    List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs) {
+        if (!patterns) return []
         String out = script.sh(label: 'GoldenFix: find dependency manifests', returnStdout: true, script: """#!/bin/bash
 set -euo pipefail
 cd '${q(dir)}'
-${findCommand(namePatterns, excludeDirs)} | sed 's|^\\./||' | LC_ALL=C sort
+${findCommand(patterns, excludeDirs)} | sed 's|^\\./||' | LC_ALL=C sort
 """)
         return nonEmptyLines(out)
     }
@@ -148,8 +148,8 @@ git ${authOptions} -C '${q(dir)}' ${command}
     }
 
     @NonCPS
-    static String findCommand(List<String> namePatterns, List<String> excludeDirs) {
-        String names = namePatterns.collect { "-name '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
+    static String findCommand(List<String> patterns, List<String> excludeDirs) {
+        String names = patterns.collect { "${(it as String).contains('/') ? '-path' : '-name'} '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
         if (!excludeDirs) return "find . -type f \\( ${names} \\) -print"
         String prune = excludeDirs.collect { "-name '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
         return "find . \\( ${prune} \\) -prune -o -type f \\( ${names} \\) -print"
