@@ -672,5 +672,15 @@ check('Nexus IQ GoldenFix pipeline, Node.js build: the Node.js build runs before
                                                                                           [[scanPattern: '**/api/target/*.jar']]],
         [nexusIqNode.crash, (nexusIqNode.var as FakeCpsScript).executedStages, (nexusIqNode.evaluations as List<Map>).collect { it.iqScanPatterns }])
 
+Map extendedNode = runPipeline([name: 'extended pipeline, Node.js build', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 120,
+                                params: [DEPLOY_HIGHER_ENV: true], dastDisabledFor: 'backend-api', configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
+FakeScript extendedNodeJenkins = extendedNode.j as FakeScript
+check('extended pipeline, Node.js build: the release delivery builds Node.js once before the publish of the service that enables it, without a line for the other service',
+        !extendedNode.crash && (extendedNode.var as FakeCpsScript).executedStages == extendedStages && resultOf(extendedNode, RELEASE) == 'PASS'
+                && extendedNodeJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
+                && firstCall(extendedNodeJenkins, 'sh [Node.js: npm run build]') < firstCall(extendedNodeJenkins, 'sh ./gradlew publish')
+                && extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: Node.js from the agent PATH in the workspace: npm ci && npm run build'],
+        [extendedNode.crash, resultOf(extendedNode, RELEASE)] + extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') })
+
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

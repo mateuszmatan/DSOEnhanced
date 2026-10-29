@@ -152,9 +152,12 @@ def dast(def api, Map options = [:]) {
     }
 }
 
-def nexusReleaseDelivery(def api) {
+def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
+            if (options.nodeBuild && api.nodeBuildEnabled()) {
+                api.nodeBuild()
+            }
             api.publishArtifactQC()
         }
     }
