@@ -13,20 +13,24 @@ class ManifestBuildVerifier implements BuildVerifier {
     }
 
     Map verify(String dir, List<String> changedFiles, Map cfg) {
-        List checks = plan(changedFiles, (cfg?.commands ?: [:]) as Map)
+        Map consumers = (cfg?.catalogConsumers ?: [:]) as Map
+        for (String file : unverified(changedFiles, consumers)) script.echo "GoldenFix: no Gradle build found for ${file} - not verified"
+        List checks = plan(changedFiles, (cfg?.commands ?: [:]) as Map, consumers, (cfg?.lockFiles ?: []) as List)
         if (checks.isEmpty()) {
-            return [ok: true, skipped: true, log: 'no manifest that the library knows how to verify was changed', checks: []]
+            return [ok: true, skipped: true, log: 'no manifest that the library knows how to verify was changed', checks: [], files: []]
         }
         int timeoutMin = (cfg?.timeoutMinutes != null ? cfg.timeoutMinutes.toString().toInteger() : 20)
         List results = []
+        List files = []
         for (Map check : checks) {
             Map outcome = run(dir, check, timeoutMin)
             results << outcome
             if (!outcome.ok) {
-                return [ok: false, skipped: false, log: "${check.name}: ${outcome.log}".toString(), checks: results]
+                return [ok: false, skipped: false, log: "${check.name}: ${outcome.log}".toString(), checks: results, files: []]
             }
+            files.addAll((check.files ?: []) as List)
         }
-        return [ok: true, skipped: false, log: describe(results), checks: results]
+        return [ok: true, skipped: false, log: describe(results), checks: results, files: files]
     }
 
     private Map run(String dir, Map check, int timeoutMin) {
@@ -54,28 +58,45 @@ ${check.command}
     }
 
     @NonCPS
-    List plan(List<String> changedFiles, Map overrides) {
+    List plan(List<String> changedFiles, Map overrides, Map consumers = [:], List lockFiles = []) {
         List checks = []
         List seen = []
         for (String path : (changedFiles ?: [])) {
             String name = BuildUtils.fileNameOf(path)
-            String kind = kindOf(name)
+            boolean shared = consumers?.containsKey(path)
+            String kind = kindOf(name) ?: (shared ? (name.endsWith('.xml') ? 'maven' : 'gradle') : '')
             if (!kind) continue
-            String subDir = BuildUtils.parentOf(path)
-            String key = kind + '@' + subDir
-            if (seen.contains(key)) continue
-            seen << key
-            String command = (overrides?.get(kind) ?: defaultCommand(kind, name)) as String
-            if (!command) continue
-            checks << [name: kind, command: command, subDir: subDir]
+            for (def folder : (shared ? (consumers[path] as List) : [BuildUtils.parentOf(path)])) {
+                String subDir = folder as String
+                String key = kind + '@' + subDir
+                if (seen.contains(key)) continue
+                seen << key
+                String command = (overrides?.get(kind) ?: defaultCommand(kind, name)) as String
+                if (!command) continue
+                String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
+                if (kind == 'npm' && lockFiles?.contains(lock)) {
+                    checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock]]
+                } else {
+                    checks << [name: kind, command: command, subDir: subDir]
+                }
+            }
         }
         return checks
     }
 
     @NonCPS
+    List<String> unverified(List<String> changedFiles, Map consumers) {
+        List<String> out = []
+        for (String path : (changedFiles ?: [])) {
+            if (consumers?.containsKey(path) && !(consumers[path] as List)) out << path
+        }
+        return out
+    }
+
+    @NonCPS
     String kindOf(String name) {
         if (name == 'pom.xml') return 'maven'
-        if (name == 'build.gradle' || name == 'build.gradle.kts' || name == 'gradle.properties' || name.endsWith('.versions.toml')) return 'gradle'
+        if (name in ['build.gradle', 'build.gradle.kts', 'gradle.properties', 'settings.gradle', 'settings.gradle.kts'] || name.endsWith('.versions.toml')) return 'gradle'
         if (name == 'package.json') return 'npm'
         if (name == 'pyproject.toml' || (name.startsWith('requirements') && name.endsWith('.txt')) || (name.startsWith('constraints') && name.endsWith('.txt'))) return 'pip'
         if (name == 'pubspec.yaml' || name == 'pubspec.yml') return 'pub'
