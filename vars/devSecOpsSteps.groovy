@@ -76,7 +76,9 @@ def nexusSnapshotDelivery(def api) {
         api.eachProject { String projectName ->
             api.reportArtifactBuild()
             api.reportUnitTests()
-            if (api.deployTarget() == 'openshift') {
+            if (!api.nexusDeliveryEnabled()) {
+                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
+            } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
                 api.copyImageToNexus()
             } else {

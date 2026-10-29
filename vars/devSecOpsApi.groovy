@@ -23,6 +23,7 @@ import com.bbh.report.HtmlReportService
 import com.bbh.scanner.AppScanService
 import com.bbh.scanner.NexusIqService
 import com.bbh.scanner.SonarService
+import com.bbh.utils.BuildUtils
 
 @Field PipelineState    _state
 @Field OsHelper         _os
@@ -239,6 +240,8 @@ def getProjects()                     { _setup(); return _config.resolveProjectN
 def getCFG()                          { _setup(); return _state.cfg }
 def switchProject(String projectName) { _setup(); _config.switchProject(projectName) }
 def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
+def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
+def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
 
 def stagePass(String name)                 { _setup(); _state.stagePass(name) }
 def stageFail(String name)                 { _setup(); _state.stageFail(name) }

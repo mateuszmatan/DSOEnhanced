@@ -77,6 +77,11 @@ class BuildUtils implements Serializable {
         return value.toString().toBoolean()
     }
 
+    @NonCPS
+    static boolean nexusDeliveryEnabled(Map cfg) {
+        return booleanValue(cfg.deploy?.get(cfg.deployTarget ?: 'vm')?.rd?.nexusDeliveryEnabled, true)
+    }
+
     static String requiredString(def script, def value, String propertyName) {
         String result = value?.toString()?.trim()
 

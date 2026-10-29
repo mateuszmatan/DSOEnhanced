@@ -457,6 +457,7 @@ Closure resultOf = { Map r, String stage ->
     i < 0 ? 'not run' : log[i + 1].replace('[RESULT] ', '')
 }
 Closure sonarCfgOf = { Map p, String project -> (((p[project] as Map).tools as Map).sonar as Map) }
+Closure rdOf = { Map p, String project, String target -> ((((p[project] as Map).deploy as Map)[target] as Map).rd as Map) }
 
 String guiKey = 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9'
 String backendKey = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
@@ -512,6 +513,46 @@ check('full pipeline, SonarQube badge credentials missing: the run says so, fall
                 && resultOf(missingBadge, SONAR) == 'PASS' && resultOf(badges, SONAR) == 'PASS',
         sonarLines + badgesOf(missingBadge) + [resultOf(missingBadge, SONAR)])
 
+String pinnedTag = '340-20261020-101500'
+Map noDelivery = focused([name: 'full pipeline, Nexus delivery disabled for every service', buildNumber: 354, configure: { Map p ->
+    rdOf(p, 'gui', 'vm').nexusDeliveryEnabled = false
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+    rdOf(p, 'backend-api', 'openshift').buildTag = pinnedTag
+}])
+FakeScript noDeliveryJenkins = noDelivery.j as FakeScript
+FakeOpenShift noDeliveryOpenShift = noDelivery.openshift as FakeOpenShift
+check('full pipeline, Nexus delivery disabled for every service: the snapshot stage is NOT_REQUIRED, publishes nothing and still reports the build and the unit tests',
+        resultOf(noDelivery, SNAPSHOT) == 'NOT_REQUIRED'
+                && noDeliveryJenkins.log.containsAll(['[NEXUS] gui: Nexus delivery is disabled by deploy.vm.rd.nexusDeliveryEnabled - the artifact is not published',
+                                                      '[NEXUS] backend-api: Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled - the artifact is not published'])
+                && !noDeliveryOpenShift.calls.any { it.startsWith('startBuild') } && !noDeliveryJenkins.calls.any { it.contains('skopeo copy') }
+                && ['reportBuild', 'reportUnitTest'].every { noDeliveryJenkins.calls.contains(it) },
+        [resultOf(noDelivery, SNAPSHOT)] + noDeliveryOpenShift.calls.findAll { it.startsWith('startBuild') })
+check('full pipeline, Nexus delivery disabled for every service: a pinned rd.buildTag is still deployed to RD and QC',
+        resultOf(noDelivery, RD) == 'PASS' && resultOf(noDelivery, QC) == 'PASS'
+                && noDeliveryJenkins.log.count { it.contains("Set image on image stream: docker-qc.tools.bbh.com/ta/certscanner-api:${pinnedTag}") } == 2,
+        [resultOf(noDelivery, RD), resultOf(noDelivery, QC)])
+
+Map onlyBackend = focused([name: 'full pipeline, Nexus delivery disabled for the only service', buildNumber: 355, configure: { Map p ->
+    p.remove('gui')
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+}])
+List<String> notDeployed = (onlyBackend.j as FakeScript).log.findAll { it.startsWith('[OPENSHIFT]') }
+check('full pipeline, Nexus delivery disabled for the only service: without a pinned buildTag the snapshot, RD and QC stages are NOT_REQUIRED and nothing is rolled out',
+        [SNAPSHOT, RD, QC].collect { resultOf(onlyBackend, it) } == ['NOT_REQUIRED'] * 3
+                && notDeployed == ['RD', 'QC'].collect { "[OPENSHIFT] backend-api: ${it} deployment not required - Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled and no buildTag is pinned".toString() }
+                && !(onlyBackend.openshift as FakeOpenShift).calls.any { it.startsWith('rollout') },
+        [SNAPSHOT, RD, QC].collect { resultOf(onlyBackend, it) } + notDeployed)
+
+Map oneDelivery = focused([name: 'full pipeline, Nexus delivery disabled for one service', buildNumber: 356, configure: { Map p ->
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+}])
+check('full pipeline, Nexus delivery disabled for one service: the stages stay PASS for the service that delivered and deployed, and the other service is skipped',
+        [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) } == ['PASS'] * 3
+                && !(oneDelivery.openshift as FakeOpenShift).calls.any { it.startsWith('startBuild') || it.startsWith('rollout') }
+                && (oneDelivery.j as FakeScript).calls.count('step UCDeployPublisher') == 2
+                && (oneDelivery.j as FakeScript).log.count { it.startsWith('[OPENSHIFT] backend-api:') } == 2,
+        [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) })
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

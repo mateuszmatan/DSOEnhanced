@@ -118,9 +118,9 @@ List<Map> configRules = [
              [['asoc', 'keySecret'], ['sca', 'scanName'], ['dast', 'scanName'], ['build', 'maven', 'javaPath']].sum { dropPath(cfg, it, always) }
          }],
         [id    : 'R2',
-         reason: 'for these keys only, "", [] and false read like a missing key: dast.presenceId (AppScanService.groovy:440), ' +
+         reason: 'for these keys only, "", [] and false read like a missing key: dast.presenceId (AppScanService.groovy:444), ' +
                  'scm.bitbucket.targetBranch (GoldenFixService.groovy:99), scm.bitbucket.reviewers (BitbucketPullRequestPublisher.groovy:28), ' +
-                 'asoc.insecureTls (AppScanService.groovy:656), tools.nexusIq.failOnNetworkError (NexusIqService.groovy:41), ' +
+                 'asoc.insecureTls (AppScanService.groovy:660), tools.nexusIq.failOnNetworkError (NexusIqService.groovy:41), ' +
                  'goldenFix.timeZone (GoldenFixService.groovy:357), goldenFix.verify.commands.<kind> (ManifestBuildVerifier.groovy:68)',
          apply : { Map cfg, String variant ->
              List paths = [['dast', 'presenceId'], ['scm', 'bitbucket', 'targetBranch'], ['scm', 'bitbucket', 'reviewers'], ['asoc', 'insecureTls'],
@@ -130,7 +130,7 @@ List<Map> configRules = [
          }],
         [id    : 'R3',
          reason: 'tests.<suite> compared as BuildService.normalizeTestJobs (BuildService.groovy:428, called at :288 for the suites ' +
-                 'devSecOpsApi.groovy:214-216 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
+                 'devSecOpsApi.groovy:215-217 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
          apply : { Map cfg, String variant ->
              Map tests = (cfg.tests ?: [:]) as Map
              List suites = tests.keySet().findAll { it != 'unitTests' && tests[it] instanceof Map }.toList()
@@ -141,7 +141,7 @@ List<Map> configRules = [
              suites.size()
          }],
         [id    : 'R4',
-         reason: 'jenkins.pipeline.extendedPipeline is read only by OpenshiftService.groovy:319-322, which only devSecOpsSecurityPipeline.groovy:65 and :74 run; ' +
+         reason: 'jenkins.pipeline.extendedPipeline is read only by OpenshiftService.groovy:324-327, which only devSecOpsSecurityPipeline.groovy:65 and :74 run; ' +
                  'the portal renders it into security documents only; a custom Jenkinsfile that calls devSecOpsApi.runExtendedPipeline() uses the security key (accepted difference 5)',
          apply : { Map cfg, String variant -> variant == 'security' ? 0 : dropPath(cfg, ['jenkins', 'pipeline', 'extendedPipeline'], always) }],
         [id    : 'R5',
