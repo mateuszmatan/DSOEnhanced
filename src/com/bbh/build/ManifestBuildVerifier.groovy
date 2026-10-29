@@ -6,10 +6,12 @@ import com.cloudbees.groovy.cps.NonCPS
 
 class ManifestBuildVerifier implements BuildVerifier {
 
-    private final def script
+    private final def             script
+    private final NodeBuildRunner nodeRunner
 
-    ManifestBuildVerifier(def script) {
-        this.script = script
+    ManifestBuildVerifier(def script, NodeBuildRunner nodeRunner = null) {
+        this.script     = script
+        this.nodeRunner = nodeRunner
     }
 
     Map verify(String dir, List<String> changedFiles, Map cfg) {
@@ -20,7 +22,7 @@ class ManifestBuildVerifier implements BuildVerifier {
         int timeoutMin = (cfg?.timeoutMinutes != null ? cfg.timeoutMinutes.toString().toInteger() : 20)
         List results = []
         for (Map check : checks) {
-            Map outcome = run(dir, check, timeoutMin)
+            Map outcome = run(dir, check, timeoutMin, cfg?.node as Map)
             results << outcome
             if (!outcome.ok) {
                 return [ok: false, skipped: false, log: "${check.name}: ${outcome.log}".toString(), checks: results]
@@ -29,21 +31,25 @@ class ManifestBuildVerifier implements BuildVerifier {
         return [ok: true, skipped: false, log: describe(results), checks: results]
     }
 
-    private Map run(String dir, Map check, int timeoutMin) {
+    private Map run(String dir, Map check, int timeoutMin, Map node) {
         try {
             int status = 1
             script.timeout(time: timeoutMin, unit: 'MINUTES') {
-                status = script.sh(label: "GoldenFix: pre-check ${check.name}", returnStatus: true, script: """#!/bin/bash
+                status = inNodeEnvironment(check.name == 'npm' ? node : null) { script.sh(label: "GoldenFix: pre-check ${check.name}", returnStatus: true, script: """#!/bin/bash
 set +e
 cd '${BuildUtils.escapeForSingleQuotes(dir)}${check.subDir ? '/' + BuildUtils.escapeForSingleQuotes(check.subDir as String) : ''}' || exit 1
 ${check.command}
-""") as int
+""") } as int
             }
             return [name: check.name, command: check.command, ok: status == 0, log: "exit code ${status}".toString()]
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             return [name: check.name, command: check.command, ok: false, log: (e.message ?: e.getClass().getSimpleName()) as String]
         }
+    }
+
+    private def inNodeEnvironment(Map node, Closure body) {
+        return nodeRunner != null && BuildUtils.booleanValue(node?.enabled, false) ? nodeRunner.withNode(node, body) : body()
     }
 
     @NonCPS

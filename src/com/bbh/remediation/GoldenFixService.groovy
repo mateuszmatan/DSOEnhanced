@@ -178,7 +178,7 @@ class GoldenFixService implements DependencyRemediation {
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
             script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(current)}"
-            Map verdict = verifier.verify(dir, applied.files as List<String>, verifyCfg)
+            Map verdict = verifier.verify(dir, applied.files as List<String>, verifyCfg + [node: state.cfg?.build?.node])
             log = verdict.log as String
             if (verdict.ok) {
                 script.echo verdict.skipped
