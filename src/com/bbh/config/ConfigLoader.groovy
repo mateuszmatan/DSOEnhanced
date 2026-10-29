@@ -94,7 +94,7 @@ class ConfigLoader implements Serializable {
             state.currentProjectName = primaryName
             script.env.CURRENT_PROJECT_NAME = primaryName
             script.echo "[INIT] Projects: ${projectNames.join(', ')} | primary: ${primaryName} | buildTool: ${state.cfg.buildTool ?: 'gradle'}"
-            script.env.APPSCAN_SCAN_NAME = buildScanName(state.cfg.tools?.sonar?.projectName ?: primaryName)
+            script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: primaryName)
             script.echo "[INIT] APPSCAN_SCAN_NAME=${script.env.APPSCAN_SCAN_NAME}"
         }
 
@@ -197,7 +197,7 @@ class ConfigLoader implements Serializable {
         state.cfg = state.projectsAllCfg[projectName]
         state.currentProjectName = projectName
         script.env.CURRENT_PROJECT_NAME = projectName
-        script.env.APPSCAN_SCAN_NAME = buildScanName(state.cfg.tools?.sonar?.projectName ?: projectName)
+        script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
         script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
     }
 
@@ -226,10 +226,6 @@ class ConfigLoader implements Serializable {
         }
         script.echo "[POLICY]   Coverage: line coverage >= ${state.coverage.minRequired}%"
         script.echo "[POLICY] A violation marks the stage unstable, the build continues, the Nexus release and the QC deployment stay blocked."
-    }
-
-    private String buildScanName(String base) {
-        return base.replaceAll(/[^a-zA-Z0-9_-]/, '-').replaceAll(/-+/, '-').toLowerCase().trim()
     }
 
     private Map limits(def cfg) {

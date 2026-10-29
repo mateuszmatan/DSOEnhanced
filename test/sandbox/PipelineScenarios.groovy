@@ -454,7 +454,9 @@ String guiKey = 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9'
 String backendKey = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
 Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: { Map p ->
     ((p.gui as Map).asoc as Map).token = 'gui-appscan-key-secret'
+    ((p.gui as Map).sast as Map).remove('scanName')
     ((p['backend-api'] as Map).asoc as Map).keyId = backendKey
+    ((p['backend-api'] as Map).sast as Map).scanName = 'CertScanner Backend.Nightly'
 }])
 FakeScript perServiceJenkins = perService.j as FakeScript
 List sastLogins = loginsOf(perServiceJenkins, ' api_login ', /-u "([^"]+)"/)
@@ -467,6 +469,17 @@ check('full pipeline, AppScan settings per service: DAST signs in with the key I
                        "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
                 && !perServiceJenkins.calls.any { it.contains('hcl-app-scan-acount') },
         dastLogins)
+List queued = perServiceJenkins.calls.findAll { it.contains('queue_analysis -a') }.collect { String c ->
+    "${(c =~ /-f "([^"]+)"/)[0][1]} ${(c =~ /-n "([^"]+)"/)[0][1]} ${(c =~ /queue-([^"]+)\.log/)[0][1]}".toString()
+}
+String dastPayload = perServiceJenkins.files.find { it.key.endsWith('dast_payload.json') }?.value ?: ''
+check('full pipeline, AppScan settings per service: sast.scanName names the SAST scan of its service, sanitised, and a service without it keeps <scan name>-sast; '
+        + 'the IRX, the queue log, the scan ID file, the report names and the DAST scan name stay as they were',
+        queued == ['/ws/certscanner-gui.irx certscanner-gui-sast certscanner-gui-sast', '/ws/certscanner-backend.irx certscanner-backend-nightly certscanner-backend-sast']
+                && ['scan-sast-certscanner-gui.id', 'scan-sast-certscanner-backend.id'].every { String id -> perServiceJenkins.files.keySet().any { it.endsWith(id) } }
+                && ['appscan-report-certscanner-backend.html', 'appscan-dast-report-certscanner-backend.html'].every { perServiceJenkins.files.containsKey(it) }
+                && dastPayload.contains('"ScanName": "certscanner-backend-dast_351"'),
+        queued + [dastPayload.readLines().find { it.contains('ScanName') }])
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

@@ -365,7 +365,9 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void queueSast(Map config) {
         script.echo "Start queue sast"
-        def scanId = queueAnalysis("${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast",
+        String defaultName = "${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast"
+        String scanName = ((state.cfg.sast?.scanName ?: '') as String).trim()
+        def scanId = queueAnalysis(scanName ? BuildUtils.scanName(scanName) : defaultName, defaultName,
                 "${script.env.WORKSPACE}/${script.env.APPSCAN_SCAN_NAME ?: 'my-project'}.irx", config)
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
     }
@@ -770,7 +772,7 @@ done
         }
     }
 
-    private String queueAnalysis(String name, String filePath, Map config) {
+    private String queueAnalysis(String name, String logName, String filePath, Map config) {
         def appId = state.cfg.appId?.trim()
         if (!appId) {
             appId = config.appId?.trim()
@@ -789,7 +791,7 @@ done
 \$opts = "\$env:APPSCAN_OPTS -Dhttp.proxyPassword=\$pp -Dhttps.proxyPassword=\$pp"
 \$env:APPSCAN_OPTS = \$opts
 \$out = & ${appscanPath} queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" 2>&1
-\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR\\queue-${name}.log" -Encoding UTF8
+\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR\\queue-${logName}.log" -Encoding UTF8
 \$out
 """).trim()
             } else {
@@ -800,14 +802,14 @@ env -u APPSCAN_DOMAIN \\
     PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
     APPSCAN_OPTS="\${_OPTS}" \\
 "\$APPSCAN_CMD_RUNTIME" queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" \\
-    2>&1 | tee "\$APPSCAN_LOG_DIR/queue-${name}.log" | grep -v "^Picked up " || true
+    2>&1 | tee "\$APPSCAN_LOG_DIR/queue-${logName}.log" | grep -v "^Picked up " || true
 """).trim()
             }
         }
         def m = (output =~ /(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)
         if (!m) {
-            script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${name}.log"
-            script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${name}.log"
+            script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
+            script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
         }
         script.echo "[INFO] '${name}' queued - Scan ID: ${m[0]}"
         return m[0]

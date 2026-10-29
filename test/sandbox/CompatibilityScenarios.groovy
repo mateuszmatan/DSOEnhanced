@@ -111,11 +111,11 @@ def buildService = jobsHarness.type('com.bbh.build.BuildService')
 
 List<Map> configRules = [
         [id    : 'R1',
-         reason: 'DEAD keys no code reads: asoc.keySecret (AppScanService.groovy:47 binds asoc.token or APPSCAN_KEY_ID), ' +
-                 'sast/sca/dast.scanName (the scan name comes from tools.sonar.projectName, ConfigLoader.groovy:96 and :201), ' +
+         reason: 'DEAD keys no code reads: asoc.keySecret (AppScanService.groovy:88 binds asoc.token or APPSCAN_KEY_ID), ' +
+                 'sca/dast.scanName (the scan name comes from tools.sonar.projectName, ConfigLoader.groovy:97 and :200), ' +
                  'build.maven.javaPath (BuildService.groovy:590 reads javaPath of the service)',
          apply : { Map cfg, String variant ->
-             [['asoc', 'keySecret'], ['sast', 'scanName'], ['sca', 'scanName'], ['dast', 'scanName'], ['build', 'maven', 'javaPath']].sum { dropPath(cfg, it, always) }
+             [['asoc', 'keySecret'], ['sca', 'scanName'], ['dast', 'scanName'], ['build', 'maven', 'javaPath']].sum { dropPath(cfg, it, always) }
          }],
         [id    : 'R2',
          reason: 'for these keys only, "", [] and false read like a missing key: dast.presenceId (AppScanService.groovy:440), ' +

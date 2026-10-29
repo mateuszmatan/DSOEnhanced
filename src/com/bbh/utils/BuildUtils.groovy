@@ -41,6 +41,11 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String scanName(String base) {
+        return base.replaceAll(/[^a-zA-Z0-9_-]/, '-').replaceAll(/-+/, '-').toLowerCase().trim()
+    }
+
+    @NonCPS
     static String fileNameOf(String path) {
         String normalized = (path ?: '').replace('\\', '/')
         int index = normalized.lastIndexOf('/')
