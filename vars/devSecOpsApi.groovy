@@ -203,6 +203,7 @@ def dastScan() {
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
+def nodeBuild()           { _setup(); _build.nodeBuild() }
 def buildArtifact()       { _setup(); _build.buildArtifact() }
 def unitTests()           { _setup(); _build.unitTests() }
 def checkCoverage()       { _setup(); _build.checkCoverage() }
@@ -236,11 +237,21 @@ def feedInfluxDB(String pipelineType) { _setup(); _influx.send(pipelineType) }
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }
 
+def nodeBuildRequired() {
+    _setup()
+    for (def cfg : _state.projectsAllCfg.values()) {
+        if (BuildUtils.nodeBuildNeeded(cfg as Map, _variant, _os.isWindows())) return true
+    }
+    return false
+}
+
 def getProjects()                     { _setup(); return _config.resolveProjectNames() }
 def getCFG()                          { _setup(); return _state.cfg }
 def switchProject(String projectName) { _setup(); _config.switchProject(projectName) }
 def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
 def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
+def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
+def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
 def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
 
 def stagePass(String name)                 { _setup(); _state.stagePass(name) }
