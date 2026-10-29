@@ -112,6 +112,8 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
                 name = coordinates.packageId as String
             } else if (format == 'pypi') {
                 name = coordinates.name as String
+            } else if (format == 'pub') {
+                name = (coordinates.name ?: coordinates.packageId) as String
             }
             String version = coordinates.version as String
             if (!name || !version) continue
