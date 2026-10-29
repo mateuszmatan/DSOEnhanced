@@ -124,7 +124,10 @@ Closure runPipeline = { Map spec ->
     j.files['.appscan-logs/proxy.pass'] = 'proxy-secret'
     j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
     List<String> goldenFixCalls = []
-    if (spec.goldenFix) GoldenFixResponder.plantManifests(j)
+    Map<String, String> manifests = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG : GoldenFixResponder.MANIFESTS
+    Map reports = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG_REPORTS : GoldenFixResponder.REPORTS
+    if (spec.goldenFix) GoldenFixResponder.plantManifests(j, manifests)
+    if (spec.sharedCatalog) data['backend-api'].niq = [0, 2, 1]
 
     Closure project = { -> (j.env.CURRENT_PROJECT_NAME ?: 'gui') as String }
     Closure relative = { String path -> path.startsWith('/ws/') ? path.substring(4) : path }
@@ -144,7 +147,7 @@ Closure runPipeline = { Map spec ->
         if (dastDownload.find()) j.files[relative(dastDownload.group(1))] = dastDownload.group(1).endsWith('.pdf') ? '%PDF-1.7' : issuesHtml(d.dast as List)
         if (text.contains('.irx')) j.files["${j.env.APPSCAN_SCAN_NAME}.irx".toString()] = 'irx'
         if (!a.returnStdout) return null
-        Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls) : null
+        Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls, manifests, reports) : null
         if (goldenFix != null) return goldenFix
         List c = d.coverage as List
         if (text.contains("findall('package')")) return "com.bbh.certscanner,CertificateService,CertificateService.java,${c[0]},${c[1]},${c[2]},${(c[1] as int) + (c[2] as int)}"
@@ -250,7 +253,8 @@ Closure normalise = { String text, List<Map> rules ->
 
 Map baselines = [
         b815d55: [recorded: 'on the library before the portal integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: portalRules],
-        nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
+        nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
+        catalog: [recorded: 'when shared version catalogs were added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
 ]
 
 List<Map> specs = [
@@ -272,6 +276,9 @@ List<Map> specs = [
          buildNumber: 62, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable'], baseline: 'nexusiq'],
         [name: 'Nexus IQ GoldenFix pipeline, build failure', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, breakBuild: true, job: 'CertScanner-nexusiq-pipeline',
          buildNumber: 63, params: [:], executed: [MONITOR], skipped: [NIQ], result: 'FAILURE', post: ['always', 'failure'], failedStage: BUILD, baseline: 'nexusiq'],
+        [name: 'Nexus IQ GoldenFix pipeline, shared catalog', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: true, goldenFix: true, sharedCatalog: true,
+         job: 'CertScanner-nexusiq-pipeline', buildNumber: 64, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'UNSTABLE',
+         post: ['always', 'unstable'], baseline: 'catalog'],
         [name: 'extended pipeline, green', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 118,
          params: [DEPLOY_HIGHER_ENV: true],
          executed: extendedStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'], dastDisabledFor: 'backend-api'],
@@ -385,6 +392,20 @@ specs.each { Map spec ->
                         && ['GoldenFix: prepare worktree', 'GoldenFix: pre-check gradle', 'GoldenFix: git push', 'GoldenFix: remove worktree'].every { String step -> j.calls.any { it.startsWith("sh [${step}".toString()) } }
                         && log.contains("[GOLDENFIX] GoldenFix pull request GoldenFix-${GoldenFixResponder.STAMP} raised: ${GoldenFixResponder.PULL_REQUEST_URL}".toString()),
                 (gfCalls + log.findAll { it.startsWith('[GOLDENFIX]') }).join('\n      '))
+    }
+    if (spec.sharedCatalog) {
+        List<String> gfCalls = r.goldenFixCalls as List<String>
+        String catalog = (j.files["${GoldenFixResponder.WORKTREE}/gradle/libs.versions.toml".toString()] ?: '') as String
+        List<String> preChecks = j.calls.findAll { it.startsWith('sh [GoldenFix: pre-check gradle]') }
+        check("${name}: both services raise the shared catalog in one pull request and the second service adds a comment listing its upgrade",
+                catalog.contains('jackson = "2.13.5"') && catalog.contains('strictly = "4.1.108.Final"') && catalog.contains('commons-text:1.10.0')
+                        && catalog.contains('version = "42.5.6"') && gfCalls.count { it.startsWith('PR ') } == 1
+                        && gfCalls.contains('COMMENT ### GoldenFix for backend-api')
+                        && influxOf(j).readLines().any { it.startsWith('goldenfix,') && it.contains(',module=backend-api,') && it.contains(',status=PR_UPDATED ') }
+                        && log.contains("[GOLDENFIX] GoldenFix pull request GoldenFix-${GoldenFixResponder.STAMP} updated with 1 change(s): ${GoldenFixResponder.PULL_REQUEST_URL}".toString()),
+                (gfCalls + log.findAll { it.startsWith('[GOLDENFIX]') }).join('\n      '))
+        check("${name}: the catalog change is verified in the build that uses it, never in the gradle folder",
+                preChecks.size() == 2 && preChecks.every { it.contains("cd '${GoldenFixResponder.WORKTREE}' || exit 1".toString()) }, preChecks)
     }
     if (spec.dastDisabledFor) {
         check("${name}: DAST is marked as not required for the project that does not configure it and nothing is blocked",
