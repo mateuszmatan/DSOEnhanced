@@ -76,27 +76,26 @@ rm -f '${q(messageFile)}'
         String target = "push '${q(url)}' 'HEAD:refs/heads/${q(branch)}'"
         script.echo "[GOLDENFIX] Pushing branch ${branch} to ${sanitizeUrl(url)}"
 
-        if (isSshUrl(url) || !credentialsId) {
-            if (isSshUrl(url) && credentialsId) {
-                script.sshagent([credentialsId]) { runGit(dir, '', target, '') }
-            } else {
-                runGit(dir, '', target, '')
-            }
-            return
-        }
-        if (((pushCfg.authType ?: 'basic') as String).toLowerCase() in ['bearer', 'token']) {
+        int status = 0
+        if (isSshUrl(url) && credentialsId) {
+            script.sshagent([credentialsId]) { status = runGit(dir, '', target, '') }
+        } else if (isSshUrl(url) || !credentialsId) {
+            status = runGit(dir, '', target, '')
+        } else if (((pushCfg.authType ?: 'basic') as String).toLowerCase() in ['bearer', 'token']) {
             script.withCredentials([script.string(credentialsId: credentialsId, variable: 'GF_GIT_TOKEN')]) {
-                if (pushCfg.cloud) {
-                    runGit(dir, credentialHelper('x-token-auth', '${GF_GIT_TOKEN}'), target, '')
-                } else {
-                    runGit(dir, '', target, bearerHeaderEnv('GF_GIT_TOKEN'))
-                }
+                status = pushCfg.cloud
+                        ? runGit(dir, credentialHelper('x-token-auth', '${GF_GIT_TOKEN}'), target, '')
+                        : runGit(dir, '', target, bearerHeaderEnv('GF_GIT_TOKEN'))
             }
         } else {
             script.withCredentials([script.usernamePassword(credentialsId: credentialsId, usernameVariable: 'GF_GIT_USER', passwordVariable: 'GF_GIT_PASS')]) {
-                runGit(dir, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
+                status = runGit(dir, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
             }
         }
+        if (status == 1) {
+            script.error("[GOLDENFIX] The branch ${branch} already exists in ${sanitizeUrl(url)} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)")
+        }
+        if (status != 0) script.error("script returned exit code ${status}")
     }
 
     void revert(String dir) {
@@ -124,14 +123,14 @@ git worktree prune 2>/dev/null || true
         return branch == 'HEAD' ? '' : branch
     }
 
-    void runGit(String dir, String authOptions, String command, String preamble) {
-        script.sh(label: 'GoldenFix: git push', script: """#!/bin/bash
+    int runGit(String dir, String authOptions, String command, String preamble) {
+        return script.sh(label: 'GoldenFix: git push', returnStatus: true, script: """#!/bin/bash
 set +x
 set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 ${preamble}
 git ${authOptions} -C '${q(dir)}' ${command}
-""")
+""") as int
     }
 
     private String workspaceRoot() {

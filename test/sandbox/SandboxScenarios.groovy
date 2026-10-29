@@ -690,14 +690,12 @@ Closure runScenario = { Map spec ->
     script.resourcesDir = new File(root, 'resources')
     List<String> keys = PortalFixtures.publishAll(script, spec.variant as String, defaults.defaults as Map, platform, projects.projects as Map)
     script.shHandler = { Map a ->
+        if (!a.returnStdout && String.valueOf(a.label ?: '').startsWith('GoldenFix:')) goldenFixCalls << String.valueOf(a.label)
         if (a.returnStatus) return 0
         if (spec.fail && state?.currentProjectName == 'backend-api' && String.valueOf(a.label ?: '').startsWith('Maven: test')) {
             throw new FakeAbort('script returned exit code 1')
         }
-        if (!a.returnStdout) {
-            if (String.valueOf(a.label ?: '').startsWith('GoldenFix:')) goldenFixCalls << String.valueOf(a.label)
-            return null
-        }
+        if (!a.returnStdout) return null
         String text = String.valueOf(a.script ?: '')
         String project = state?.currentProjectName
         Map d = data[project] ?: data.gui
