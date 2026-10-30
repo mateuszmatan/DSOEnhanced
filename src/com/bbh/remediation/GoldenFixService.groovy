@@ -290,7 +290,7 @@ class GoldenFixService implements DependencyRemediation {
         script.echo "[GOLDENFIX] Inspecting ${files.size()} dependency manifest file(s) in the source tree"
         for (ManifestUpdater updater : active) updater.useCatalogs(entries)
 
-        Map run = [changes: [], notes: [], requests: [], found: [], files: []]
+        Map run = [changes: [], notes: [], requests: [], references: [], found: [], files: []]
         List<String> shared = []
         List<String> others = []
         for (String f : files) {
@@ -301,6 +301,7 @@ class GoldenFixService implements DependencyRemediation {
         List<Map> effective = align ? aligned.fixes as List<Map> : fixes
         applyRound(dir, active, effective, others, files, texts, run)
         run.changes = collapseChanges(run.changes as List<Map>)
+        for (ManifestUpdater updater : active) labelProperties(run.changes as List<Map>, run.references as List<Map>, filesOf(updater, files))
 
         for (Map c : (run.changes as List<Map>)) {
             String what = c.property ? "property ${c.property} (${c.component})" : c.component
@@ -308,7 +309,7 @@ class GoldenFixService implements DependencyRemediation {
         }
         return [files     : run.files, changes: run.changes, found: run.found,
                 unresolved: unresolvedFixes(fixes, run.changes as List<Map>, run.notes as List<Map>, run.requests as List<Map>, catalogs),
-                notes     : (catalogs.notes as List) + outsideCatalogs(run.changes as List<Map>, aligned.versions as Map, shared),
+                notes     : (catalogs.notes as List) + outsideCatalogs(run.changes as List<Map>, aligned.versions as Map, shared, fixes),
                 consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned), effective: effective, alignedUp: align && effective != fixes, shared: shared]
     }
 
@@ -325,10 +326,7 @@ class GoldenFixService implements DependencyRemediation {
         if (!roundFiles) return
         for (ManifestUpdater updater : active) {
             List<Map> ecosystemFixes = fixesFor(fixes, updater.ecosystem())
-            List<String> ownFiles = []
-            for (String f : files) {
-                if (updater.supports(f)) ownFiles << f
-            }
+            List<String> ownFiles = filesOf(updater, files)
 
             List properties = []
             for (String f : ownFiles) {
@@ -343,6 +341,7 @@ class GoldenFixService implements DependencyRemediation {
             if (properties) {
                 List<Map> merged = GoldenFix.mergePropertyRequests(properties)
                 (run.requests as List).addAll(merged)
+                (run.references as List).addAll(properties)
                 for (String f : ownFiles) {
                     String text = read(dir, texts, f)
                     Map r = updater.updateProperties(f, text, merged)
@@ -351,6 +350,14 @@ class GoldenFixService implements DependencyRemediation {
                 }
             }
         }
+    }
+
+    private List<String> filesOf(ManifestUpdater updater, List<String> files) {
+        List<String> own = []
+        for (String f : files) {
+            if (updater.supports(f)) own << f
+        }
+        return own
     }
 
     private String read(String dir, Map texts, String file) {
@@ -410,14 +417,44 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static List<String> outsideCatalogs(List<Map> changes, Map versions, List<String> shared) {
+    static void labelProperties(List<Map> changes, List<Map> references, List<String> files) {
+        for (Map c : changes) {
+            if (!c.property || !files.contains(c.file)) continue
+            List keys = []
+            List names = []
+            for (String f : files) {
+                for (Map r : references) {
+                    if (r.catalog || r.name != c.property || !(r.referencedIn as List).contains(f)) continue
+                    if (GoldenFix.isUpgrade(c.to as String, r.targetVersion as String)) continue
+                    GoldenFix.addAllUnique(keys, r.componentKeys as List)
+                    GoldenFix.addAllUnique(names, r.components as List)
+                }
+            }
+            GoldenFix.addAllUnique(keys, c.componentKeys as List)
+            GoldenFix.addAllUnique(names, (c.component as String).split(', ') as List)
+            c.putAll([componentKeys: keys, component: names.join(', ')])
+        }
+    }
+
+    @NonCPS
+    static List<String> outsideCatalogs(List<Map> changes, Map versions, List<String> shared, List<Map> fixes) {
         List<String> out = []
         for (Map c : changes) {
             if (shared.contains(c.file)) continue
+            List<String> catalogs = []
+            Map names = [:]
             for (def key : (c.componentKeys as List)) {
                 Map known = versions[key] as Map
                 if (!known) continue
-                String note = "${c.file}: ${c.component} declared outside the catalog ${known.file}${known.alias ? " (${known.alias})" : ''}".toString()
+                String catalog = "${known.file}${known.alias ? " (${known.alias})" : ''}".toString()
+                if (!catalogs.contains(catalog)) {
+                    catalogs << catalog
+                    names[catalog] = []
+                }
+                (names[catalog] as List) << (fixes.find { it.key == key }?.displayName ?: key)
+            }
+            for (String catalog : catalogs) {
+                String note = "${c.file}: ${(names[catalog] as List).join(', ')} declared outside the catalog ${catalog}".toString()
                 if (!out.contains(note)) out << note
             }
         }

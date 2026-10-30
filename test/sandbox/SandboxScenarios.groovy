@@ -1041,6 +1041,38 @@ check('GoldenFix catalogs: one row for a property raised in both rounds keeps ev
                 ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0 [maven:com.fasterxml.jackson.core:jackson-databind, maven:com.fasterxml.jackson.core:jackson-core] ' +
                  'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'] && !gfOf(keysRun, 'svc-a').unresolved,
         "${keysRun.errors} ${gfOf(keysRun, 'svc-a').changes} ${reasonsOf(keysRun, 'svc-a')}")
+Closure managingRoot = { String version ->
+    ('<project><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
+     '<properties><jackson.version>' + version + '</jackson.version></properties><dependencyManagement><dependencies>' +
+     '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
+     '</dependencies></dependencyManagement></project>').toString()
+}
+String overridingModule = '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId>' +
+        '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
+        '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
+        '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
+List jacksonFixes = [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]
+String bothJackson = 'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'
+Map firstRoundRun = catalogRun(['pom.xml': managingRoot('2.14.0'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]])
+String firstRoundPr = ((firstRoundRun.prs as List)[0]?.description ?: '') as String
+String firstRoundCommit = ((firstRoundRun.commits as List)[0]?.message ?: '') as String
+check('GoldenFix catalogs: a property that the shared pom raised names every component a module uses it for, as on the main branch',
+        firstRoundRun.errors.isEmpty() && (gfOf(firstRoundRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
+                ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${bothJackson}".toString(), "svc-a/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString()]
+                && !gfOf(firstRoundRun, 'svc-a').unresolved && !firstRoundPr.contains('Not applied automatically')
+                && firstRoundPr.contains("| `svc-a/pom.xml` | ${bothJackson} (property `jackson.version`) | 2.13.4 | **2.15.4** |".toString())
+                && firstRoundCommit.startsWith('GoldenFix-202609191405: upgrade 1 vulnerable direct dependency')
+                && firstRoundCommit.contains("- ${bothJackson} (property jackson.version): 2.13.4 -> 2.15.4 (svc-a/pom.xml)".toString())
+                && gfOf(firstRoundRun, 'svc-a').notes == ['svc-a/pom.xml: com.fasterxml.jackson.core:jackson-databind declared outside the catalog pom.xml (jackson.version)'],
+        "${firstRoundRun.errors} ${gfOf(firstRoundRun, 'svc-a').changes} ${reasonsOf(firstRoundRun, 'svc-a')} ${gfOf(firstRoundRun, 'svc-a').notes}")
+Map firstRoundRetry = catalogRun(['pom.xml': managingRoot('2.17.0'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]],
+        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('<jackson.version>2.17.0</jackson.version>') }])
+check('GoldenFix pre-check: the build again with the Nexus IQ versions names every component of a property that the shared pom raised',
+        firstRoundRetry.errors.isEmpty() && gfOf(firstRoundRetry, 'svc-a').status == 'PR_CREATED'
+                && (gfOf(firstRoundRetry, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
+                ["svc-a/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString()]
+                && !gfOf(firstRoundRetry, 'svc-a').unresolved && !(((firstRoundRetry.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
+        "${firstRoundRetry.errors} ${gfOf(firstRoundRetry, 'svc-a').status} ${gfOf(firstRoundRetry, 'svc-a').changes} ${reasonsOf(firstRoundRetry, 'svc-a')}")
 Map<String, String> alignedPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
