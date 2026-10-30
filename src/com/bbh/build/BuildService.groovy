@@ -97,72 +97,108 @@ class BuildService implements Serializable {
 
     void checkCoverage() {
         int minLine = (state.coverage.minRequired ?: 60) as int
-        def tool = detectTool()
+        String tool = detectTool()
         script.echo "[COVERAGE] Build tool: ${tool}  Required by the library policy: ${minLine}%"
-        String covTool = 'none'
-        int covered = 0
-        int missed = 0
-
-        if (tool == 'flutter') {
-            def lcovPath = 'total_lcov.info'
-            if (!script.fileExists(lcovPath)) {
-                policy.missingCoverage('total_lcov.info not found')
-                return
-            }
-            Map cov = readLcov(lcovPath)
-            covTool = 'lcov'
-            covered = (cov.covered ?: 0) as int
-            missed = (cov.missed ?: 0) as int
-        } else {
-            List xmlPaths = []
-            def xmlPath = resolveJacocoPath(tool)
-            if (script.fileExists(xmlPath)) {
-                xmlPaths.add(xmlPath)
-            } else {
-                script.echo "[COVERAGE] Looking for existing JaCoCo reports."
-                xmlPaths = findCoverageReports()
-            }
-
-            if (!xmlPaths) {
-                policy.missingCoverage("JaCoCo report not found (tried ${xmlPath}), set coverage.reportPath for the service in the DevSecOps portal to point at it")
-                return
-            }
-
-            List classCov = []
-            for (def path : xmlPaths) {
-                Map cov = readJacoco(path as String)
-                classCov.addAll(readJaCoCoPerClass(path as String))
-                covered += (cov.covered ?: 0) as int
-                missed += (cov.missed ?: 0) as int
-            }
-            covTool = 'jacoco'
-
-            script.echo "Class coverage: "
-            for (def entry : classCov) {
-                script.echo "Package: ${entry.packageName}, Class: ${entry.className}, Coverage: ${entry.pct}, Missed: ${entry.missed}, Covered: ${entry.covered}"
-            }
-            script.echo "========================="
+        Map found = os.isWindows() ? legacyCoverage(tool) : scanCoverage(tool)
+        List reports = (found.reports ?: []) as List
+        String text = CoverageReports.logText((found.log ?: []) as List, reports)
+        if (text) script.echo text
+        String classes = CoverageReports.classText(reports, (found.classes ?: []) as List)
+        if (classes) script.echo classes
+        if (found.missing) {
+            policy.missingCoverage(found.missing as String, reports)
+            return
         }
-
-        int total = covered + missed
-        double pct = total ? (((covered * 1000.0 / total) + 0.5) as long) / 10.0 : 0.0
-        state.recordCoverage([enabled: true, line: pct, covered: covered, missed: missed, total: total,
-                              tool: covTool, buildTool: tool, minRequired: minLine])
-        state.coverage.covered = ((state.coverage.covered ?: 0) as int) + covered
-        state.coverage.missed = ((state.coverage.missed ?: 0) as int) + missed
-        state.coverage.total = ((state.coverage.total ?: 0) as int) + total
-        int allTotal = state.coverage.total as int
-        state.coverage.line = allTotal ? ((((state.coverage.covered as int) * 1000.0 / allTotal) + 0.5) as long) / 10.0 : 0.0
+        Map own = CoverageReports.summary(reports)
+        if (!own.counted) {
+            policy.missingCoverage(CoverageReports.noLines(reports), reports)
+            return
+        }
+        String covTool = CoverageReports.kindsOf(reports)
+        state.recordCoverage([enabled: true, line: own.line, covered: own.covered, missed: own.missed, total: own.total,
+                              counted: own.counted, reports: reports, tool: covTool, buildTool: tool, minRequired: minLine])
+        Map run = CoverageReports.runSummary(state.projectsCoverage)
+        state.coverage.line = run.line
+        state.coverage.covered = run.covered
+        state.coverage.missed = run.missed
+        state.coverage.total = run.total
+        state.coverage.counted = run.counted
         state.coverage.enabled = true
         state.coverage.tool = covTool
         state.coverage.buildTool = tool
 
-        String marker = pct >= (minLine as double) ? '[PASS]' : '[FAIL]'
+        String marker = (own.line as double) >= (minLine as double) ? '[PASS]' : '[FAIL]'
+        String mean = (own.counted as int) > 1 ? "mean of ${own.counted} reports, " : ''
         script.echo "----------------------------------------------------"
-        script.echo "${marker} LINE COVERAGE ${state.currentProjectName}: ${pct}%  (min required: ${minLine}%)"
-        script.echo "covered=${covered}  missed=${missed}  total=${total}"
+        script.echo "${marker} LINE COVERAGE ${state.currentProjectName}: ${own.line}%  (${mean}min required: ${minLine}%)"
+        script.echo "covered=${own.covered}  missed=${own.missed}  total=${own.total}"
         script.echo "----------------------------------------------------"
         policy.checkCoverage()
+    }
+
+    private Map scanCoverage(String tool) {
+        List<Map> steps = CoverageReports.steps(state.currentProjectName, state.projectsAllCfg, tool, CoverageReports.paths(state.cfg.coverage?.reportPath))
+        Map found = readReports(steps)
+        if (found.noPython || found.error) {
+            script.echo(found.noPython ? '[COVERAGE] python3 is not on the agent: the reports are looked for as before, and a JaCoCo report needs python3 on a Linux or macOS agent'
+                    : "[COVERAGE] The coverage scan failed (${found.error}); reading the reports as before".toString())
+            return legacyCoverage(tool)
+        }
+        List log = steps.subList(0, (found.step as int) + 1).collect { it.line }
+        if (!found.reports) return [reports: [], log: log, missing: CoverageReports.noReport(steps[steps.size() - 1].search as Map, 'the DevSecOps portal')]
+        return found + [log: log]
+    }
+
+    private Map readReports(List<Map> steps) {
+        try {
+            String out = script.sh(label: 'Coverage: find and read the reports', returnStdout: true, script: CoverageReports.command(steps))
+            return CoverageReports.parse(out, steps)
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return [reports: [], classes: [], error: (e.message ?: e.getClass().getSimpleName()) as String, noPython: false]
+        }
+    }
+
+    private Map legacyCoverage(String tool) {
+        List<String> listed = CoverageReports.paths(state.cfg.coverage?.reportPath)
+        List<String> candidates = jacocoCandidates(tool)
+        List paths = []
+        for (String p : listed) {
+            if (p.contains('*') || p.contains('?')) {
+                for (def f : script.findFiles(glob: p)) paths << (f.path as String)
+            } else if (script.fileExists(p)) {
+                paths << p
+            }
+        }
+        if (!paths && tool == 'flutter') {
+            if (!script.fileExists('total_lcov.info')) return [reports: [], missing: 'total_lcov.info not found']
+            paths << 'total_lcov.info'
+        }
+        for (String p : candidates) {
+            if (!paths && script.fileExists(p)) paths << p
+        }
+        if (!paths) {
+            script.echo "[COVERAGE] Looking for existing JaCoCo reports."
+            paths = findCoverageReports()
+        }
+        if (!paths) {
+            return [reports: [], missing: "JaCoCo report not found (tried ${listed ? listed[0] : candidates[0]}), set coverage.reportPath for the service in the DevSecOps portal to point at it".toString()]
+        }
+        List reports = []
+        List classes = []
+        for (def path : CoverageReports.distinct(paths)) {
+            if (CoverageReports.isLcov(path as String)) {
+                Map lcov = readLcov(path as String)
+                reports << CoverageReports.row(tool == 'flutter' ? 'flutter' : 'lcov', path as String, lcov.covered as int, lcov.total as int, '')
+            } else {
+                Map cov = readJacoco(path as String)
+                reports << CoverageReports.row('jacoco', path as String, cov.covered as int, cov.total as int, '')
+                for (def entry : readJaCoCoPerClass(path as String)) {
+                    classes << "Package: ${entry.packageName}, Class: ${entry.className}, Coverage: ${entry.pct}, Missed: ${entry.missed}, Covered: ${entry.covered}".toString()
+                }
+            }
+        }
+        return [reports: reports, classes: classes]
     }
 
     void reportArtifactBuild() {
@@ -793,16 +829,12 @@ class BuildService implements Serializable {
         return paths
     }
 
-    private String resolveJacocoPath(String tool) {
-        def cfgPath = state.cfg.coverage?.reportPath?.trim()
-        if (cfgPath && script.fileExists(cfgPath)) return cfgPath
-        def candidates = (tool == 'maven')
+    private List<String> jacocoCandidates(String tool) {
+        return tool == 'maven'
             ? ['target/site/jacoco/jacoco.xml', 'target/jacoco/jacoco.xml']
             : ['build/jacoco/jacoco.xml',
                'build/reports/jacoco/test/jacocoTestReport.xml',
                'build/reports/jacoco/jacocoTestReport.xml']
-        for (String p : candidates) { if (script.fileExists(p)) return p }
-        return cfgPath ?: candidates[0]
     }
 
     private List readJaCoCoPerClass(String xmlPath) {

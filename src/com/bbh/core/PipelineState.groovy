@@ -35,7 +35,7 @@ class PipelineState implements Serializable {
 
     Map coverage = [
         enabled: false, tool: 'none', buildTool: 'none',
-        line: 0.0, covered: 0, missed: 0, total: 0, minRequired: 60
+        line: 0.0, covered: 0, missed: 0, total: 0, counted: 0, minRequired: 60
     ]
 
     Map projectsVulnCounts     = [:]

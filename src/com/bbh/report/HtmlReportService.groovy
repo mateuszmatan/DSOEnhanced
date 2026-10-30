@@ -1036,7 +1036,9 @@ class HtmlReportService implements Serializable {
         def color = met ? '#16a34a' : '#d97706'
         def label = pct != null ? "${pct}%" : 'not measured'
         def note = met ? '' : "<span style='font-size:0.68rem;color:#92400e;font-weight:700;'>below the required level</span>"
-        return "<div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:${color};'>${label}</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; required&nbsp;<b>${minRequired as int}%</b> &bull; BBH SLDC policy</span>${note}</div>"
+        int counted = (coverage?.get('counted') ?: 0) as int
+        String mean = counted > 1 ? "mean of ${counted} reports &bull; " : ''
+        return "<div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:${color};'>${label}</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; ${mean}required&nbsp;<b>${minRequired as int}%</b> &bull; BBH SLDC policy</span>${note}</div>"
     }
     @NonCPS protected String nexusIqLimitLine(Map counts, Map limits) {
         Map lim = limits ?: [maxCritical: 0, maxHigh: 0, maxMedium: 0]
@@ -1051,12 +1053,20 @@ class HtmlReportService implements Serializable {
         return (ctx.coverage ?: [:]) as Map
     }
     @NonCPS protected String coverageCard(Map coverage, Map projectsCoverage = [:]) {
-        Map rows = [:]
-        if (projectsCoverage && projectsCoverage.size() > 1) rows.putAll(projectsCoverage)
-        else if (coverage && coverage.get('enabled')) rows.put('', coverage)
-        if (rows.isEmpty()) return ''
+        Map projects = projectsCoverage ?: [:]
         StringBuilder body = new StringBuilder()
-        rows.each { project, value -> body.append(coverageBar(project as String, value as Map)) }
+        if (projects.size() > 1) {
+            int met = projects.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
+            if (coverage?.get('enabled')) body.append(coverageBar('All services', coverage + [met: met == projects.size(), note: "${met} of ${projects.size()} services meet it".toString()]))
+            projects.each { project, value -> body.append(coverageBar(project as String, value as Map)) }
+        } else if (coverage?.get('enabled')) {
+            body.append(coverageBar('', coverage))
+        } else if (projects && (projects.values() as List)[0]?.get('reports')) {
+            body.append(coverageBar('', (projects.values() as List)[0] as Map))
+        } else {
+            return ''
+        }
+        body.append(coverageReportsTable(projects))
         return card('Code Coverage', body.toString())
     }
     @NonCPS protected String coverageBar(String project, Map coverage) {
@@ -1065,12 +1075,35 @@ class HtmlReportService implements Serializable {
         def covered = coverage?.get('covered') ?: 0
         def total = coverage?.get('total') ?: 0
         def minRequired = coverage?.get('minRequired') ?: 60
-        String color = (measured && pct >= (minRequired as double)) ? '#22c55e' : '#d97706'
+        boolean met = coverage?.containsKey('met') ? (coverage.get('met') ? true : false) : (measured && pct >= (minRequired as double))
+        String color = met ? '#22c55e' : '#d97706'
         double width = pct > 100.0d ? 100.0d : pct
         String label = project ? "<div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>${esc(project)}</div>" : ''
         String value = measured ? "${pct}%" : 'n/a'
-        String detail = measured ? "${covered} covered / ${total} total &nbsp;&bull;&nbsp; required: ${minRequired}%" : "no coverage report &nbsp;&bull;&nbsp; required: ${minRequired}%"
+        int counted = (coverage?.get('counted') ?: 0) as int
+        String measure = counted > 1 ? "mean of ${counted} reports" : "${covered} covered / ${total} total"
+        String note = coverage?.get('note') ? " &nbsp;&bull;&nbsp; ${coverage.get('note')}" : ''
+        String detail = measured ? "${measure} &nbsp;&bull;&nbsp; required: ${minRequired}%${note}" : "no coverage report &nbsp;&bull;&nbsp; required: ${minRequired}%"
         return "${label}<div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:${color};min-width:70px;'>${value}</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:${width}%;height:100%;background:${color};border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>${detail}</div></div></div>"
+    }
+    @NonCPS protected String coverageReportsTable(Map projectsCoverage) {
+        List rows = []
+        (projectsCoverage ?: [:]).each { project, value ->
+            ((((value ?: [:]) as Map).get('reports') ?: []) as List).each { def item ->
+                Map report = item as Map
+                String text = report.get('reason') ? "not counted: ${report.get('reason')}" : (report.get('detail') ?: '')
+                String reason = text ? "<div style='font-size:0.68rem;color:#64748b;'>${esc(text as String)}</div>" : ''
+                String pct = report.get('line') != null ? "${report.get('line')}%" : '-'
+                rows << ("<tr>" + td(esc(project as String), 'padding:5px 10px;font-weight:600;')
+                        + td("<span style='font-family:monospace;font-size:0.74rem;'>${esc(report.get('path') as String)}</span>${reason}", 'padding:5px 10px;overflow-wrap:anywhere;')
+                        + td(esc(report.get('tool') as String), 'padding:5px 10px;')
+                        + td(pct, "text-align:center;padding:5px 8px;font-weight:700;color:${report.get('counted') ? '#334155' : MUTED};")
+                        + td("${report.get('covered') ?: 0} of ${report.get('total') ?: 0}", 'text-align:center;padding:5px 8px;white-space:nowrap;')
+                        + "</tr>")
+            }
+        }
+        if (!rows) return ''
+        return "<div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>"
     }
     @NonCPS protected String sonarBadgesCards(Map ctx) {
         Map projectsSonarResults = ctx.projectsSonarResults as Map

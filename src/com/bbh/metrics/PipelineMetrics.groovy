@@ -194,6 +194,18 @@ class PipelineMetrics implements Serializable {
                     gap     : MetricLine.number(enabled && line < required ? (required - line) : 0.0d)
             ], now)
         }
+        for (def entry : perProject.entrySet()) {
+            for (def item : ((((entry.value ?: [:]) as Map).reports ?: []) as List)) {
+                Map report = (item ?: [:]) as Map
+                out << MetricLine.of('coverage_report', base + [module: entry.key as String, report: report.path as String,
+                                                                 tool: report.kind as String, counted: report.counted ? 'yes' : 'no'], [
+                        line_pct: report.total ? MetricLine.number(report.line) : null,
+                        covered : MetricLine.integer(report.covered),
+                        missed  : MetricLine.integer(report.missed),
+                        total   : MetricLine.integer(report.total)
+                ], now)
+            }
+        }
         return out
     }
 
