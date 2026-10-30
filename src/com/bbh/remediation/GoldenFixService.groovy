@@ -317,7 +317,7 @@ class GoldenFixService implements DependencyRemediation {
         for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
         List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
-        for (String f : CatalogDiscovery.toRead(extra)) read(dir, texts, f)
+        for (String f : CatalogDiscovery.toRead(scanned + extra)) read(dir, texts, f)
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
     }
 

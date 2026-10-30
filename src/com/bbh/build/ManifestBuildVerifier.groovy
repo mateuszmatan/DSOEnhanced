@@ -78,7 +78,7 @@ ${check.command}
                 if (seen.contains(key)) continue
                 seen << key
                 String override = overrides?.get(kind) as String
-                String command = (override ?: defaultCommand(kind, name)) as String
+                String command = (override ?: defaultCommand(kind, subDir == BuildUtils.parentOf(path) ? name : '')) as String
                 if (!command) continue
                 String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
                 if (kind == 'npm' && !override && lockFiles?.contains(lock)) {
@@ -112,7 +112,7 @@ ${check.command}
 
     @NonCPS
     String defaultCommand(String kind, String name) {
-        if (kind == 'maven') return 'mvn -B -q -DskipTests compile'
+        if (kind == 'maven') return 'mvn -B -q -DskipTests compile' + (name && name != 'pom.xml' ? " -f '${BuildUtils.escapeForSingleQuotes(name)}'" : '')
         if (kind == 'gradle') return '[ -x ./gradlew ] && ./gradlew --no-daemon --console=plain classes || gradle --no-daemon --console=plain classes'
         if (kind == 'npm') return '[ -f package-lock.json ] && npm ci --ignore-scripts || npm install --ignore-scripts'
         if (kind == 'pip') return name == 'pyproject.toml' ? 'python3 -m pip install --dry-run .' : "python3 -m pip install --dry-run -r '${name}'".toString()

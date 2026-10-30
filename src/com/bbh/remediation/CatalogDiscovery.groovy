@@ -23,7 +23,7 @@ class CatalogDiscovery implements Serializable {
         List<String> poms = []
         for (String f : files) {
             if (isScript(f) || isBuildSrc(f)) out << f
-            if (isPom(f)) poms << f
+            if (f.endsWith('.xml')) poms << f
         }
         return poms.size() > 1 ? out + poms : out
     }

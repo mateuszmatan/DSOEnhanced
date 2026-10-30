@@ -851,6 +851,20 @@ check('GoldenFix catalogs: a Maven parent and an imported BOM of the repository 
                 && ((mavenRun.written as Map)['services/bom/pom.xml'] as String)?.contains('<version>4.1.108.Final</version>')
                 && !reasonsOf(mavenRun, 'svc-a') && mavenRun.builds == [cdTo('services')],
         "${mavenRun.errors} ${reasonsOf(mavenRun, 'svc-a')} ${mavenRun.builds}")
+Closure platformChild = { String name -> ('<project><parent><groupId>com.bbh</groupId><artifactId>platform</artifactId><version>1</version><relativePath>../platform/bom.xml</relativePath></parent>' +
+        "<artifactId>${name}</artifactId><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency></dependencies></project>").toString() }
+Map bomFileRun = catalogRun([
+        'platform/bom.xml': '<project><groupId>com.bbh</groupId><artifactId>platform</artifactId><version>1</version><packaging>pom</packaging><properties><jackson.version>2.13.4</jackson.version></properties>' +
+                            '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
+                            '<version>${jackson.version}</version></dependency></dependencies></dependencyManagement></project>',
+        'svc-a/pom.xml'   : platformChild('svc-a'),
+        'svc-b/pom.xml'   : platformChild('svc-b')
+], [[name: 'svc-a', goldenFix: [versionCatalogs: ['platform/bom.xml']], fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]],
+        [verify: true, fails: { Map w, String sh -> sh.contains("/platform' ||") && !sh.contains("mvn -B -q -DskipTests compile -f 'bom.xml'") }])
+check('GoldenFix catalogs: a listed parent pom with another file name is read, and verified in its own folder with mvn -f when no aggregator builds it',
+        bomFileRun.errors.isEmpty() && gfOf(bomFileRun, 'svc-a').status == 'PR_CREATED' && !reasonsOf(bomFileRun, 'svc-a')
+                && ((bomFileRun.written as Map)['platform/bom.xml'] as String)?.contains('<jackson.version>2.13.5</jackson.version>') && bomFileRun.builds == [cdTo('platform')],
+        "${bomFileRun.errors} ${gfOf(bomFileRun, 'svc-a').status} ${gfOf(bomFileRun, 'svc-a').message} ${bomFileRun.builds}")
 
 String bigToml = '[versions]\n' + (1..300).collect { "v${it} = \"1.0.${it}\"\n" }.join('') + 'jackson = "2.13.4"\n\n[libraries]\n' +
         (1..300).collect { "lib-${it} = { module = \"com.example:lib-${it}\", version.ref = \"v${it}\" }\n" }.join('') +
