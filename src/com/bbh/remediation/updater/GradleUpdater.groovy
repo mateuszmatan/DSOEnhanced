@@ -16,13 +16,13 @@ class GradleUpdater implements ManifestUpdater {
     private static String catalogRefRe() { return '^\\$\\{?([A-Za-z_]\\w*)\\.versions\\.([\\w.]+?)(?:\\.get\\(\\))?\\}?$' }
 
     @NonCPS
-    private static String tomlVersionsRe() { return '(?ms)(^\\[versions\\][ \\t]*$)((?:.|\\n)*?)(?=^\\[|\\z)' }
+    private static String tomlVersionsRe() { return '(?ms)(^\\[versions\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlLibrariesRe() { return '(?ms)(^\\[libraries\\][ \\t]*$)((?:.|\\n)*?)(?=^\\[|\\z)' }
+    private static String tomlLibrariesRe() { return '(?ms)(^\\[libraries\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*$)((?:.|\\n)*?)(?=^\\[|\\z)' }
+    private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
     private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{(?:[^{}\\r\\n]|\\{[^{}\\r\\n]*\\})*\\}|"[^"\\r\\n]*")' }

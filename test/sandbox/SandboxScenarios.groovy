@@ -577,6 +577,7 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
                              scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
                 List fixes = (svc.fixes as List).collect { List f -> model.create(f[0], f[1], f[2], f[3], f[4], 'next-no-violations', '', 8, true, 'APP') }
                 def source = h.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
+                source.failure = options.failure as Throwable
                 h.type('com.bbh.remediation.GoldenFixService').newInstance(sc, state, source, repository, publisher, updaters, verifier)
                         .remediate([[application: 'APP', serverUrl: 'https://tools.bbh.com/IQ', scanId: 'a' * 32]])
             }
@@ -827,6 +828,28 @@ check('GoldenFix catalogs: a Maven parent and an imported BOM of the repository 
                 && ((mavenRun.written as Map)['services/bom/pom.xml'] as String)?.contains('<version>4.1.108.Final</version>')
                 && !reasonsOf(mavenRun, 'svc-a') && mavenRun.builds == [cdTo('services')],
         "${mavenRun.errors} ${reasonsOf(mavenRun, 'svc-a')} ${mavenRun.builds}")
+
+String bigToml = '[versions]\n' + (1..300).collect { "v${it} = \"1.0.${it}\"\n" }.join('') + 'jackson = "2.13.4"\n\n[libraries]\n' +
+        (1..300).collect { "lib-${it} = { module = \"com.example:lib-${it}\", version.ref = \"v${it}\" }\n" }.join('') +
+        'jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }\n\n' +
+        '[libraries.netty-codec-http]\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.86.Final"\n' + (1..300).collect { "# platform note ${it}\n" }.join('')
+Map bigRun = [:]
+Thread cpsThread = new Thread(null, {
+    bigRun = catalogRun(['settings.gradle'          : "include 'gui'\n", 'gradle/libs.versions.toml': bigToml,
+                         'gui/build.gradle'         : 'dependencies {\n    implementation libs.jackson.databind\n    implementation libs.netty.codec.http\n}\n'],
+            [[name: 'gui', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'], ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final']]]])
+} as Runnable, 'cps-vm', 1024L * 1024L)
+cpsThread.start()
+cpsThread.join()
+String bigWritten = ((bigRun.written as Map)?.get('gradle/libs.versions.toml') ?: '') as String
+check('GoldenFix catalogs: a catalog of 300 libraries is raised on a 1 MB thread stack, the size of a Jenkins CPS thread',
+        bigRun.errors == [] && gfOf(bigRun, 'gui').status == 'PR_CREATED' && bigWritten == bigToml.replace('jackson = "2.13.4"', 'jackson = "2.13.5"').replace('version = "4.1.86.Final"', 'version = "4.1.108.Final"'),
+        "${bigRun.errors} ${gfOf(bigRun, 'gui').status} ${gfOf(bigRun, 'gui').message}")
+Map errorRun = catalogRun(sharedFiles, [sharedServices[0]], [failure: new StackOverflowError()])
+check('GoldenFix: an Error that escapes the remediation is recorded as ERROR with its class name',
+        errorRun.errors.isEmpty() && gfOf(errorRun, 'svc-a').status == 'ERROR' && gfOf(errorRun, 'svc-a').message == 'StackOverflowError'
+                && (errorRun.log as List).contains('[GOLDENFIX] Remediation failed: StackOverflowError'),
+        "${errorRun.errors} ${gfOf(errorRun, 'svc-a')} ${errorRun.log}")
 
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +

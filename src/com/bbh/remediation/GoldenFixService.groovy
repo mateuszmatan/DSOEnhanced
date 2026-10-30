@@ -57,10 +57,10 @@ class GoldenFixService implements DependencyRemediation {
         ]
         try {
             execute(cfg, scanRefs ?: [], result)
-        } catch (Exception e) {
+        } catch (Throwable e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             result.status  = 'ERROR'
-            result.message = (e.message ?: e.getClass().getSimpleName()) as String
+            result.message = ((e instanceof Exception ? e.message : null) ?: e.getClass().getSimpleName()) as String
             script.echo "[GOLDENFIX] Remediation failed: ${result.message}"
         } finally {
             state.recordGoldenFix(result)
