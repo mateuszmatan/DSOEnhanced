@@ -1519,7 +1519,7 @@ In a Gradle TOML catalog GoldenFix changes only the version text; the formatting
 
 | Table | Forms |
 |---|---|
-| `[versions]` | `x = "1.2"`; `x = { strictly = "1.2" }`, `{ require = "1.2" }` and `{ prefer = "1.2" }`; in `{ strictly = "[1.0,2.0[", prefer = "1.2" }` the range stays and the concrete `prefer` is raised while the target lies inside the range; a target outside it leaves the entry as it is, with the reason below |
+| `[versions]` | `x = "1.2"`; `x = { strictly = "1.2" }`, `{ require = "1.2" }` and `{ prefer = "1.2" }`; in `{ strictly = "[1.0,2.0[", prefer = "1.2" }` the range stays and the concrete `prefer` is raised while the target lies inside the range; a target outside it leaves the entry as it is, with the reason below. A `require` range is read the same way when there is no `strictly`; with both, `strictly` decides |
 | `[libraries]` | `a = "g:a:1.2"`; `{ module = "g:a", version = "1.2" }`; `{ group = "g", name = "a", version = "1.2" }` in any key order; `version.ref = "x"` and `version = { ref = "x" }`; `version = { strictly = "1.2" }` and `version.strictly = "1.2"`; a table `[libraries.a]` with `module`, `group`, `name`, `version` or `version.ref` on lines of their own |
 | `[plugins]`, `[bundles]` | Not changed |
 
@@ -1532,7 +1532,7 @@ What GoldenFix does not raise, and the reason the report gives instead:
 | Case | Reason under "not applied automatically" |
 |---|---|
 | The catalog declares a range or a dynamic version | `managed by version catalog <file> (<alias>): declared version '<v>' is dynamic or a range`; a version of a shared `pom.xml` has no alias, so the part in brackets is left out |
-| A `strictly` range excludes the target, for example `{ strictly = "[4.1,4.2[", prefer = "4.1.86.Final" }` and the fix `4.2.1.Final`. The bounds are compared as Gradle orders versions: a version with one more number lies above the bound even when that number is 0, so `32.0.0-jre` lies above `32.0` and `4.2.0.Final` above `4.2` | `managed by version catalog <file> (<alias>): strictly range '<range>' excludes <target>`; in a build file outside the catalogs, `<file>: strictly range '<range>' excludes <target>` |
+| A `strictly` range, or a `require` range without `strictly`, excludes the target, for example `{ strictly = "[4.1,4.2[", prefer = "4.1.86.Final" }` and the fix `4.2.1.Final`. The bounds are compared as Gradle orders versions: a version with one more number lies above the bound even when that number is 0, so `32.0.0-jre` lies above `32.0` and `4.2.0.Final` above `4.2` | `managed by version catalog <file> (<alias>): strictly range '<range>' excludes <target>`; in a build file outside the catalogs, `<file>: strictly range '<range>' excludes <target>`; a `require` range says `require range` |
 | The catalog key or property that a build asks for is missing or already newer | `managed by version catalog <file> (<key>): not found or already newer` |
 | A BOM or platform that the build imports manages the component (Gradle `platform()` or `enforcedPlatform()`, a `*-bom` entry of a catalog, a Maven `<scope>import</scope>`) and its group is the group of the BOM or below it | `managed by BOM <group>:<artifact>:<version> imported in <file>: raise the BOM or add an override to the catalog` |
 | The catalog is an artifact that `settings.gradle` imports with `from("<group>:<artifact>:<version>")` | `managed by the version catalog artifact <group>:<artifact>:<version> outside this repository` |

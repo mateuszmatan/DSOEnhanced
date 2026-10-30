@@ -894,6 +894,22 @@ check('GoldenFix catalogs: a range bound is compared as Gradle orders versions, 
                 "com.google.guava:guava: managed by version catalog gradle/libs.versions.toml (guava): strictly range '[31.0,32.0[' excludes 32.0.0-jre",
                 "io.netty:netty-handler: api/build.gradle.kts: strictly range '[4.1,4.2]' excludes 4.2.0.Final"],
         "${boundRun.errors} ${boundRun.written} ${reasonsOf(boundRun, 'gui')}")
+Map requireRun = catalogRun([
+        'settings.gradle'          : "include 'gui'\n",
+        'gradle/libs.versions.toml': '[versions]\nnetty = { require = "[4.1,4.2[", prefer = "4.1.86.Final" }\nlogback = { require = "[1.4,1.5[", strictly = "[1.4,2.0[", prefer = "1.4.5" }\n\n' +
+                                     '[libraries]\nnetty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }\nlogback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }\n',
+        'gui/build.gradle'         : "dependencies {\n    implementation libs.netty.codec.http\n    implementation libs.logback.classic\n" +
+                                     "    implementation('org.yaml:snakeyaml') { version { require '[1.30,2.0['; prefer '1.33' } }\n}\n"
+], [[name: 'gui', fixes: [['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.2.1.Final'], ['maven', 'ch.qos.logback', 'logback-classic', '1.4.5', '1.5.6'],
+                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2']]]])
+String requireToml = ((requireRun.written as Map)['gradle/libs.versions.toml'] ?: '') as String
+check('GoldenFix catalogs: without strictly, a require range that excludes the target leaves the rich version alone; strictly wins when both are set',
+        requireRun.errors.isEmpty() && requireToml.contains('logback = { require = "[1.4,1.5[", strictly = "[1.4,2.0[", prefer = "1.5.6" }')
+                && requireToml.contains('netty = { require = "[4.1,4.2[", prefer = "4.1.86.Final" }') && !(requireRun.written as Map).containsKey('gui/build.gradle')
+                && reasonsOf(requireRun, 'gui') == [
+                "io.netty:netty-codec-http: managed by version catalog gradle/libs.versions.toml (netty): require range '[4.1,4.2[' excludes 4.2.1.Final",
+                "org.yaml:snakeyaml: gui/build.gradle: require range '[1.30,2.0[' excludes 2.2"],
+        "${requireRun.errors} ${requireToml} ${reasonsOf(requireRun, 'gui')}")
 
 Map pomRangeRun = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +

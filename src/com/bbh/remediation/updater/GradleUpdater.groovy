@@ -241,9 +241,9 @@ class GradleUpdater implements ManifestUpdater {
                 String key = g[2] as String
                 if (VersionCatalogs.alias(key) != wanted) return null
                 String value = g[3] as String
-                String range = strictRange(value, property.targetVersion as String)
+                String range = excludingRange(value, property.targetVersion as String)
                 if (range) {
-                    r.notes.addAll(UpdaterSupport.propertyNotes(property, UpdaterSupport.catalogReason(path, key, "strictly range '${range}' excludes ${property.targetVersion}")))
+                    r.notes.addAll(UpdaterSupport.propertyNotes(property, UpdaterSupport.catalogReason(path, key, "${range} excludes ${property.targetVersion}")))
                     return null
                 }
                 String next = UpdaterSupport.replaceValue(value, value.startsWith('{') ? richRe() : '([\'"])([^\'"]*)([\'"])') { String v ->
@@ -300,22 +300,27 @@ class GradleUpdater implements ManifestUpdater {
 
     @NonCPS
     private boolean excluded(String path, Map fix, String rich, String alias, Map r) {
-        String range = strictRange(rich, fix.targetVersion as String)
-        if (range) r.notes << note(path, fix, alias, "strictly range '${range}' excludes ${fix.targetVersion}".toString())
+        String range = excludingRange(rich, fix.targetVersion as String)
+        if (range) r.notes << note(path, fix, alias, "${range} excludes ${fix.targetVersion}".toString())
         return range != null
     }
 
     @NonCPS
-    private static String strictRange(String rich, String target) {
-        def strictly = (rich ?: '') =~ /\bstrictly\s*[=(]?\s*['"]([^'"]+)['"]/
-        if (!strictly.find()) return null
-        String range = strictly.group(1).trim()
+    private static String excludingRange(String rich, String target) {
+        def declared = (rich ?: '') =~ /\b(strictly|require)\s*[=(]?\s*['"]([^'"]+)['"]/
+        String kind = null
+        String range = null
+        while (declared.find() && kind != 'strictly') {
+            kind = declared.group(1)
+            range = declared.group(2).trim()
+        }
+        if (range == null) return null
         def bounds = range =~ /^([\[(\]])\s*([^,]*?)\s*,\s*([^,]*?)\s*([\])\[])$/
         if (!bounds.matches()) return null
         int low = bounds.group(2) ? gradleOrder(target, bounds.group(2)) : 1
         int high = bounds.group(3) ? gradleOrder(target, bounds.group(3)) : -1
         boolean outside = low < 0 || (low == 0 && bounds.group(1) != '[') || high > 0 || (high == 0 && bounds.group(4) != ']')
-        return outside ? range : null
+        return outside ? "${kind} range '${range}'".toString() : null
     }
 
     @NonCPS
