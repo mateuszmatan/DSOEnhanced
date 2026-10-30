@@ -193,7 +193,10 @@ List<Map> configRules = [
              Map dod = (((cfg.deploy as Map)?.vm as Map)?.dod ?: [:]) as Map
              [skipWait: false, deployWithSnapshot: true, updateSnapshotComp: false, includeOnlyDeployVersions: true, deployOnlyChanged: false]
                      .collect { key, value -> dropPath(dod, [key], { it == value }) }.sum(0)
-         }]
+         }],
+        [id    : 'R8',
+         reason: 'NEW: staticAnalysis.parallel is absent at b815d55; only devSecOpsApi.parallelScans() reads it (parallel-scans)',
+         apply : { Map cfg, String variant -> dropPath(cfg, ['staticAnalysis', 'parallel'], { it == true }) }]
 ]
 Map hits = configRules.collectEntries { [(it.id): 0] }
 Closure normalise = { Map run, String variant ->
