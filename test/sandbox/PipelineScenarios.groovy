@@ -153,6 +153,10 @@ Closure runPipeline = { Map spec ->
         Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls, manifests, reports) : null
         if (goldenFix != null) return goldenFix
         List c = d.coverage as List
+        if (label == 'Coverage: find and read the reports') {
+            String path = text.contains("--own 'maven'") ? 'target/site/jacoco/jacoco.xml' : 'build/reports/jacoco/test/jacocoTestReport.xml'
+            return "S\t0\nR\tjacoco\t${path}\t${c[1]}\t${(c[1] as int) + (c[2] as int)}\t\t\nC\tPackage: com.bbh.certscanner, Class: CertificateService, Coverage: ${c[0]}, Missed: ${c[2]}, Covered: ${c[1]}"
+        }
         if (text.contains("findall('package')")) return "com.bbh.certscanner,CertificateService,CertificateService.java,${c[0]},${c[1]},${c[2]},${(c[1] as int) + (c[2] as int)}"
         if (text.contains('xml.etree.ElementTree')) return "${c[0]},${c[1]},${c[2]}"
         List s = d.sonar as List
@@ -233,7 +237,9 @@ List<Map> baseRules = [
         rule('stage and job timings are measured on the wall clock', /\b(start_time|end_time|duration_ms|duration_s|lead_time_s)=\d+i/, '$1=<n>i'),
         rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
         rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
-        rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>')
+        rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
+        rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
+                /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF')
 ]
 List<Map> portalRules = [
         rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
@@ -346,6 +352,12 @@ specs.each { Map spec ->
     check("${name}: release gate verdict written for the downstream pipeline", j.jsonFiles.containsKey('release-gate.json')
             && ((j.jsonFiles['release-gate.json'] as Map).allowed as boolean) == (spec.result == 'SUCCESS' && !spec.failedStage),
             j.jsonFiles['release-gate.json'])
+    if (spec.executed.contains(UNIT)) {
+        check("${name}: each service reads its coverage reports with one scan and the report lists them",
+                j.calls.count { it.startsWith('sh [Coverage: find and read the reports] ') } == 2
+                        && html.contains('<th>Report</th>') && html.contains('>All services</div>'),
+                j.calls.findAll { it.contains('Coverage: ') })
+    }
     if (spec.coverageMinLine) {
         check("${name}: the report shows and checks the coverage required by the portal's global settings (${spec.coverageMinLine}%)",
                 html.contains("required&nbsp;<b>${spec.coverageMinLine}%</b>".toString()) && !html.contains('required&nbsp;<b>60%</b>'),

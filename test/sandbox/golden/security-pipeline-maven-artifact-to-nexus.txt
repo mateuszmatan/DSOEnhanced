@@ -17,52 +17,9 @@ sh [Gradle: test jacocoTestReport jacocoTestCoverageVerification]
             set -euo pipefail
             './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
         
-sh 
-python3 - "build/reports/jacoco/test/jacocoTestReport.xml" <<'PYEOF'
-import xml.etree.ElementTree as ET, sys
-try:
-    tree = ET.parse(sys.argv[1])
-    for c in tree.getroot().findall('counter'):
-        if c.get('type') == 'LINE':
-            covered = int(c.get('covered', 0)); missed = int(c.get('missed', 0))
-            total = covered + missed
-            pct = round(covered * 100.0 / total, 1) if total else 0.0
-            print(f'{pct},{covered},{missed}'); sys.exit(0)
-    print('0.0,0,0')
-except Exception: print('0.0,0,0')
-PYEOF
-
-sh 
-python3 - "build/reports/jacoco/test/jacocoTestReport.xml" <<'PYEOF'
-import xml.etree.ElementTree as ET
-import sys
- 
-try:
-    tree = ET.parse(sys.argv[1])
-    root = tree.getroot()
- 
-    for pkg in root.findall('package'):
-        package_name = pkg.get('name', '').replace('/', '.')
- 
-        for cls in pkg.findall('class'):
-            class_name = cls.get('name', '').replace('/', '.')
-            source_file = cls.get('sourcefilename', '')
- 
-            covered = 0
-            missed = 0
- 
-            for counter in cls.findall('counter'):
-                if counter.get('type') == 'LINE':
-                    covered = int(counter.get('covered', 0))
-                    missed = int(counter.get('missed', 0))
- 
-            total = covered + missed
-            pct = round(covered * 100.0 / total, 1) if total else 0.0
- 
-            print(f"{package_name},{class_name},{source_file},{pct},{covered},{missed},{total}")
- 
-except Exception:
-    print("ERROR,,,,0.0,0,0,0")
+sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
+python3 -I - --root '.' --own 'gradle' --others 'maven' <<'PYEOF'
+<scan script>
 PYEOF
 
 sh mvn -v
@@ -80,52 +37,9 @@ sh [Maven: test jacoco:report]
             set -euo pipefail
             'mvn' 'test' 'jacoco:report'
         
-sh 
-python3 - "target/site/jacoco/jacoco.xml" <<'PYEOF'
-import xml.etree.ElementTree as ET, sys
-try:
-    tree = ET.parse(sys.argv[1])
-    for c in tree.getroot().findall('counter'):
-        if c.get('type') == 'LINE':
-            covered = int(c.get('covered', 0)); missed = int(c.get('missed', 0))
-            total = covered + missed
-            pct = round(covered * 100.0 / total, 1) if total else 0.0
-            print(f'{pct},{covered},{missed}'); sys.exit(0)
-    print('0.0,0,0')
-except Exception: print('0.0,0,0')
-PYEOF
-
-sh 
-python3 - "target/site/jacoco/jacoco.xml" <<'PYEOF'
-import xml.etree.ElementTree as ET
-import sys
- 
-try:
-    tree = ET.parse(sys.argv[1])
-    root = tree.getroot()
- 
-    for pkg in root.findall('package'):
-        package_name = pkg.get('name', '').replace('/', '.')
- 
-        for cls in pkg.findall('class'):
-            class_name = cls.get('name', '').replace('/', '.')
-            source_file = cls.get('sourcefilename', '')
- 
-            covered = 0
-            missed = 0
- 
-            for counter in cls.findall('counter'):
-                if counter.get('type') == 'LINE':
-                    covered = int(counter.get('covered', 0))
-                    missed = int(counter.get('missed', 0))
- 
-            total = covered + missed
-            pct = round(covered * 100.0 / total, 1) if total else 0.0
- 
-            print(f"{package_name},{class_name},{source_file},{pct},{covered},{missed},{total}")
- 
-except Exception:
-    print("ERROR,,,,0.0,0,0,0")
+sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
+python3 -I - --root '.' --own 'maven' --others 'gradle' <<'PYEOF'
+<scan script>
 PYEOF
 
 sh mkdir -p DevSecOpsJenkinsLibrary
@@ -801,6 +715,8 @@ Detected tool from config file is gradle
 Execute Gradle Command: './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
 Detected tool from config file is gradle
 [COVERAGE] Build tool: gradle  Required by the library policy: 60%
+[COVERAGE] Searching the workspace for JaCoCo and LCOV reports; backend-api uses the same folder: each service takes the reports of its own build tool
+[COVERAGE] JaCoCo build/reports/jacoco/test/jacocoTestReport.xml: 82.4% (824 of 1000 lines)
 Class coverage: 
 Package: com.bbh.certscanner, Class: CertificateService, Coverage: 82.4, Missed: 176, Covered: 824
 =========================
@@ -819,6 +735,8 @@ Maven is installed on this agent
 Execute Maven Command: 'mvn' 'test' 'jacoco:report'
 Detected tool from config file is maven
 [COVERAGE] Build tool: maven  Required by the library policy: 60%
+[COVERAGE] Searching the workspace for JaCoCo and LCOV reports; gui uses the same folder: each service takes the reports of its own build tool
+[COVERAGE] JaCoCo target/site/jacoco/jacoco.xml: 84.0% (840 of 1000 lines)
 Class coverage: 
 Package: com.bbh.certscanner, Class: CertificateService, Coverage: 84.0, Missed: 160, Covered: 840
 =========================
@@ -830,7 +748,7 @@ covered=840  missed=160  total=1000
 ------------------------------------------------------------
 [STAGE]  Unit tests
 [RESULT] PASS
-[COV]    Line: 83.2%  required: 60%  OK
+[COV]    Line: 83.2% (mean of 2 reports)  required: 60%  OK
 [COV]    Covered: 1664  Missed: 336  Total: 2000
 ------------------------------------------------------------
 [DEP-SCAN] Application: CertValidityMonitoring-GUI | Server: https://tools.bbh.com/IQ
@@ -885,7 +803,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots'
 ------------------------------------------------------------
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
-[INFLUX] 39 metric line(s) for CertScannersecurity (test), build 214, result SUCCESS
+[INFLUX] 41 metric line(s) for CertScannersecurity (test), build 214, result SUCCESS
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
@@ -936,6 +854,8 @@ policy_status,project=CertScannersecurity,env=test,scanner=coverage,status=PASS 
 policy_status,project=CertScannersecurity,env=test,scanner=sonar,status=PASS ok=1i,measured=1i <s>
 code_coverage,project=CertScannersecurity,env=test,module=gui,measured=yes line_pct=82.4,covered=824i,missed=176i,total=1000i,required=60.0,met=1i,gap=0.0 <s>
 code_coverage,project=CertScannersecurity,env=test,module=backend-api,measured=yes line_pct=84.0,covered=840i,missed=160i,total=1000i,required=60.0,met=1i,gap=0.0 <s>
+coverage_report,project=CertScannersecurity,env=test,module=gui,report=build/reports/jacoco/test/jacocoTestReport.xml,tool=jacoco,counted=yes line_pct=82.4,covered=824i,missed=176i,total=1000i <s>
+coverage_report,project=CertScannersecurity,env=test,module=backend-api,report=target/site/jacoco/jacoco.xml,tool=jacoco,counted=yes line_pct=84.0,covered=840i,missed=160i,total=1000i <s>
 release_gate,project=CertScannersecurity,env=test,allowed=yes allowed=1i,blocked=0i,violations=0i,reason="" <s>
 == report
 <!DOCTYPE html>
@@ -976,7 +896,7 @@ tr:last-child td { border-bottom: none; }
 <div class='card' style='margin-top:16px;'><h2>Release policy</h2><div style='background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:#166534;'>The library security policy is met - the artifact is released to Nexus and the QC deployment is allowed.</div></div>
 
 
-<div class='card' style='margin-top:16px;'><h2>Code Coverage</h2><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>gui</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>82.4%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:82.4%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>824 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>backend-api</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>84.0%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:84.0%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>840 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div></div>
+<div class='card' style='margin-top:16px;'><h2>Code Coverage</h2><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>All services</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>83.2%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:83.2%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>mean of 2 reports &nbsp;&bull;&nbsp; required: 60% &nbsp;&bull;&nbsp; 2 of 2 services meet it</div></div></div><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>gui</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>82.4%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:82.4%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>824 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>backend-api</div><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>84.0%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:84.0%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>840 covered / 1000 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody><tr><td style='padding:5px 10px;font-weight:600;'>gui</td><td style='padding:5px 10px;overflow-wrap:anywhere;'><span style='font-family:monospace;font-size:0.74rem;'>build/reports/jacoco/test/jacocoTestReport.xml</span></td><td style='padding:5px 10px;'>JaCoCo</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>82.4%</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>824 of 1000</td></tr><tr><td style='padding:5px 10px;font-weight:600;'>backend-api</td><td style='padding:5px 10px;overflow-wrap:anywhere;'><span style='font-family:monospace;font-size:0.74rem;'>target/site/jacoco/jacoco.xml</span></td><td style='padding:5px 10px;'>JaCoCo</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>84.0%</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>840 of 1000</td></tr></tbody></table></div></div>
 
 </div>
 </div>

@@ -75,9 +75,15 @@ fi
 echo "=== the portal query script with curl against a local HTTP portal ==="
 bash "$ROOT/test/portal/query-scenarios.sh" || status=1
 
+echo "=== the coverage scan script on report trees ==="
+bash "$ROOT/test/coverage/scan-scenarios.sh" || status=1
+
 echo "=== sandbox scenarios and example reports ==="
 if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/test/*.groovy > "$BUILD/harness.log" 2>&1; then
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/SandboxScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== coverage reports through checkCoverage, the report and the metrics ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/CoverageScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
