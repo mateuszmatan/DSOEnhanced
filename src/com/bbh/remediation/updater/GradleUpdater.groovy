@@ -312,10 +312,43 @@ class GradleUpdater implements ManifestUpdater {
         String range = strictly.group(1).trim()
         def bounds = range =~ /^([\[(\]])\s*([^,]*?)\s*,\s*([^,]*?)\s*([\])\[])$/
         if (!bounds.matches()) return null
-        int low = bounds.group(2) ? GoldenFix.compare(target, bounds.group(2)) : 1
-        int high = bounds.group(3) ? GoldenFix.compare(target, bounds.group(3)) : -1
+        int low = bounds.group(2) ? gradleOrder(target, bounds.group(2)) : 1
+        int high = bounds.group(3) ? gradleOrder(target, bounds.group(3)) : -1
         boolean outside = low < 0 || (low == 0 && bounds.group(1) != '[') || high > 0 || (high == 0 && bounds.group(4) != ']')
         return outside ? range : null
+    }
+
+    @NonCPS
+    private static int gradleOrder(String version, String bound) {
+        List a = versionParts(version)
+        List b = versionParts(bound)
+        int common = Math.min(a.size(), b.size())
+        for (int i = 0; i < common; i++) {
+            String x = a[i] as String
+            String y = b[i] as String
+            boolean numeric = x ==~ /\d+/
+            if (numeric != (y ==~ /\d+/)) return numeric ? 1 : -1
+            int order = numeric ? GoldenFix.compare(x, y) : (qualifierRank(x) - qualifierRank(y) ?: x.compareTo(y))
+            if (order != 0) return order
+        }
+        if (a.size() == b.size()) return 0
+        boolean longer = a.size() > b.size()
+        String extra = (longer ? a[common] : b[common]) as String
+        return (extra ==~ /\d+/) == longer ? 1 : -1
+    }
+
+    @NonCPS
+    private static List versionParts(String version) {
+        List out = []
+        def part = (version ?: '') =~ /\d+|[^\d.\-_+]+/
+        while (part.find()) out << part.group(0)
+        return out
+    }
+
+    @NonCPS
+    private static int qualifierRank(String part) {
+        int rank = ['dev', 'rc', 'snapshot', 'final', 'ga', 'release', 'sp'].indexOf(part.toLowerCase())
+        return rank == 0 ? -1 : Math.max(rank, 0)
     }
 
     @NonCPS

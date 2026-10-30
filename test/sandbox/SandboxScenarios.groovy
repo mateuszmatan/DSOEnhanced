@@ -883,6 +883,17 @@ check('GoldenFix catalogs: a strictly range that excludes the target leaves the 
                 "com.google.guava:guava: managed by version catalog gradle/libs.versions.toml (guava): strictly range '[30.0,31.0[' excludes 32.0.0-jre",
                 "org.yaml:snakeyaml: gui/build.gradle: strictly range '(1.30,2.0]' excludes 2.2"],
         "${rangeRun.errors} ${rangeRun.written} ${reasonsOf(rangeRun, 'gui')}")
+Map boundRun = catalogRun([
+        'settings.gradle'          : "include 'gui', 'api'\n",
+        'gradle/libs.versions.toml': '[versions]\nguava = { strictly = "[31.0,32.0[", prefer = "31.1-jre" }\n\n[libraries]\nguava = { module = "com.google.guava:guava", version.ref = "guava" }\n',
+        'gui/build.gradle'         : 'dependencies {\n    implementation libs.guava\n}\n',
+        'api/build.gradle.kts'     : 'dependencies {\n    implementation("io.netty:netty-handler") { version { strictly("[4.1,4.2]"); prefer("4.1.86.Final") } }\n}\n'
+], [[name: 'gui', fixes: [['maven', 'com.google.guava', 'guava', '31.1-jre', '32.0.0-jre'], ['maven', 'io.netty', 'netty-handler', '4.1.86.Final', '4.2.0.Final']]]])
+check('GoldenFix catalogs: a range bound is compared as Gradle orders versions, so 32.0.0-jre lies above 32.0 and 4.2.0.Final above 4.2',
+        boundRun.errors.isEmpty() && !boundRun.written && gfOf(boundRun, 'gui').status == 'NO_MANIFEST_CHANGES' && reasonsOf(boundRun, 'gui') == [
+                "com.google.guava:guava: managed by version catalog gradle/libs.versions.toml (guava): strictly range '[31.0,32.0[' excludes 32.0.0-jre",
+                "io.netty:netty-handler: api/build.gradle.kts: strictly range '[4.1,4.2]' excludes 4.2.0.Final"],
+        "${boundRun.errors} ${boundRun.written} ${reasonsOf(boundRun, 'gui')}")
 
 Map pomRangeRun = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
