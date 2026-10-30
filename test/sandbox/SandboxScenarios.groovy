@@ -916,6 +916,17 @@ check('GoldenFix catalogs: a settings import written as from files(..) or with a
                 && (importForms.written as Map).keySet() == ['platform/deps.versions.toml'] as Set && importForms.builds == [cdTo('svc-a'), cdTo('svc-b')],
         "${importForms.errors} ${importForms.written} ${importForms.builds}")
 
+Map unrelatedRun = catalogRun([
+        'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",
+        'svc-a/build.gradle': "dependencies { implementation 'org.apache.commons:commons-text:1.9' }\n",
+        'svc-b/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind' }\n",
+        'svc-c/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0' }\n"
+], [[name: 'svc-a', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+check('GoldenFix catalogs: a newer declaration that the shared pull request did not change does not count as already raised',
+        unrelatedRun.errors.isEmpty() && gfOf(unrelatedRun, 'svc-a').status == 'PR_CREATED' && gfOf(unrelatedRun, 'svc-b').status == 'NO_MANIFEST_CHANGES'
+                && reasonsOf(unrelatedRun, 'svc-b') == ['com.fasterxml.jackson.core:jackson-databind: not declared in any supported manifest (BOM/parent managed, or already upgraded)'],
+        "${unrelatedRun.errors} ${gfOf(unrelatedRun, 'svc-b')}")
+
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
                                  '  "resolutions": {\n    "lodash": "4.17.15"\n  }\n}\n',

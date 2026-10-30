@@ -121,7 +121,7 @@ class GoldenFixService implements DependencyRemediation {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
                 return
             }
-            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>) : []
+            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>) : []
             String raised = alreadyRaised(covered, pr.url as String)
             if (covered) {
                 result.unresolved = withoutCovered(result.unresolved as List<Map>, covered)
@@ -150,6 +150,7 @@ class GoldenFixService implements DependencyRemediation {
 
             if (pr.url) {
                 result.prUrl = pr.url
+                pr.raised = ((pr.raised ?: []) as List) + (applied.changes as List)
                 comment(scmCfg, pr, pullRequestComment(state.currentProjectName as String, applied.changes as List, result.unresolved as List, result.notes as List))
                 finish(result, 'PR_UPDATED', "GoldenFix pull request ${title} updated with ${applied.changes.size()} change(s): ${pr.url}")
             } else {
@@ -160,7 +161,7 @@ class GoldenFixService implements DependencyRemediation {
                         sourceBranch: title,
                         targetBranch: targetBranch
                 ])
-                Map prEntry = [title: title, branch: title, targetBranch: targetBranch, url: created.url, id: created.id]
+                Map prEntry = [title: title, branch: title, targetBranch: targetBranch, url: created.url, id: created.id, raised: applied.changes]
                 state.goldenFixPullRequest = prEntry
                 if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
                 state.goldenFixPullRequestsByRepo[repoKey] = prEntry
@@ -395,7 +396,7 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static List<Map> coveredFixes(List<Map> fixes, List found, List<Map> changes) {
+    static List<Map> coveredFixes(List<Map> fixes, List found, List<Map> changes, List<Map> raised = []) {
         List changed = []
         for (Map c : changes) changed.addAll(c.componentKeys as List)
         List<Map> out = []
@@ -403,7 +404,10 @@ class GoldenFixService implements DependencyRemediation {
             if (changed.contains(fix.key)) continue
             String best = null
             for (def f : found) {
-                if (((f as Map).componentKeys as List).contains(fix.key)) best = GoldenFix.max(best, (f as Map).version as String)
+                Map e = f as Map
+                if (!(e.componentKeys as List).contains(fix.key)) continue
+                boolean shared = raised.any { it.file == e.file && ((it.componentKeys as List).contains(fix.key) || (e.alias && it.property == e.alias)) }
+                if (shared) best = GoldenFix.max(best, e.version as String)
             }
             if (best && !GoldenFix.isUpgrade(best, fix.targetVersion as String)) out << [component: fix.displayName, version: best]
         }
