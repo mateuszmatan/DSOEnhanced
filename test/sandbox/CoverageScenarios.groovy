@@ -33,11 +33,13 @@ Closure coverageRun = { Map projects, Map answers, Map options = [:] ->
     sc.env.vars.putAll([WORKSPACE: '/ws'])
     sc.files.putAll((options.files ?: [:]) as Map)
     List<String> scans = []
+    List encodings = []
     sc.shHandler = { Map a ->
         String text = String.valueOf(a.script ?: '')
         if (String.valueOf(a.label ?: '') == scanLabel) {
             String head = text.readLines()[1]
             scans << head
+            encodings << a.encoding
             if (options.tree) return realScan(options.tree as File, text)
             if (options.abort) throw new FakeAbort('script returned exit code 1')
             def answer = answers.find { k, v -> head.contains(k as String) }
@@ -77,7 +79,7 @@ Closure coverageRun = { Map projects, Map answers, Map options = [:] ->
     } catch (Throwable t) {
         (out.errors as List) << (SandboxHarness.rejectionOf(t) ?: t.toString())
     }
-    return out + [log: sc.log, scans: scans, calls: sc.calls]
+    return out + [log: sc.log, scans: scans, encodings: encodings, calls: sc.calls]
 }
 Closure reportsOf = { Map r, String project -> ((((r.projects ?: [:]) as Map)[project] ?: [:]) as Map).reports as List ?: [] }
 Closure rowsOf = { Map r, String project -> reportsOf(r, project).collect { "${it.tool} ${it.path} ${it.line} ${it.counted} ${it.reason ?: it.detail}".toString() } }
@@ -147,6 +149,28 @@ check('Coverage: the card shows the mean of all reports with the services that m
                 && sharedCard.contains('>also counted for backend-api</div>') && sharedCard.contains('>only its 3 classes that no other report holds</div>')
                 && sharedCard.contains('>backend-api</div>') && sharedCard.contains('>web</div>') && !sharedCard.contains('not measured'),
         sharedCard)
+
+Map copied = coverageRun([backend: [buildTool: 'maven', sourceDir: '.'], web: [buildTool: 'gradle', sourceDir: 'web']],
+        ["--own 'maven'": "S\t0\nR\tlcov\trelease/web/coverage/web/lcov.info\t1\t4\t\t\t5ab1\nR\tjacoco\ttarget/site/jacoco/jacoco.xml\t80\t100\t\t\t7cd2",
+         "--root 'web'" : "S\t0\nR\tlcov\tweb/coverage/web/lcov.info\t1\t4\t\t\t5ab1"])
+check('Coverage: a byte copy of the report of another service counts for the service whose folders hold it, and once in the summary of the run',
+        copied.errors.isEmpty() && rowsOf(copied, 'backend') == ['LCOV release/web/coverage/web/lcov.info 25.0 true ', 'JaCoCo target/site/jacoco/jacoco.xml 80.0 true ']
+                && rowsOf(copied, 'web') == ['LCOV web/coverage/web/lcov.info 25.0 true '] && copied.run.line == 52.5d && copied.run.counted == 2,
+        copied.errors + rowsOf(copied, 'backend') + rowsOf(copied, 'web') + [copied.run])
+
+Map named = coverageRun([gui          : [buildTool: 'gradle', sourceDir: '.', coverage: [reportPath: 'build/reports/jacoco/test/*.xml']],
+                         'backend-api': [buildTool: 'maven', sourceDir: '.'],
+                         web          : [buildTool: 'gradle', sourceDir: '.']],
+        ["--pattern 'build"                : "S\t0\nR\tjacoco\tbuild/reports/jacoco/test/jacocoTestReport.xml\t824\t1000\t\t",
+         "--own 'maven'"                   : "S\t0\nR\tlcov\tgui/coverage/gui/lcov.info\t1\t2\t\tnode\nR\tjacoco\ttarget/site/jacoco/jacoco.xml\t840\t1000\t\t",
+         "--own 'gradle' --others 'gradle'": "S\t0\nR\tjacoco\tbuild/reports/jacoco/test/jacocoTestReport.xml\t824\t1000\t\tgradle\n"
+                 + "R\tjacoco\tbuild/reports/jacoco/other/jacocoOtherReport.xml\t1\t2\t\tgradle\nR\tlcov\tgui/coverage/gui/lcov.info\t1\t2\t\tnode"])
+check('Coverage: a service that names its reports in coverage.reportPath is named in the rows of the other services of its folder only for the reports it names',
+        named.errors.isEmpty() && rowsOf(named, 'backend-api') == ['LCOV gui/coverage/gui/lcov.info 50.0 true also counted for web', 'JaCoCo target/site/jacoco/jacoco.xml 84.0 true ']
+                && rowsOf(named, 'web') == ['JaCoCo build/reports/jacoco/test/jacocoTestReport.xml 82.4 true also counted for gui',
+                                            'JaCoCo build/reports/jacoco/other/jacocoOtherReport.xml 50.0 true ',
+                                            'LCOV gui/coverage/gui/lcov.info 50.0 true also counted for backend-api'],
+        named.errors + rowsOf(named, 'backend-api') + rowsOf(named, 'web'))
 
 Map listed = coverageRun([api: [buildTool: 'maven', coverage: [reportPath: ['a/target/site/jacoco/jacoco.xml', ' **/b/*.xml ']]],
                           cli: [buildTool: 'maven', sourceDir: 'cli', coverage: [reportPath: 'x/jacoco.xml\ny/lcov.info, z/lcov.info']]],
@@ -229,6 +253,11 @@ check('Coverage: the real scan step, run by sh on a CertScanner tree with a fron
                 && real.log.contains('Class coverage: \nPackage: com.bbh.x, Class: com.bbh.x.Cert, Coverage: 82.4, Missed: 176, Covered: 824\n=========================')
                 && real.run.line == 60.4d && real.run.counted == 4,
         real.errors + real.scans + real.log.findAll { it.startsWith('[COVERAGE]') } + [real.run])
+
+check('Coverage: the scan step reads its output as UTF-8, and a row keeps the SHA-1 of its report',
+        real.encodings == ['UTF-8', 'UTF-8', 'UTF-8'] && reportsOf(real, 'gui')[1].sha ==~ /[0-9a-f]{40}/
+                && reportsOf(real, 'gui')[1].sha == reportsOf(real, 'gui')[2].sha && reportsOf(real, 'gui')[1].sha == reportsOf(real, 'backend-api')[0].sha,
+        [real.encodings, reportsOf(real, 'gui').collect { it.sha }, reportsOf(real, 'backend-api').collect { it.sha }])
 
 println "\n${failures == 0 ? 'ALL COVERAGE SCENARIOS PASSED' : failures + ' COVERAGE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

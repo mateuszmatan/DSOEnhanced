@@ -5,7 +5,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 python3 - "$ROOT/src/com/bbh/build/CoverageReports.groovy" "$ROOT/src/com/bbh/build/BuildService.groovy" "$WORK" <<'PY'
-import ast, os, re, subprocess, sys, time
+import ast, hashlib, os, re, subprocess, sys, time
 
 source, build, work = sys.argv[1:4]
 script = re.search(r"static String scanScript\(\) \{\s*return '''(.*?)'''", open(source).read(), re.S).group(1)
@@ -43,10 +43,17 @@ def jacoco(classes, groups=None):
             + body + '<counter type="LINE" missed="%d" covered="%d"/></report>' % (missed, covered))
 
 
-def run(tree, *args, env=None):
-    out = subprocess.run([sys.executable, '-I', scan] + list(args), cwd=os.path.join(work, tree),
-                         capture_output=True, env=env).stdout.decode('utf-8').splitlines()
-    return [line for line in out if line.startswith('R\t')], [line for line in out if line.startswith('C\t')], \
+def raw(tree, *args, env=None, limit=120, program=scan):
+    try:
+        return subprocess.run([sys.executable, '-I', program] + list(args), cwd=os.path.join(work, tree),
+                              capture_output=True, env=env, timeout=limit).stdout.decode('utf-8').splitlines()
+    except subprocess.TimeoutExpired:
+        return ['timed out after %d seconds' % limit]
+
+
+def run(tree, *args, **options):
+    out = raw(tree, *args, **options)
+    return ['\t'.join(line.split('\t')[:7]) for line in out if line.startswith('R\t')], [line for line in out if line.startswith('C\t')], \
         [line for line in out if not line.startswith(('R\t', 'C\t'))]
 
 
@@ -102,6 +109,11 @@ check('a multi-module build gives one row per module, finds release folders and 
                     ('lcov', 'release/web/coverage/web/lcov.info', 1, 2, 'copy:web/coverage/web/lcov.info'),
                     ('jacoco', 'util/build/reports/jacoco/test/jacocoTestReport.xml', 9, 10),
                     ('lcov', 'web/coverage/web/lcov.info', 1, 2)), found)
+fields = [line.split('\t') for line in raw('modules', '--root', '.', '--own', 'gradle') if line.startswith('R\t')]
+digest = hashlib.sha1(open(os.path.join(work, 'modules', 'app/build/reports/jacoco/test/jacocoTestReport.xml'), 'rb').read()).hexdigest()
+check('each row ends with the SHA-1 of its report, empty when the report could not be read',
+      all(len(f) == 8 for f in fields) and ['app/build/reports/jacoco/test/jacocoTestReport.xml', digest] in [f[2::5] for f in fields]
+      and ['broken/build/reports/jacoco/test/jacocoTestReport.xml', ''] in [f[2::5] for f in fields], fields)
 check('the class listing holds the counted JaCoCo reports only',
       sorted(c.split(', Class: ')[1].split(',')[0] for c in classes) == ['com.bbh.x.App', 'com.bbh.x.Core', 'com.bbh.x.Util', 'com.bbh.x.Util'],
       classes)
@@ -198,6 +210,16 @@ found, _, _ = run('lcov', '--root', '.', '--own', 'node')
 check('LCOV: CRLF line ends, LF/LH totals without DA lines, absolute source paths and a byte order mark are read',
       found == rows(('lcov', 'abs/coverage/lcov.info', 1, 1), ('lcov', 'bom/coverage/lcov.info', 1, 2),
                     ('lcov', 'crlf/coverage/lcov.info', 1, 3), ('lcov', 'totals/coverage/lcov.info', 7, 10)), found)
+
+put('fifo', 'target/site/jacoco/jacoco.xml', jacoco([('Api', 8, 2)]))
+fifo = os.path.join(work, 'fifo', 'build', 'reports', 'jacoco', 'test', 'jacocoTestReport.xml')
+os.makedirs(os.path.dirname(fifo))
+os.mkfifo(fifo)
+late = os.path.join(work, 'late.py')
+open(late, 'w').write(script.replace('signal.alarm(900)', 'signal.alarm(1)'))
+found, _, head = run('fifo', '--root', '.', '--own', 'gradle', limit=20, program=late)
+check('a scan that runs past its time limit prints only the E line, so the reports are read as before',
+      script.count('signal.alarm(900)') == 1 and found == [] and head == ['E\tthe scan took longer than 15 minutes'], head + found)
 
 put('same', 'target/site/jacoco/jacoco.xml', jacoco([('A', 8, 2), ('B', 0, 0)]))
 put('same', 'target/site/jacoco-it/jacoco.xml', jacoco([('A', 3, 7), ('B', 0, 0)]))

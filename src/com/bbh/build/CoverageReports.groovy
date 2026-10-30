@@ -49,8 +49,10 @@ class CoverageReports implements Serializable {
         }
         Map shared = [:]
         parts.each { (it.shared as Map).each { name, kinds -> shared[name] = (((shared[name] ?: []) as List) + (kinds as List)).unique() } }
+        Map listed = [:]
+        all.each { name, cfg -> if (name != project && CoverageReports.paths((cfg as Map)?.coverage?.reportPath)) listed[name] = CoverageReports.paths((cfg as Map).coverage.reportPath) }
         List places = parts.collect { it.root }
-        return [parts: parts, roots: places, shared: shared, excluded: parts.collectMany { it.excluded as List }.unique() - places]
+        return [parts: parts, roots: places, shared: shared, listed: listed, excluded: parts.collectMany { it.excluded as List }.unique() - places]
     }
 
     @NonCPS
@@ -103,9 +105,9 @@ class CoverageReports implements Serializable {
             if (line.trim() == 'NO-PYTHON3') result.noPython = true
             else if (f[0] == 'S' && f.size() > 1) result.step = f[1] as int
             else if (f[0] == 'R' && f.size() > 5) {
-                Map shared = ((steps[result.step as int].search as Map).shared ?: [:]) as Map
-                String also = f.size() > 6 && f[6] ? CoverageReports.alsoFor(shared, f[6]) : ''
-                (result.reports as List) << CoverageReports.row(f[1], f[2], f[3] as int, f[4] as int, f[5], also)
+                Map search = steps[result.step as int].search as Map
+                String also = f.size() > 6 && f[6] ? CoverageReports.alsoFor((search.shared ?: [:]) as Map, f[6], (search.listed ?: [:]) as Map, f[2]) : ''
+                (result.reports as List) << CoverageReports.row(f[1], f[2], f[3] as int, f[4] as int, f[5], also, f.size() > 7 ? f[7] : '')
             }
             else if (f[0] == 'C') (result.classes as List) << line.substring(2)
             else if (f[0] == 'E') result.error = f.size() > 1 ? f[1] : 'unknown error'
@@ -114,9 +116,31 @@ class CoverageReports implements Serializable {
     }
 
     @NonCPS
-    static String alsoFor(Map shared, String owner) {
+    static String alsoFor(Map shared, String owner, Map listed = [:], String path = '') {
         List names = shared.findAll { name, kinds -> (kinds as List).contains(owner) }.keySet() as List
-        return "also counted for ${(names ?: shared.keySet() as List).join(', ')}".toString()
+        List counting = shared.keySet().findAll { def name ->
+            listed.containsKey(name) ? (listed[name] as List).any { CoverageReports.names(it as String, path) } : (names ?: shared.keySet()).contains(name)
+        } as List
+        return counting ? "also counted for ${counting.join(', ')}".toString() : ''
+    }
+
+    @NonCPS
+    static boolean names(String pattern, String path) {
+        List<String> parts = BuildUtils.relativePath(pattern).split('/', -1) as List<String>
+        String rx = ''
+        for (int i = 0; i < parts.size(); i++) {
+            boolean last = i == parts.size() - 1
+            if (parts[i] == '**') {
+                rx += last ? '.*' : '(?:[^/]+/)*'
+                continue
+            }
+            for (int n = 0; n < parts[i].length(); n++) {
+                String c = parts[i].substring(n, n + 1)
+                rx += c == '*' ? '[^/]*' : c == '?' ? '[^/]' : c ==~ /\w/ ? c : '\\' + c
+            }
+            if (!last) rx += '/'
+        }
+        return path ==~ rx
     }
 
     @NonCPS
@@ -131,7 +155,7 @@ class CoverageReports implements Serializable {
     }
 
     @NonCPS
-    static Map row(String kind, String path, int covered, int total, String note, String also = '') {
+    static Map row(String kind, String path, int covered, int total, String note, String also = '', String sha = '') {
         String code = note ?: (total ? '' : 'empty')
         String reason = code == 'empty' ? 'no lines'
                 : code == 'unreadable' ? 'could not be read'
@@ -141,7 +165,7 @@ class CoverageReports implements Serializable {
         String rest = code.startsWith('rest:') ? "only its ${code.substring(5)} ${kind == 'jacoco' ? 'classes' : 'files'} that no other report holds".toString() : ''
         return [kind: kind, tool: CoverageReports.toolName(kind), path: path, covered: covered, missed: total - covered, total: total,
                 line: total ? CoverageReports.round1(covered * 1000.0 / total) : null, counted: !reason, reason: reason,
-                detail: [rest, reason ? '' : also].findAll { it }.join('; ')]
+                detail: [rest, reason ? '' : also].findAll { it }.join('; '), sha: sha]
     }
 
     @NonCPS
@@ -171,11 +195,18 @@ class CoverageReports implements Serializable {
 
     @NonCPS
     static Map runSummary(Map projectsCoverage) {
-        Map byPath = [:]
+        List counted = []
+        Map paths = [:]
+        Map shas = [:]
         (projectsCoverage ?: [:]).values().each { def p ->
-            ((p as Map)?.reports ?: []).each { def r -> if ((r as Map).counted && !byPath.containsKey(r.path)) byPath[r.path] = r }
+            List mine = ((p as Map)?.reports ?: []).findAll { def r -> (r as Map).counted && !paths.containsKey(r.path) && !(r.sha && shas.containsKey(r.sha)) }
+            mine.each { def r ->
+                paths[r.path] = true
+                if (r.sha) shas[r.sha] = true
+            }
+            counted.addAll(mine)
         }
-        return CoverageReports.summary(byPath.values() as List)
+        return CoverageReports.summary(counted)
     }
 
     @NonCPS
@@ -499,13 +530,15 @@ def main(argv):
         if reports or n == len(steps) - 1:
             break
     out = ['S' + TAB + str(n)]
-    out += [TAB.join(['R', r['kind'], r['path'], str(r['covered']), str(r['total']), r['note'], r['shared']]) for r in reports]
+    out += [TAB.join(['R', r['kind'], r['path'], str(r['covered']), str(r['total']), r['note'], r['shared'], r['sha']]) for r in reports]
     out += ['C' + TAB + line for r in reports if not r['note'] or r['note'].startswith('rest:') for line in r['listing'].values()]
+    signal.alarm(0)
     return out
 
 
 def late(*_):
-    raise RuntimeError('the scan took longer than 15 minutes')
+    os.write(1, ('E' + TAB + 'the scan took longer than 15 minutes' + chr(10)).encode())
+    os._exit(0)
 
 
 try:

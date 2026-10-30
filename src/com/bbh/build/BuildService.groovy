@@ -151,7 +151,7 @@ class BuildService implements Serializable {
 
     private Map readReports(List<Map> steps) {
         try {
-            String out = script.sh(label: 'Coverage: find and read the reports', returnStdout: true, script: CoverageReports.command(steps))
+            String out = script.sh(label: 'Coverage: find and read the reports', returnStdout: true, encoding: 'UTF-8', script: CoverageReports.command(steps))
             return CoverageReports.parse(out, steps)
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
