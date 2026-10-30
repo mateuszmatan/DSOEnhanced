@@ -121,7 +121,7 @@ class GoldenFixService implements DependencyRemediation {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
                 return
             }
-            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>) : []
+            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
             String raised = alreadyRaised(covered, pr.url as String)
             if (covered) {
                 result.unresolved = withoutCovered(result.unresolved as List<Map>, covered)
@@ -308,7 +308,7 @@ class GoldenFixService implements DependencyRemediation {
         return [files     : run.files, changes: run.changes, found: run.found,
                 unresolved: unresolvedFixes(fixes, run.changes as List<Map>, run.notes as List<Map>, run.requests as List<Map>, catalogs),
                 notes     : (catalogs.notes as List) + outsideCatalogs(run.changes as List<Map>, aligned.versions as Map, shared),
-                consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned), effective: effective, alignedUp: align && effective != fixes]
+                consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned), effective: effective, alignedUp: align && effective != fixes, shared: shared]
     }
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
@@ -416,7 +416,7 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static List<Map> coveredFixes(List<Map> fixes, List found, List<Map> changes, List<Map> raised = []) {
+    static List<Map> coveredFixes(List<Map> fixes, List found, List<Map> changes, List<Map> raised, List<String> shared) {
         List changed = []
         for (Map c : changes) changed.addAll(c.componentKeys as List)
         List<Map> out = []
@@ -425,9 +425,9 @@ class GoldenFixService implements DependencyRemediation {
             String best = null
             for (def f : found) {
                 Map e = f as Map
-                if (!(e.componentKeys as List).contains(fix.key)) continue
-                boolean shared = raised.any { it.file == e.file && ((it.componentKeys as List).contains(fix.key) || (e.alias && it.property == e.alias)) }
-                if (shared) best = GoldenFix.max(best, e.version as String)
+                if (!shared.contains(e.file) || !(e.componentKeys as List).contains(fix.key)) continue
+                boolean onBranch = raised.any { it.file == e.file && ((it.componentKeys as List).contains(fix.key) || (e.alias && it.property == e.alias)) }
+                if (onBranch) best = GoldenFix.max(best, e.version as String)
             }
             if (best && !GoldenFix.isUpgrade(best, fix.targetVersion as String)) out << [component: fix.displayName, version: best]
         }

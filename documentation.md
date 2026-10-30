@@ -1027,7 +1027,7 @@ What GoldenFix then does in one run:
 
 - The first service that needs an upgrade raises it in the catalog, aligns declarations of the same dependency outside the catalog with it, verifies every build that uses the catalog and opens the pull request (`PR_CREATED`).
 - Each later service of the same repository adds its upgrades to the same branch, never lowers a version an earlier service raised, and adds a comment to the pull request that lists its upgrades (`PR_UPDATED`). The catalog entry therefore ends at the highest version any service needs.
-- A later service whose upgrades the branch already carries, because an earlier service of the run raised them there, makes no commit and no comment. It ends `PR_UPDATED` with the link and the message `Already raised to <component> <version> in the shared pull request <url>`.
+- A later service whose upgrades the branch already carries, because an earlier service of the run raised them in a shared catalog, makes no commit and no comment. It ends `PR_UPDATED` with the link and the message `Already raised to <component> <version> in the shared pull request <url>`.
 
 Separate jobs per service still work, but each raises its own pull request, and the pull requests change the same catalog line. Two such jobs that start in the same minute compute the same branch name; the second push is then refused with `[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)`.
 
@@ -1568,7 +1568,7 @@ The services of one build that share a repository share one branch and one pull 
 - The first service that changes something raises the pull request (`PR_CREATED`).
 - Each later service works on the same branch, adds its commit and comments on the pull request under the heading `GoldenFix for <service>` with its upgrades, the fixes not applied and the notes (`PR_UPDATED`). The comment works on Bitbucket Server and Bitbucket Cloud, with the credentials of the pull request. When the comment fails, the console says `[GOLDENFIX] The pull request comment could not be added: <reason>` and the service stays `PR_UPDATED`.
 - A version already raised on the branch is never lowered, so a shared catalog ends at the highest version any service needs.
-- A later service whose upgrades the branch already carries, because an earlier service of the run raised the same declaration on it to the target or higher, makes no commit and no comment. It ends `PR_UPDATED` with the link and the message `Already raised to <component> <version> in the shared pull request <url>`. A newer version declared elsewhere in the repository that the branch did not change does not count: the fix stays under "not applied automatically" with its reason.
+- A later service whose upgrades the branch already carries, because an earlier service of the run raised the same entry of a shared catalog on it to the target or higher, makes no commit and no comment. It ends `PR_UPDATED` with the link and the message `Already raised to <component> <version> in the shared pull request <url>`. A newer version declared elsewhere in the repository that the branch did not change, and a declaration that an earlier service raised in a build file that is not a catalog, do not count: the fix stays under "not applied automatically" with its reason.
 
 Separate Jenkins jobs for the services of one repository each raise their own pull request. Two of them that start in the same minute compute the same branch name, and the second push fails with `[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)`, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline). A push that Bitbucket refuses for another reason, for example a branch permission or a hook, ends with `[GOLDENFIX] git push of <branch> to <repository> failed (exit code <n>)`, followed by the `remote:` and `! [remote rejected]` lines of git. GoldenFix tells the two apart from the output of `git push`.
 
@@ -2666,7 +2666,7 @@ GoldenFix changed a file that it treats as a Gradle catalog, and found no Gradle
 
 ### "Already raised to &lt;component&gt; &lt;version&gt; in the shared pull request &lt;url&gt;"
 
-Not an error. An earlier service of the same build and repository raised the same declarations on the shared branch, to the version shown or higher. The service makes no commit and no comment, ends `PR_UPDATED`, and its card links the shared pull request.
+Not an error. An earlier service of the same build and repository raised the same entries of a shared catalog on the shared branch, to the version shown or higher. The service makes no commit and no comment, ends `PR_UPDATED`, and its card links the shared pull request.
 
 ### "\[GOLDENFIX\] The pull request comment could not be added: &lt;reason&gt;"
 

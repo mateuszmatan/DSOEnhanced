@@ -999,6 +999,15 @@ check('GoldenFix catalogs: a newer declaration that the shared pull request did 
         unrelatedRun.errors.isEmpty() && gfOf(unrelatedRun, 'svc-a').status == 'PR_CREATED' && gfOf(unrelatedRun, 'svc-b').status == 'NO_MANIFEST_CHANGES'
                 && reasonsOf(unrelatedRun, 'svc-b') == ['com.fasterxml.jackson.core:jackson-databind: not declared in any supported manifest (BOM/parent managed, or already upgraded)'],
         "${unrelatedRun.errors} ${gfOf(unrelatedRun, 'svc-b')}")
+Map ownFileRun = catalogRun([
+        'settings.gradle'   : "include 'svc-a', 'svc-b'\n",
+        'svc-a/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.4' }\n",
+        'svc-b/build.gradle': "dependencies {\n    implementation platform('org.springframework.boot:spring-boot-dependencies:2.7.18')\n    implementation 'com.fasterxml.jackson.core:jackson-databind'\n}\n"
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+check('GoldenFix catalogs: a declaration that an earlier service raised in its own build file, not in a shared catalog, does not count as already raised',
+        ownFileRun.errors.isEmpty() && gfOf(ownFileRun, 'svc-a').status == 'PR_CREATED' && gfOf(ownFileRun, 'svc-b').status == 'NO_MANIFEST_CHANGES'
+                && reasonsOf(ownFileRun, 'svc-b') == ['com.fasterxml.jackson.core:jackson-databind: not declared in any supported manifest (BOM/parent managed, or already upgraded)'],
+        "${ownFileRun.errors} ${gfOf(ownFileRun, 'svc-b')}")
 
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
