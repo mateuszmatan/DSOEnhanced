@@ -1,5 +1,6 @@
 package com.bbh.core
 
+import com.bbh.utils.BuildUtils
 import com.cloudbees.groovy.cps.NonCPS
 
 class PipelineState implements Serializable {
@@ -9,7 +10,6 @@ class PipelineState implements Serializable {
     String commitSha        = ''
     String commitAuthor     = ''
     String currentProjectName = 'unknown'
-    List portalDocuments    = []
     Map  platform           = [:]
     String configFile       = ''
 
@@ -57,7 +57,7 @@ class PipelineState implements Serializable {
 
     @NonCPS
     String settingsPlace() {
-        return configFile ?: 'the DevSecOps portal'
+        return configFile ?: BuildUtils.repositoryConfigFiles().join(' or ')
     }
 
     void stagePass(String name) {

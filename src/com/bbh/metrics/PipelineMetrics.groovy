@@ -277,18 +277,12 @@ class PipelineMetrics implements Serializable {
     static List<String> evidence(PipelineState state, Map base, Map context, long now) {
         List<String> out = []
         String artifactBase = context.buildUrl ? "${context.buildUrl}artifact/".toString() : ''
-        Map documents = [:]
-        for (def item : (state.portalDocuments ?: [])) {
-            Map document = (item ?: [:]) as Map
-            for (def name : ((((document.config ?: [:]) as Map).projects ?: [:]) as Map).keySet()) documents[name] = document
-        }
         for (def entry : ((state.projectsAllCfg ?: [:]) as Map).entrySet()) {
             String module = entry.key as String
             Map cfg = (entry.value ?: [:]) as Map
             Map scans = ((state.projectsScanResults ?: [:]).get(module) ?: [:]) as Map
             Map sonar = ((state.projectsSonarResults ?: [:]).get(module) ?: [:]) as Map
             Map niq = ((state.projectsNexusIqResults ?: [:]).get(module) ?: [:]) as Map
-            Map document = (documents.get(module) ?: [:]) as Map
             def delivery = cfg.delivery
             String version = (cfg.deploy?.openshift?.rd?.buildTag ?: (delivery instanceof String ? delivery : null) ?: context.buildNumber ?: '') as String
             String qualityGate = (sonar.qualityGate ?: '') as String
@@ -299,8 +293,6 @@ class PipelineMetrics implements Serializable {
                     dast_report_url   : optional(artifactBase && scans.dast_file ? artifactBase + scans.dast_file : ''),
                     nexusiq_report_url: optional(niq.url),
                     sonar_report_url  : optional(sonar.url),
-                    config_rendered_at: optional(document.renderedAt),
-                    config_sha256     : optional(document.sha256),
                     config_file       : optional(state.configFile)
             ], now)
         }
