@@ -1515,7 +1515,7 @@ A **catalog** is a file of the repository that holds versions other builds use. 
 
 GoldenFix changes the catalogs first and then the other manifests. A dependency that a catalog defines is raised in the catalog. A declaration of the same dependency elsewhere that is raised as well takes at least the version of the catalog, and the notes name it as `<file>: <component> declared outside the catalog <catalog file> (<alias>)`, so that a reviewer can move it into the catalog.
 
-In a Gradle TOML catalog GoldenFix changes only the version text; the formatting, the key order and the comments stay as they are. A section header may carry a comment (`[libraries] # third-party`), and a value may be a string in double quotes or a literal string in single quotes. It reads these forms:
+In a Gradle TOML catalog GoldenFix changes only the version text; the formatting, the key order and the comments stay as they are. A section header may be indented, hold spaces inside its brackets (`[ libraries ]`) and carry a comment (`[libraries] # third-party`); a key may be bare or in double or single quotes, and a value may be a string in double quotes or a literal string in single quotes. It reads these forms:
 
 | Table | Forms |
 |---|---|

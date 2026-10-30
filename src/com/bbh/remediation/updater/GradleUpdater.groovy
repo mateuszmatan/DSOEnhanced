@@ -16,16 +16,16 @@ class GradleUpdater implements ManifestUpdater {
     private static String catalogRefRe() { return '^\\$\\{?([A-Za-z_]\\w*)\\.versions\\.([\\w.]+?)(?:\\.get\\(\\))?\\}?$' }
 
     @NonCPS
-    private static String tomlVersionsRe() { return '(?ms)(^\\[versions\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlVersionsRe() { return '(?ms)(^[ \\t]*\\[[ \\t]*versions[ \\t]*\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^[ \\t]*\\[|\\z)' }
 
     @NonCPS
-    private static String tomlLibrariesRe() { return '(?ms)(^\\[libraries\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlLibrariesRe() { return '(?ms)(^[ \\t]*\\[[ \\t]*libraries[ \\t]*\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^[ \\t]*\\[|\\z)' }
 
     @NonCPS
-    private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlTableRe() { return '(?ms)(^[ \\t]*\\[[ \\t]*libraries[ \\t]*\\.[ \\t]*([\'"]?)([\\w.-]+)\\2[ \\t]*\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^[ \\t]*\\[|\\z)' }
 
     @NonCPS
-    private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{[^{}\\r\\n]*(?:\\{[^{}\\r\\n]*\\}[^{}\\r\\n]*)*\\}|"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')' }
+    private static String tomlEntryRe() { return '(?m)(^[ \\t]*[\'"]?([\\w.-]+)[\'"]?[ \\t]*=[ \\t]*)(\\{[^{}\\r\\n]*(?:\\{[^{}\\r\\n]*\\}[^{}\\r\\n]*)*\\}|"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')' }
 
     @NonCPS
     private static String inlineRe(String group, String artifact) {
@@ -291,7 +291,7 @@ class GradleUpdater implements ManifestUpdater {
     private String tomlVersion(String text, String name) {
         def section = text =~ tomlVersionsRe()
         if (!section.find()) return null
-        def entry = section.group(2) =~ /(?m)^[ \t]*"?([\w.-]+)"?[ \t]*=[ \t]*"([^"]+)"/
+        def entry = section.group(2) =~ /(?m)^[ \t]*['"]?([\w.-]+)['"]?[ \t]*=[ \t]*"([^"]+)"/
         while (entry.find()) {
             if (VersionCatalogs.alias(entry.group(1)) == VersionCatalogs.alias(name)) return entry.group(2)
         }

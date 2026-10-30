@@ -869,6 +869,19 @@ check('GoldenFix catalogs: section headers with a trailing comment and TOML lite
                                         '[libraries.netty] # json\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.108.Final"'].every { literalToml.contains(it) }
                 && !gfOf(literalRun, 'gui').unresolved,
         "${literalRun.errors} ${literalToml} ${reasonsOf(literalRun, 'gui')}")
+Map<String, String> tomlSpellings = [
+        "'jackson-databind' = { module = \"com.fasterxml.jackson.core:jackson-databind\", version = \"2.13.4\" }": '[libraries]\n\'jackson-databind\' = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.13.4" }\n',
+        '  [libraries]': '[versions]\nx = "1"\n\n  [libraries]\n  jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.13.4" }\n',
+        '[ libraries ]': '[ libraries ]\njackson-databind = "com.fasterxml.jackson.core:jackson-databind:2.13.4"\n']
+Map spelledRuns = tomlSpellings.collectEntries { String form, String text ->
+    [(form): catalogRun(['settings.gradle': "include 'gui'\n", 'gradle/libs.versions.toml': text, 'gui/build.gradle': 'dependencies { implementation libs.jackson.databind }\n'],
+            [[name: 'gui', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])]
+}
+check('GoldenFix catalogs: an indented section header, spaces inside its brackets and a key in single quotes are read as on the main branch',
+        spelledRuns.every { String form, Map run ->
+            run.errors.isEmpty() && gfOf(run, 'gui').status == 'PR_CREATED' && (run.written as Map)['gradle/libs.versions.toml'] == tomlSpellings[form].replace('2.13.4', '2.13.5')
+        },
+        spelledRuns.collect { String form, Map run -> "${form}: ${run.errors} ${gfOf(run, 'gui').status} ${reasonsOf(run, 'gui')}" })
 
 Map rangeRun = catalogRun([
         'settings.gradle'          : "include 'gui'\n",

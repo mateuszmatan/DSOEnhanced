@@ -1574,7 +1574,7 @@ A *catalog* is a file of the repository that holds versions other builds use. Go
 
 GoldenFix changes the catalogs first and then the other manifests. A dependency that a catalog defines is raised in the catalog. A declaration of the same dependency elsewhere that is raised as well takes at least the version of the catalog, and the notes name it as {{<file>: <component> declared outside the catalog <catalog file> (<alias>)}}, so that a reviewer can move it into the catalog.
 
-In a Gradle TOML catalog GoldenFix changes only the version text; the formatting, the key order and the comments stay as they are. A section header may carry a comment ({{[libraries] # third-party}}), and a value may be a string in double quotes or a literal string in single quotes. It reads these forms:
+In a Gradle TOML catalog GoldenFix changes only the version text; the formatting, the key order and the comments stay as they are. A section header may be indented, hold spaces inside its brackets ({{[ libraries ]}}) and carry a comment ({{[libraries] # third-party}}); a key may be bare or in double or single quotes, and a value may be a string in double quotes or a literal string in single quotes. It reads these forms:
 
 ||Table||Forms||
 |{{[versions]}}|{{x = "1.2"}}; {{x = { strictly = "1.2" }}}, {{{ require = "1.2" }}} and {{{ prefer = "1.2" }}}; in {{{ strictly = "[1.0,2.0[", prefer = "1.2" }}} the range stays and the concrete {{prefer}} is raised while the target lies inside the range; a target outside it leaves the entry as it is, with the reason below. A {{require}} range is read the same way when there is no {{strictly}}; with both, {{strictly}} decides|
