@@ -418,22 +418,56 @@ class GoldenFixService implements DependencyRemediation {
 
     @NonCPS
     static void labelProperties(List<Map> changes, List<Map> references, List<String> files) {
-        for (Map c : changes) {
-            if (!c.property || !files.contains(c.file)) continue
-            List keys = []
-            List names = []
-            for (String f : files) {
-                for (Map r : references) {
-                    if (r.catalog || r.name != c.property || !(r.referencedIn as List).contains(f)) continue
-                    if (GoldenFix.isUpgrade(c.to as String, r.targetVersion as String)) continue
-                    GoldenFix.addAllUnique(keys, r.componentKeys as List)
-                    GoldenFix.addAllUnique(names, r.components as List)
-                }
+        Map position = [:]
+        List byFile = []
+        for (int i = 0; i < files.size(); i++) {
+            if (!position.containsKey(files[i])) position[files[i]] = i
+            byFile << []
+        }
+        for (Map r : references) {
+            if (r.catalog || r.name == null) continue
+            int first = -1
+            for (def f : (r.referencedIn as List)) {
+                Integer at = position[f] as Integer
+                if (at != null && (first < 0 || at < first)) first = at
             }
+            if (first >= 0) (byFile[first] as List) << r
+        }
+        Map byName = [:]
+        for (def bucket : byFile) {
+            for (def r : (bucket as List)) {
+                String name = String.valueOf((r as Map).name)
+                if (!byName.containsKey(name)) byName[name] = []
+                (byName[name] as List) << r
+            }
+        }
+        Map labels = [:]
+        for (Map c : changes) {
+            if (!c.property || !position.containsKey(c.file)) continue
+            String name = String.valueOf(c.property)
+            String to = c.to as String
+            if (!labels.containsKey(name)) labels[name] = [:]
+            Map known = labels[name] as Map
+            if (!known.containsKey(to)) known[to] = reachedBy((byName[name] ?: []) as List, to)
+            List keys = [] + ((known[to] as Map).keys as List)
+            List names = [] + ((known[to] as Map).names as List)
             GoldenFix.addAllUnique(keys, c.componentKeys as List)
             GoldenFix.addAllUnique(names, (c.component as String).split(', ') as List)
             c.putAll([componentKeys: keys, component: names.join(', ')])
         }
+    }
+
+    @NonCPS
+    private static Map reachedBy(List references, String to) {
+        List keys = []
+        List names = []
+        for (def entry : references) {
+            Map r = entry as Map
+            if (GoldenFix.isUpgrade(to, r.targetVersion as String)) continue
+            GoldenFix.addAllUnique(keys, r.componentKeys as List)
+            GoldenFix.addAllUnique(names, r.components as List)
+        }
+        return [keys: keys, names: names]
     }
 
     @NonCPS

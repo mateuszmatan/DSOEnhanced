@@ -1073,6 +1073,32 @@ check('GoldenFix pre-check: the build again with the Nexus IQ versions names eve
                 ["svc-a/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString()]
                 && !gfOf(firstRoundRetry, 'svc-a').unresolved && !(((firstRoundRetry.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
         "${firstRoundRetry.errors} ${gfOf(firstRoundRetry, 'svc-a').status} ${gfOf(firstRoundRetry, 'svc-a').changes} ${reasonsOf(firstRoundRetry, 'svc-a')}")
+List<String> manyModules = (1..300).collect { "svc-${String.format('%03d', it)}".toString() }
+Closure jacksonDependency = { String artifact, String property ->
+    "<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>${artifact}</artifactId><version>\${${property}}</version></dependency>".toString()
+}
+Map<String, String> manyPoms = ['pom.xml': '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules>' +
+        manyModules.collect { "<module>${it}</module>" }.join('') + '</modules><properties><jackson.version>2.14.0</jackson.version></properties>' +
+        '<dependencyManagement><dependencies>' + jacksonDependency('jackson-databind', 'jackson.version') + '</dependencies></dependencyManagement></project>']
+manyModules.each { String m ->
+    manyPoms["${m}/pom.xml".toString()] = ('<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>' + m + '</artifactId>' +
+            "<properties><jackson.version>2.13.4</jackson.version><${m}.version>2.13.4</${m}.version></properties><dependencies>" +
+            jacksonDependency('jackson-databind', 'jackson.version') + jacksonDependency('jackson-core', 'jackson.version') +
+            jacksonDependency('jackson-annotations', "${m}.version") + '</dependencies></project>').toString()
+}
+Map manyRun = catalogRun(manyPoms, [[name: 'svc-a', fixes: jacksonFixes + [['maven', jackson, 'jackson-annotations', '2.13.4', '2.15.4']]]])
+String annotations = 'com.fasterxml.jackson.core:jackson-annotations'
+List<String> manyRows = ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${bothJackson}".toString()] +
+        manyModules.collect { "${it}/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString() } +
+        manyModules.collect { "${it}/pom.xml ${it}.version 2.13.4 -> 2.15.4 ${annotations}".toString() }
+String manyCommit = ((manyRun.commits as List)[0]?.message ?: '') as String
+check('GoldenFix catalogs: a parent pom and 300 modules with properties of their own get the property rows of the main branch, each row naming only the components of its property',
+        manyRun.errors.isEmpty() && gfOf(manyRun, 'svc-a').status == 'PR_CREATED'
+                && (gfOf(manyRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } == manyRows
+                && (gfOf(manyRun, 'svc-a').changes as List).every { (it.componentKeys as List) == (it.component as String).split(', ').collect { "maven:${it}".toString() } }
+                && !gfOf(manyRun, 'svc-a').unresolved && manyCommit.startsWith('GoldenFix-202609191405: upgrade 2 vulnerable direct dependencies')
+                && manyCommit.count('\n- ') == 601 && !(((manyRun.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
+        "${manyRun.errors} ${gfOf(manyRun, 'svc-a').status} ${(gfOf(manyRun, 'svc-a').changes as List).take(3)} ${reasonsOf(manyRun, 'svc-a')}")
 Map<String, String> alignedPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
