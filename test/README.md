@@ -6,7 +6,7 @@ Everything runs with one command, without a Jenkins instance:
 bash test/run-all.sh
 ```
 
-The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}`: JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the `script-security` plugin (the same versions the customer runs). Later runs reuse them. The script prints `ALL CHECKS PASSED` when the library is releasable, and it regenerates `examples/reports` and `documentation.html` on the way.
+The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}`: JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the `script-security` plugin (the same versions the customer runs). Later runs reuse them. The script prints `ALL CHECKS PASSED` when the library is releasable, and it regenerates `examples/reports`, `documentation.html` and `documentation.md` on the way.
 
 ## What runs
 
@@ -27,6 +27,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
 | `ascii.sh` | `src` and `vars` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
+| `docs-md.sh` | `documentation.md` is the Markdown rendering of `documentation.confluence` for Bitbucket (regenerates it when it is not) |
 
 ### Compilation
 
