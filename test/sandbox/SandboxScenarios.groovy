@@ -918,6 +918,19 @@ check('GoldenFix catalogs: a settings import written as from files(..) or with a
                 && (importForms.written as Map).keySet() == ['platform/deps.versions.toml'] as Set && importForms.builds == [cdTo('svc-a'), cdTo('svc-b')],
         "${importForms.errors} ${importForms.written} ${importForms.builds}")
 
+Map<String, String> parentPoms = [
+        'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
+                         '<properties><jackson.version>2.17.0</jackson.version></properties><dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
+                         '<artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency></dependencies></dependencyManagement></project>',
+        'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId>' +
+                         '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
+                         '<artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
+]
+Map chainedRun = catalogRun(parentPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+check('GoldenFix catalogs: a property raised in both rounds is one row from the declared version to the catalog version',
+        chainedRun.errors.isEmpty() && (gfOf(chainedRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to}".toString() } ==
+                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0'] && ((chainedRun.written as Map)['svc-a/pom.xml'] as String)?.contains('<jackson.version>2.17.0</jackson.version>'),
+        "${chainedRun.errors} ${gfOf(chainedRun, 'svc-a').changes}")
 Map alignedRetry = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +

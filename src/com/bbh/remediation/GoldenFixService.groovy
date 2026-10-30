@@ -299,6 +299,7 @@ class GoldenFixService implements DependencyRemediation {
         Map aligned = alignToCatalogs(fixes, run.found as List, shared)
         List<Map> effective = align ? aligned.fixes as List<Map> : fixes
         applyRound(dir, active, effective, others, files, texts, run)
+        run.changes = collapseChanges(run.changes as List<Map>)
 
         for (Map c : (run.changes as List<Map>)) {
             String what = c.property ? "property ${c.property} (${c.component})" : c.component
@@ -387,6 +388,16 @@ class GoldenFixService implements DependencyRemediation {
             out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String) ? fix + [targetVersion: known.version] : fix)
         }
         return [fixes: out, versions: versions]
+    }
+
+    @NonCPS
+    static List<Map> collapseChanges(List<Map> changes) {
+        List<Map> out = []
+        for (Map c : changes) {
+            Map earlier = c.property ? out.find { it.file == c.file && it.property == c.property && it.to == c.from } as Map : null
+            if (earlier) earlier.putAll(c + [from: earlier.from]) else out << c
+        }
+        return out
     }
 
     @NonCPS
