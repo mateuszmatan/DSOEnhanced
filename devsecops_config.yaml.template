@@ -1,0 +1,280 @@
+# devsecops_config.yaml - commit it at the root of the repository (config.yaml is read when there is none).
+# The library reads only the projects: section. The thresholds, the coverage minimum, the timeouts, the GoldenFix
+# policy and the tool defaults come from the library (resources/com/bbh/devsecops/defaults.yaml) and are merged under
+# every service; a value of the service replaces a library default, except for the thresholds and coverage.minLine.
+# The Jenkinsfile names the services: devSecOpsPipeline(projectNames: 'my-app', agentNames: ['linux-agent']).
+# examples/CertScanner/devsecops_config.yaml shows two complete services.
+
+projects:
+
+  my-app:                            # the service name given in projectNames
+
+    appId:        ""                 # HCL AppScan application ID (UUID)
+    buildTool:    gradle             # gradle | maven | flutter  [default: gradle]
+    deployTarget: vm                 # vm | openshift            [default: vm]
+    sourceDir:    "."                # source root for IRX generation [default: .]
+    javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME)
+    buildToolAutoSetup: false        # true: detect the required Java version from pom.xml / build.gradle instead
+    includedDirs: ""                 # optional: comma separated folders to scan (SAST)
+    excludedDirs: ""                 # optional: comma separated folders to skip (SAST)
+
+    jenkins:
+      pipeline:
+        extendedPipeline: ""         # devSecOpsSecurityPipeline: the extended job started when RUN_EXTENDED_PIPELINE is selected
+
+    asoc:                            # HCL AppScan on Cloud (required)
+      url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
+      keyId:       ""                # AppScan API key ID of this service, for SAST and DAST (required)
+      token:       ""                # Jenkins Secret text credential holding the key secret [default: a credential named like keyId]
+      insecureTls: false             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false
+      doCompile:   true              # compile the project before the IRX is generated
+      sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
+      useAppScanConfig: false        # true: use appscan-config.xml from the repository
+      gradle:                        # optional compile command for the IRX; the build section is used when absent
+        tasks: ['classes', 'testClasses']
+      maven:
+        goals: ['clean', 'compile']
+
+    sast:
+      scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
+
+    staticAnalysis:
+      parallel: false                # true for every service of the run: Nexus IQ and SonarQube run while AppScan scans
+                                     # [default: false; the environment variable DSO_STATIC_ANALYSIS_PARALLEL decides first]
+
+    influx:                          # InfluxDB DORA metrics (optional)
+      enabled:   false
+      project:   ""                  # measurement tag [default: tools.sonar.projectName]
+      env:       "dev"               # measurement tag
+      url:       ""                  # InfluxDB v2 write endpoint
+      credentialsId: ""              # Jenkins Secret text credential with the token
+      token:     ""                  # the token itself, read only without credentialsId; prefer credentialsId
+
+    coverage:
+      reportPath: ""                 # usually empty: every JaCoCo XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
+                                     # the required line coverage comes from the library defaults and cannot be set here
+
+    tools:
+      sonar:
+        projectName:      ""         # display name in SonarQube
+        projectKey:       ""         # unique project key in SonarQube
+        serverUrl:        "https://tools.bbh.com/sonar"
+        installationName: "SonarQube"  # SonarQube installation registered in Jenkins
+        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis
+        authToken:        ""         # Jenkins Secret text credential for the issue counts the report queries
+        badgeCredentialsId: ""       # Jenkins Secret text credential with the badge token, wins over badgeToken
+        badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
+        addBadges:        false      # add the badges to the build description
+        fullBadges:       false      # all badges instead of the quality gate badge only
+        gradle:                      # the analysis command of a Gradle service (tasks, flags, dir, env as in build.gradle)
+          tasks: ['sonarqube']
+        maven:                       # the analysis command of a Maven service (goals, flags, mvnPath, env as in build.maven)
+          goals: ['sonar:sonar']
+        sonarScannerVersion: ""      # Flutter: the sonar-scanner-cli-<version> tool of Jenkins [default: sonar-scanner on the PATH]
+        sonarQubeEnv:
+          installationName: ""       # Flutter: SonarQube installation [default: installationName]
+        flutterPlugin:    false      # Flutter: true passes the reports of the sonar-flutter plugin instead of the generic formats
+        sources:          "lib"      # Flutter: sonar.sources
+        tests:            "test"     # Flutter: sonar.tests
+        dartAnalyzeCommand: "dart analyze --format=machine"   # Flutter: the findings imported into SonarQube
+      nexusIq:
+        application:        ""       # application public ID in Nexus IQ (required with scanPatterns for devSecOpsNexusIqGoldenFixPipeline)
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       []       # list of Ant patterns, e.g. ["**/build/libs/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    dast:
+      enabled:    false              # set true to run DAST
+      targetUrl:  ""                 # URL to scan (required when enabled)
+      presenceId: ""                 # AppScan Presence ID (for internal networks, optional)
+
+    build:                           # how the artifact is built (stage 2)
+      buildPath: ""                  # artifact path or glob, e.g. "build/libs/*.jar" or "target/*.jar"
+      gradle:
+        tasks:  ['clean', 'build']
+        flags:  ['--refresh-dependencies']
+        dir:    ""                   # optional subdirectory to build in
+        env: {}                      # optional environment variables for the build
+      maven:
+        goals:    ['clean', 'package']
+        flags:    ['-B', '-U']
+        mvnPath:  ""                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn
+        env:
+          MAVEN_OPTS: "-Xms512m -Xmx1g"
+      node:                          # optional Node.js build, stage 0, before the Gradle or Maven build
+        enabled:          false      # true: build this service with Node.js first [default: false]
+        dir:              ""         # folder with package.json, relative to the workspace [default: the workspace]
+        commands:         ['npm ci', 'npm run build']   # one shell command per entry, run in order (sh, bat on Windows)
+        installationName: ""         # NodeJS installation of Manage Jenkins > Tools [library default]
+        nodePath:         ""         # Node.js home on the agent; wins over installationName
+        env: {}                      # environment variables of the commands, e.g. NODE_OPTIONS: "--max-old-space-size=4096"
+        registry:         ""         # exported as npm_config_registry unless an .npmrc credentials ID is set [library default]
+        npmrcCredentialsId: ""       # Jenkins Secret file with an .npmrc, bound as NPM_CONFIG_USERCONFIG [library default]
+        timeoutMin:       30         # minutes for all commands of the service together
+        nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
+
+    delivery:                        # Maven upload of the snapshot artifact (deployTarget: vm, buildTool: maven)
+      maven:
+        goals: ['deploy:deploy-file']
+        flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
+                '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+
+    scm:
+      bitbucket:                     # required to raise GoldenFix pull requests
+        url:           ""            # repository link: https://<host>/projects/KEY/repos/slug, .../scm/key/slug.git or https://bitbucket.org/ws/slug
+        credentialsId: ""            # Jenkins credentials: Username with password (or HTTP access token as password)
+        authType:      basic         # basic | bearer (Secret text with an HTTP access token)
+        type:          ""            # server | cloud  [auto-detected from url]
+        targetBranch:  ""            # PR target branch  [default: branch that triggered the build]
+        cloneUrl:      ""            # push URL override  [default: derived from url]
+        reviewers:     []            # Bitbucket user names (server) / account UUIDs (cloud)
+
+    goldenFix:                       # library defaults shown, values of the service override them
+      enabled:                true
+      onlyDirectDependencies: true
+      minThreatLevel:         2      # 2+ medium, 4+ high, 8+ critical
+      ecosystems:             [maven, npm, pypi, pub]
+      goldenVersionTypes:            # Nexus IQ remediation types taken as they are (the Golden Version)
+        - recommended-non-breaking-with-dependencies
+        - recommended-non-breaking
+      excludeDirs:            []     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]
+      verify:                        # the pre-check build of the proposed versions
+        enabled:        true         # false: no pre-check, the pull request is raised unverified
+        maxAttempts:    3            # version sets tried; each failed build lowers every proposed version
+        timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
+        commands:                    # replaces the default check of one ecosystem; runs with bash in the folder of the check
+          maven:  ""                 # [default: mvn -B -q -DskipTests compile]
+          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
+          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
+          pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
+          pub:    ""                 # [default: flutter pub get, or dart pub get]
+      commitAuthorName:       "DevSecOps GoldenFix"
+      commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
+      timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
+      versionCatalogs:        []     # optional: shared catalog files the search does not find by itself,
+                                     # repository-relative paths or globs (* within a folder name, ** across folders)
+
+    tests:
+      maxParallel: 20                # [library default] max jobs of one test stage running at the same time
+      unitTests:                     # stage 2: the test command and where the results are
+        gradle:
+          tasks: ['test', 'jacocoTestReport']
+        maven:
+          goals: ['test', 'jacoco:report']
+        unitTestResult:    ""        # JUnit results pattern [default: **/build/test-results/test/*.xml]
+        rootDir:           "."       # Maven: root of the module scan for surefire reports
+        reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
+        allowEmptyResults: false     # Maven: accept a module without test results
+      smoke:                         # at least one working job is required, more are allowed
+        maxParallel: 20              # optional per-stage override
+        defaults:                    # optional: merged into every job below
+          type:          remote
+          timeoutMin:    15
+          credentialsId: "remote-jenkins-api-token"
+        jobs:
+          - name:       ""           # display name (derived from the URL when empty)
+            type:       local        # local | remote  [default: remote when job/url is a full URL]
+            job:        ""           # Jenkins job path ("folder/job-name") or full job URL
+            url:        ""           # alias of job for full remote job URLs
+            timeoutMin: 15
+            parameters: ""           # optional, key=value lines
+            remoteJenkins: ""        # Remote Jenkins name from global config (not needed with a full URL)
+            remoteJenkinsUrl: ""     # optional remote Jenkins base URL override
+            credentialsId: ""        # optional: credentials (user + API token) for the remote Jenkins
+            tokenCredentialsId: ""   # optional: Secret text credential with the build token of the remote job
+          - "https://jenkins-c.bbh.com/job/smoke/job/myapp-reports"   # a bare URL: one remote job, named after the URL
+        urls:                        # optional shorthand list: one remote job per URL
+          - "https://jenkins-c.bbh.com/job/smoke/job/myapp-search"
+      regression:                    # at least one working job is required, more are allowed
+        maxParallel: 20              # optional per-stage override
+        jobs:
+          - name:       ""
+            type:       local
+            job:        ""
+            timeoutMin: 60
+      performance:                   # at least one working job is required, more are allowed
+        jobs:
+          - name:       ""
+            type:       local
+            job:        ""
+            timeoutMin: 120
+
+    deploy:
+      vm:                            # used when deployTarget: vm
+        dod:                         # UrbanCode Deploy, used by devSecOpsPipeline for the lower test region
+          siteName:      "deploy.bbh.com"        # UrbanCode Deploy site configured in Jenkins
+          deployProcess: "tomcat-app-process"
+          skipWait:            false
+          deployWithSnapshot:  true
+          updateSnapshotComp:  false
+          includeOnlyDeployVersions: true
+          deployOnlyChanged:   false
+          deployDescription:   ""
+          requestProperties:   ""
+          applications:                          # one entry per UrbanCode application
+            - applicationName: ""
+              order:        1                    # optional deployment order
+              environments: ['DV', 'RD', 'QC']   # optional filter, empty means every environment
+              snapshotName: ""                   # [default: <applicationName>_snapshot]
+              components:
+                - componentName:       ""
+                  baseDir:             "build/libs"
+                  fileIncludePatterns: "*.jar"
+                  fileExcludePatterns: ""
+                  versionPrefix:       ""        # [default: fileIncludePatterns]
+                  version:             ""        # [default: <versionPrefix>_<BUILD_ID>]
+                  incrementalVersion:  true
+        rd:                          # lower test environment over SSH (devSecOpsExtendedPipeline)
+          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus
+          host:         ""
+          user:         "taadmin"
+          deployDir:    ""           # remote directory for deployment scripts
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+        qc:                          # higher test environment over SSH
+          host:         ""
+          user:         "taadmin"
+          deployDir:    ""
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+      openshift:                     # used when deployTarget: openshift
+        rd:
+          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service
+          buildTag:           ""     # the image tag RD, and QC without its own buildTag, deploy when nexusDeliveryEnabled is false
+          projectBuildR:      ""     # namespace where the image is built
+          buildConfigPath:    ""     # BuildConfig template in the repository
+          dockerFilePath:     ""     # Dockerfile in the repository
+          buildContext:       ""     # directory prepared for the binary build
+          addFile:            ""     # optional extra file copied into the build context
+          qcDockerRepoPush:   ""     # Nexus docker repository the image is pushed to
+          qcDockerRepoPull:   ""     # docker repository the deployment pulls from
+          openshiftCertDir:   ""     # certificate directory for skopeo
+          nexus:
+            authfile:         ""     # docker authfile used by skopeo
+          projectDeploymentR: ""     # namespace of the deployment
+          deployConfigPath:   ""     # deployment template in the repository
+          configPathR:        ""     # config template applied before the deployment
+          skipConfigDeploy:   false
+          healthCheckUrl:     ""     # optional HEALTH_URL template parameter
+          routeHostnameR:     ""     # optional ROUTE_HOST template parameter
+          deploymentPath:     ""     # optional: directory the deployment repository is cloned into
+          deploymentRepo:
+            url:         ""
+            branch:      ""
+            credentials: ""
+        qc:                          # the same keys; buildTag pins the QC image even when the run builds one, empty means rd.buildTag
+          projectDeploymentR: ""
+          qcDockerRepoPull:   ""
+          deployConfigPath:   ""
+          configPathR:        ""
+          healthCheckUrl:     ""
+          routeHostnameR:     ""
+
+    appName:      ""                 # OpenShift application name (BuildConfig, deployment, image stream)
+    artifactName: ""                 # OpenShift: artifact file name copied into the build context
+    baseArtifactName: ""             # OpenShift: original artifact name, renamed to artifactName when set
+
+    flutter:                         # Flutter-specific settings (only when buildTool: flutter)
+      platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
