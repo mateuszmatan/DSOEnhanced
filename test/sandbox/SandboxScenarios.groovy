@@ -1080,24 +1080,27 @@ Closure jacksonDependency = { String artifact, String property ->
 Map<String, String> manyPoms = ['pom.xml': '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules>' +
         manyModules.collect { "<module>${it}</module>" }.join('') + '</modules><properties><jackson.version>2.14.0</jackson.version></properties>' +
         '<dependencyManagement><dependencies>' + jacksonDependency('jackson-databind', 'jackson.version') + '</dependencies></dependencyManagement></project>']
+List<String> ownModules = manyModules.findAll { it.endsWith('0') }
 manyModules.each { String m ->
+    String annotationsProperty = ownModules.contains(m) ? "${m}.version".toString() : 'jackson.version'
     manyPoms["${m}/pom.xml".toString()] = ('<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>' + m + '</artifactId>' +
-            "<properties><jackson.version>2.13.4</jackson.version><${m}.version>2.13.4</${m}.version></properties><dependencies>" +
+            '<properties><jackson.version>2.13.4</jackson.version>' + (ownModules.contains(m) ? "<${m}.version>2.13.4</${m}.version>" : '') + '</properties><dependencies>' +
             jacksonDependency('jackson-databind', 'jackson.version') + jacksonDependency('jackson-core', 'jackson.version') +
-            jacksonDependency('jackson-annotations', "${m}.version") + '</dependencies></project>').toString()
+            jacksonDependency('jackson-annotations', annotationsProperty) + '</dependencies></project>').toString()
 }
 Map manyRun = catalogRun(manyPoms, [[name: 'svc-a', fixes: jacksonFixes + [['maven', jackson, 'jackson-annotations', '2.13.4', '2.15.4']]]])
 String annotations = 'com.fasterxml.jackson.core:jackson-annotations'
-List<String> manyRows = ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${bothJackson}".toString()] +
-        manyModules.collect { "${it}/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString() } +
-        manyModules.collect { "${it}/pom.xml ${it}.version 2.13.4 -> 2.15.4 ${annotations}".toString() }
+String allJackson = "${bothJackson}, ${annotations}".toString()
+List<String> manyRows = ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${allJackson}".toString()] +
+        manyModules.collect { "${it}/pom.xml jackson.version 2.13.4 -> 2.15.4 ${allJackson}".toString() } +
+        ownModules.collect { "${it}/pom.xml ${it}.version 2.13.4 -> 2.15.4 ${annotations}".toString() }
 String manyCommit = ((manyRun.commits as List)[0]?.message ?: '') as String
-check('GoldenFix catalogs: a parent pom and 300 modules with properties of their own get the property rows of the main branch, each row naming only the components of its property',
+check('GoldenFix catalogs: in a parent pom with 300 modules, a property row names every component of its property in every module, and a property of a module of its own only its own component',
         manyRun.errors.isEmpty() && gfOf(manyRun, 'svc-a').status == 'PR_CREATED'
                 && (gfOf(manyRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } == manyRows
                 && (gfOf(manyRun, 'svc-a').changes as List).every { (it.componentKeys as List) == (it.component as String).split(', ').collect { "maven:${it}".toString() } }
                 && !gfOf(manyRun, 'svc-a').unresolved && manyCommit.startsWith('GoldenFix-202609191405: upgrade 2 vulnerable direct dependencies')
-                && manyCommit.count('\n- ') == 601 && !(((manyRun.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
+                && manyCommit.count('\n- ') == 331 && !(((manyRun.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
         "${manyRun.errors} ${gfOf(manyRun, 'svc-a').status} ${(gfOf(manyRun, 'svc-a').changes as List).take(3)} ${reasonsOf(manyRun, 'svc-a')}")
 Map<String, String> alignedPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
