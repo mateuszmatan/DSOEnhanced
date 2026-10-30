@@ -127,7 +127,8 @@ set +x
 set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 
-git -c credential.helper= -c 'credential.helper=!f() { test "$1" = get || exit 0; echo "username=${GF_GIT_USER}"; echo "password=${GF_GIT_PASS}"; }; f' -C '/ws@tmp/goldenfix/GoldenFix-202609191405' push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405'
+git -c credential.helper= -c 'credential.helper=!f() { test "$1" = get || exit 0; echo "username=${GF_GIT_USER}"; echo "password=${GF_GIT_PASS}"; }; f' -C '/ws@tmp/goldenfix/GoldenFix-202609191405' push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405' 2>&1 | tee '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'
+rm -f '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'
 
 withCredentials [bitbucket-http-credentials]
 sh [Bitbucket: create pull request GoldenFix-202609191405] #!/bin/bash
@@ -216,7 +217,8 @@ set +x
 set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 
-git -c credential.helper= -c 'credential.helper=!f() { test "$1" = get || exit 0; echo "username=${GF_GIT_USER}"; echo "password=${GF_GIT_PASS}"; }; f' -C '/ws@tmp/goldenfix/GoldenFix-202609191405' push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405'
+git -c credential.helper= -c 'credential.helper=!f() { test "$1" = get || exit 0; echo "username=${GF_GIT_USER}"; echo "password=${GF_GIT_PASS}"; }; f' -C '/ws@tmp/goldenfix/GoldenFix-202609191405' push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405' 2>&1 | tee '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'
+rm -f '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'
 
 withCredentials [bitbucket-http-credentials]
 sh [Bitbucket: comment on pull request 318] #!/bin/bash

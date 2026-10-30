@@ -990,21 +990,39 @@ check('GoldenFix pre-check: a shared catalog is verified once in each build that
         planned.collect { "${it.name}@${it.subDir}".toString() } == ['gradle@svc-a', 'gradle@svc-b', 'gradle@', 'gradle@gui', 'maven@'],
         planned.collect { "${it.name}@${it.subDir}".toString() })
 
-FakeScript pushScript = new FakeScript()
-pushScript.env.vars.putAll([WORKSPACE: '/ws'])
-pushScript.shHandler = { Map a -> String.valueOf(a.label) == 'GoldenFix: git push' ? 1 : (a.returnStatus ? 0 : '') }
-String rejected = ''
-try {
-    verifierHarness.run {
-        verifierHarness.type('com.bbh.scm.GitSourceRepository').newInstance(pushScript).push('/ws@tmp/goldenfix/GoldenFix-202609191405', 'GoldenFix-202609191405',
-                [url: 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git', credentialsId: 'bb'])
+Closure pushFailure = { String output ->
+    FakeScript pushScript = new FakeScript()
+    pushScript.env.vars.putAll([WORKSPACE: '/ws'])
+    List<String> scripts = []
+    pushScript.shHandler = { Map a ->
+        scripts << String.valueOf(a.script)
+        String.valueOf(a.label) == 'GoldenFix: git push' ? 1 : (a.returnStatus ? 0 : output)
     }
-} catch (Throwable t) {
-    rejected = t.message ?: t.toString()
+    String message = ''
+    try {
+        verifierHarness.run {
+            verifierHarness.type('com.bbh.scm.GitSourceRepository').newInstance(pushScript).push('/ws@tmp/goldenfix/GoldenFix-202609191405', 'GoldenFix-202609191405',
+                    [url: 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git', credentialsId: 'bb'])
+        }
+    } catch (Throwable t) {
+        message = t.message ?: t.toString()
+    }
+    return [message: message, scripts: scripts]
 }
-check('GoldenFix: a rejected push of the branch names the cause and the fix instead of the exit code',
-        rejected == '[GOLDENFIX] The branch GoldenFix-202609191405 already exists in https://bitbucket.bbh.com/scm/ta/cert-scanner.git - another GoldenFix job ' +
-                'of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)', rejected)
+Map rejected = pushFailure.call('To https://bitbucket.bbh.com/scm/ta/cert-scanner.git\n ! [rejected]        HEAD -> GoldenFix-202609191405 (fetch first)\n' +
+        "error: failed to push some refs to 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git'\n")
+check('GoldenFix: a push rejected because the branch exists names the cause and the fix instead of the exit code',
+        rejected.message == '[GOLDENFIX] The branch GoldenFix-202609191405 already exists in https://bitbucket.bbh.com/scm/ta/cert-scanner.git - another GoldenFix job ' +
+                'of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)'
+                && (rejected.scripts as List)[0].contains("push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405' 2>&1 | tee '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'")
+                && (rejected.scripts as List)[1] == "cat '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log' 2>/dev/null || true; rm -f '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'",
+        rejected)
+Map declined = pushFailure.call('remote: ERROR: the commit message needs a JIRA key\nTo https://bitbucket.bbh.com/scm/ta/cert-scanner.git\n' +
+        ' ! [remote rejected] HEAD -> GoldenFix-202609191405 (pre-receive hook declined)\n')
+check('GoldenFix: a push that a hook or a branch permission declines says so with the answer of the remote, not that the branch exists',
+        declined.message == '[GOLDENFIX] git push of GoldenFix-202609191405 to https://bitbucket.bbh.com/scm/ta/cert-scanner.git failed (exit code 1): ' +
+                'remote: ERROR: the commit message needs a JIRA key ! [remote rejected] HEAD -> GoldenFix-202609191405 (pre-receive hook declined)',
+        declined.message)
 
 List pubCandidates = parserHarness.run {
     parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates([components: [

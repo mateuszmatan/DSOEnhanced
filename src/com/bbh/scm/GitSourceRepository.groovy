@@ -92,10 +92,20 @@ rm -f '${q(messageFile)}'
                 status = runGit(dir, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
             }
         }
-        if (status == 1) {
-            script.error("[GOLDENFIX] The branch ${branch} already exists in ${sanitizeUrl(url)} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)")
+        if (status == 0) return
+        String output = script.sh(label: 'GoldenFix: read the git push output', returnStdout: true,
+                script: "cat '${q(dir)}.push.log' 2>/dev/null || true; rm -f '${q(dir)}.push.log'") as String
+        script.error(pushFailure(branch, sanitizeUrl(url), status, output))
+    }
+
+    @NonCPS
+    static String pushFailure(String branch, String url, int status, String output) {
+        List<String> lines = (output ?: '').readLines().collect { it.trim() }
+        if (lines.any { it ==~ /.*\[rejected\].*\((fetch first|non-fast-forward|already exists)\).*/ }) {
+            return "[GOLDENFIX] The branch ${branch} already exists in ${url} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)".toString()
         }
-        if (status != 0) script.error("script returned exit code ${status}")
+        List<String> reasons = lines.findAll { it.startsWith('remote:') || it.startsWith('! [') } as List<String>
+        return "[GOLDENFIX] git push of ${branch} to ${url} failed (exit code ${status})${reasons ? ': ' + reasons.join(' ') : ''}".toString()
     }
 
     void revert(String dir) {
@@ -129,7 +139,8 @@ set +x
 set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 ${preamble}
-git ${authOptions} -C '${q(dir)}' ${command}
+git ${authOptions} -C '${q(dir)}' ${command} 2>&1 | tee '${q(dir)}.push.log'
+rm -f '${q(dir)}.push.log'
 """) as int
     }
 
