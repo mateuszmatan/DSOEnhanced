@@ -557,7 +557,7 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
         if (a.returnStdout) return '202609191405'
         if (String.valueOf(a.label ?: '').startsWith('GoldenFix: pre-check ')) {
             builds << String.valueOf(a.script).readLines().findAll { it.startsWith('cd ') || it.startsWith('npm install') }.join(' / ')
-            if (options.fails) return (options.fails as Closure).call(repository.written) ? 1 : 0
+            if (options.fails) return (options.fails as Closure).call(repository.written, String.valueOf(a.script)) ? 1 : 0
         }
         return a.returnStatus ? 0 : null
     }
@@ -995,7 +995,7 @@ Map<String, String> alignedPoms = [
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.13.4</version></dependency></dependencies></project>'
 ]
 Map alignedRetry = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2']]]]],
-        [verify: true, fails: { Map w -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
+        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
 check('GoldenFix pre-check: when the build fails with the catalog version, it is tried again with the Nexus IQ version before a lower one, and the log names the versions built',
         alignedRetry.errors.isEmpty() && gfOf(alignedRetry, 'svc-a').status == 'PR_CREATED'
                 && ((alignedRetry.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.5</version>')
@@ -1007,7 +1007,7 @@ check('GoldenFix pre-check: when the build fails with the catalog version, it is
                 '[GOLDENFIX] Pre-check build passed (maven) with com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5'],
         "${alignedRetry.errors} ${gfOf(alignedRetry, 'svc-a').status} ${gfOf(alignedRetry, 'svc-a').message} ${alignedRetry.log}")
 Map retryBudget = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2', '2.13.4.1']]]]],
-        [verify: true, fails: { Map w -> !(w['svc-a/pom.xml'] ?: '').contains('<version>2.13.4.1</version>') }])
+        [verify: true, fails: { Map w, String sh -> !(w['svc-a/pom.xml'] ?: '').contains('<version>2.13.4.1</version>') }])
 check('GoldenFix pre-check: the build with the Nexus IQ version instead of the catalog version does not use up an attempt at a lower version',
         retryBudget.errors.isEmpty() && gfOf(retryBudget, 'svc-a').status == 'PR_CREATED'
                 && ((retryBudget.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.4.1</version>'),
@@ -1058,6 +1058,14 @@ check('GoldenFix npm: without the pre-check the lock file is not touched and the
         npmUnverified.errors.isEmpty() && (npmUnverified.commits as List)[0]?.files == ['web/package.json']
                 && ((npmUnverified.prs as List)[0]?.description as String)?.contains('> Lock files (package-lock.json, yarn.lock'),
         "${npmUnverified.errors} ${(npmUnverified.commits as List)[0]?.files}")
+Map npmOverride = catalogRun(npmFiles, [[name: 'web', goldenFix: [verify: [enabled: true, commands: [npm: 'npm install --legacy-peer-deps --ignore-scripts']]],
+                                         fixes: [['npm', '', 'lodash', '4.17.15', '4.17.21']]]], [verify: true, fails: { Map w, String sh -> sh.contains('--package-lock-only') }])
+check('GoldenFix npm: an npm command of goldenFix.verify.commands runs as it is, without a lock file refresh in front and without the lock file in the commit',
+        npmOverride.errors.isEmpty() && gfOf(npmOverride, 'web').status == 'PR_CREATED'
+                && npmOverride.builds == ["${cdTo('web')} / npm install --legacy-peer-deps --ignore-scripts".toString()]
+                && (npmOverride.commits as List)[0]?.files == ['web/package.json']
+                && ((npmOverride.prs as List)[0]?.description as String)?.contains('> Lock files (package-lock.json, yarn.lock'),
+        "${npmOverride.errors} ${gfOf(npmOverride, 'web').status} ${npmOverride.builds} ${(npmOverride.commits as List)[0]?.files}")
 String bigPackage = '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "resolutions": {\n' + (1..300).collect { "    \"@bbh/package-${it}\": \"1.0.${it}\",\n" }.join('') +
         '    "lodash": "4.17.15"\n  }\n}\n'
 Map bigNpm = [:]

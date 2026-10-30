@@ -77,10 +77,11 @@ ${check.command}
                 String key = kind + '@' + subDir
                 if (seen.contains(key)) continue
                 seen << key
-                String command = (overrides?.get(kind) ?: defaultCommand(kind, name)) as String
+                String override = overrides?.get(kind) as String
+                String command = (override ?: defaultCommand(kind, name)) as String
                 if (!command) continue
                 String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
-                if (kind == 'npm' && lockFiles?.contains(lock)) {
+                if (kind == 'npm' && !override && lockFiles?.contains(lock)) {
                     checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock]]
                 } else {
                     checks << [name: kind, command: command, subDir: subDir]
