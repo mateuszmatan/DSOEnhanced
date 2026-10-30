@@ -552,10 +552,12 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
     FakeScript sc = new FakeScript()
     sc.env.vars.putAll([WORKSPACE: '/ws', JOB_NAME: 'DevSecOps/CertScanner-nexusiq-pipeline', BUILD_NUMBER: '62'])
     List<String> builds = []
+    def repository = null
     sc.shHandler = { Map a ->
         if (a.returnStdout) return '202609191405'
         if (String.valueOf(a.label ?: '').startsWith('GoldenFix: pre-check ')) {
             builds << String.valueOf(a.script).readLines().findAll { it.startsWith('cd ') || it.startsWith('npm install') }.join(' / ')
+            if (options.fails) return (options.fails as Closure).call(repository.written) ? 1 : 0
         }
         return a.returnStatus ? 0 : null
     }
@@ -564,7 +566,7 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
         h.run {
             def model = h.type('com.bbh.remediation.model.GoldenFix')
             def state = h.type('com.bbh.core.PipelineState').newInstance()
-            def repository = h.type('com.bbh.fixture.InMemorySourceRepository').newInstance([files] as Object[])
+            repository = h.type('com.bbh.fixture.InMemorySourceRepository').newInstance([files] as Object[])
             def publisher = h.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
             publisher.commentFailure = (options.commentFailure ?: '') as String
             List updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater'].collect {
@@ -575,7 +577,7 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
                 state.currentProjectName = svc.name
                 state.cfg = [goldenFix: [enabled: true, verify: [enabled: options.verify as boolean]] + ((svc.goldenFix ?: [:]) as Map),
                              scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
-                List fixes = (svc.fixes as List).collect { List f -> model.create(f[0], f[1], f[2], f[3], f[4], 'next-no-violations', '', 8, true, 'APP') }
+                List fixes = (svc.fixes as List).collect { List f -> model.create(f[0], f[1], f[2], f[3], f[4], 'next-no-violations', '', 8, true, 'APP', false, null, f.size() > 5 ? f[5] : []) }
                 def source = h.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
                 source.failure = options.failure as Throwable
                 h.type('com.bbh.remediation.GoldenFixService').newInstance(sc, state, source, repository, publisher, updaters, verifier)
@@ -915,6 +917,24 @@ check('GoldenFix catalogs: a settings import written as from files(..) or with a
         importForms.errors.isEmpty() && ((importForms.written as Map)['platform/deps.versions.toml'] as String)?.contains('jackson = "2.13.5"')
                 && (importForms.written as Map).keySet() == ['platform/deps.versions.toml'] as Set && importForms.builds == [cdTo('svc-a'), cdTo('svc-b')],
         "${importForms.errors} ${importForms.written} ${importForms.builds}")
+
+Map alignedRetry = catalogRun([
+        'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
+                         '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
+                         '<version>2.17.0</version></dependency></dependencies></dependencyManagement></project>',
+        'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId><dependencies>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.13.4</version></dependency></dependencies></project>'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2']]]]], [verify: true, fails: { Map w -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
+check('GoldenFix pre-check: when the build fails with the catalog version, it is tried again with the Nexus IQ version before a lower one, and the log names the versions built',
+        alignedRetry.errors.isEmpty() && gfOf(alignedRetry, 'svc-a').status == 'PR_CREATED'
+                && ((alignedRetry.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.5</version>')
+                && gfOf(alignedRetry, 'svc-a').notes == ['svc-a/pom.xml: com.fasterxml.jackson.core:jackson-databind declared outside the catalog pom.xml']
+                && (alignedRetry.log as List).findAll { it.contains('Pre-check build') } == [
+                '[GOLDENFIX] Pre-check build 1 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.17.0',
+                '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions',
+                '[GOLDENFIX] Pre-check build 2 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5',
+                '[GOLDENFIX] Pre-check build passed (maven) with com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5'],
+        "${alignedRetry.errors} ${gfOf(alignedRetry, 'svc-a').status} ${gfOf(alignedRetry, 'svc-a').message} ${alignedRetry.log}")
 
 Map unrelatedRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",

@@ -190,6 +190,7 @@ class GoldenFixService implements DependencyRemediation {
 
         List<Map> current = fixes
         List dropped = []
+        boolean align = true
         Map applied = applyFixes(dir, current, cfg)
         if (!enabled || verifier == null) {
             script.echo "[GOLDENFIX] Pre-check build skipped (${enabled ? 'no build verifier is wired in' : 'goldenFix.verify.enabled is false'})"
@@ -203,17 +204,24 @@ class GoldenFixService implements DependencyRemediation {
                 script.echo '[GOLDENFIX] Pre-check build skipped - no manifest changed'
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
-            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(current)}"
+            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(applied.effective as List<Map>)}"
             Map verdict = verifier.verify(dir, applied.files as List<String>,
                     verifyCfg + [catalogConsumers: applied.consumers, lockFiles: applied.locks, node: state.cfg?.build?.node])
             log = verdict.log as String
             if (verdict.ok) {
                 script.echo verdict.skipped
                         ? "[GOLDENFIX] Pre-check build skipped - ${log}"
-                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${describeVersions(current)}"
+                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${describeVersions(applied.effective as List<Map>)}"
                 return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log, refreshed: verdict.files ?: []]
             }
-            reason = "the build failed with ${describeVersions(current)} (${log})".toString()
+            reason = "the build failed with ${describeVersions(applied.effective as List<Map>)} (${log})".toString()
+            if (align && applied.alignedUp) {
+                script.echo '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions'
+                align = false
+                repository.revert(dir)
+                applied = applyFixes(dir, current, cfg, false)
+                continue
+            }
             script.echo "[GOLDENFIX] Pre-check build failed - lowering the proposed versions so they stay backward compatible"
             Map lowered = lowerFixes(current)
             if (!lowered.changed) {
@@ -223,7 +231,7 @@ class GoldenFixService implements DependencyRemediation {
             current = lowered.fixes as List<Map>
             dropped.addAll(lowered.dropped as List)
             repository.revert(dir)
-            applied = applyFixes(dir, current, cfg)
+            applied = applyFixes(dir, current, cfg, align)
         }
         return [applied: applied, verified: false, dropped: dropped,
                 reason: "${reason} after ${maxAttempts} attempt(s)".toString(), log: log]
@@ -262,7 +270,7 @@ class GoldenFixService implements DependencyRemediation {
         return parts.join(', ')
     }
 
-    private Map applyFixes(String dir, List<Map> fixes, Map cfg) {
+    private Map applyFixes(String dir, List<Map> fixes, Map cfg, boolean align = true) {
         List<String> excluded = (cfg.excludeDirs ?: defaultExcludedDirs()) as List<String>
         List<ManifestUpdater> active = []
         List<String> patterns = []
@@ -289,7 +297,8 @@ class GoldenFixService implements DependencyRemediation {
         }
         applyRound(dir, active, fixes, shared, files, texts, run)
         Map aligned = alignToCatalogs(fixes, run.found as List, shared)
-        applyRound(dir, active, aligned.fixes as List<Map>, others, files, texts, run)
+        List<Map> effective = align ? aligned.fixes as List<Map> : fixes
+        applyRound(dir, active, effective, others, files, texts, run)
 
         for (Map c : (run.changes as List<Map>)) {
             String what = c.property ? "property ${c.property} (${c.component})" : c.component
@@ -298,7 +307,7 @@ class GoldenFixService implements DependencyRemediation {
         return [files     : run.files, changes: run.changes, found: run.found,
                 unresolved: unresolvedFixes(fixes, run.changes as List<Map>, run.notes as List<Map>, run.requests as List<Map>, catalogs),
                 notes     : (catalogs.notes as List) + outsideCatalogs(run.changes as List<Map>, aligned.versions as Map, shared),
-                consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned)]
+                consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned), effective: effective, alignedUp: align && effective != fixes]
     }
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
