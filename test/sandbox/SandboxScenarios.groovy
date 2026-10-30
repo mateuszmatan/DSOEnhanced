@@ -868,6 +868,20 @@ check('GoldenFix catalogs: section headers with a trailing comment and TOML lite
                 && !gfOf(literalRun, 'gui').unresolved,
         "${literalRun.errors} ${literalToml} ${reasonsOf(literalRun, 'gui')}")
 
+Map rangeRun = catalogRun([
+        'settings.gradle'          : "include 'gui'\n",
+        'gradle/libs.versions.toml': '[versions]\nnetty = { strictly = "[4.1,4.2[", prefer = "4.1.86.Final" }\n\n[libraries]\nnetty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }\n' +
+                                     'guava = { module = "com.google.guava:guava", version = { strictly = "[30.0,31.0[", prefer = "30.1-jre" } }\n',
+        'gui/build.gradle'         : "dependencies {\n    implementation libs.netty.codec.http\n    implementation('org.yaml:snakeyaml') { version { strictly '(1.30,2.0]'; prefer '1.33' } }\n}\n"
+], [[name: 'gui', fixes: [['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.2.1.Final'], ['maven', 'com.google.guava', 'guava', '30.1-jre', '32.0.0-jre'],
+                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2']]]])
+check('GoldenFix catalogs: a strictly range that excludes the target leaves the rich version alone and the reason names the range',
+        rangeRun.errors.isEmpty() && !rangeRun.written && gfOf(rangeRun, 'gui').status == 'NO_MANIFEST_CHANGES' && reasonsOf(rangeRun, 'gui') == [
+                "io.netty:netty-codec-http: managed by version catalog gradle/libs.versions.toml (netty): strictly range '[4.1,4.2[' excludes 4.2.1.Final",
+                "com.google.guava:guava: managed by version catalog gradle/libs.versions.toml (guava): strictly range '[30.0,31.0[' excludes 32.0.0-jre",
+                "org.yaml:snakeyaml: gui/build.gradle: strictly range '(1.30,2.0]' excludes 2.2"],
+        "${rangeRun.errors} ${rangeRun.written} ${reasonsOf(rangeRun, 'gui')}")
+
 Map pomRangeRun = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +

@@ -199,6 +199,7 @@ class GradleUpdater implements ManifestUpdater {
             r.properties << UpdaterSupport.propertyRequest(ref.group(1), fix, path, [name: catalogName(path), file: path])
             return null
         }
+        if (excluded(path, fix, entry, alias, r)) return null
         String updated = UpdaterSupport.replaceValue(entry, '(\\bversion\\s*=\\s*[\'"])([^\'"]+)([\'"])') { String declared -> declare(path, fix, declared, alias, r) }
         updated = UpdaterSupport.replaceValue(updated, '(\\bversion\\s*=\\s*\\{)([^}]*)(\\})') { String rich -> richVersions(path, fix, rich, alias, r) }
         updated = UpdaterSupport.replaceValue(updated, '(\\bversion\\.(?:strictly|require|prefer)\\s*=\\s*[\'"])([^\'"]+)([\'"])') { String declared ->
@@ -209,6 +210,7 @@ class GradleUpdater implements ManifestUpdater {
 
     @NonCPS
     private String richVersions(String path, Map fix, String rich, String alias, Map r) {
+        if (excluded(path, fix, rich, alias, r)) return null
         String updated = UpdaterSupport.replaceValue(rich, richRe()) { String declared -> declare(path, fix, declared, alias, r) }
         return updated == rich ? null : updated
     }
@@ -239,6 +241,11 @@ class GradleUpdater implements ManifestUpdater {
                 String key = g[2] as String
                 if (VersionCatalogs.alias(key) != wanted) return null
                 String value = g[3] as String
+                String range = strictRange(value, property.targetVersion as String)
+                if (range) {
+                    r.notes.addAll(UpdaterSupport.propertyNotes(property, UpdaterSupport.catalogReason(path, key, "strictly range '${range}' excludes ${property.targetVersion}")))
+                    return null
+                }
                 String next = UpdaterSupport.replaceValue(value, value.startsWith('{') ? richRe() : '([\'"])([^\'"]*)([\'"])') { String v ->
                     raise(path, property, v, key, r)
                 }
@@ -289,6 +296,26 @@ class GradleUpdater implements ManifestUpdater {
             if (VersionCatalogs.alias(entry.group(1)) == VersionCatalogs.alias(name)) return entry.group(2)
         }
         return null
+    }
+
+    @NonCPS
+    private boolean excluded(String path, Map fix, String rich, String alias, Map r) {
+        String range = strictRange(rich, fix.targetVersion as String)
+        if (range) r.notes << note(path, fix, alias, "strictly range '${range}' excludes ${fix.targetVersion}".toString())
+        return range != null
+    }
+
+    @NonCPS
+    private static String strictRange(String rich, String target) {
+        def strictly = (rich ?: '') =~ /\bstrictly\s*[=(]?\s*['"]([^'"]+)['"]/
+        if (!strictly.find()) return null
+        String range = strictly.group(1).trim()
+        def bounds = range =~ /^([\[(\]])\s*([^,]*?)\s*,\s*([^,]*?)\s*([\])\[])$/
+        if (!bounds.matches()) return null
+        int low = bounds.group(2) ? GoldenFix.compare(target, bounds.group(2)) : 1
+        int high = bounds.group(3) ? GoldenFix.compare(target, bounds.group(3)) : -1
+        boolean outside = low < 0 || (low == 0 && bounds.group(1) != '[') || high > 0 || (high == 0 && bounds.group(4) != ']')
+        return outside ? range : null
     }
 
     @NonCPS
