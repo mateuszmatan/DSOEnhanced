@@ -11,9 +11,16 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
         return '(?s)("(?:dependencies|devDependencies|peerDependencies|optionalDependencies)"\\s*:\\s*\\{)([^{}]*)(\\})'
     }
 
+    @NonCPS
+    private static String overridesRe() {
+        return '(?s)("(overrides|resolutions)"\\s*:\\s*\\{)([^{}]*(?:\\{[^{}]*\\}[^{}]*)*)(\\})'
+    }
+
     String ecosystem() { return 'npm' }
 
-    List<String> filePatterns() { return ['package.json'] }
+    List<String> filePatterns() { return ['package.json', 'package-lock.json'] }
+
+    void useCatalogs(Map catalogs) { }
 
     @NonCPS
     boolean supports(String relativePath) {
@@ -46,6 +53,20 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
                 }
             }
             return newSection == section ? null : newSection
+        }
+        updated = UpdaterSupport.replaceMatch(updated, overridesRe()) { List s ->
+            String section = s[3] as String
+            String newSection = section
+            fixes.each { fix ->
+                String regex = '(\\{[^{}]*\\})|("' + UpdaterSupport.quote(fix.name as String) + '"\\s*:\\s*"(?:\\^|~|>=|=)?\\s*v?)(\\d[\\w.\\-+]*)(")'
+                newSection = UpdaterSupport.replaceMatch(newSection, regex) { List g ->
+                    String declared = g[3] as String
+                    if (g[1] || !GoldenFix.isConcreteVersion(declared) || !GoldenFix.isUpgrade(declared, fix.targetVersion as String)) return null
+                    changes << UpdaterSupport.change(relativePath, fix, declared, fix.targetVersion as String) + [property: s[2]]
+                    return (g[2] as String) + fix.targetVersion + (g[4] as String)
+                }
+            }
+            return newSection == section ? null : (s[1] as String) + newSection + (s[4] as String)
         }
         return [content: updated, changes: changes, properties: [], notes: notes]
     }

@@ -24,6 +24,11 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [checkoutScm: true, setupJava: true]) } }
             }
 
+            stage('Node.js build') {
+                when { expression { return devSecOpsApi.nodeBuildRequired() } }
+                steps { script { devSecOpsSteps.nodeBuild(devSecOpsApi) } }
+            }
+
             stage('SAST - Static Application Security Tests - HCL AppScan') {
                 steps { script { devSecOpsSteps.sast(devSecOpsApi) } }
             }

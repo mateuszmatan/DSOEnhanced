@@ -164,6 +164,7 @@ class GoldenFix implements Serializable {
 
     @NonCPS
     static String selectionLabel(Map fix) {
+        if (fix?.alignedTo) return "version of the shared catalog ${fix.alignedTo}".toString()
         String type = (fix?.remediationType ?: '') as String
         String scope = (fix?.nonBreaking == false)
                 ? 'changes more than the patch version, no patch-level upgrade is offered'
@@ -221,9 +222,11 @@ class GoldenFix implements Serializable {
     static List mergePropertyRequests(List requests) {
         Map byName = [:]
         for (def request : (requests ?: [])) {
-            Map existing = byName[request.name] as Map
+            Map catalog = request.catalog as Map
+            String key = catalog ? "${VersionCatalogs.alias(request.name as String)}@${catalog.file}#${catalog.name}".toString() : request.name
+            Map existing = byName[key] as Map
             if (!existing) {
-                byName[request.name] = [
+                Map merged = [
                         name         : request.name,
                         ecosystem    : request.ecosystem,
                         targetVersion: request.targetVersion,
@@ -231,8 +234,14 @@ class GoldenFix implements Serializable {
                         components   : [] + (request.components as List),
                         referencedIn : [] + (request.referencedIn as List)
                 ]
+                if (catalog) merged.catalog = catalog
+                if (request.alignedTo) merged.alignedTo = request.alignedTo
+                byName[key] = merged
             } else {
-                existing.targetVersion = max(existing.targetVersion as String, request.targetVersion as String)
+                String target = max(existing.targetVersion as String, request.targetVersion as String)
+                if (target != existing.targetVersion) existing.remove('alignedTo')
+                if (target == request.targetVersion && request.alignedTo && !existing.alignedTo) existing.alignedTo = request.alignedTo
+                existing.targetVersion = target
                 addAllUnique(existing.componentKeys as List, request.componentKeys as List)
                 addAllUnique(existing.components as List, request.components as List)
                 addAllUnique(existing.referencedIn as List, request.referencedIn as List)

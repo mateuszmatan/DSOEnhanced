@@ -25,6 +25,7 @@ class HtmlReportService implements Serializable {
     protected final String BAD_COLOR  = '#991b1b'
 
     protected final String NIQ_STAGE  = 'Dependencies scan (Nexus IQ)'
+    protected final String NODE_STAGE = 'Node.js build'
     protected final String DAST_STAGE = 'DAST - Dynamic Application Security Tests - HCL AppScan'
     protected final List TEST_STAGES  = ['Smoke tests', 'Regression tests (>60% user stories coverage)', 'Performance tests']
 
@@ -48,7 +49,7 @@ class HtmlReportService implements Serializable {
         this.os     = os
         this.policy = policy
         this.variant = variant ?: 'full'
-        Map stageLayout = layout(this.variant)
+        Map stageLayout = layout(this.variant, state.stageResults.containsKey(NODE_STAGE))
         this.appscanScnrs = stageLayout.appscanScnrs
         this.stageOrder = stageLayout.stageOrder
         this.secStageNames = stageLayout.secStageNames
@@ -553,13 +554,14 @@ class HtmlReportService implements Serializable {
         }
         if (status == 'NO_MANIFEST_CHANGES') {
             return [headline   : 'Nothing could be upgraded in this project.',
-                    explanation: "The vulnerable versions are not chosen by this project. They arrive through another library that this project " +
-                            'depends on, so the upgrade has to be made in that library first.']
+                    explanation: 'The vulnerable versions are not chosen in a file that the pipeline can change. They arrive through another library ' +
+                            'or a BOM that this project depends on, or they are set in a way the pipeline does not edit, such as a version range. ' +
+                            'The reasons below say where each one is set, and the upgrade has to be made there.']
         }
         if (status == 'BUILD_FAILED') {
             return [headline   : 'The upgrade was not proposed because the application stopped building with it.',
                     explanation: 'Before proposing anything the pipeline builds the application with the new versions. That build failed, and it ' +
-                            'failed again with every lower version the supplier offers, so nothing was proposed rather than handing over a change ' +
+                            'failed again with the other versions the pipeline tried, so nothing was proposed rather than handing over a change ' +
                             'that breaks the application. The vulnerabilities above are still there and the upgrade has to be done by a developer.']
         }
         if (status == 'SKIPPED') {
@@ -588,6 +590,7 @@ class HtmlReportService implements Serializable {
             sb.append(goldenFixStatusBanner(gf))
             sb.append(goldenFixChangesTable((gf.get('changes') ?: []) as List))
             sb.append(goldenFixUnresolvedList((gf.get('unresolved') ?: []) as List))
+            sb.append(goldenFixNotes((gf.get('notes') ?: []) as List))
         }
         return card('Nexus IQ GoldenFix', sb.toString())
     }
@@ -627,6 +630,13 @@ class HtmlReportService implements Serializable {
             sb.append("<li><b>${esc(u.get('component') as String)}</b> ${esc(u.get('from') as String)} &rarr; ${esc(u.get('to') as String)}: ${esc(u.get('reason') as String)}</li>")
         }
         sb.append("</ul>")
+        return sb.toString()
+    }
+    @NonCPS protected String goldenFixNotes(List notes) {
+        if (!notes) return ''
+        def sb = new StringBuilder("<div style='margin-top:8px;font-size:0.74rem;color:#475569;'>")
+        notes.each { n -> sb.append("<div>${esc(n as String)}</div>") }
+        sb.append("</div>")
         return sb.toString()
     }
 
@@ -913,7 +923,8 @@ class HtmlReportService implements Serializable {
                     String project = projectKeys.get(pi)?.toString() ?: ''
                     Map box = stageBoxData(ctx, baseName, project, groupStatus)
                     String displayName = isMulti ? "${baseName} - ${project}" : baseName
-                    String displayNum = isMulti ? "${stageNumber}.${pi + 1}" : "${stageNumber}"
+                    String number = baseName == NODE_STAGE ? '0' : "${stageNumber}"
+                    String displayNum = isMulti ? "${number}.${pi + 1}" : number
                     String duration = ''
                     def timeInfo = (ctx.stageTimes as Map)?.get(baseName)
                     if (timeInfo != null && pi == projectKeys.size() - 1) {
@@ -926,7 +937,7 @@ class HtmlReportService implements Serializable {
                     boolean isLastInGroup = (si == stages.size() - 1) && (pi == projectKeys.size() - 1)
                     if (!isLastInGroup) flow.append(arrow())
                 }
-                stageNumber++
+                if (baseName != NODE_STAGE) stageNumber++
                 globalIdx++
             }
             flow.append("</div></div>")
@@ -1228,7 +1239,23 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
     }
 
     @NonCPS
-    static Map layout(String variant) {
+    static Map layout(String variant, boolean nodeBuild = false) {
+        Map chosen = stageLayout(variant)
+        if (nodeBuild) {
+            Map first = (chosen.phaseGroups as List)[0] as Map
+            chosen.stageOrder = withNodeBuild(chosen.stageOrder as List)
+            first.stages = withNodeBuild(first.stages as List)
+        }
+        return chosen
+    }
+
+    @NonCPS
+    private static List withNodeBuild(List stages) {
+        return [stages[0], 'Node.js build'] + stages.drop(1)
+    }
+
+    @NonCPS
+    private static Map stageLayout(String variant) {
         String monitor     = 'Monitor source changes (download sources)'
         String unit        = 'Unit tests'
         String build       = 'Build artifact'

@@ -8,7 +8,7 @@ if ! command -v python3 > /dev/null 2>&1; then
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-python3 tools/build-documentation-html.py "$TMP/documentation.html" > /dev/null || exit 1
+python3 tools/build-documentation-html.py --html "$TMP/documentation.html" > /dev/null || exit 1
 if diff -q "$TMP/documentation.html" documentation.html > /dev/null 2>&1; then
   echo "DOCS HTML CHECK PASSED - documentation.html matches documentation.confluence"
 else

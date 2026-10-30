@@ -31,12 +31,12 @@ fi
         return dir
     }
 
-    List<String> findFiles(String dir, List<String> namePatterns, List<String> excludeDirs) {
-        if (!namePatterns) return []
+    List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs) {
+        if (!patterns) return []
         String out = script.sh(label: 'GoldenFix: find dependency manifests', returnStdout: true, script: """#!/bin/bash
 set -euo pipefail
 cd '${q(dir)}'
-${findCommand(namePatterns, excludeDirs)} | sed 's|^\\./||' | LC_ALL=C sort
+${findCommand(patterns, excludeDirs)} | sed 's|^\\./||' | LC_ALL=C sort
 """)
         return nonEmptyLines(out)
     }
@@ -76,27 +76,36 @@ rm -f '${q(messageFile)}'
         String target = "push '${q(url)}' 'HEAD:refs/heads/${q(branch)}'"
         script.echo "[GOLDENFIX] Pushing branch ${branch} to ${sanitizeUrl(url)}"
 
-        if (isSshUrl(url) || !credentialsId) {
-            if (isSshUrl(url) && credentialsId) {
-                script.sshagent([credentialsId]) { runGit(dir, '', target, '') }
-            } else {
-                runGit(dir, '', target, '')
-            }
-            return
-        }
-        if (((pushCfg.authType ?: 'basic') as String).toLowerCase() in ['bearer', 'token']) {
+        int status = 0
+        if (isSshUrl(url) && credentialsId) {
+            script.sshagent([credentialsId]) { status = runGit(dir, '', target, '') }
+        } else if (isSshUrl(url) || !credentialsId) {
+            status = runGit(dir, '', target, '')
+        } else if (((pushCfg.authType ?: 'basic') as String).toLowerCase() in ['bearer', 'token']) {
             script.withCredentials([script.string(credentialsId: credentialsId, variable: 'GF_GIT_TOKEN')]) {
-                if (pushCfg.cloud) {
-                    runGit(dir, credentialHelper('x-token-auth', '${GF_GIT_TOKEN}'), target, '')
-                } else {
-                    runGit(dir, '', target, bearerHeaderEnv('GF_GIT_TOKEN'))
-                }
+                status = pushCfg.cloud
+                        ? runGit(dir, credentialHelper('x-token-auth', '${GF_GIT_TOKEN}'), target, '')
+                        : runGit(dir, '', target, bearerHeaderEnv('GF_GIT_TOKEN'))
             }
         } else {
             script.withCredentials([script.usernamePassword(credentialsId: credentialsId, usernameVariable: 'GF_GIT_USER', passwordVariable: 'GF_GIT_PASS')]) {
-                runGit(dir, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
+                status = runGit(dir, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
             }
         }
+        if (status == 0) return
+        String output = script.sh(label: 'GoldenFix: read the git push output', returnStdout: true,
+                script: "cat '${q(dir)}.push.log' 2>/dev/null || true; rm -f '${q(dir)}.push.log'") as String
+        script.error(pushFailure(branch, sanitizeUrl(url), status, output))
+    }
+
+    @NonCPS
+    static String pushFailure(String branch, String url, int status, String output) {
+        List<String> lines = (output ?: '').readLines().collect { it.trim() }
+        if (lines.any { it ==~ /.*\[rejected\].*\((fetch first|non-fast-forward|already exists)\).*/ }) {
+            return "[GOLDENFIX] The branch ${branch} already exists in ${url} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)".toString()
+        }
+        List<String> reasons = lines.findAll { it.startsWith('remote:') || it.startsWith('! [') } as List<String>
+        return "[GOLDENFIX] git push of ${branch} to ${url} failed (exit code ${status})${reasons ? ': ' + reasons.join(' ') : ''}".toString()
     }
 
     void revert(String dir) {
@@ -124,14 +133,15 @@ git worktree prune 2>/dev/null || true
         return branch == 'HEAD' ? '' : branch
     }
 
-    void runGit(String dir, String authOptions, String command, String preamble) {
-        script.sh(label: 'GoldenFix: git push', script: """#!/bin/bash
+    int runGit(String dir, String authOptions, String command, String preamble) {
+        return script.sh(label: 'GoldenFix: git push', returnStatus: true, script: """#!/bin/bash
 set +x
 set -euo pipefail
 export GIT_TERMINAL_PROMPT=0
 ${preamble}
-git ${authOptions} -C '${q(dir)}' ${command}
-""")
+git ${authOptions} -C '${q(dir)}' ${command} 2>&1 | tee '${q(dir)}.push.log'
+rm -f '${q(dir)}.push.log'
+""") as int
     }
 
     private String workspaceRoot() {
@@ -149,8 +159,8 @@ git ${authOptions} -C '${q(dir)}' ${command}
     }
 
     @NonCPS
-    static String findCommand(List<String> namePatterns, List<String> excludeDirs) {
-        String names = namePatterns.collect { "-name '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
+    static String findCommand(List<String> patterns, List<String> excludeDirs) {
+        String names = patterns.collect { "${(it as String).contains('/') ? '-path' : '-name'} '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
         if (!excludeDirs) return "find . -type f \\( ${names} \\) -print"
         String prune = excludeDirs.collect { "-name '${BuildUtils.escapeForSingleQuotes(it as String)}'" }.join(' -o ')
         return "find . \\( ${prune} \\) -prune -o -type f \\( ${names} \\) -print"

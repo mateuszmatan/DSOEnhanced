@@ -4,7 +4,7 @@ interface SourceRepository extends Serializable {
 
     String prepareWorkingCopy(String branch)
 
-    List<String> findFiles(String dir, List<String> namePatterns, List<String> excludeDirs)
+    List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs)
 
     String readText(String dir, String relativePath)
 

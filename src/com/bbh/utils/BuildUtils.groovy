@@ -34,6 +34,12 @@ class BuildUtils implements Serializable {
         return [v.toString()]
     }
 
+    @NonCPS
+    static List<String> normalizeLines(def v) {
+        List items = v instanceof List ? (v as List) : (v ? v.toString().readLines() : [])
+        return items.collect { it?.toString()?.trim() }.findAll { it } as List<String>
+    }
+
     static String shellQuoteIfNeeded(String token) {
         if (token == null) return ""
         if (token ==~ /^A-Za-z0-9._\/:=+-$/) return token
@@ -60,6 +66,12 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String relativePath(String path) {
+        String trimmed = (path ?: '').trim()
+        return trimmed.startsWith('/') ? trimmed : trimmed.tokenize('/').findAll { it != '.' }.join('/')
+    }
+
+    @NonCPS
     static String escapeForSingleQuotes(String value) {
         return value.replace("'", "'\"'\"'")
     }
@@ -80,6 +92,16 @@ class BuildUtils implements Serializable {
     @NonCPS
     static boolean nexusDeliveryEnabled(Map cfg) {
         return booleanValue(cfg.deploy?.get(cfg.deployTarget ?: 'vm')?.rd?.nexusDeliveryEnabled, true)
+    }
+
+    @NonCPS
+    static boolean nodeBuildEnabled(Map cfg) {
+        return booleanValue(cfg.build?.node?.enabled, false)
+    }
+
+    @NonCPS
+    static boolean nodeBuildNeeded(Map cfg, String variant, boolean windows) {
+        return nodeBuildEnabled(cfg) && (variant != 'sast' || (booleanValue(cfg.asoc?.doCompile, true) && !windows))
     }
 
     static String requiredString(def script, def value, String propertyName) {

@@ -60,7 +60,7 @@ class UpdaterSupport implements Serializable {
 
     @NonCPS
     static Map change(String path, Map fix, String from, String to) {
-        return [
+        Map row = [
                 file           : path,
                 ecosystem      : fix.ecosystem,
                 component      : fix.displayName,
@@ -71,11 +71,13 @@ class UpdaterSupport implements Serializable {
                 remediationType: fix.remediationType ?: '',
                 golden         : fix.golden ? true : false
         ]
+        if (fix.alignedTo) row.alignedTo = fix.alignedTo
+        return row
     }
 
     @NonCPS
     static Map propertyChange(String path, Map property, String from) {
-        return [
+        Map row = [
                 file           : path,
                 ecosystem      : property.ecosystem,
                 component      : (property.components as List).join(', '),
@@ -85,6 +87,8 @@ class UpdaterSupport implements Serializable {
                 property       : property.name,
                 remediationType: ''
         ]
+        if (property.alignedTo) row.alignedTo = property.alignedTo
+        return row
     }
 
     @NonCPS
@@ -100,8 +104,25 @@ class UpdaterSupport implements Serializable {
     }
 
     @NonCPS
-    static Map propertyRequest(String name, Map fix, String path) {
-        return [
+    static String catalogReason(String path, String alias, String why) {
+        return "managed by version catalog ${path}${alias ? " (${alias})" : ''}: ${why}".toString()
+    }
+
+    @NonCPS
+    static List propertyNotes(Map property, String reason) {
+        List out = []
+        for (def key : (property.componentKeys as List)) out << [file: '', componentKey: key, reason: reason]
+        return out
+    }
+
+    @NonCPS
+    static Map found(String path, List componentKeys, String version, String alias) {
+        return [file: path, componentKeys: [] + componentKeys, version: version, alias: alias ?: '']
+    }
+
+    @NonCPS
+    static Map propertyRequest(String name, Map fix, String path, Map catalog = null) {
+        Map request = [
                 name         : name,
                 ecosystem    : fix.ecosystem,
                 targetVersion: fix.targetVersion,
@@ -109,5 +130,19 @@ class UpdaterSupport implements Serializable {
                 components   : [fix.displayName],
                 referencedIn : [path]
         ]
+        if (catalog) request.catalog = catalog
+        if (fix.alignedTo) request.alignedTo = fix.alignedTo
+        return request
+    }
+
+    @NonCPS
+    static void bomNotes(String path, Map fix, List boms, List notes) {
+        String group = (fix.group ?: '') as String
+        for (def bom : boms) {
+            String bomGroup = (bom as List)[0] as String
+            if (group != bomGroup && !group.startsWith(bomGroup + '.')) continue
+            String coordinates = (bom as List).findAll { it }.join(':')
+            notes << note('', fix, "managed by BOM ${coordinates} imported in ${path}: raise the BOM or add an override to the catalog".toString())
+        }
     }
 }

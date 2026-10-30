@@ -9,6 +9,7 @@ class InMemorySourceRepository implements SourceRepository {
     Map<String, String> written = [:]
     List<Map> commits = []
     List<String> pushedBranches = []
+    List<List<String>> searches = []
     int reverts = 0
 
     InMemorySourceRepository(Map<String, String> files) {
@@ -20,13 +21,15 @@ class InMemorySourceRepository implements SourceRepository {
         return '/ws@tmp/goldenfix-' + branch
     }
 
-    List<String> findFiles(String dir, List<String> namePatterns, List<String> excludeDirs) {
+    List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs) {
+        searches << ([] + patterns)
         List<String> found = []
         for (String path : files.keySet()) {
-            String name = path.tokenize('/').last()
-            for (String pattern : namePatterns) {
-                String regex = pattern.replace('.', '\\.').replace('*', '.*')
-                if (name ==~ regex && !found.contains(path)) found << path
+            List<String> segments = path.tokenize('/')
+            if (segments.subList(0, segments.size() - 1).any { (excludeDirs ?: []).contains(it) }) continue
+            for (String pattern : patterns) {
+                String regex = pattern.replaceFirst('^\\./', '').replace('.', '\\.').replace('?', '.').replace('*', '.*')
+                if ((pattern.contains('/') ? path : segments.last()) ==~ regex && !found.contains(path)) found << path
             }
         }
         return found.sort()

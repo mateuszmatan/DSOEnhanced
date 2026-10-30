@@ -10,6 +10,8 @@ class PipUpdater implements ManifestUpdater {
 
     List<String> filePatterns() { return ['requirements*.txt', 'constraints*.txt', 'pyproject.toml'] }
 
+    void useCatalogs(Map catalogs) { }
+
     @NonCPS
     boolean supports(String relativePath) {
         String name = UpdaterSupport.fileName(relativePath)
