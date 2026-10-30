@@ -5,7 +5,6 @@ import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
 import devsecops.test.GoldenFixResponder
-import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
 
@@ -43,7 +42,6 @@ Closure check = { String name, boolean ok, Object detail ->
 
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
-Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
 
 List<String> classNames = []
 srcDir.eachFileRecurse { File f ->
@@ -325,7 +323,7 @@ List metricLines = metricsHarness.run {
     st.commitTime = System.currentTimeMillis() - 7200000L
     st.commitSha = 'ab12cd34ef567890'
     st.projectsAllCfg = [gui: [deploy: [openshift: [rd: [buildTag: '212-20261006-081500']]]], 'backend-api': [:]]
-    st.portalDocuments = [[hint: '5e0f0001...0001', renderedAt: '2026-10-06T08:14:19.475Z', sha256: '0f1e2d3c4b5a6901', config: [projects: [gui: [:]]]]]
+    st.configFile = 'devsecops_config.yaml'
     st.projectsUnitTests = [gui: [total: 214, failed: 2, skipped: 3, durationMs: 42000L]]
     st.projectsSonarResults = [gui: [status: 'PASS', qualityGate: 'OK', url: 'https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui']]
     st.projectsNexusIqResults = [gui: [url: 'https://tools.bbh.com/IQ/ui/links/application/cert-scanner-gui/report/0f1e2d3c']]
@@ -363,7 +361,7 @@ boolean wellFormed = metricLines.every { String l ->
     List sections = l.split(' ') as List
     sections.size() >= 3 && (sections[-1] ==~ /\d+/) && l.contains('=')
 }
-check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate, remediation and the change evidence (build_evidence, added for the portal Change Evidence tab)',
+check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate, remediation and the change evidence (build_evidence)',
         measurements == ['build_duration', 'build_evidence', 'change_failure', 'code_coverage', 'deployments', 'dora', 'goldenfix',
                          'pipeline_run', 'policy_status', 'release_gate', 'security_findings', 'stage_event',
                          'stage_metric', 'test_execution', 'test_job', 'vulnerabilities'],
@@ -390,17 +388,17 @@ check('InfluxDB: the unit test counts of a module are a test_execution point wit
 List<String> evidenceLines = metricLines.findAll { (it as String).startsWith('build_evidence,') } as List<String>
 String guiEvidence = evidenceLines.find { it.contains('module=gui ') }
 String apiEvidence = evidenceLines.find { it.contains('module=backend-api ') }
-check('InfluxDB: build_evidence records the artifact version, the quality gate, the report links and the portal document of each module',
+check('InfluxDB: build_evidence records the artifact version, the quality gate, the report links and the settings file of each module',
         evidenceLines.size() == 2 && guiEvidence && guiEvidence.contains('artifact_version="212-20261006-081500"')
                 && guiEvidence.contains('sonar_quality_gate="OK"')
                 && guiEvidence.contains('sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner/212/artifact/appscan-report-gui.html"')
                 && guiEvidence.contains('nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/cert-scanner-gui/report/0f1e2d3c"')
                 && guiEvidence.contains('sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui"')
-                && guiEvidence.contains('config_rendered_at="2026-10-06T08:14:19.475Z"') && guiEvidence.contains('config_sha256="0f1e2d3c4b5a6901"')
+                && guiEvidence.contains('config_file="devsecops_config.yaml"')
                 && !guiEvidence.contains('dast_report_url'),
         guiEvidence)
 check('InfluxDB: build_evidence leaves empty values out and falls back to the build number and NONE',
-        apiEvidence && apiEvidence.contains('artifact_version="212",sonar_quality_gate="NONE" ') && !apiEvidence.contains('_url') && !apiEvidence.contains('config_'),
+        apiEvidence && apiEvidence.contains('artifact_version="212",sonar_quality_gate="NONE",config_file="devsecops_config.yaml" ') && !apiEvidence.contains('_url'),
         apiEvidence)
 List<String> goldenFixLines = metricLines.findAll { (it as String).startsWith('goldenfix,') } as List<String>
 String raisedLine = goldenFixLines.find { it.contains(',module=gui,') }
@@ -1269,7 +1267,7 @@ Map rejected = pushFailure.call('To https://bitbucket.bbh.com/scm/ta/cert-scanne
         "error: failed to push some refs to 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git'\n")
 check('GoldenFix: a push rejected because the branch exists names the cause and the fix instead of the exit code',
         rejected.message == '[GOLDENFIX] The branch GoldenFix-202609191405 already exists in https://bitbucket.bbh.com/scm/ta/cert-scanner.git - another GoldenFix job ' +
-                'of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)'
+                'of this repository ran in the same minute; run one GoldenFix job for all services of a repository (projectNames)'
                 && (rejected.scripts as List)[0].contains("push 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git' 'HEAD:refs/heads/GoldenFix-202609191405' 2>&1 | tee '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'")
                 && (rejected.scripts as List)[1] == "cat '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log' 2>/dev/null || true; rm -f '/ws@tmp/goldenfix/GoldenFix-202609191405.push.log'",
         rejected)
@@ -1511,12 +1509,12 @@ Closure runScenario = { Map spec ->
             HAS_BUILD_TOOL_INSTALLED: 'true',
             PATH                    : '/usr/bin',
             GIT_BRANCH              : 'origin/develop',
-            APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com',
-            DSO_PORTAL_URL          : PortalFixtures.PORTAL_URL
+            APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com'
     ])
     script.params.DEPLOY_HIGHER_ENV = spec.deployHigherEnv ?: false
     script.resourcesDir = new File(root, 'resources')
-    List<String> keys = PortalFixtures.publishAll(script, spec.variant as String, defaults.defaults as Map, platform, projects.projects as Map)
+    script.files['devsecops_config.yaml'] = yaml.dump(projects)
+    script.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
     script.shHandler = { Map a ->
         if (!a.returnStdout && String.valueOf(a.label ?: '').startsWith('GoldenFix:')) goldenFixCalls << String.valueOf(a.label)
         if (a.returnStatus) return 0
@@ -1602,7 +1600,7 @@ Closure runScenario = { Map spec ->
             }
         }
         List<String> stages = stagesOf[spec.variant as String]
-        config.load(spec.variant as String, [pipelineKeys: keys])
+        config.load(spec.variant as String, [agentNames: ['linux-agent']])
 
         stage(MONITOR) {
             os.detect()

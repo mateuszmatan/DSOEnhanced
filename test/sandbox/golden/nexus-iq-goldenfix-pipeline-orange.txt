@@ -1,21 +1,4 @@
 == calls
-node linux-agent
-withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-62, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
-sh [Read the configuration from the DevSecOps portal] #!/bin/sh
-set +x
-umask 077
-mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
-i=0
-for key in $DSO_PORTAL_KEYS; do
-  : > "body-$i"
-  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
-    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
-  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
-  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
-  i=$((i + 1))
-done
-
-deleteDir /ws@tmp/dso-portal-62
 agent linux-agent
 checkout
 sh uname -s 2>/dev/null || echo Linux
@@ -159,8 +142,6 @@ archiveArtifacts report/pipeline-report.html
 publishHTML pipeline-report.html
 cleanWs
 == log
-[PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -237,8 +218,8 @@ policy_status,project=CertScannernexusiq,env=test,scanner=dast,status=SKIP ok=0i
 policy_status,project=CertScannernexusiq,env=test,scanner=iast,status=PASS ok=1i,measured=1i <s>
 policy_status,project=CertScannernexusiq,env=test,scanner=coverage,status=SKIP ok=0i,measured=0i <s>
 policy_status,project=CertScannernexusiq,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
-build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="62",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
-build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="62",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
+build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="62",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
+build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="62",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
 release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=2i,reason="Nexus release and QC deployment blocked: stage 'Dependencies scan (Nexus IQ)' is WARN (previous pipeline) | stage 'Dependencies scan (Nexus IQ)' is WARN" <s>
 goldenfix,project=CertScannernexusiq,env=test,module=gui,status=PR_CREATED offered=4i,applied=3i,unresolved=1i,pr_raised=1i,build_check=1i,build_failed=0i,pr_url="https://bitbucket.bbh.com/projects/TA/repos/cert-scanner/pull-requests/318",pr_title="GoldenFix-202609191405" <s>
 == report
@@ -265,7 +246,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-nexusiq-pipeline &nbsp;&bull;&nbsp; Build #62</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from devsecops_config.yaml in the repository</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

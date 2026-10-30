@@ -188,7 +188,7 @@ Map none = coverageRun([svc: [buildTool: 'gradle', sourceDir: 'svc']], [:])
 Map empty = coverageRun([svc: [buildTool: 'gradle']], ['--root': "S\t0\nR\tjacoco\tbuild/a.xml\t0\t0\tempty\t\nR\tlcov\tweb/lcov.info\t0\t0\tunreadable\t"])
 check('Coverage: no report, or only reports without lines, turn the stage orange with the reason and keep the rows',
         none.errors.isEmpty() && none.status == 'WARN' && none.card == ''
-                && none.reason.startsWith('No JaCoCo or LCOV coverage report found in the workspace, set coverage.reportPath for the service in the DevSecOps portal to point at it - the required 60% line coverage cannot be verified.')
+                && none.reason.startsWith('No JaCoCo or LCOV coverage report found in the workspace, set coverage.reportPath for the service in devsecops_config.yaml or config.yaml to point at it - the required 60% line coverage cannot be verified.')
                 && empty.status == 'WARN' && empty.reason.startsWith('No coverage report with measured lines (build/a.xml, web/lcov.info) - the required 60% line coverage cannot be verified.')
                 && empty.log.contains('[COVERAGE] Searching the workspace for JaCoCo and LCOV reports\n[COVERAGE] JaCoCo build/a.xml: no lines, not counted\n[COVERAGE] LCOV web/lcov.info: could not be read, not counted')
                 && (empty.card as String).contains('n/a') && (empty.card as String).contains('not counted: could not be read'),

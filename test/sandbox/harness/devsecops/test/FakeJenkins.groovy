@@ -129,8 +129,6 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Map<String, Map<String, String>> upstream = [:]
     boolean unix = true
     boolean jsonLib = true
-    Map<String, Map> portal = [:]
-    Map portalAnswer = null
     String cwd = ''
     Closure shHandler = { Map args -> '' }
     Closure readFileHandler = null
@@ -165,30 +163,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     private Object shell(String kind, Object arg) {
         Map args = arg instanceof Map ? (Map) arg : [script: String.valueOf(arg)]
         calls << "${kind}${args.label ? ' [' + args.label + ']' : ''} ${args.script}".toString()
-        if (String.valueOf(args.script).contains('/api/dso/config/')) return answerPortal()
         return shHandler.call(args)
-    }
-    private Object answerPortal() {
-        String dir = env.vars.get('DSO_PORTAL_DIR')
-        List<String> keys = (env.vars.get('DSO_PORTAL_KEYS') ?: '').tokenize(' ')
-        keys.eachWithIndex { String key, int i ->
-            Map answer = portalAnswer ?: portalAnswerOf(key, portal.get(key))
-            files.put(norm("${dir}/status-${i}"), "${answer.status} ${answer.sha256 ?: ''}\n".toString())
-            files.put(norm("${dir}/body-${i}"), (answer.body ?: '') as String)
-            files.put(norm("${dir}/error-${i}"), (answer.error ?: '') as String)
-        }
-        return null
-    }
-    static Map portalAnswerOf(String key, Map entry) {
-        if (entry == null) return [status: '404', body: problem(key, 404, 'Not found', 'Unknown DevSecOps pipeline key')]
-        if (entry.keyStatus != 'ACTIVE') {
-            return [status: '403', body: problem(key, 403, 'Pipeline key invalidated',
-                    "The DevSecOps pipeline key was invalidated on 2026-10-06T08:14:19.475Z${entry.revokeReason ? ': ' + entry.revokeReason : ''}".toString())]
-        }
-        return [status: '200', sha256: entry.sha256, body: groovy.json.JsonOutput.toJson(entry.config)]
-    }
-    static String problem(String key, int status, String title, String detail) {
-        return groovy.json.JsonOutput.toJson([type: 'about:blank', title: title, status: status, detail: detail, instance: "/api/dso/config/${key}".toString()])
     }
     boolean isUnix() { unix }
     boolean fileExists(Object path) {
