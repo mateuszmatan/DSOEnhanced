@@ -39,6 +39,7 @@ import com.bbh.utils.BuildUtils
 @Field InfluxDbService  _influx
 @Field Map              _pipelineConfig = [:]
 @Field String           _variant = 'full'
+@Field Boolean          _parallelScans = null
 
 private void _setup() {
     if (_state != null) return
@@ -86,7 +87,6 @@ private void applyToolEnvironment() {
     env.PROXY_USER         = env.PROXY_USER         ?: (portal.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
     env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (portal.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
     env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (portal.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
-    env.APPSCAN_TOOLS_DIR  = env.APPSCAN_TOOLS_DIR  ?: "${env.WORKSPACE}/.appscan-tools"
     env.APPSCAN_LOG_DIR    = env.APPSCAN_LOG_DIR    ?: "${env.WORKSPACE}/.appscan-logs"
     env.APPSCAN_HOME_DIR   = env.APPSCAN_HOME_DIR   ?: "${env.WORKSPACE}/.appscan-home"
     env.APPSCAN_BIN_DIR    = env.APPSCAN_BIN_DIR    ?: "${env.WORKSPACE}/.appscan-bin"
@@ -126,6 +126,47 @@ def eachProject(Closure body) {
     for (pName in projects) {
         _config.switchProject(pName)
         body(pName)
+    }
+}
+
+def parallelScans() {
+    _setup()
+    if (_parallelScans == null) {
+        boolean wanted = BuildUtils.parallelStaticAnalysis(_state.projectsAllCfg, env.DSO_STATIC_ANALYSIS_PARALLEL)
+        List names = wanted && !_os.isWindows() ? BuildUtils.sastCompileOverrides(_state.projectsAllCfg) : []
+        if (names) echo "[STATIC] ${names.join(', ')}: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another"
+        _parallelScans = wanted && !names
+    }
+    return _parallelScans
+}
+
+def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
+    _setup()
+    String sast = PolicyEngine.stageNameFor('sast')
+    String tmp = (env.WORKSPACE_TMP ?: "${env.WORKSPACE}@tmp") as String
+    env.APPSCAN_TOOLS_DIR = env.APPSCAN_TOOLS_DIR ?: "${tmp}/appscan-tools"
+    echo '[STATIC] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
+    String part = 'queue'
+    _state.stageStart(sast)
+    try {
+        queue()
+        _appScan.removeStagedSources()
+        part = 'scans'
+        scans()
+        part = 'results'
+        results()
+        _policy.finishStage(sast)
+    } catch (Throwable t) {
+        if (part == 'scans') {
+            _state.stageTimes.remove(sast)
+        } else {
+            _policy.failStage(sast)
+        }
+        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Nexus IQ and SonarQube do not run in this build'
+        throw t
+    } finally {
+        _state.stageDone(sast)
+        _state.settle([PolicyEngine.stageNameFor('niq'), sast, PolicyEngine.stageNameFor('sca')], [['niq'], ['sast'], ['sonar', 'sca']])
     }
 }
 

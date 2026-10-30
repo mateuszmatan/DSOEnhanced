@@ -39,15 +39,23 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
             }
 
+            stage('Static analysis') {
+                when { expression { return devSecOpsApi.parallelScans() } }
+                steps { script { devSecOpsSteps.staticAnalysis(devSecOpsApi) } }
+            }
+
             stage('Dependencies scan (Nexus IQ)') {
+                when { expression { return !devSecOpsApi.parallelScans() } }
                 steps { script { devSecOpsSteps.dependenciesScan(devSecOpsApi) } }
             }
 
             stage('SAST - Static Application Security Tests - HCL AppScan') {
+                when { expression { return !devSecOpsApi.parallelScans() } }
                 steps { script { devSecOpsSteps.sast(devSecOpsApi) } }
             }
 
             stage('SCA (SonarQube)') {
+                when { expression { return !devSecOpsApi.parallelScans() } }
                 steps { script { devSecOpsSteps.sonarQube(devSecOpsApi) } }
             }
 

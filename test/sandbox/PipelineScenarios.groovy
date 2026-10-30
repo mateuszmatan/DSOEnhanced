@@ -29,6 +29,7 @@ String BUILD = 'Build artifact'
 String NIQ = 'Dependencies scan (Nexus IQ)'
 String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
+String STATIC = 'Static analysis'
 String SNAPSHOT = 'Nexus delivery (Static analysis passed)'
 String RD = 'Lower test region deployment'
 String REGRESSION = 'Regression tests (>60% user stories coverage)'
@@ -284,12 +285,12 @@ Map baselines = [
 
 List<Map> specs = [
         [name: 'security pipeline, green', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline', buildNumber: 212,
-         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE, STATIC], result: 'SUCCESS', post: ['always', 'success'],
          coverageMinLine: 75],
         [name: 'security pipeline, orange', var: 'devSecOpsSecurityPipeline', fail: true, job: 'CertScanner-security-pipeline', buildNumber: 213,
-         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE, STATIC], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'security pipeline, Maven artifact to Nexus', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline',
-         buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [NODE], result: 'SUCCESS',
+         buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [NODE, STATIC], result: 'SUCCESS',
          post: ['always', 'success'], mavenVmDelivery: true],
         [name: 'SAST pipeline, green', var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: 87,
          params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'SUCCESS', post: ['always', 'success']],
@@ -312,15 +313,15 @@ List<Map> specs = [
          upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'],
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE, STATIC], result: 'SUCCESS', post: ['always', 'success'],
          files: ['devsecops_config.yaml': 'projects: [', 'config.yaml': 'projects: [']],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [NODE, RELEASE, QC], result: 'UNSTABLE',
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [NODE, STATIC, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green but QC not selected', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 343,
-         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [NODE, QC], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [NODE, STATIC, QC], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, stage failure', var: 'devSecOpsPipeline', fail: false, breakSast: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 344,
-         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: [NODE] + (fullStages - [MONITOR, UNIT, NIQ, SAST]),
+         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: [NODE, STATIC] + (fullStages - [MONITOR, UNIT, NIQ, SAST]),
          result: 'FAILURE', post: ['always', 'failure'], failedStage: SAST]
 ]
 
@@ -360,7 +361,7 @@ Closure verify = { Map spec ->
     int greyBoxes = flow.split('>SKIP<', -1).length - 1
     // Only a stage that never started may stay grey, and a blocked or skipped one is amber or red,
     // so the bound holds from both sides: a state that was never filled turns every box grey.
-    int expectedGrey = ((spec.skipped as List) - NODE).size() * 2
+    int expectedGrey = ((spec.skipped as List) - NODE - STATIC).size() * 2
     check("${name}: the stage flow shows what the stages collected, not empty grey boxes",
             flow && greyBoxes <= expectedGrey && flow.contains('&#9201;')
                     && (!spec.executed.contains(UNIT) || !flow.contains('not measured')),
@@ -704,7 +705,7 @@ Map nodeFailure = runPipeline([name: 'full pipeline, Node.js build failure', var
 FakeCpsScript nodeFailureVar = nodeFailure.var as FakeCpsScript
 String failureHtml = nodeFailure.html as String
 check('full pipeline, Node.js build failure: the stage fails hard, the later stages are skipped, the report is written and Unit tests is numbered 2 and blocked',
-        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == fullStages.drop(1)
+        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == [UNIT, STATIC] + fullStages.drop(2)
                 && nodeFailureVar.stageFailures.size() == 1 && nodeFailureVar.stageFailures[0].startsWith(NODE)
                 && (nodeFailure.j as FakeScript).currentBuild.currentResult == 'FAILURE' && resultOf(nodeFailure, NODE) == 'FAIL'
                 && boxesOf(failureHtml).take(6).drop(2) == ['0.1 Node.js build - gui', '0.2 Node.js build - backend-api', '2.1 Unit tests - gui', '2.2 Unit tests - backend-api']
