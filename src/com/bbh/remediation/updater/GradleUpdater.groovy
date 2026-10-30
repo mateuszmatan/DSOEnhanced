@@ -59,6 +59,10 @@ class GradleUpdater implements ManifestUpdater {
 
         String updated = content
         fixes.each { fix ->
+            if (format == 'settings') {
+                updated = settingsLibraries(relativePath, updated, fix, r)
+                return
+            }
             String group = UpdaterSupport.quote(fix.group as String)
             String artifact = UpdaterSupport.quote(fix.name as String)
             List declarations = format == 'toml' ? [] : [inlineRe(group, artifact),
@@ -78,7 +82,6 @@ class GradleUpdater implements ManifestUpdater {
                 while (platform.find()) boms << [platform.group(1), platform.group(2), platform.group(3)]
                 UpdaterSupport.bomNotes(relativePath, fix, boms, r.notes as List)
             }
-            if (format == 'settings') updated = settingsLibraries(relativePath, updated, fix, group, artifact, r)
         }
         r.content = updated
         return r
@@ -92,9 +95,12 @@ class GradleUpdater implements ManifestUpdater {
 
         properties.each { property ->
             Map catalog = property.catalog as Map
+            if (format == 'settings') {
+                if (catalog && inCatalog(catalog, relativePath)) updated = settingsVersions(relativePath, updated, property, r)
+                return
+            }
             if (catalog) {
                 if (format == 'toml' && inCatalog(catalog, relativePath)) updated = tomlVersions(relativePath, updated, property, r)
-                if (format == 'settings' && inCatalog(catalog, relativePath)) updated = settingsVersions(relativePath, updated, property, r)
                 return
             }
             String name = UpdaterSupport.quote(property.name as String)
@@ -216,21 +222,26 @@ class GradleUpdater implements ManifestUpdater {
     }
 
     @NonCPS
-    private String settingsLibraries(String path, String text, Map fix, String group, String artifact, Map r) {
+    private String settingsLibraries(String path, String text, Map fix, Map r) {
+        String group = UpdaterSupport.quote(fix.group as String)
+        String artifact = UpdaterSupport.quote(fix.name as String)
         String library = 'library\\s*\\(\\s*[\'"]([^\'"]+)[\'"]\\s*,\\s*[\'"]' + group + '[\'"]\\s*,\\s*[\'"]' + artifact + '[\'"]\\s*\\)\\s*\\.version'
-        String updated = UpdaterSupport.replaceMatch(text, '(' + library + '\\s*\\(\\s*[\'"])([^\'"]+)([\'"])') { List g ->
-            String raised = declare(path, fix, g[3] as String, g[2] as String, r)
-            return raised == null ? null : (g[1] as String) + raised + (g[4] as String)
+        String out = ''
+        int at = 0
+        for (Map block : VersionCatalogs.settingsBlocks(text)) {
+            String inner = UpdaterSupport.replaceValue(text.substring(block.start as int, block.end as int), inlineRe(group, artifact)) { String declared ->
+                declare(path, fix, declared, '', r)
+            }
+            inner = UpdaterSupport.replaceMatch(inner, '(' + library + '\\s*\\(\\s*[\'"])([^\'"]+)([\'"])') { List g ->
+                String raised = declare(path, fix, g[3] as String, g[2] as String, r)
+                return raised == null ? null : (g[1] as String) + raised + (g[4] as String)
+            }
+            def reference = inner =~ (library + 'Ref\\s*\\(\\s*[\'"]([^\'"]+)[\'"]')
+            while (reference.find()) r.properties << UpdaterSupport.propertyRequest(reference.group(2), fix, path, [name: block.name, file: path])
+            out += text.substring(at, block.start as int) + inner
+            at = block.end as int
         }
-        List<Map> blocks = VersionCatalogs.settingsBlocks(updated)
-        def reference = updated =~ (library + 'Ref\\s*\\(\\s*[\'"]([^\'"]+)[\'"]')
-        while (reference.find()) {
-            int at = reference.start()
-            Map block = blocks.find { (it.start as int) <= at && at < (it.end as int) } as Map
-            String catalog = (block?.name ?: 'libs') as String
-            r.properties << UpdaterSupport.propertyRequest(reference.group(2), fix, path, [name: catalog, file: path])
-        }
-        return updated
+        return out + text.substring(at)
     }
 
     @NonCPS

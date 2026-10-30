@@ -686,6 +686,16 @@ check('GoldenFix catalogs: the settings.gradle catalog DSL and a catalog importe
                 && ((dslRun.written as Map)['gradle/shared.toml'] as String)?.contains('netty = "4.1.108.Final"') && !reasonsOf(dslRun, 'svc-a')
                 && dslRun.builds == [cdTo('svc-a')],
         "${dslRun.errors} ${dslSettings} ${dslRun.written} ${reasonsOf(dslRun, 'svc-a')} ${dslRun.builds}")
+Map settingsClasspath = catalogRun([
+        'settings.gradle': "buildscript {\n    ext.jacksonVersion = '2.13.4'\n    dependencies {\n        classpath 'org.yaml:snakeyaml:1.33'\n    }\n}\nrootProject.name = 'svc'\n",
+        'build.gradle'   : "ext.jacksonVersion = '2.13.4'\ndependencies {\n    implementation 'org.yaml:snakeyaml:1.33'\n" +
+                           '    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"\n}\n'
+], [[name: 'svc', fixes: [['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+check('GoldenFix catalogs: in settings.gradle only the catalog block is raised, a buildscript classpath and a property of the same name stay as on the main branch',
+        settingsClasspath.errors.isEmpty() && gfOf(settingsClasspath, 'svc').status == 'PR_CREATED' && (settingsClasspath.written as Map).keySet() == ['build.gradle'] as Set
+                && ((settingsClasspath.written as Map)['build.gradle'] as String).contains("'org.yaml:snakeyaml:2.2'")
+                && ((settingsClasspath.written as Map)['build.gradle'] as String).contains("ext.jacksonVersion = '2.13.5'"),
+        "${settingsClasspath.errors} ${settingsClasspath.written} ${gfOf(settingsClasspath, 'svc').changes}")
 
 Map separateRun = catalogRun([
         'svc-a/settings.gradle'    : "dependencyResolutionManagement { versionCatalogs { libs { from(files('../gradle/libs.versions.toml')) } } }\n",
