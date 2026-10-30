@@ -16,16 +16,16 @@ class GradleUpdater implements ManifestUpdater {
     private static String catalogRefRe() { return '^\\$\\{?([A-Za-z_]\\w*)\\.versions\\.([\\w.]+?)(?:\\.get\\(\\))?\\}?$' }
 
     @NonCPS
-    private static String tomlVersionsRe() { return '(?ms)(^\\[versions\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlVersionsRe() { return '(?ms)(^\\[versions\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlLibrariesRe() { return '(?ms)(^\\[libraries\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlLibrariesRe() { return '(?ms)(^\\[libraries\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*$)(.*?)(?=^\\[|\\z)' }
+    private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{(?:[^{}\\r\\n]|\\{[^{}\\r\\n]*\\})*\\}|"[^"\\r\\n]*")' }
+    private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{(?:[^{}\\r\\n]|\\{[^{}\\r\\n]*\\})*\\}|"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')' }
 
     @NonCPS
     private static String inlineRe(String group, String artifact) {
@@ -36,7 +36,7 @@ class GradleUpdater implements ManifestUpdater {
     private static String richRe() { return '(\\b(?:strictly|require|prefer)\\s*[=(]?\\s*[\'"])([^\'"]+)([\'"])' }
 
     @NonCPS
-    private static String versionRefRe() { return '\\bversion(?:\\.ref\\s*=|\\s*=\\s*\\{\\s*ref\\s*=)\\s*"([^"]+)"' }
+    private static String versionRefRe() { return '\\bversion(?:\\.ref\\s*=|\\s*=\\s*\\{\\s*ref\\s*=)\\s*[\'"]([^\'"]+)[\'"]' }
 
     String ecosystem() { return 'maven' }
 
@@ -191,17 +191,17 @@ class GradleUpdater implements ManifestUpdater {
     private String libraryEntry(String path, String alias, String entry, Map fix, Map r) {
         String group = UpdaterSupport.quote(fix.group as String)
         String artifact = UpdaterSupport.quote(fix.name as String)
-        boolean module = (entry =~ ('\\bmodule\\s*=\\s*"' + group + ':' + artifact + '"')).find() ||
-                ((entry =~ ('\\bgroup\\s*=\\s*"' + group + '"')).find() && (entry =~ ('\\bname\\s*=\\s*"' + artifact + '"')).find())
+        boolean module = (entry =~ ('\\bmodule\\s*=\\s*[\'"]' + group + ':' + artifact + '[\'"]')).find() ||
+                ((entry =~ ('\\bgroup\\s*=\\s*[\'"]' + group + '[\'"]')).find() && (entry =~ ('\\bname\\s*=\\s*[\'"]' + artifact + '[\'"]')).find())
         if (!module) return null
         def ref = entry =~ versionRefRe()
         if (ref.find()) {
             r.properties << UpdaterSupport.propertyRequest(ref.group(1), fix, path, [name: catalogName(path), file: path])
             return null
         }
-        String updated = UpdaterSupport.replaceValue(entry, '(\\bversion\\s*=\\s*")([^"]+)(")') { String declared -> declare(path, fix, declared, alias, r) }
+        String updated = UpdaterSupport.replaceValue(entry, '(\\bversion\\s*=\\s*[\'"])([^\'"]+)([\'"])') { String declared -> declare(path, fix, declared, alias, r) }
         updated = UpdaterSupport.replaceValue(updated, '(\\bversion\\s*=\\s*\\{)([^}]*)(\\})') { String rich -> richVersions(path, fix, rich, alias, r) }
-        updated = UpdaterSupport.replaceValue(updated, '(\\bversion\\.(?:strictly|require|prefer)\\s*=\\s*")([^"]+)(")') { String declared ->
+        updated = UpdaterSupport.replaceValue(updated, '(\\bversion\\.(?:strictly|require|prefer)\\s*=\\s*[\'"])([^\'"]+)([\'"])') { String declared ->
             declare(path, fix, declared, alias, r)
         }
         return updated == entry ? null : updated
@@ -239,7 +239,7 @@ class GradleUpdater implements ManifestUpdater {
                 String key = g[2] as String
                 if (VersionCatalogs.alias(key) != wanted) return null
                 String value = g[3] as String
-                String next = UpdaterSupport.replaceValue(value, value.startsWith('"') ? '(")([^"]*)(")' : richRe()) { String v ->
+                String next = UpdaterSupport.replaceValue(value, value.startsWith('{') ? richRe() : '([\'"])([^\'"]*)([\'"])') { String v ->
                     raise(path, property, v, key, r)
                 }
                 return next == value ? null : (g[1] as String) + next

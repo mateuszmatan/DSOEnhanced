@@ -851,6 +851,23 @@ check('GoldenFix: an Error that escapes the remediation is recorded as ERROR wit
                 && (errorRun.log as List).contains('[GOLDENFIX] Remediation failed: StackOverflowError'),
         "${errorRun.errors} ${gfOf(errorRun, 'svc-a')} ${errorRun.log}")
 
+Map literalRun = catalogRun([
+        'settings.gradle'          : "include 'gui'\n",
+        'gradle/libs.versions.toml': "[versions] # pinned by the platform team\nyaml = '1.33'\n\n[libraries] # third-party\ncommons = 'org.apache.commons:commons-text:1.9'\n" +
+                                     'jackson = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.13.4" }\n' +
+                                     "pg = { module = 'org.postgresql:postgresql', version = '42.5.0' }\nsnakeyaml = { module = 'org.yaml:snakeyaml', version.ref = 'yaml' }\n\n" +
+                                     '[libraries.netty] # json\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.86.Final"\n',
+        'gui/build.gradle'         : 'dependencies { implementation libs.commons }\n'
+], [[name: 'gui', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'],
+                          ['maven', 'org.postgresql', 'postgresql', '42.5.0', '42.5.6'], ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'],
+                          ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final']]]])
+String literalToml = ((literalRun.written as Map)['gradle/libs.versions.toml'] ?: '') as String
+check('GoldenFix catalogs: section headers with a trailing comment and TOML literal strings in single quotes are raised as on the main branch',
+        literalRun.errors.isEmpty() && ["yaml = '2.2'", "commons = 'org.apache.commons:commons-text:1.10.0'", 'version = "2.13.5" }', "version = '42.5.6' }",
+                                        '[libraries.netty] # json\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.108.Final"'].every { literalToml.contains(it) }
+                && !gfOf(literalRun, 'gui').unresolved,
+        "${literalRun.errors} ${literalToml} ${reasonsOf(literalRun, 'gui')}")
+
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
                                  '  "resolutions": {\n    "lodash": "4.17.15"\n  }\n}\n',
