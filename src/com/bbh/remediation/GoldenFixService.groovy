@@ -461,9 +461,12 @@ class GoldenFixService implements DependencyRemediation {
     private static Map reachedBy(List references, String to) {
         List keys = []
         List names = []
+        Map below = [:]
         for (def entry : references) {
             Map r = entry as Map
-            if (GoldenFix.isUpgrade(to, r.targetVersion as String)) continue
+            String target = r.targetVersion as String
+            if (!below.containsKey(target)) below[target] = GoldenFix.isUpgrade(to, target)
+            if (below[target]) continue
             GoldenFix.addAllUnique(keys, r.componentKeys as List)
             GoldenFix.addAllUnique(names, r.components as List)
         }
