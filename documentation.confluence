@@ -54,10 +54,11 @@ h1. 1. High Level Overview
 The library executes the following pipeline automatically when you call {{devSecOpsPipeline()}} from your Jenkinsfile:
 
 ||#||Stage||What it does||
-|1|Monitor source changes|Checkout, AppScan setup, IRX generation per project|
+|1|Monitor source changes|Reads the configuration of the pipeline keys, merges it with the Global Settings and sets the tool environment|
+|0|Node.js build (optional)|Runs the npm commands of each service that sets {{build.node.enabled: true}}, for example to build an Angular frontend, before the Gradle or Maven build; the stage is left out when no service of the run sets it|
 |2|Unit tests|Build tool tests plus JaCoCo/lcov line coverage check against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues|
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
-|4|SAST – HCL AppScan|Static Application Security Testing, queued per project|
+|4|SAST – HCL AppScan|Static Application Security Testing: compile, IRX archive and scan, queued per project|
 |5|SCA (SonarQube)|Static code analysis and quality gate|
 |6|Nexus delivery (static analysis passed)|Publish the snapshot artifact, even when an earlier stage is orange, unless {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the service|
 |7|Lower test region deployment|Deploy to the lower test region: VM with UrbanCode Deploy ({{devSecOpsPipeline}}) or over SSH ({{devSecOpsExtendedPipeline}}), or OpenShift|
@@ -68,16 +69,18 @@ The library executes the following pipeline automatically when you call {{devSec
 |12|Nexus delivery (safe artifact)|Publish the release artifact, blocked when any earlier stage is orange|
 |13|Higher test environment deployment|Deploy to QC, only when every earlier stage is green and the checkbox is selected|
 
+The Node.js build runs after stage 1 and before stage 2. The report numbers it 0, so every other stage keeps its number whether a run has a Node.js build or not.
+
 h3. Which pipeline to use
 
 The library ships five entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in {{vars/devSecOpsSteps.groovy}}. Each stage method takes the {{devSecOpsApi}} instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build|#ch20].
 
 ||Entry point||Runs||Use it when||
-|{{devSecOpsPipeline}}|All thirteen stages in one build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|One job should cover the whole flow|
-|{{devSecOpsSecurityPipeline}}|Unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives {{pipeline-config.yaml}} and the release gate verdict, and triggers the extended job when {{RUN_EXTENDED_PIPELINE}} is selected|The static part runs on every commit and the rest is a separate job|
-|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|Downstream of the security pipeline, which its pipeline key names; it inherits the release verdict through the copied {{release-gate.json}}|
-|{{devSecOpsSASTScanningPipeline}}|Monitor sources and SAST only|A job that executes the AppScan static scan only; its report contains the SAST stage and the SAST findings|
-|{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
+|{{devSecOpsPipeline}}|All thirteen stages in one build, after the optional Node.js build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|One job should cover the whole flow|
+|{{devSecOpsSecurityPipeline}}|The optional Node.js build, unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives {{pipeline-config.yaml}} and the release gate verdict, and triggers the extended job when {{RUN_EXTENDED_PIPELINE}} is selected|The static part runs on every commit and the rest is a separate job|
+|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment; it has no Node.js build stage, and its release delivery runs the Node.js build of a service again before it publishes|Downstream of the security pipeline, which its pipeline key names; it inherits the release verdict through the copied {{release-gate.json}}|
+|{{devSecOpsSASTScanningPipeline}}|Monitor sources, the optional Node.js build and SAST|A job that executes the AppScan static scan only; its report contains the SAST stage and the SAST findings|
+|{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, the optional Node.js build, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
 
 After all stages, the library always:
 * Generates an HTML pipeline report with the stage flow, vulnerability counts, policy status, SonarQube badges and coverage
@@ -217,15 +220,17 @@ h3. Automated dependency remediation (GoldenFix)
 When Nexus IQ reports a policy violation the library prepares the upgrade itself and opens a pull request for review. It never merges anything.
 
 * Only *direct dependencies* are touched; transitive ones are upgraded by upgrading whatever pulls them in.
-* Manifests are updated across the whole source tree: {{pom.xml}}, {{build.gradle}}/{{.kts}}, {{gradle.properties}}, version catalogs, {{package.json}}, {{requirements*.txt}}, {{pyproject.toml}} and {{pubspec.yaml}}.
+* Manifests are updated across the whole source tree: {{pom.xml}}, {{build.gradle}}/{{.kts}}, {{gradle.properties}}, Gradle version catalogs, {{package.json}} (with its {{overrides}} and {{resolutions}}), {{requirements*.txt}}, {{pyproject.toml}} and {{pubspec.yaml}}.
+* *Shared version catalogs are raised once.* In a repository that holds several services, a version that a shared catalog defines is raised in the catalog, consistently for every service that uses it: a Gradle version catalog, the catalog of {{settings.gradle}}, a build file that other builds apply, a {{java-platform}} module, or a Maven parent or BOM pom. A declaration of the same dependency outside the catalog is raised to the same version and named in the pull request, so that a reviewer can move it into the catalog.
 * The version is chosen by two rules: *only the patch version may change*, and of those the *newest one without known vulnerabilities* wins.
-* Before anything is proposed the project is *built with the new versions*; a failing build lowers them and retries, and if nothing builds, no pull request is opened.
+* Before anything is proposed the project is *built with the new versions*: every changed manifest in its own folder, and a shared catalog in every build that uses it. A failing build lowers the versions and retries, and if nothing builds, no pull request is opened.
+* The services of one build that share a repository share one pull request. Each later service adds its upgrades to it and says so in a comment.
 
 The Nexus IQ GoldenFix pipeline runs the dependency scan and this remediation on their own, after building the artifact, without the other stages.
 
 h3. Build, test and delivery
 
-Gradle, Maven and Flutter builds with the project's own tasks. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it, and container images built and copied to Nexus for OpenShift projects.
+Gradle, Maven and Flutter builds with the project's own tasks. An optional Node.js build runs the npm commands of a frontend first, as stage 0, so that the Gradle or Maven build can package its output. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it, and container images built and copied to Nexus for OpenShift projects.
 
 h3. Deployment
 
@@ -239,8 +244,9 @@ h3. Platform support
 
 ||Dimension||Supported||
 |Agent operating system|Linux, macOS and Windows; the library detects the agent and uses the right shell|
-|Build tools|Gradle, Maven, Flutter|
+|Build tools|Gradle, Maven, Flutter; Node.js with npm as an optional stage 0 before Gradle or Maven|
 |Dependency ecosystems for remediation|Maven, npm, PyPI, Dart/Flutter pub|
+|Shared version catalogs for remediation|Inside the repository: Gradle version catalogs ({{*.versions.toml}}, the files {{settings.gradle}} imports and its catalog DSL), Gradle build files named by {{apply from}}, {{java-platform}} modules, and Maven parent and BOM poms|
 |Projects per build|One or many, each with its own configuration, scans, coverage and report rows|
 |Source control|Git; Bitbucket for GoldenFix pull requests|
 
@@ -261,7 +267,9 @@ h1. 4. Solution Architecture
 DevSecOpsJenkinsLibrary/           <- library repository root
 ├── documentation.confluence       <- this document, Confluence wiki markup, the single source
 ├── documentation.html             <- the same documentation as a single HTML page, generated from it
-├── vars/                          <- Jenkins global variables: the entry points and the composition root
+├── documentation.md               <- the same documentation as Markdown for Bitbucket, generated from it
+├── roadmap.md                     <- the record of the changes delivered on the library
+├── vars/                         <- Jenkins global variables: the entry points and the composition root
 │   ├── devSecOpsPipeline.groovy                  <- entry point: all thirteen stages
 │   ├── devSecOpsSecurityPipeline.groovy          <- entry point: static analysis part
 │   ├── devSecOpsExtendedPipeline.groovy          <- entry point: deployment and test part
@@ -278,9 +286,10 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── config/ConfigLoader.groovy          <- portal documents -> PipelineState and the run-state file pipeline-config.yaml
 │   ├── config/PortalConfigReader.groovy    <- reads the configuration of the pipeline keys from the portal over HTTPS
 │   ├── build/
-│   │   ├── BuildService.groovy             <- build, unit tests, coverage, remote test jobs
+│   │   ├── BuildService.groovy             <- build, unit tests, coverage, remote test jobs, the Node.js build
 │   │   ├── BuildRunner.groovy              <- one runner for the Gradle and Maven commands
-│   │   └── ManifestBuildVerifier.groovy    <- adapter: the GoldenFix pre-check build, one check per changed manifest
+│   │   ├── NodeBuildRunner.groovy          <- the Node.js build of stage 0 and the Node.js environment of the npm pre-check
+│   │   └── ManifestBuildVerifier.groovy    <- adapter: the GoldenFix pre-check build, one check per folder or catalog build
 │   ├── scanner/                            <- adapters for the scanners
 │   │   ├── AppScanService.groovy           <- HCL AppScan SAST and DAST
 │   │   ├── NexusIqService.groovy           <- Nexus IQ scan, calls the remediation port on a violation
@@ -288,7 +297,9 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   └── SonarService.groovy
 │   ├── remediation/                        <- GoldenFix, ports and adapters
 │   │   ├── GoldenFixService.groovy         <- application service: fetch -> patch manifests -> commit/push -> pull request
+│   │   ├── CatalogDiscovery.groovy         <- the shared version catalogs of the repository and the builds that use them
 │   │   ├── model/GoldenFix.groovy          <- the remediation domain: the fix record, version semantics and the version choice
+│   │   ├── model/VersionCatalogs.groovy    <- catalog aliases, path globs and the catalog blocks of settings.gradle
 │   │   ├── port/DependencyRemediation.groovy  <- inbound port used by NexusIqService
 │   │   ├── port/GoldenFixSource.groovy        <- outbound port: where the proposed versions come from
 │   │   ├── port/SourceRepository.groovy       <- outbound port: source tree, commit, push
@@ -304,20 +315,21 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   └── MetricLine.groovy               <- line protocol formatting and escaping
 │   ├── report/HtmlReportService.groovy     <- one report template, the variant only selects the stage layout
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
-├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html
+├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html and documentation.md
+├── grafana/                       <- the dashboard definitions devSecOpsDashboard and devSecOpsSecurityDashboard
 ├── test/                          <- the library test suite, see section 24
-│   ├── run-all.sh                 <- one command: static checks, compilation, sandbox scenarios, demo reports
-│   ├── checks/                    <- static checks of the sources
+│   ├── README.md                  <- what every check and scenario proves
+│   ├── run-all.sh                 <- one command: static checks, compilation, scenarios, demo reports, documentation
+│   ├── checks/                    <- static checks of the sources and of the generated documentation
+│   ├── portal/                    <- the portal query script, run with the real curl against a local HTTP portal
+│   ├── fixtures/                  <- the configuration files and the loader of the release before the portal
 │   └── sandbox/                   <- the library running under the real Jenkins script sandbox
 └── examples/
-    ├── README.md                  <- how to split the pipeline into a static and an extended job
     ├── CertScanner/               <- a complete two project example: the Jenkinsfile with two pipeline keys
     └── reports/                   <- generated demo reports, one HTML page per pipeline and outcome
 {code}
 
-*How the parts fit together (hexagonal):* {{core}} holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in {{remediation}} talks only to the ports in {{remediation/port}}, the domain rules (which version to take, how versions compare) live in {{remediation/model}}, and the adapters sit in {{scanner}} (Nexus IQ), {{scm}} (git, Bitbucket) and {{remediation/updater}} (one per manifest format). {{vars/devSecOpsApi.groovy}} is the single composition root that assembles every service; the services in {{scanner}}, {{build}}, {{deploy}}, {{metrics}} and {{report}} are adapters around the core, each receiving the pipeline script object and translating between the tools and the state. A check in the test suite enforces these dependency directions.
-
-*How the parts fit together (hexagonal):* {{core}} holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in {{remediation}} talks only to the ports in {{remediation/port}}, and the adapters live in {{scanner}} (Nexus IQ), {{scm}} (git, Bitbucket) and {{remediation/updater}} (manifest formats). {{vars/devSecOpsApi.groovy}} and {{wiring/GoldenFixFactory.groovy}} are the composition roots that assemble the services; the remaining services in {{scanner}}, {{build}}, {{deploy}}, {{metrics}} and {{report}} are adapters around the core, each of them receiving the pipeline script object and translating between the tools and the state.
+*How the parts fit together (hexagonal):* {{core}} holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in {{remediation}} talks only to the ports in {{remediation/port}}, the domain rules (which version to take, how versions compare, how catalog aliases match) live in {{remediation/model}}, and the adapters sit in {{scanner}} (Nexus IQ), {{scm}} (git, Bitbucket), {{build}} (the pre-check build) and {{remediation/updater}} (one per manifest format). {{vars/devSecOpsApi.groovy}} is the single composition root that assembles every service; the services in {{scanner}}, {{build}}, {{deploy}}, {{metrics}} and {{report}} are adapters around the core, each receiving the pipeline script object and translating between the tools and the state. A check in the test suite enforces these dependency directions.
 
 *Config split:*
 
@@ -362,50 +374,23 @@ h1. 5. Application Prerequisites
 
 Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
 
-* *Git repository accessible from Jenkins.*
-  The project must live in a Git repository that the Jenkins controller can clone. The {{Jenkinsfile}} must be committed at the repository root and pushed to the branch configured in the Jenkins job.
-
-* *Supported build tool: Gradle, Maven, or Flutter.*
-  The codebase must use one of the three supported build systems. Gradle wrapper ({{gradlew}}) and Maven wrapper ({{mvnw}}) are preferred and must be executable and committed to the repository. The build tool is either set for the service in the DevSecOps portal or auto-detected.
-
-* *Code must compile successfully.*
-  The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless {{asoc.doCompile: false}}. The compile command comes from {{asoc.gradle}} / {{asoc.maven}}, or from the {{build}} section when {{asoc}} has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
-
-* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).*
-  The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the {{--coverage}} flag which produces {{coverage/lcov.info}}.
-
-* *A JDK on the agent, named in the configuration.*
-  Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}.
-
-* *HCL AppScan on Cloud (ASoC) application registered.*
-  The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal for every service: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
-
-* *SonarQube project registered.*
-  A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
-
-* *Nexus IQ application registered.*
-  The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the {{scanPatterns}} configured for the service in the DevSecOps portal. The Nexus IQ server must be reachable from the Jenkins agent.
-
-* *Build artifacts produced in expected locations.*
-  Gradle projects must produce artifacts under {{build/libs/}}. Maven projects under {{target/}}. These paths must match the {{scanPatterns}} configured for Nexus IQ and be valid artifact outputs for publishing.
-
-* *Deployment script and version file (VM deployment over SSH).*
-  For SSH deployment, the repository must contain a zero-downtime deployment shell script and a {{version.properties}} file with an {{APP_VERSION=<version>}} entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
-
-* *UrbanCode Deploy application (VM deployment in {{devSecOpsPipeline}}).*
-  The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so {{deploy.vm.dod}} must name the site, the application and at least one component. The UrbanCode Deploy plugin ({{UCDeployPublisher}}) and the configured site must exist in Jenkins.
-
-* *OpenShift templates and a Dockerfile (OpenShift deployment).*
-  For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by {{deploy.openshift.rd.buildConfigPath}}, {{dockerFilePath}}, {{deployConfigPath}} and {{configPathR}}. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with {{skopeo}}, so the agent needs {{skopeo}}, {{oc}} and the authfile named in {{deploy.openshift.rd.nexus.authfile}}.
-
-* *Test jobs exist in Jenkins.*
-  Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in the DevSecOps portal. All three test types require at least one job entry — placeholder entries with {{job: ""}} are allowed initially and will show {{NOT_CONFIGURED}} without failing.
-
-* *DAST target accessible from Jenkins agent (DAST only).*
-  When {{dast.enabled: true}}, the configured {{dast.targetUrl}} must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in {{dast.presenceId}}.
-
-* *InfluxDB endpoint accessible (optional).*
-  If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
+* *Git repository accessible from Jenkins.* The project must live in a Git repository that the Jenkins controller can clone. The {{Jenkinsfile}} must be committed at the repository root and pushed to the branch configured in the Jenkins job.
+* *Supported build tool: Gradle, Maven, or Flutter.* The codebase must use one of the three supported build systems. Gradle wrapper ({{gradlew}}) and Maven wrapper ({{mvnw}}) are preferred and must be executable and committed to the repository. The build tool is either set for the service in the DevSecOps portal or auto-detected.
+* *Optional: a frontend that npm builds first.* When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first ({{build.node.enabled: true}}). It needs the folder of the {{package.json}} ({{build.node.dir}}) and, for the default command {{npm ci}}, a committed {{package-lock.json}}. The frontend build must write its output outside {{build/}} and {{target/}}, because the {{clean}} task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting|#ch23]. Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
+* *Code must compile successfully.* The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless {{asoc.doCompile: false}}. The compile command comes from {{asoc.gradle}} / {{asoc.maven}}, or from the {{build}} section when {{asoc}} has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
+* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the {{--coverage}} flag which produces {{coverage/lcov.info}}.
+* *A JDK on the agent, named in the configuration.* Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}.
+* *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal for every service: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
+* *SonarQube project registered.* A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
+* *Nexus IQ application registered.* The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the {{scanPatterns}} configured for the service in the DevSecOps portal. The Nexus IQ server must be reachable from the Jenkins agent.
+* *Build artifacts produced in expected locations.* Gradle projects must produce artifacts under {{build/libs/}}. Maven projects under {{target/}}. These paths must match the {{scanPatterns}} configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the {{package-lock.json}} of its frontend folder scanned, see [the stage reference|#ch16].
+* *Several services in one repository.* The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names the pipeline keys of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13].
+* *Deployment script and version file (VM deployment over SSH).* For SSH deployment, the repository must contain a zero-downtime deployment shell script and a {{version.properties}} file with an {{APP_VERSION=<version>}} entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
+* *UrbanCode Deploy application (VM deployment in {{devSecOpsPipeline}}).* The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so {{deploy.vm.dod}} must name the site, the application and at least one component. The UrbanCode Deploy plugin ({{UCDeployPublisher}}) and the configured site must exist in Jenkins.
+* *OpenShift templates and a Dockerfile (OpenShift deployment).* For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by {{deploy.openshift.rd.buildConfigPath}}, {{dockerFilePath}}, {{deployConfigPath}} and {{configPathR}}. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with {{skopeo}}, so the agent needs {{skopeo}}, {{oc}} and the authfile named in {{deploy.openshift.rd.nexus.authfile}}.
+* *Test jobs exist in Jenkins.* Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in the DevSecOps portal. All three test types require at least one job entry — placeholder entries with {{job: ""}} are allowed initially and will show {{NOT_CONFIGURED}} without failing.
+* *DAST target accessible from Jenkins agent (DAST only).* When {{dast.enabled: true}}, the configured {{dast.targetUrl}} must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in {{dast.presenceId}}.
+* *InfluxDB endpoint accessible (optional).* If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
 
 ----
 
@@ -430,9 +415,10 @@ h3. Jenkins plugins (required)
 |Nexus Platform|Nexus IQ integration ({{nexusPolicyEvaluation}})|
 |Parameterized Remote Trigger|Remote smoke, regression and performance jobs (also by full URL)|
 |Pipeline Utility Steps|{{readYaml}}, {{readJSON}}, {{writeFile}}|
-|Credentials Binding|{{withCredentials}} for Nexus IQ, ASoC, Bitbucket, remote Jenkins|
+|Credentials Binding|{{withCredentials}} for Nexus IQ, ASoC, Bitbucket, remote Jenkins and the {{.npmrc}} of the Node.js build|
 |Copy Artifact|Passing {{pipeline-config.yaml}} and {{release-gate.json}} to the extended pipeline|
 |OpenShift Client (optional)|OpenShift {{openshift.withCluster()}}|
+|NodeJS (optional)|The Node.js installations a service names in {{build.node.installationName}}, under *Manage Jenkins → Tools → NodeJS installations*; not needed when the service names {{build.node.nodePath}} or the agent has Node.js on its {{PATH}}|
 
 h3. Steps the library calls
 
@@ -449,6 +435,8 @@ Besides the standard pipeline steps, the library calls the following. A missing 
 |{{openshift}}|OpenShift Client plugin|OpenShift deployment|
 |{{sshagent}}|SSH Agent plugin|Pushing the GoldenFix branch|
 |{{git}}, {{checkout}}|Git plugin|Source checkout|
+|{{tool}} with {{type: 'nodejs'}}|Pipeline: Basic Steps, with the tool type of the NodeJS plugin|The Node.js home of {{build.node.installationName}}|
+|{{withCredentials}} with a {{file}} binding|Credentials Binding plugin|The {{.npmrc}} Secret file of {{build.node.npmrcCredentialsId}}|
 |{{reportBuild}}, {{reportUnitTest}}, {{reportSurefireTest}}, {{addSonarBadgesToDescription}}|*Global steps of the BBH Jenkins installation*|Build reporting and SonarQube badges|
 
 The last row is not a public plugin. Those four steps must exist as global variables in the Jenkins instance, otherwise the Nexus delivery and SonarQube stages fail.
@@ -458,6 +446,7 @@ h3. Agent tools
 * Java JDK (for Gradle/Maven builds)
 * Gradle or Maven wrapper (or system-installed)
 * Flutter SDK (if building Flutter applications)
+* Node.js with {{npm}}, for a service with {{build.node.enabled: true}}: in the folder of {{build.node.nodePath}}, from the NodeJS installation of {{build.node.installationName}}, or on the agent {{PATH}}
 * {{curl}}, {{python3}}, {{ssh}}, {{scp}} (Linux agents)
 * PowerShell (Windows agents)
 * On the agents of the {{DSO_PORTAL_AGENT}} label, and on a Linux or macOS agent where a custom Jenkinsfile calls {{configure()}} inside a node: {{curl}}, and {{sha256sum}} or {{shasum}}
@@ -478,7 +467,8 @@ h3. Jenkins global configuration
 |{{nexusiqP}}|Username/Password|Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions)|
 |{{asoc.token}} of the service, otherwise a credential named like its {{asoc.keyId}}|Secret text|The AppScan key secret of the service, for the SAST login and the DAST sign-in; the portal stores only the key ID and the credentials ID|
 |{{tools.sonar.badgeCredentialsId}} of the service (optional)|Secret text|The SonarQube badge token for the badges in the report|
-|{{scm.bitbucket.credentialsId}}|Username/Password (or Secret text with {{authType: bearer}})|GoldenFix: push of branch {{GoldenFix-YYYYMMDDHHMM}} and pull request creation (repository write permission)|
+|{{scm.bitbucket.credentialsId}}|Username/Password (or Secret text with {{authType: bearer}})|GoldenFix: push of branch {{GoldenFix-YYYYMMDDHHMM}}, pull request creation and comments on the pull request (repository write permission)|
+|{{build.node.npmrcCredentialsId}} of the service or of the Global Settings (optional)|Secret file|An {{.npmrc}} for the Node.js build and the npm pre-check of GoldenFix, bound as {{NPM_CONFIG_USERCONFIG}}|
 |{{tests.*.jobs[].credentialsId}} (optional)|Username/Password (user + API token)|Triggering remote test jobs referenced by full URL|
 |{{openshift-rd-token}}|Secret text|OpenShift RD cluster token|
 |{{openshift-qc-token}}|Secret text|OpenShift QC cluster token|
@@ -626,7 +616,8 @@ Most of these are shared across all applications and will already exist. Check w
 ||Credential ID||Type||Needed for||Scope||
 |your AppScan key secret ({{asoc.token}})|Secret text|The AppScan login of SAST and DAST, with the key ID of the service|per service|
 |{{nexusiqP}}|Username with password|Nexus IQ evaluation and remediation lookups|shared|
-|your Bitbucket credential|Username with password, or HTTP access token|Pushing the upgrade branch and opening the pull request; needs *write* access|per application|
+|your Bitbucket credential|Username with password, or HTTP access token|Pushing the upgrade branch, opening the pull request and commenting on it; needs *write* access|per application|
+|your {{.npmrc}} ({{build.node.npmrcCredentialsId}})|Secret file|Only if the Node.js build installs from an npm registry that needs a login|optional|
 |your SonarQube token|Secret text|Reading issue counts back after the analysis|per application|
 |your SonarQube badge token ({{tools.sonar.badgeCredentialsId}})|Secret text|The SonarQube badges in the pipeline report|optional|
 |{{remote-jenkins-api-token}}|Username with API token|Only if your tests run on another Jenkins instance|optional|
@@ -667,7 +658,7 @@ h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsf
 
 *Who:* a developer on your team with access to the DevSecOps portal.
 
-# *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch15].
+# *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. To start from an existing service, copy it or import its former {{config.yaml}}. A field that starts with a value shows it as the Library default of the Global Settings, and every field has a help text. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch15].
 # *Save it.* The next build reads what you saved.
 # *Commit the Jenkinsfile.* Copy the Jenkinsfile the product page offers with the pipeline key of the service into the *root* of the repository, on the branch the pipeline will build:
 
@@ -677,7 +668,7 @@ h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsf
 devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
 {code}
 
-The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}}, {{devSecOpsSASTScanningPipeline}} or {{devSecOpsNexusIqGoldenFixPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so.
+The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}}, {{devSecOpsSASTScanningPipeline}} or {{devSecOpsNexusIqGoldenFixPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. Services that share one repository, such as the modules of a multimodule repository, take one Jenkinsfile with the keys of all of them and one Jenkins job per pipeline type; the product page of the portal offers that Jenkinsfile. One GoldenFix pull request then raises a shared version catalog once, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so.
 
 *The life of a pipeline key:*
 * The portal issues one key per service and pipeline type. The key selects a configuration and is the only thing a build shows the portal: whoever holds it can read the configuration of that pipeline, as anyone could read {{config.yaml}} in the repository before. It never unlocks a secret, because the configuration holds credential IDs only.
@@ -697,7 +688,7 @@ h3. Step 4 — Create the Jenkins job
 
 *Who:* you, or the Jenkins administrators.
 
-*New Item* → name it, for example {{MyApp-devsecops-pipeline}} → choose *Pipeline*. Then in the job configuration:
+*New Item* → name it, for example {{MyApp-devsecops-pipeline}} → choose *Pipeline*. Create one job per repository and pipeline type, not one per service, when several services share the repository. Then in the job configuration:
 
 ||Field||Value||
 |Definition|Pipeline script from SCM|
@@ -828,6 +819,21 @@ projects:
 
 Use {{buildTool: maven}} or {{flutter}} if that is what your project uses and replace the {{build}} and {{tests}} blocks accordingly.
 
+The listing leaves out the optional keys of a service: {{sast.scanName}} names the SAST scan in AppScan, {{tools.sonar.badgeCredentialsId}} names the Secret text with the SonarQube badge token, and {{deploy.<target>.rd.nexusDeliveryEnabled: false}} stops the snapshot delivery of the service. The [configuration reference|#ch15] describes them.
+
+h3. Optional: a frontend built with Node.js first
+
+A service whose repository holds a frontend that npm builds, for example an Angular application that the Gradle or Maven build packages into the jar, switches on the Node.js build. In the portal it is the checkbox *Build the frontend with Node.js first* in the Build section, with the *Folder with package.json*. The portal renders it as:
+
+{code:yaml}
+    build:
+      node:
+        enabled: true
+        dir: frontend
+{code}
+
+The *Node.js build* stage then runs {{npm ci}} and {{npm run build}} in {{frontend}} right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without {{build.node.installationName}} or {{build.node.nodePath}} the commands use the Library default installation of the Global Settings, and without that the {{node}} and {{npm}} on the {{PATH}} of the agent. The other keys, such as {{commands}}, {{env}} and the {{.npmrc}} credentials, are in [the configuration reference|#ch15]. How the output reaches the jar is described under [Troubleshooting|#ch23], *The frontend is missing from the jar*.
+
 h3. Specific to this pipeline
 
 * *VM deployment uses UrbanCode Deploy* here, unlike the extended pipeline which deploys over SSH. Set {{deployTarget: openshift}} for an OpenShift project.
@@ -846,7 +852,7 @@ h3. Applicability
 
 The first half of the delivery flow, intended for execution on *every commit*. It requires no deployed environment and returns a security verdict within a short execution time. It is operated together with the entry point described in the following chapter, which executes the remaining stages on demand.
 
-*Six stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery.
+*Six stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with {{build.node.enabled: true}} adds the Node.js build before the unit tests, as in the full pipeline.
 
 It also archives {{pipeline-config.yaml}}, which holds the build tags of its snapshot stage, and the release decision so the extended pipeline can pick them up, and can start the extended job automatically.
 
@@ -921,6 +927,7 @@ h3. Specific to this pipeline
 * *Do not add a commit trigger.* This job is started by the security pipeline or by a person.
 * *Copy Artifact permission.* This job reads files archived by the security job, which on some Jenkins instances requires the upstream job to permit it. If the first run reports that it cannot copy artifacts, that is the setting to ask the administrators about.
 * *Connect the two jobs* by naming this job as the extended pipeline of the security pipeline in the portal ({{jenkins.pipeline.extendedPipeline}}). From then on, running the security pipeline with {{RUN_EXTENDED_PIPELINE}} ticked starts this one automatically.
+* *A frontend built with Node.js.* This pipeline has no Node.js build stage, because it builds nothing until the release. The release delivery stage runs the Node.js build of each service with {{build.node.enabled: true}} right before {{./gradlew publish}} or {{mvn deploy}} rebuilds the artifact, so the released artifact holds the frontend. A service without it publishes as before.
 
 ----
 
@@ -935,7 +942,7 @@ h3. Applicability
 
 The smallest option: it checks out your code and runs the AppScan static security scan, nothing else. Use it when you want a security scan of the source without building, testing or deploying — typically on a weekly schedule, for an application whose main pipeline lives elsewhere, or as the very first step of onboarding.
 
-*Two stages:* source checkout · AppScan SAST.
+*Two stages:* source checkout · AppScan SAST. A service with {{build.node.enabled: true}} adds the Node.js build before the SAST stage when the SAST scan compiles it.
 
 {info}
 *Recommended starting point.* If you are onboarding a large application, running this pipeline first proves that the AppScan connection, the proxy and the certificates all work, before you invest time in the rest of the configuration.
@@ -972,6 +979,8 @@ h3. Specific to this pipeline
 * *This pipeline checks out the source itself* and sets up the JDK, because there is no build stage to do it.
 * *Put it on a schedule.* In the job configuration tick *Build periodically* and enter something like {{H 2 * * 1}}, which runs it once a week early on Monday morning. Scanning source code does not need to happen on every commit.
 * The report shows only the source checkout and the SAST stage, with a link to the AppScan report. There is no release gate card, because this pipeline releases nothing.
+* *A frontend built with Node.js.* The Node.js build runs for a service only while the SAST stage compiles it: {{asoc.doCompile}} is not {{false}} and the agent is Linux or macOS. Otherwise the console says {{[NODE] <service>: the SAST scan does not compile this service - no Node.js build}}. After a Node.js build every IRX archive of the run leaves out {{node_modules}}, see [the stage reference|#ch16].
+* *Optional scan name.* {{sast.scanName}} names the scan in AppScan; without it the scan is named after {{tools.sonar.projectName}} or the service, followed by {{-sast}}.
 
 ----
 
@@ -986,7 +995,7 @@ h3. Applicability
 
 The dependency check on its own: it builds the artifact, has Nexus IQ evaluate it, and when the policy is violated GoldenFix raises the golden pull request with the safe dependency versions. Use it when the third party dependencies of an application should be checked and upgraded on their own schedule, without the unit tests, AppScan, SonarQube, delivery or deployment of the other pipelines — typically nightly, for an application whose main pipeline lives elsewhere, or beside the SAST scanning pipeline, which covers the source code.
 
-*Three stages:* source checkout · artifact build · Nexus IQ with GoldenFix.
+*Three stages:* source checkout · artifact build · Nexus IQ with GoldenFix. A service with {{build.node.enabled: true}} adds the Node.js build before the artifact build.
 
 h3. Jenkinsfile
 
@@ -996,7 +1005,7 @@ h3. Jenkinsfile
 devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')
 {code}
 
-The key is the one the portal issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type {{nexusiq}}. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline {{DevSecOps/<CODE>/<service>-nexusiq}}.
+The key is the one the portal issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type {{nexusiq}}. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline {{DevSecOps/<CODE>/<service>-nexusiq}}; services that share a repository share the job of the first of them, see below.
 
 h3. Settings in the DevSecOps portal
 
@@ -1040,15 +1049,52 @@ projects:
 * {{scm.bitbucket}} is where the {{GoldenFix-YYYYMMDDHHMM}} branch is pushed and the pull request is raised, into {{targetBranch}} or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
 * {{goldenFix}} is on by default; every setting of [the configuration reference|#ch15] applies, such as {{minThreatLevel}}, {{ecosystems}} and the pre-check build under {{goldenFix.verify}}.
 * {{appId}} and {{asoc.keyId}} *stay required* although this pipeline runs no AppScan scan: the portal asks for the AppScan identifiers of every service, and the library checks {{asoc.keyId}} of every service at the start of every pipeline.
+* {{build.node}} builds a frontend with Node.js before the artifact build, as in [the full pipeline|#ch9]. While {{build.node.nexusIqScan}} is not {{false}}, the {{package-lock.json}} of {{build.node.dir}} joins the scan patterns of the service, so that Nexus IQ also reports the npm dependencies and GoldenFix can raise them in {{package.json}}. The npm pre-check of GoldenFix then runs with the Node.js, the registry and the {{.npmrc}} of that build.
+
+h3. Several services in one repository: one job and shared version catalogs
+
+In a multimodule repository several services often take their dependency versions from one shared catalog, for example a Gradle version catalog {{gradle/libs.versions.toml}} or a Maven parent pom. GoldenFix raises such a version *in the catalog*, once, for every service that uses it. For that, the services of the repository must run in one build.
+
+*One Jenkins job for the repository.* Put one Jenkinsfile with the pipeline keys of all services of the repository into the repository and ask for one Jenkins job for it, not one per service. The product page of the portal shows a notice for services that share a repository; its button *Show the Jenkinsfile* opens that Jenkinsfile, and the self-service wizard groups the Jenkinsfile and the job name the same way:
+
+{code:groovy}
+@Library('DevSecOpsJenkinsLibrary') _
+
+devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: [
+    '<nexusiq key of gui>',
+    '<nexusiq key of backend-api>',
+])
+{code}
+
+*Nothing to list for the usual catalogs.* GoldenFix finds by itself every {{*.versions.toml}}, the catalogs that a {{settings.gradle}} or {{settings.gradle.kts}} imports or declares, the files that a build names in {{apply from}}, {{java-platform}} modules, and the poms that another pom of the repository names as {{<parent>}} or imports with {{<scope>import</scope>}}.
+
+*List the others.* A shared file that GoldenFix cannot recognise goes into *Shared version catalogs* in the GoldenFix section of the service, one repository-relative path or glob per line ({{*}} within a folder name, {{**}} across folders). Listing a file makes it the place where its versions are raised; it is verified only in a build that uses it. The portal renders it as:
+
+{code:yaml}
+    goldenFix:
+      versionCatalogs:
+      - gradle/libs.versions.toml
+      - platform/*.versions.toml
+{code}
+
+What GoldenFix then does in one run:
+
+* The first service that needs an upgrade raises it in the catalog, aligns declarations of the same dependency outside the catalog with it, verifies every build that uses the catalog and opens the pull request ({{PR_CREATED}}).
+* Each later service of the same repository adds its upgrades to the same branch, never lowers a version an earlier service raised, and adds a comment to the pull request that lists its upgrades ({{PR_UPDATED}}). The catalog entry therefore ends at the highest version any service needs.
+* A later service whose upgrades the branch already carries makes no commit and no comment. It ends {{PR_UPDATED}} with the link and the message {{Already raised to <component> <version> in the shared pull request <url>}}.
+
+Separate jobs per service still work, but each raises its own pull request, and the pull requests change the same catalog line. Two such jobs that start in the same minute compute the same branch name; the second push is then refused with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)}}.
+
+The catalog must live in the same repository as the services. A catalog published as an artifact ({{from("com.bbh:platform-catalog:1.2")}} in {{settings.gradle}}), a BOM resolved from Nexus and a catalog in another repository are not raised; the card names them as the reason, see [the stage reference|#ch16].
 
 h3. Specific to this pipeline
 
 * *Linux or macOS agent.* GoldenFix works in a git worktree and runs the pre-check build with the shell, so the agent of {{AGENT_NAME}} needs git, {{curl}} and the build tool.
 * *This pipeline checks out the source itself* and sets up the JDK, because there is no unit test stage. The *Build artifact* stage then builds every project with the command of its {{build}} section, so Nexus IQ evaluates what was built. It checks no coverage, but the command runs as configured: Gradle {{build}} and Maven {{verify}} or {{package}} run the unit tests as well, so use Gradle {{assemble}} or Maven {{package -DskipTests}} to build without them. A build error, a failing test included, is a red stage and stops the pipeline, because there is nothing to scan.
-* *The Nexus IQ stage is the one of the other pipelines.* It turns orange on a policy violation and GoldenFix raises one pull request for all projects of the build, as described in [the stage reference|#ch16]. GoldenFix never changes the stage result.
+* *The Nexus IQ stage is the one of the other pipelines.* It turns orange on a policy violation and GoldenFix raises one pull request for the projects of the build that share a repository, as described in [the stage reference|#ch16]. GoldenFix never changes the stage result.
 * *Put it on a schedule* if the dependencies should be checked independently of commits, for example {{H 3 * * *}} under *Build periodically* for a nightly run: Nexus IQ learns about new vulnerabilities in components that did not change.
-* *The report* shows the source checkout, the Build artifact stage and the Nexus IQ stage, one Nexus IQ row per project in the Security Gates table with a link to the Nexus IQ report, and on a violation the *Nexus IQ GoldenFix* card with the pull request, the applied upgrades and the fixes that could not be applied automatically. There is no release policy card, because this pipeline releases nothing, and no SAST, SonarQube or test rows.
-* *Release gate.* The pipeline writes {{release-gate.json}} like every pipeline and does not archive it, because no pipeline takes it over. Its verdict follows the stages: allowed when all three are green, blocked when the Nexus IQ stage is orange, including a scan that could not be completed.
+* *The report* shows the source checkout, the Node.js build when it ran, the Build artifact stage and the Nexus IQ stage, one Nexus IQ row per project in the Security Gates table with a link to the Nexus IQ report, and on a violation the *Nexus IQ GoldenFix* card with the pull request, the applied upgrades, the fixes that could not be applied automatically and the notes of the run. There is no release policy card, because this pipeline releases nothing, and no SAST, SonarQube or test rows.
+* *Release gate.* The pipeline writes {{release-gate.json}} like every pipeline and does not archive it, because no pipeline takes it over. Its verdict follows the stages: allowed when every stage is green, blocked when the Nexus IQ stage is orange, including a scan that could not be completed.
 * *Metrics.* Every run writes the measurements of [Monitoring and Metrics|#ch21] with {{variant=nexusiq}} and the project tag {{influx.project}} followed by {{nexusiq}}, for example {{MyAppnexusiq}}. The {{goldenfix}} point of a project also carries the address and the title of the pull request ({{pr_url}}, {{pr_title}}) when one was raised. The Nexus IQ counts of the run are in {{vulnerabilities}} with {{scanner=nexusiq}}; the {{security_findings}} points with {{scanner=niq}} carry the status of the stage with every count at 0, as in every pipeline, so panels built on {{security_findings}} show no Nexus IQ findings.
 
 ----
@@ -1225,6 +1271,17 @@ projects:
         mvnPath:  ""                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn
         env:
           MAVEN_OPTS: "-Xms512m -Xmx1g"
+      node:                          # optional Node.js build, stage 0, before the Gradle or Maven build
+        enabled:          false      # true: build this service with Node.js first [default: false]
+        dir:              ""         # folder with package.json, relative to the workspace [default: the workspace]
+        commands:         ['npm ci', 'npm run build']   # one shell command per entry, run in order (sh, bat on Windows)
+        installationName: ""         # NodeJS installation of Manage Jenkins > Tools [Library default]
+        nodePath:         ""         # Node.js home on the agent; wins over installationName
+        env: {}                      # environment variables of the commands, e.g. NODE_OPTIONS: "--max-old-space-size=4096"
+        registry:         ""         # exported as npm_config_registry, only without an .npmrc [Library default]
+        npmrcCredentialsId: ""       # Jenkins Secret file with an .npmrc, bound as NPM_CONFIG_USERCONFIG [Library default]
+        timeoutMin:       30         # minutes for all commands of the service together
+        nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
 
     delivery:                        # Maven upload of the snapshot artifact (deployTarget: vm, buildTool: maven)
       maven:
@@ -1251,9 +1308,21 @@ projects:
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
       excludeDirs:            []     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]
+      verify:                        # the pre-check build of the proposed versions
+        enabled:        true         # false: no pre-check, the pull request is raised unverified
+        maxAttempts:    3            # version sets tried; each failed build lowers every proposed version
+        timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
+        commands:                    # replaces the default check of one ecosystem; runs with bash in the folder of the check
+          maven:  ""                 # [default: mvn -B -q -DskipTests compile]
+          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
+          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
+          pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
+          pub:    ""                 # [default: flutter pub get, or dart pub get]
       commitAuthorName:       "DevSecOps GoldenFix"
       commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
+      versionCatalogs:        []     # optional, this service only: shared catalog files the search does not find by itself,
+                                     # repository-relative paths or globs (* within a folder name, ** across folders)
 
     tests:
       maxParallel: 20                # [library default] max jobs of one test stage running at the same time
@@ -1371,6 +1440,12 @@ projects:
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
 {code}
 
+h3. Library defaults of the Node.js build
+
+The Global Settings of the portal may hold three Library defaults of the Node.js build, rendered as {{defaults.build.node.installationName}}, {{defaults.build.node.registry}} and {{defaults.build.node.npmrcCredentialsId}} and merged under every service. A value of the service replaces them, and {{build.node.nodePath}} of the service wins over any installation. The portal never renders {{defaults.build.node.enabled}}, so the Node.js build runs only for a service that switches it on. The registry is exported only when no {{.npmrc}} is in effect, the Library default one included, because an {{.npmrc}} names its own registry. The portal does not render {{build.node}} for a Flutter service, because a Flutter build has no Gradle or Maven stage for it to run before.
+
+{{goldenFix.versionCatalogs}} is a setting of the service only. It is not a Global Settings value and it does not depend on whether the service inherits or overrides the GoldenFix rules of the Global Settings.
+
 h3. Which fields are required
 
 ||Field||Required||Notes||
@@ -1387,7 +1462,11 @@ h3. Which fields are required
 |{{delivery.maven}}|Only if {{deployTarget: vm}} and {{buildTool: maven}}|Snapshot upload of the artifact to Nexus|
 |{{jenkins.pipeline.extendedPipeline}}|Only for {{devSecOpsSecurityPipeline}}|The job it starts when {{RUN_EXTENDED_PIPELINE}} is selected; the portal renders it from the extended pipeline named for the security pipeline|
 |{{scm.bitbucket.url}}|Only for GoldenFix|Without it the fixes are listed in the report but no pull request is raised|
-|{{scm.bitbucket.credentialsId}}|Only for GoldenFix|Needs push rights and permission to create pull requests|
+|{{scm.bitbucket.credentialsId}}|Only for GoldenFix|Needs push rights and permission to create and comment on pull requests|
+|{{build.node.enabled}}|Only for a Node.js build|{{true}} adds the Node.js build of stage 0 for the service; every other {{build.node}} key is optional|
+|{{build.node.dir}}|Only if {{package.json}} is not at the repository root|The commands run in the workspace otherwise|
+|{{build.node.installationName}} or {{build.node.nodePath}}|No|Without both, and without a Library default installation, the commands use {{node}} and {{npm}} on the agent {{PATH}}; the portal accepts one of them, not both, and {{nodePath}} wins over a Library default installation|
+|{{goldenFix.versionCatalogs}}|No|Only for a shared catalog that GoldenFix does not find by itself, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]|
 
 ----
 
@@ -1413,6 +1492,29 @@ Fails if:
 * an extended pipeline finds no {{pipeline-config.yaml}} in the last successful build of its security job, a service of the run is missing from it, or a tag in it is not a plain tag
 * {{asoc.keyId}} is empty for a service of the run
 
+h3. Stage 0: Node.js build (optional)
+
+Runs right after stage 1 in the full, security, SAST scanning and Nexus IQ GoldenFix pipelines, when at least one service of the run needs it. When no service needs it, the stage is left out entirely: no step runs, nothing is logged, and the report, the release gate and the metrics are the same as without the stage. The report numbers it 0, or 0.1, 0.2 and so on with several services, so every other stage keeps its number. The extended pipeline has no such stage, see stage 12.
+
+Performs, once per service:
+* A service with {{build.node.enabled: true}} runs its Node.js build. In the SAST scanning pipeline it does so only when the SAST stage compiles it: {{asoc.doCompile}} is not {{false}} and the agent is Linux or macOS.
+* Every other service is marked not required, with the console line {{[NODE] <service>: build.node.enabled is not set - no Node.js build}}, or in the SAST scanning pipeline {{[NODE] <service>: the SAST scan does not compile this service - no Node.js build}}.
+
+How the Node.js build of a service runs:
+# *Node.js:* the folder of {{build.node.nodePath}}; otherwise the NodeJS installation named in {{build.node.installationName}}, which the {{tool}} step resolves; otherwise {{node}} and {{npm}} from the agent {{PATH}}. A Node.js home goes first on the {{PATH}} of the commands, as {{PATH+NODEJS=<home>/bin}} on Linux and macOS and {{PATH+NODEJS=<home>}} on Windows.
+# *Registry and login:* with {{build.node.npmrcCredentialsId}} the Secret file is bound as {{NPM_CONFIG_USERCONFIG}}, so npm reads that {{.npmrc}} and its registry. Without it, {{build.node.registry}} is exported as {{npm_config_registry}}.
+# *Environment:* the entries of {{build.node.env}} are set for the commands.
+# *Commands:* each entry of {{build.node.commands}} runs in order, by default {{npm ci}} and then {{npm run build}}, in {{build.node.dir}} or in the workspace, with {{sh}} on Linux and macOS and {{bat}} on Windows. Each step is labelled {{Node.js: <command>}}. All commands of the service together must finish within {{build.node.timeoutMin}} minutes (default 30).
+# *Console:* one line names what ran, {{[NODE] <service>: Node.js from <home> in <folder>: <command> && <command>}}, where the home is the {{nodePath}}, {{installation <name>}} or {{the agent PATH}} and the folder is {{build.node.dir}} or {{the workspace}}.
+
+The stage is green when the services that need it have built. A failing command, a missing installation or the timeout turns the stage red and stops the pipeline: the later stages do not run and the report shows them blocked, and the report, the release gate and the metrics are still written. The Node.js build changes no JDK and runs no Gradle or Maven command.
+
+Its effect on the later stages:
+* *Nexus IQ (stage 3):* the {{package-lock.json}} of the frontend folder joins the scan patterns of the service.
+* *SAST (stage 4):* every IRX archive of the run leaves out {{node_modules}}.
+* *GoldenFix:* the npm pre-check of the service runs with the Node.js, the registry or {{.npmrc}} and the environment of its Node.js build.
+* *Release delivery (stage 12):* the extended pipeline runs the Node.js build again before it publishes.
+
 h3. Stage 2: Unit tests
 
 Performs, once per project:
@@ -1426,48 +1528,119 @@ A compilation error of the artifact build is a real failure and stops the pipeli
 
 The Nexus IQ GoldenFix pipeline runs a *Build artifact* stage in place of the unit tests: it builds every project with the command of the {{build}} section, so that Nexus IQ evaluates what was built, and runs no unit test command and no coverage check. A build command that runs the tests, such as Gradle {{build}} or Maven {{verify}}, still runs them, and a build error or a failing test stops that pipeline in the same way.
 
+Both stages run after the Node.js build, in the same workspace, so the Gradle or Maven build can package the output of the frontend.
+
 h3. Stage 3: Dependencies scan (Nexus IQ)
 
 Runs {{nexusPolicyEvaluation}} with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds ({{tools.nexusIq.max*}} of the Global Settings in the DevSecOps portal, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.
+
+For a service with {{build.node.enabled: true}}, and {{build.node.nexusIqScan}} not {{false}}, the library adds {{<dir>/package-lock.json}} ({{package-lock.json}} without a {{dir}}) to the scan patterns of every Nexus IQ application of the service that has scan patterns. Nexus IQ then also evaluates the npm dependencies of the frontend, and GoldenFix can raise them. An application without scan patterns gets no scan, and the settings in the portal stay as they are. New npm findings count like any other finding and can turn the stage orange.
+
+h3. GoldenFix remediation (automatic pull request)
+
+When the Nexus IQ policy is violated (critical, high or medium findings above the limits), GoldenFix prepares the upgrades of each service of the run in five steps.
+
+h4. Step 1: the fixes and their versions
+
+# Fetches the violating components of the evaluation from Nexus IQ ({{/api/v2/applications/{app}/reports/{scanId}/policy}}) and keeps only *direct dependencies* with a non-waived violation of at least medium threat level.
+# Asks the Component Remediation API ({{/api/v2/components/remediation/application/{id}}}) for every version Nexus IQ proposes, for *all eligible components of a project in one shell step* with up to eight requests in flight at a time, and picks one of the proposals by two rules, in this order:
+## *Do not break the build: only the patch version may change.* For {{x.y.z}} the major {{x}} and the minor {{y}} have to stay as they are, so {{2.13.4}} may become {{2.13.5}} but never {{2.15.4}}. A two-part version behaves the same way: {{1.9}} may become {{1.9.1}} but not {{1.10.0}}.
+## *Among those, take the newest one that carries no known vulnerabilities.* The proposals are walked from the newest downwards, and the first one Nexus IQ reports as free of violations wins. When none of them is clean, the one with the fewest known issues is taken, and if Nexus IQ reports no counts, the newest one.
+
+A Golden Version that changes more than the patch version therefore loses to a plain patch upgrade. Only when Nexus IQ proposes no patch-level version at all does the library fall back to the newest clean proposal of any level; the pull request and the console then say that the upgrade {{changes more than the patch version, no patch-level upgrade is offered}}, so a reviewer sees it has to be checked by hand.
+
+GoldenFix takes the name of a pub component from {{coordinates.name}}, or from {{coordinates.packageId}} when there is none. This has not been checked against a real Nexus IQ report of a pub component.
+
+h4. Step 2: the manifests
+
+GoldenFix searches the whole source tree of the repository, multi-module projects included, and skips the folders of {{goldenFix.excludeDirs}} (by default {{node_modules}}, {{target}}, {{build}}, {{dist}}, virtualenvs and the like). It updates:
+* *Maven:* {{pom.xml}} dependencies and dependencyManagement, and the {{<properties>}} they reference, in every {{pom.xml}} of the repository that defines a property of that name. A parent pom of the repository is therefore covered; a parent or BOM resolved from Nexus is not.
+* *Gradle:* {{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{settings.gradle}} and {{settings.gradle.kts}}: inline coordinates, {{ext}}, {{extra}} and {{val}} version variables, {{ext}} map literals such as {{ext.versions = [jackson: '2.13.4']}}, and rich versions ({{strictly}}, {{require}}, {{prefer}}) in the Groovy and the Kotlin DSL; and the catalogs described under *Shared version catalogs* below.
+* *npm:* {{package.json}} dependencies, devDependencies, peerDependencies and optionalDependencies (range operator preserved), and the entries of {{overrides}} (npm) and {{resolutions}} (yarn) that pin the package itself; a nested override is left alone.
+* *pip:* {{requirements*.txt}}, {{constraints*.txt}}, {{pyproject.toml}} (PEP 621 and Poetry)
+* *Flutter:* {{pubspec.yaml}} dependencies and dev_dependencies (the {{^}} constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
+
+A version is only written when the manifest declares a plain version that is lower than the target. Ranges, hash-pinned requirements, dynamic versions and versions managed by a BOM are listed under "not applied automatically", with the reason, instead.
+
+h4. Shared version catalogs
+
+A *catalog* is a file of the repository that holds versions other builds use. GoldenFix treats these files as catalogs:
+* every {{*.versions.toml}} file, which Gradle reads as the catalog named after the file ({{gradle/libs.versions.toml}} is {{libs}});
+* a file that a {{settings.gradle}} or {{settings.gradle.kts}} imports in its {{versionCatalogs}} block, as {{create("deps") { from(files("...")) }}} or {{libs { from(files('...')) }}}, under any file name, and the catalog that the block declares itself with {{version(...)}} and {{library(...)}};
+* a file that a Gradle build applies with {{apply from: '...'}} or {{apply(from = "...")}}, relative to the build, to {{$rootDir}} or to {{rootProject.file(...)}};
+* a Gradle build file that applies the {{java-platform}} plugin;
+* a {{pom.xml}} that another pom of the repository names as its {{<parent>}} (through {{relativePath}}, by default {{../pom.xml}}) or imports with {{<scope>import</scope>}};
+* every file listed in {{goldenFix.versionCatalogs}} of the service: a {{.toml}} file is read as a Gradle catalog whatever its name, a {{pom.xml}} as Maven and any other file as a Gradle build file.
+
+GoldenFix changes the catalogs first and then the other manifests. A dependency that a catalog defines is raised in the catalog. A declaration of the same dependency elsewhere that is raised as well takes at least the version of the catalog, and the notes name it as {{<file>: <component> declared outside the catalog <catalog file> (<alias>)}}, so that a reviewer can move it into the catalog.
+
+In a Gradle TOML catalog GoldenFix changes only the version text; the formatting, the key order and the comments stay as they are. It reads these forms:
+
+||Table||Forms||
+|{{[versions]}}|{{x = "1.2"}}; {{x = { strictly = "1.2" }}}, {{{ require = "1.2" }}} and {{{ prefer = "1.2" }}}; in {{{ strictly = "[1.0,2.0[", prefer = "1.2" }}} the range stays, the concrete {{prefer}} is raised and the range is noted|
+|{{[libraries]}}|{{a = "g:a:1.2"}}; {{{ module = "g:a", version = "1.2" }}}; {{{ group = "g", name = "a", version = "1.2" }}} in any key order; {{version.ref = "x"}} and {{version = { ref = "x" }}}; {{version = { strictly = "1.2" }}} and {{version.strictly = "1.2"}}; a table {{[libraries.a]}} with {{module}}, {{group}}, {{name}}, {{version}} or {{version.ref}} on lines of their own|
+|{{[plugins]}}, {{[bundles]}}|Not changed|
+
+Gradle treats {{-}}, {{_}} and {{.}} in an alias alike, and so does GoldenFix: {{jackson-core}}, {{jackson_core}} and {{jackson.core}} are one key. In a build script, {{libs.versions.jackson.core}}, {{"$libs.versions.jackson.core"}} and {{"${libs.versions.jackson.core.get()}"}} ask for that key of the catalog {{libs}} only; the name of another catalog of {{settings.gradle}} asks that catalog. A plain {{${x}}} or {{$x}} reference is matched by name in every Gradle file, as before. In the catalog block of {{settings.gradle}}, {{version("x", "1.2")}} is a version of that catalog, {{library("a", "g", "a").versionRef("x")}} asks for it, and {{library("a", "g:a:1.2")}} and {{library("a", "g", "a").version("1.2")}} are raised in place.
+
+GoldenFix reads the catalogs only when Nexus IQ reported Maven or Gradle fixes. The files that the search of the manifests did not return, such as an imported catalog with another name, an applied build file or a listed path, are located with one more search. A listed path that matches nothing, or lies in a folder of {{goldenFix.excludeDirs}}, gives the note {{version catalog <path> not found in the repository}}; an absolute path, a Windows path or a path with {{..}} gives {{version catalog <path> is outside the repository}}. Notes appear in the report card and in the pull request. They are not fixes and are not counted in the metrics.
+
+What GoldenFix does not raise, and the reason the report gives instead:
+
+||Case||Reason under "not applied automatically"||
+|The catalog declares a range or a dynamic version|{{managed by version catalog <file> (<alias>): declared version '<v>' is dynamic or a range}}; for a shared {{pom.xml}}, {{managed by version catalog <file>: declared version '<v>' is a range or dynamic version}}|
+|The catalog key or property that a build asks for is missing or already newer|{{managed by version catalog <file> (<key>): not found or already newer}}|
+|A BOM or platform that the build imports manages the component (Gradle {{platform()}} or {{enforcedPlatform()}}, a {{*-bom}} entry of a catalog, a Maven {{<scope>import</scope>}}) and its group is the group of the BOM or below it|{{managed by BOM <group>:<artifact>:<version> imported in <file>: raise the BOM or add an override to the catalog}}|
+|The catalog is an artifact that {{settings.gradle}} imports with {{from("<group>:<artifact>:<version>")}}|{{managed by the version catalog artifact <group>:<artifact>:<version> outside this repository}}|
+|The version is a constant in {{buildSrc}} that a build reads as {{Versions.<name>}}|{{version <name> is defined in buildSrc/<file>: not updated automatically}}|
+
+A catalog in another repository and a BOM or parent resolved from Nexus are not raised: GoldenFix changes only the repository of the service.
+
+h4. Step 3: the pre-check build
+
+GoldenFix builds the project with the new versions before it proposes anything, so a pull request never breaks the build. *Every ecosystem whose manifest was changed is verified*, not only the main build tool of the service, and each check runs where the change takes effect, once for each kind of manifest and folder:
+
+||Changed file||Where the check runs||Default pre-check||
+|{{pom.xml}}|Its own folder|{{mvn -B -q -DskipTests compile}}|
+|A parent or BOM {{pom.xml}} of the repository, or a listed pom|The folder of the nearest {{pom.xml}} whose {{<modules>}} reach both the shared pom and a pom that uses it; otherwise the folder of the root {{pom.xml}}; otherwise its own folder|{{mvn -B -q -DskipTests compile}}|
+|{{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{settings.gradle}}, {{settings.gradle.kts}}|Its own folder|{{./gradlew --no-daemon --console=plain classes}} (or {{gradle}} without a wrapper)|
+|A Gradle catalog: a {{*.versions.toml}}, an imported or listed catalog, an applied build file, a {{java-platform}} module|Every build that uses it: the folder of each {{settings.gradle}} that imports it; for {{<root>/gradle/libs.versions.toml}} the folder {{<root>}} when {{<root>/settings.gradle}} exists; for an applied file the folder of the nearest {{settings.gradle}} of the build that applies it; for a {{java-platform}} module the folder of its nearest {{settings.gradle}}. Without such a build the check is left out, with the console line {{GoldenFix: no Gradle build found for <file> - not verified}}|The Gradle pre-check above|
+|{{package.json}}|Its own folder. When a {{package-lock.json}} lies next to it, {{npm install --package-lock-only --ignore-scripts}} refreshes the lock file first|{{npm ci --ignore-scripts}}, or {{npm install --ignore-scripts}} without a lock file|
+|{{requirements*.txt}}, {{constraints*.txt}}|Its own folder|{{python3 -m pip install --dry-run -r <file>}}|
+|{{pyproject.toml}}|Its own folder|{{python3 -m pip install --dry-run .}}|
+|{{pubspec.yaml}}|Its own folder|{{flutter pub get}} (or {{dart pub get}})|
+
+A refreshed {{package-lock.json}} is committed with the change, the notes say {{<folder>/package-lock.json refreshed}}, and the lock file note of the pull request leaves {{package-lock.json}} out. While {{build.node.enabled}} is true for the service, the npm check, the refresh included, runs with the Node.js, the registry or {{.npmrc}} and the environment of its Node.js build (stage 0); otherwise with the {{npm}} of the agent.
+
+Each command is replaceable per ecosystem under {{goldenFix.verify.commands}}, for example {{commands: { npm: "npm run build" }}} to compile an Angular application rather than only resolving its dependencies; the lock file refresh still runs first. When a build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to {{goldenFix.verify.maxAttempts}} times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, *no pull request is opened* and the run ends with {{BUILD_FAILED}}. Each check may take {{goldenFix.verify.timeoutMinutes}} (default 20). Set {{goldenFix.verify.enabled: false}} to skip the pre-check; the lock file is then not refreshed.
+
+h4. Step 4: the commit and the pull request
+
+GoldenFix commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes the branch {{GoldenFix-YYYYMMDDHHMM}} and raises a Bitbucket pull request of the same name into {{scm.bitbucket.targetBranch}}, or into the branch that triggered the build. The description and the commit message list every upgrade with its file, the property, the catalog alias or the catalog key it changed, the version before and after, and the rule that chose it. The description then lists the fixes not applied automatically and the notes of the run.
+
+The services of one build that share a repository share one branch and one pull request:
+* The first service that changes something raises the pull request ({{PR_CREATED}}).
+* Each later service works on the same branch, adds its commit and comments on the pull request under the heading {{GoldenFix for <service>}} with its upgrades, the fixes not applied and the notes ({{PR_UPDATED}}). The comment works on Bitbucket Server and Bitbucket Cloud, with the credentials of the pull request. When the comment fails, the console says {{[GOLDENFIX] The pull request comment could not be added: <reason>}} and the service stays {{PR_UPDATED}}.
+* A version already raised on the branch is never lowered, so a shared catalog ends at the highest version any service needs.
+* A later service whose upgrades the branch already carries makes no commit and no comment. It ends {{PR_UPDATED}} with the link and the message {{Already raised to <component> <version> in the shared pull request <url>}}.
+
+Separate Jenkins jobs for the services of one repository each raise their own pull request. Two of them that start in the same minute compute the same branch name, and the second push fails with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)}}, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13].
+
+h4. Step 5: the report
+
+The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the *Nexus IQ GoldenFix* card. The card lists the applied changes, with the property, the catalog alias or the catalog key under the component, the fixes that could not be applied automatically with their reasons, and the notes of the run.
+
+GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange on the policy violation, and a GoldenFix error is only reported. The npm pre-check refreshes a {{package-lock.json}} as described above; {{yarn.lock}}, {{poetry.lock}} and pinned requirements are not regenerated. Requires {{scm.bitbucket.url}} and {{scm.bitbucket.credentialsId}} and a Linux/macOS agent with git.
 
 h3. Stage 4: SAST – HCL AppScan
 
 Downloads and unpacks SAClientUtil (the AppScan CLI), compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. Before a project is queued and before its results are read, the CLI logs in with the key of that project ({{asoc.keyId}} and the secret of {{asoc.token}}). The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the Global Settings in the DevSecOps portal (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
 
-h4. GoldenFix remediation (automatic pull request)
-
-When the Nexus IQ policy is violated (critical, high or medium findings above the limits) the library:
-
-# Fetches the violating components of the evaluation from Nexus IQ ({{/api/v2/applications/{app}/reports/{scanId}/policy}}) and keeps only *direct dependencies* with a non-waived violation of at least medium threat level.
-# Asks the Component Remediation API ({{/api/v2/components/remediation/application/{id}}}) for every version Nexus IQ proposes, for *all eligible components of a project in one shell step* with up to eight requests in flight at a time, and picks one of the proposals by two rules, in this order:
-
-## *Do not break the build: only the patch version may change.* For {{x.y.z}} the major {{x}} and the minor {{y}} have to stay as they are, so {{2.13.4}} may become {{2.13.5}} but never {{2.15.4}}. A two-part version behaves the same way: {{1.9}} may become {{1.9.1}} but not {{1.10.0}}.
-## *Among those, take the newest one that carries no known vulnerabilities.* The proposals are walked from the newest downwards, and the first one Nexus IQ reports as free of violations wins. When none of them is clean, the one with the fewest known issues is taken, and if Nexus IQ reports no counts, the newest one.
-
-   A Golden Version that changes more than the patch version therefore loses to a plain patch upgrade. Only when Nexus IQ proposes no patch-level version at all does the library fall back to the newest clean proposal of any level; the pull request and the console then say that the upgrade {{changes more than the patch version, no patch-level upgrade is offered}}, so a reviewer sees it has to be checked by hand.
-# Searches the whole source tree (multi-module projects included, {{node_modules}}, {{target}}, {{build}}, virtualenvs skipped) and updates:
-** Maven: {{pom.xml}} dependencies, dependencyManagement and the {{<properties>}} they reference (also in parent POMs)
-** Gradle: {{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{ext}}/{{val}} version variables, version catalogs {{*.versions.toml}}
-** npm: {{package.json}} dependencies, devDependencies, peerDependencies, optionalDependencies (range operator preserved)
-** pip: {{requirements*.txt}}, {{constraints*.txt}}, {{pyproject.toml}} (PEP 621 and Poetry)
-** Flutter: {{pubspec.yaml}} dependencies and dev_dependencies (the {{^}} constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
-# Builds the project with the new versions before proposing anything, so a pull request never breaks the build. *Every ecosystem whose manifest was changed is verified, not only the project's main build tool*, and each manifest is checked in its own directory, so a repository that mixes a {{pom.xml}}, an Angular {{package.json}} and a {{requirements.txt}} has all three checked:
-
-||Changed manifest||Default pre-check||
-|{{pom.xml}}|{{mvn -B -q -DskipTests compile}}|
-|{{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{*.versions.toml}}|{{./gradlew --no-daemon --console=plain classes}} (or {{gradle}} without a wrapper)|
-|{{package.json}}|{{npm ci --ignore-scripts}}, or {{npm install --ignore-scripts}} without a lock file|
-|{{requirements*.txt}}, {{constraints*.txt}}|{{python3 -m pip install --dry-run -r <file>}}|
-|{{pyproject.toml}}|{{python3 -m pip install --dry-run .}}|
-|{{pubspec.yaml}}|{{flutter pub get}} (or {{dart pub get}})|
-
-   Each command is replaceable per ecosystem under {{goldenFix.verify.commands}}, for example {{commands: { npm: "npm run build" }}} to compile an Angular application rather than only resolving its dependencies. When that build fails, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to {{goldenFix.verify.maxAttempts}} times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, *no pull request is opened* and the run ends with {{BUILD_FAILED}}. Set {{goldenFix.verify.enabled: false}} to skip the pre-check.
-# Commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes branch {{GoldenFix-YYYYMMDDHHMM}} and raises a Bitbucket pull request with the same name. All projects of one build share the pull request.
-# The HTML report shows the pull request link in the Nexus IQ stage, in the Security Gates table and in the *Nexus IQ GoldenFix* card together with the applied changes and the fixes that could not be applied automatically (e.g. versions managed by a BOM, ranges, hash-pinned requirements).
-
-A version is only written when the manifest declares a plain version that is lower than the target; ranges, hash pinned requirements and versions managed by a BOM are listed under "not applied automatically" instead.
-
-GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange on the policy violation, and a GoldenFix error is only reported. Lock files ({{package-lock.json}}, {{poetry.lock}}, pinned requirements) are not regenerated. Requires {{scm.bitbucket.url}} and {{scm.bitbucket.credentialsId}} and a Linux/macOS agent with git.
+After a Node.js build in the same run, the folders that an IRX archive leaves out also hold {{node_modules}}, so the installed npm packages are not scanned as source code. This applies to every IRX archive of the run, unless included folders ({{includedDirs}}) are set or {{node_modules}} is already among the excluded folders ({{excludedDirs}}). Without a Node.js build nothing changes. The rule has limits:
+* With included folders set, only those folders are scanned and the excluded folders do not apply.
+* On Windows agents the IRX is prepared from the included folders with {{robocopy}}, which leaves out only test folders.
+* With {{asoc.useAppScanConfig: true}} the {{appscan-config.xml}} of the repository decides what is scanned, and the excluded folders do not apply.
+* The output of the frontend build, such as the minified bundles in {{dist}}, is scanned like any other file.
 
 h3. Stage 5: SCA (SonarQube)
 
@@ -1495,15 +1668,18 @@ h3. Stage 12: Nexus delivery (safe artifact)
 
 This is the second delivery to Nexus, into the release repository. It is skipped as soon as *any* earlier stage is orange, so a build with open findings, failed tests or missing coverage is never released.
 
+In the extended pipeline, which has no stage 0, this stage first runs the Node.js build of each service with {{build.node.enabled: true}}, exactly as stage 0 would, and then publishes the service; a service without it publishes as before. The full pipeline built the frontend in stage 0 of the same workspace and does not build it twice.
+
 h3. Stage 13: Higher test environment deployment
 
 Runs only when {{DEPLOY_HIGHER_ENV=true}} is selected *and* every earlier stage is green.
 
 h3. How a failure is reported: orange stages and the release gate
 
-No security or test finding stops the pipeline. Every stage from the unit tests to DAST is executed on every build. A stage that breaks the library policy is marked *orange* ({{WARN}}), the build becomes UNSTABLE, and the reason printed in the console and shown in the report names the failed step, the counts behind it and the consequence.
+No security or test finding stops the pipeline. Every stage from the unit tests to DAST is executed on every build; only a build failure, such as a compilation error or a failing Node.js command, stops it. A stage that breaks the library policy is marked *orange* ({{WARN}}), the build becomes UNSTABLE, and the reason printed in the console and shown in the report names the failed step, the counts behind it and the consequence.
 
 ||Stage||On a policy violation||Consequence||
+|Node.js build (optional)|No policy applies; a failing command is red and stops the pipeline|The later stages do not run|
 |Unit tests|Orange, with the measured and required line coverage, or with the exit code of a failed test run|Release and QC blocked|
 |Dependencies scan (Nexus IQ)|Orange, with critical / high / medium counts, GoldenFix pull request raised|Release and QC blocked|
 |SAST|Orange, with critical / high / medium counts|Release and QC blocked|
@@ -1554,14 +1730,26 @@ h1. 18. Supported Build Tools
 |Gradle|{{./gradlew}} + {{build.gradle.tasks}} and {{flags}}|{{./gradlew}} + {{tests.unitTests.gradle.tasks}}|JaCoCo XML|{{./gradlew publish}}|
 |Maven|{{mvn}} + {{build.maven.goals}} and {{flags}}|{{mvn}} + {{tests.unitTests.maven.goals}}|JaCoCo XML|{{mvn deploy}}|
 |Flutter|{{flutter build <platform>}}|{{flutter test --coverage --machine}}|lcov|Nexus upload of the APK/IPA|
+|Node.js (stage 0, optional)|{{build.node.commands}}, by default {{npm ci}} and {{npm run build}}|–|–|– (the Gradle or Maven build packages the output)|
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is auto-detected from {{buildTool}} in config or by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
 
 Gradle always runs through the {{./gradlew}} wrapper, which the library makes executable. Maven uses the installation of {{build.maven.mvnPath}} when it is set, otherwise {{./mvnw}} when the wrapper is committed, otherwise the {{mvn}} on the agent {{PATH}}.
 
 The JDK comes from {{javaPath}} of the project, which the library exports as {{JAVA_HOME}} and prepends to {{PATH}}. With {{buildToolAutoSetup: true}} the library instead reads the required Java version from {{pom.xml}} or {{build.gradle}} and searches the agent for a matching JDK.
 
 A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.
+
+h3. Node.js before Gradle or Maven
+
+Node.js is not a build tool of its own: {{buildTool}} stays {{gradle}} or {{maven}}, and {{build.node.enabled: true}} adds a Node.js build that runs first, in stage 0. It suits a repository whose frontend npm builds and whose Gradle or Maven build then packages it, for example an Angular application served from a Spring Boot jar. Leave it off when the Gradle or Maven build already runs npm, for example through a Node plugin of the build.
+
+* *Node.js:* {{build.node.nodePath}}, otherwise the NodeJS installation {{build.node.installationName}} (NodeJS plugin), otherwise the {{node}} and {{npm}} of the agent {{PATH}}.
+* *npm registry:* an {{.npmrc}} Secret file ({{build.node.npmrcCredentialsId}}), otherwise {{build.node.registry}}.
+* *Commands:* {{build.node.commands}} in {{build.node.dir}}, with {{sh}} or, on Windows, {{bat}}; at most {{build.node.timeoutMin}} minutes in all.
+* *Output:* outside {{build/}} and {{target/}}, and copied into the artifact by the Gradle or Maven build, see [Troubleshooting|#ch23], *The frontend is missing from the jar*.
+
+The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: the portal does not render one for it.
 
 h3. JaCoCo report auto-detection (Gradle)
 
@@ -1739,6 +1927,10 @@ h3. Complete method reference
 |{{deployTarget()}}|{{vm}} or {{openshift}} for the current project|
 |{{nexusDeliveryEnabled()}}|{{false}} when {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the current project|
 |{{notRequired(String reason)}}|Log the reason and mark the current project not required in the current stage; the stage ends {{NOT_REQUIRED}} when every project is|
+|{{nodeBuildRequired()}}|{{true}} when a service of the run needs the Node.js build in this pipeline; the {{when}} guard of the Node.js build stage. It runs no step and logs nothing|
+|{{nodeBuildEnabled()}}|{{true}} when {{build.node.enabled}} is true for the current project|
+|{{nodeBuildNeeded()}}|{{true}} when the current project needs the Node.js build in this pipeline: enabled, and in the SAST scanning pipeline only while {{asoc.doCompile}} is not false on a Linux or macOS agent|
+|{{nodeBuild()}}|Run the Node.js build of the current project ({{build.node}}): Node.js home, registry or {{.npmrc}}, environment, commands, timeout|
 |{{appscanSetup()}}|Download and extract SAClientUtil|
 |{{appscanLogin()}}|Authenticate the AppScan CLI|
 |{{appscanResolveSourceDir(String path = null)}}|Set the IRX source directory|
@@ -1754,7 +1946,7 @@ h3. Complete method reference
 |{{buildArtifact()}}|Build with Gradle, Maven or Flutter|
 |{{unitTests()}}|Run unit tests with coverage collection|
 |{{checkCoverage()}}|Compare the line coverage with the required value of the Global Settings|
-|{{depVulnScan()}}|Nexus IQ scan; raises the GoldenFix pull request on a violation|
+|{{depVulnScan()}}|Nexus IQ scan, with the {{package-lock.json}} of a Node.js build among the scan patterns; raises or updates the GoldenFix pull request on a violation|
 |{{codeQualityScan()}}|SonarQube analysis|
 |{{reportArtifactBuild()}}, {{reportUnitTests()}}|BBH build reporting|
 |{{smokeTests()}}, {{regressionTests()}}, {{performanceTests()}}|Run all configured jobs with the configured parallelism|
@@ -1781,6 +1973,8 @@ h3. Complete method reference
 |{{logStageResult(String name, String status)}}|Print the stage result and the scanner summary|
 |{{section(String text)}}, {{startSection(String text)}}, {{endSection(String text)}}|Console separators|
 
+{{devSecOpsSteps.nodeBuild(devSecOpsApi)}} is the body of the Node.js build stage: it runs {{nodeBuild()}} for every project that needs it and marks the others not required. {{devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true])}} runs the Node.js build of each project that enables it before {{publishArtifactQC()}}, as the extended pipeline does; without the option it publishes only.
+
 ----
 
 ----
@@ -1803,11 +1997,13 @@ h3. What is written
 |{{code_coverage}}|project, env, module, measured|Line coverage against the required minimum, and the shortfall|
 |{{test_execution}} / {{test_job}}|project, env, module, suite, status, type|Suite totals and success rate, and each individual job|
 |{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it|
-|{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised and whether the pre-check build withheld one, and the address and title of a raised pull request|
+|{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request|
 |{{test_execution}} with {{suite=unit}}|project, env, module, suite|Unit test totals of each module: total, passed, failed, skipped, success rate and duration|
 |{{build_evidence}}|project, env, module|The change evidence the DevSecOps portal shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used ({{config_rendered_at}}, {{config_sha256}}). Empty values are left out|
 
 The measurements written before this revision - {{deployments}}, {{change_failure}}, {{build_duration}}, {{stage_metric}}, {{vulnerabilities}} and {{test_coverage}} - are still written unchanged, so dashboards built against them keep working.
+
+A run with a Node.js build writes its stage as {{stage=Node.js build}} in {{stage_event}} and {{stage_metric}} and counts it in {{pipeline_run}}; a run without one writes exactly what it wrote before. In the {{goldenfix}} point a later service of a shared pull request has {{status=PR_UPDATED}} and {{pr_raised}} 1, and a service whose upgrades the shared pull request already carried has {{applied}} 0. The notes of a GoldenFix run are not written to InfluxDB.
 
 h3. DORA
 
@@ -1837,7 +2033,7 @@ A bucket keeps the data for its retention period, and the cumulative "since the 
 
 h3. Dashboards
 
-[Grafana dashboards and queries|#ch22] holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under {{grafana/}} continue to work; the stage panels of {{devSecOpsDashboard}} show the Build artifact stage of the Nexus IQ GoldenFix pipeline as {{Build}}.
+[Grafana dashboards and queries|#ch22] holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under {{grafana/}} continue to work; the stage panels of {{devSecOpsDashboard}} show the Build artifact stage of the Nexus IQ GoldenFix pipeline as {{Build}} and the Node.js build as {{Node.js}}, with the sort key of {{Download sources}}.
 
 ----
 
@@ -1857,7 +2053,7 @@ h3. Dashboard variables
 Create these as *Query* variables so the panels below work unchanged.
 
 ||Variable||Type||Definition||
-|{{project}}|Query|{{import "influxdata/influxdb/schema"}}<br>{{schema.tagValues(bucket: "DORA-metrics", tag: "project")}}|
+|{{project}}|Query|{{import "influxdata/influxdb/schema"}}, then {{schema.tagValues(bucket: "DORA-metrics", tag: "project")}}|
 |{{env}}|Query|{{schema.tagValues(bucket: "DORA-metrics", tag: "env")}}|
 |{{module}}|Query, multi, include All|{{schema.tagValues(bucket: "DORA-metrics", tag: "module")}}|
 |{{stage}}|Query, multi, include All|{{schema.tagValues(bucket: "DORA-metrics", tag: "stage")}}|
@@ -2341,7 +2537,7 @@ h3. Suggested dashboard layout
 |*Remediation*|Pull requests raised (6.1) · Remediation funnel (6.2) · Upgrades withheld (6.3)|
 |*Detail*|Failure reasons (3.6) · Recent builds table (7.6)|
 
-The two dashboard definitions under {{grafana/}} — {{devSecOpsDashboard}} and {{devSecOpsSecurityDashboard}} — were built against the measurements marked as kept in section 1 and continue to work. The stage panels of {{devSecOpsDashboard}} also map the Build artifact stage of the Nexus IQ GoldenFix pipeline to {{Build}}. Panels from sections 2 to 7 are additions rather than replacements.
+The two dashboard definitions under {{grafana/}} — {{devSecOpsDashboard}} and {{devSecOpsSecurityDashboard}} — were built against the measurements marked as kept in section 1 and continue to work. The stage panels of {{devSecOpsDashboard}} also map the Build artifact stage of the Nexus IQ GoldenFix pipeline to {{Build}} and the {{Node.js build}} stage to {{Node.js}}, with the same sort key 1 as {{Download sources}}. Panels from sections 2 to 7 are additions rather than replacements. The stage panels above group by the {{stage}} tag, so the Node.js build appears there under its full name in the runs that had one.
 
 h3. Retention
 
@@ -2394,6 +2590,55 @@ javaPath: /usr/lib/jvm/java-17-openjdk
 h3. "Unit tests failed (script returned exit code 1)"
 
 The test command returned a non-zero exit code. The stage is orange, not red: Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run, and only the Nexus release and the QC deployment are blocked. Open the console output of the stage for the failing tests. When Gradle stops at {{jacocoTestCoverageVerification}}, the coverage rule of your own build is stricter than the run allows; the library checks the coverage itself, so the task is not required in {{tests.unitTests}}.
+
+h3. "[NODE] <service>: build.node.enabled is not set - no Node.js build"
+
+Not an error. Another service of the run has a Node.js build, so the stage runs, and this service has none. When the service has a frontend that npm must build first, tick *Build the frontend with Node.js first* for it in the portal ({{build.node.enabled: true}}).
+
+h3. "[NODE] <service>: the SAST scan does not compile this service - no Node.js build"
+
+Not an error. In the SAST scanning pipeline the Node.js build of a service runs only when its SAST scan compiles it, and this one does not: {{asoc.doCompile}} is {{false}}, or the agent is Windows. The IRX archive is prepared from the sources only.
+
+h3. The Node.js build stage is red
+
+A command of {{build.node.commands}} failed, or the Node.js build could not start. The console shows the step {{Node.js: <command>}} with the output of npm, after the line {{[NODE] <service>: Node.js from ... in ...}} that names the Node.js and the folder used. The pipeline stops there; the report and the metrics are still written.
+
+* {{npm ci}} needs a committed {{package-lock.json}} in {{build.node.dir}} that matches {{package.json}}. Commit the lock file, or set the commands to {{npm install}} and {{npm run build}}.
+* A wrong folder: {{build.node.dir}} is relative to the workspace, which is the repository root.
+* No Node.js: the {{tool}} step stops when no NodeJS installation of the name in {{build.node.installationName}} exists under *Manage Jenkins → Tools*, and {{node: not found}} or {{npm: not found}} means the agent has none on its {{PATH}}. Name an existing installation, set {{build.node.nodePath}} to the Node.js folder of the agent, or ask the Jenkins administrators to install Node.js.
+* npm cannot reach or log in to the registry: set {{build.node.registry}}, or an {{.npmrc}} Secret file in {{build.node.npmrcCredentialsId}} when the registry needs a login.
+* The build ran out of time: raise {{build.node.timeoutMin}} (default 30 minutes, for all commands together), or out of memory: add {{NODE_OPTIONS: "--max-old-space-size=4096"}} to {{build.node.env}}.
+
+h3. The frontend is missing from the jar
+
+The Node.js build ran, but the artifact holds no frontend. The Node.js build only leaves its output in the workspace; the Gradle or Maven build must copy it into the artifact, and nothing else does:
+
+* Write the output outside {{build/}} and {{target/}}. The {{clean}} task that Gradle and Maven usually run first deletes those folders, and the output with them.
+* Copy the output into the jar. With Gradle, in the {{build.gradle}} of the service, for an Angular output folder {{frontend/dist/my-app}} served as static content:
+{code:groovy}
+processResources {
+    from('frontend/dist/my-app') {
+        into 'static'
+    }
+}
+{code}
+With Maven, in the {{pom.xml}} of the service:
+{code:xml}
+<build>
+  <resources>
+    <resource>
+      <directory>src/main/resources</directory>
+    </resource>
+    <resource>
+      <directory>frontend/dist/my-app</directory>
+      <targetPath>static</targetPath>
+    </resource>
+  </resources>
+</build>
+{code}
+* OpenShift: the image is built from the artifact alone ({{artifactName}} in the build context), so the frontend reaches the image only inside the jar.
+* GoldenFix verifies its upgrades in a worktree of its own, without the output of the Node.js build, so its Gradle or Maven pre-check must build without it as well.
+* When the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build, switch the Node.js build off.
 
 h3. "[DOD] No UrbanCode Deploy applications are configured"
 
@@ -2456,13 +2701,63 @@ h3. GoldenFix pull request was not raised
 The GoldenFix card explains the outcome in plain language, so that a reader who does not work on the pipeline can act on it. The wording follows the internal status:
 
 ||Status||What the card says, and what to do||
-|{{PR_CREATED}} / {{PR_UPDATED}}|The upgrade is waiting for review, with a link to the pull request|
+|{{PR_CREATED}} / {{PR_UPDATED}}|The upgrade is waiting for review, with a link to the pull request. {{PR_UPDATED}} means that an earlier service of the same build and repository raised the pull request: this service added its upgrades to it with a comment, or found them there already ({{Already raised to ...}})|
 |{{NOT_CONFIGURED}}|The upgrades are ready but the repository address is missing. Fill in {{scm.bitbucket.url}} with the repository link and {{scm.bitbucket.credentialsId}} with the Jenkins credentials allowed to write to it, and the pull request is raised on the next run|
 |{{NO_FIXES}}|The supplier has published no safe version yet, so the components have to be replaced or the risk accepted|
-|{{NO_MANIFEST_CHANGES}}|The vulnerable versions are not chosen by this project. They arrive through another library, typically managed by a parent POM or a BOM, so the upgrade belongs there|
+|{{NO_MANIFEST_CHANGES}}|The vulnerable versions are not chosen by this project. They arrive through another library, typically managed by a parent POM or a BOM, so the upgrade belongs there. The reasons under "not applied automatically" name the BOM, the catalog or the catalog artifact when GoldenFix found one; the entries below explain each of them|
+|{{BUILD_FAILED}}|The pre-check build failed with the proposed versions and again in every further attempt with lower versions, up to {{goldenFix.verify.maxAttempts}}, so no pull request was opened. The console lines {{[GOLDENFIX] Pre-check build ...}} and the build output above them show what failed; see [Pipeline Stage Reference|#ch16]|
 |{{SKIPPED}}|Automatic upgrades are switched off for this project|
 |{{ERROR}}|The run stopped before it could propose anything and the repository was not touched. The card names it as a fault in the pipeline run and carries the technical detail for the DevSecOps team; the {{[GOLDENFIX]}} lines in the console hold the full context, usually Nexus IQ or Bitbucket permissions|
 
+The entries below explain the reasons, notes and console lines of GoldenFix one by one. [Pipeline Stage Reference|#ch16] describes the whole remediation.
+
+h3. "managed by version catalog <file> (<alias>): ..."
+
+The component is defined in a version catalog of the repository, and GoldenFix could not raise it there:
+* {{declared version '<v>' is dynamic or a range}}, or {{is a range or dynamic version}} in a shared {{pom.xml}}: the catalog declares a range such as {{[1.0,2.0[}} or a dynamic version such as {{2.+}}. Write a concrete version in the catalog, or raise the range by hand.
+* {{not found or already newer}}: a build asks the catalog for a key, for example {{libs.versions.jackson}}, and the catalog has no such key, or already holds a version at least as new as the fix. Check the spelling of the key; {{-}}, {{_}} and {{.}} count as the same character.
+
+h3. "managed by BOM <group>:<artifact>:<version> imported in <file>: raise the BOM or add an override to the catalog"
+
+A BOM or platform that {{<file>}} imports manages the version of the component, so the component has no version of its own to raise. GoldenFix names a BOM when the group of the component is the group of the BOM or lies below it. Raise the BOM to a version that brings the fix, or declare the component with the fixed version in the catalog or the build, which overrides the BOM. GoldenFix raises such a declaration itself on later runs.
+
+h3. "managed by the version catalog artifact <group>:<artifact>:<version> outside this repository"
+
+{{settings.gradle}} imports the catalog from a published artifact ({{from("<group>:<artifact>:<version>")}}), not from a file of the repository. GoldenFix changes only the repository of the service. Raise the version in the repository that publishes the catalog, publish it, and raise the catalog version in {{settings.gradle}}.
+
+h3. "version <name> is defined in buildSrc/<file>: not updated automatically"
+
+The build reads the version as a constant of {{buildSrc}}, for example {{Versions.jackson}}. GoldenFix finds the file that defines it but does not change {{buildSrc}} sources. Raise the constant by hand, or move the version into a {{gradle/libs.versions.toml}} catalog, which GoldenFix raises.
+
+h3. "version catalog <path> not found in the repository" or "version catalog <path> is outside the repository"
+
+A path of {{goldenFix.versionCatalogs}} of the service matched no file, or matched only files in a folder of {{goldenFix.excludeDirs}}; or it is an absolute path, a Windows path or a path with {{..}}. Paths are relative to the root of the repository, with {{/}} between folders, and may use {{*}}, {{**}} and {{?}}. Correct the path in the portal, or remove it: the usual catalogs are found without being listed. The run continues; the note only appears in the report card and in the pull request.
+
+h3. "<file>: <component> declared outside the catalog <catalog file> (<alias>)"
+
+Not an error. A build file declares a version of a component that a catalog of the repository also defines. GoldenFix raised both, and the build file to at least the version of the catalog, so that the two stay aligned. Move the declaration into the catalog when you review the pull request.
+
+h3. "<folder>/package-lock.json refreshed"
+
+Not an error. The npm pre-check refreshed the lock file next to a changed {{package.json}} with {{npm install --package-lock-only --ignore-scripts}}, and GoldenFix committed it with the change. Review it with the pull request.
+
+h3. "GoldenFix: no Gradle build found for <file> - not verified"
+
+GoldenFix changed a file that it treats as a Gradle catalog, and found no Gradle build that uses it. This is the case for a {{*.versions.toml}} that no {{settings.gradle}} imports (other than {{gradle/libs.versions.toml}} next to a {{settings.gradle}}), for a file of {{goldenFix.versionCatalogs}} that no build imports or applies, and for a {{java-platform}} module outside every folder that holds a {{settings.gradle}}. The change is in the pull request without a pre-check build. Import the catalog in the {{settings.gradle}} of the build that uses it, or build the branch yourself before merging.
+
+h3. "Already raised to <component> <version> in the shared pull request <url>"
+
+Not an error. An earlier service of the same build and repository raised the same components on the shared branch, to the version shown or higher. The service makes no commit and no comment, ends {{PR_UPDATED}}, and its card links the shared pull request.
+
+h3. "[GOLDENFIX] The pull request comment could not be added: <reason>"
+
+The service added its commit to the shared pull request, but Bitbucket refused the comment that lists its upgrades under {{GoldenFix for <service>}}. The upgrades are on the branch and the service stays {{PR_UPDATED}}; the card of the service still lists them. The reason quotes the answer of Bitbucket. Usually the credentials of {{scm.bitbucket.credentialsId}} may push but not comment: give them the permission to comment on pull requests in the repository.
+
+h3. "[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; ..."
+
+Two GoldenFix jobs for services of one repository started in the same minute, computed the same branch name {{GoldenFix-YYYYMMDDHHMM}}, and git refused the second push. The first job raised its pull request; the second one ends with {{ERROR}}. Run one Nexus IQ GoldenFix job for all services of the repository, with {{pipelineKeys}}, as described in [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. The services then share one branch and one pull request.
+
+The library shows this message whenever git ends the push with exit code 1, which is also the case when Bitbucket rejects the push for another reason, for example a branch permission or a hook. The output of the step {{GoldenFix: git push}} just above the message shows the reason that git received.
 
 h3. DAST PDF report is missing in the pipeline report
 
@@ -2498,6 +2793,9 @@ h3. Problems on a first run
 |DAST fails saying the HTML report could not be produced|AppScan did not render the report in time or returned a message instead. The stage deliberately fails rather than recording zero findings. Re-run; if it repeats, ask for a higher {{dast.reportTimeoutMin}}.|
 |A test stage is orange with {{NOT_CONFIGURED}}|A test job named for the service in the portal does not exist in Jenkins yet. Create it, or accept the orange stage until the suite is ready.|
 |No dependency upgrade pull request appears|The pipeline needs {{scm.bitbucket.url}} and a credential with write access. The report states this in plain language when it is the cause.|
+|The Node.js build stage fails at {{npm ci}}|{{npm ci}} needs a committed {{package-lock.json}} in {{build.node.dir}}. Commit it, or set {{build.node.commands}} to {{npm install}} and {{npm run build}}.|
+|The frontend is missing from the jar|The Node.js build leaves its output in the workspace; the Gradle or Maven build must copy it into the jar. See *The frontend is missing from the jar* above.|
+|{{[GOLDENFIX] The branch ... already exists}}|Two GoldenFix jobs of one repository started in the same minute. Run one job for all services of the repository with {{pipelineKeys}}.|
 |The extended pipeline cannot copy artifacts|The Copy Artifact permission on the upstream security job. Ask the Jenkins administrators.|
 
 h3. Where to go for help
@@ -2526,7 +2824,7 @@ h3. One command
 bash test/run-all.sh
 {code}
 
-The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the {{script-security}} plugin) into {{${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}}}, then runs everything below and regenerates the demo reports in {{examples/reports}}. It prints {{ALL CHECKS PASSED}} when the library is releasable.
+The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the {{script-security}} plugin) into {{${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}}}, then runs everything below and regenerates the demo reports in {{examples/reports}}, {{documentation.html}} and {{documentation.md}}. It prints {{ALL CHECKS PASSED}} when the library is releasable.
 
 h3. What it runs
 
@@ -2543,10 +2841,12 @@ h3. What it runs
 |{{test/checks/vars-api.sh}}|The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), and every manifest updater is wired into the GoldenFix service|
 |{{test/checks/no-comments.sh}}|No comments and no commented-out code in {{src}} and {{vars}}|
 |{{test/checks/ascii.sh}}|{{src}} and {{vars}} hold printable ASCII only|
+|{{test/checks/docs-html.sh}}|{{documentation.html}} is the rendering of {{documentation.confluence}}; the check regenerates it when it is not|
+|{{test/checks/docs-md.sh}}|{{documentation.md}} is the Markdown rendering of {{documentation.confluence}}; the check regenerates it when it is not|
 |compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration|
 |{{test/portal/query-scenarios.sh}}|The query script of {{PortalConfigReader}}, run with the real {{curl}} against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key|
-|{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; 200 smoke jobs run with the configured parallelism; the {{goldenfix}} point carries {{pr_url}} and {{pr_title}} only when a pull request was raised; eight service level pipelines produce the demo reports|
-|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added|
+|{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it refreshes a {{package-lock.json}}, raises npm {{overrides}} and {{resolutions}}, names the cause of a rejected push and names pub components; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the {{goldenfix}} point carries {{pr_url}} and {{pr_title}} only when a pull request was raised; eight service level pipelines produce the demo reports|
+|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines|
 |{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key|
 |{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of the {{config.yaml}} library and the portal loader produce the same configuration, exactly for documents with the same values and after declared rules for the documents the portal renders|
 
