@@ -4,6 +4,10 @@ Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delive
 
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
+{info}
+*This is the {{DSOEnhancedWithoutPortal}} branch, DevSecOps version 0.* A pipeline is configured by its {{Jenkinsfile}} and the {{devsecops_config.yaml}} of its repository only, with the global settings that the library bundles. The {{main}} branch of the repository is the release with the DevSecOps portal. The features of {{main}} are carried over to this branch.
+{info}
+
 h2. Contents
 
 
@@ -29,7 +33,7 @@ h2. Contents
 
 *Part III - Configuration and Behaviour Reference*
 
-* [15. Configuration Reference: the DevSecOps Portal|#ch15]
+* [15. Configuration Reference: devsecops_config.yaml|#ch15]
 * [16. Pipeline Stage Reference|#ch16]
 * [17. Security Policy Thresholds|#ch17]
 * [18. Supported Build Tools|#ch18]
@@ -54,7 +58,7 @@ h1. 1. High Level Overview
 The library executes the following pipeline automatically when you call {{devSecOpsPipeline()}} from your Jenkinsfile:
 
 ||#||Stage||What it does||
-|1|Monitor source changes|Reads the configuration of the pipeline keys, or without a key {{devsecops_config.yaml}} (else {{config.yaml}}) of the repository, merges it with the global defaults and sets the tool environment|
+|1|Monitor source changes|Reads {{devsecops_config.yaml}} (else {{config.yaml}}) of the repository, merges its services with the global defaults that the library bundles and sets the tool environment|
 |0|Node.js build (optional)|Runs the npm commands of each service that sets {{build.node.enabled: true}}, for example to build an Angular frontend, before the Gradle or Maven build; the stage is left out when no service of the run sets it|
 |2|Unit tests|Build tool tests, then the line coverage of every JaCoCo and LCOV report of the service, whose mean is checked against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues|
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
@@ -71,7 +75,7 @@ The library executes the following pipeline automatically when you call {{devSec
 
 The Node.js build runs after stage 1 and before stage 2. The report numbers it 0, so every other stage keeps its number whether a run has a Node.js build or not.
 
-The full and security pipelines declare one more Jenkins stage, *Static analysis*. When the Global Settings checkbox *Run Nexus IQ and SonarQube while AppScan scans* ({{staticAnalysis.parallel}}) is ticked, it runs stages 3, 4 and 5: SAST sends every service to AppScan first, Nexus IQ and SonarQube run while AppScan scans, and SAST reads the results last. Jenkins then shows the three stages as skipped; otherwise it shows *Static analysis* as skipped. The report, the metrics and the release gate always show stages 3, 4 and 5 with their numbers.
+The full and security pipelines declare one more Jenkins stage, *Static analysis*. When {{staticAnalysis.parallel}} is {{true}} for every service of the run, set in {{devsecops_config.yaml}} or in the bundled defaults, or the environment variable {{DSO_STATIC_ANALYSIS_PARALLEL}} is {{true}}, it runs stages 3, 4 and 5: SAST sends every service to AppScan first, Nexus IQ and SonarQube run while AppScan scans, and SAST reads the results last. Jenkins then shows the three stages as skipped; otherwise it shows *Static analysis* as skipped. The report, the metrics and the release gate always show stages 3, 4 and 5 with their numbers.
 
 h3. Which pipeline to use
 
@@ -80,7 +84,7 @@ The library ships five entry points. They share the same services, thresholds, r
 ||Entry point||Runs||Use it when||
 |{{devSecOpsPipeline}}|All thirteen stages in one build, after the optional Node.js build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|One job should cover the whole flow|
 |{{devSecOpsSecurityPipeline}}|The optional Node.js build, unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives {{pipeline-config.yaml}} and the release gate verdict, and triggers the extended job when {{RUN_EXTENDED_PIPELINE}} is selected|The static part runs on every commit and the rest is a separate job|
-|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment; it has no Node.js build stage, and its release delivery runs the Node.js build of a service again before it publishes|Downstream of the security pipeline, which its pipeline key names; it inherits the release verdict through the copied {{release-gate.json}}|
+|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment; it has no Node.js build stage, and its release delivery runs the Node.js build of a service again before it publishes|Downstream of the security pipeline, which its Jenkinsfile names in {{securityPipeline}}; it inherits the release verdict through the copied {{release-gate.json}}|
 |{{devSecOpsSASTScanningPipeline}}|Monitor sources, the optional Node.js build and SAST|A job that executes the AppScan static scan only; its report contains the SAST stage and the SAST findings|
 |{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, the optional Node.js build, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
 
@@ -131,7 +135,7 @@ When Nexus IQ identifies a vulnerable direct dependency, the library selects a b
 
 *Pipeline engineering is performed once and reused.*
 
-Application teams supply one file, a {{Jenkinsfile}} of two lines that names the pipeline key of the service, and describe the application once in the DevSecOps portal. The stage definitions, tool integrations, policy engine, report and metrics are maintained centrally. A change to a tool integration is implemented once in the library rather than in each application's pipeline.
+Application teams supply two files: a {{Jenkinsfile}} of a few lines that names the services and the build agents, and a {{devsecops_config.yaml}} that describes the services. The stage definitions, tool integrations, policy engine, report and metrics are maintained centrally. A change to a tool integration is implemented once in the library rather than in each application's pipeline.
 
 h2. Delivery acceleration
 
@@ -187,11 +191,11 @@ This chapter is the high level answer to "what can it do". Every item is covered
 
 h3. One policy for every application
 
-With a pipeline key, severity thresholds and the required line coverage are global settings of the DevSecOps portal; without a key they come from the copy the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which the DevSecOps team keeps equal to them. A team cannot set its own thresholds, and every build logs the thresholds it was measured against. Jenkins administrators who want only the portal's thresholds set {{DSO_REQUIRE_PIPELINE_KEY}}.
+Severity thresholds and the required line coverage are global settings of the library, held in the defaults it bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which the DevSecOps team owns. A team cannot set its own thresholds in the settings of its services, and every build logs the thresholds it was measured against.
 
-h3. Configuration from the DevSecOps portal
+h3. Configuration in the repository
 
-Every setting of a pipeline lives in the DevSecOps portal. A Jenkinsfile names only the pipeline key the portal issued for the service; at the start of every build the library asks the portal for the configuration of that key over HTTPS, read only. Invalidating a key in the portal stops every pipeline that uses it. The console, the report header and the metrics record which configuration a build used: the key hint, when the portal rendered it and a sha256 hint. A Jenkinsfile without a key still works as before the portal: the library then reads {{devsecops_config.yaml}}, or {{config.yaml}} when there is none, from the repository, with the library's own copy of the thresholds (see [How a pipeline reads its configuration|#ch4]). Such a build is not stopped by invalidating a key; {{DSO_REQUIRE_PIPELINE_KEY}} makes a key required.
+The settings of the services of a repository live in {{devsecops_config.yaml}} at its root, next to the {{Jenkinsfile}}; a repository that still holds the former {{config.yaml}} is read from that file when {{devsecops_config.yaml}} is absent. The Jenkinsfile names the services of the run and the Jenkins agent labels. The settings therefore follow the branch and the commit, and the console, the report header and the metrics name the file a build read (see [How a pipeline reads its configuration|#ch4]).
 
 h3. Nothing stops silently
 
@@ -207,7 +211,7 @@ h3. Security scanning
 
 The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
-* When the Global Settings say so, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
+* When {{staticAnalysis.parallel}} is switched on, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 
 h3. Code quality and coverage
 
@@ -287,9 +291,8 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   ├── PolicyEngine.groovy             <- library policy, orange stages and the stage result log
 │   │   ├── ReleaseGate.groovy              <- blocks the Nexus release and the QC deployment when a stage is not green
 │   │   └── OsHelper.groovy
-│   ├── config/ConfigLoader.groovy          <- portal documents, or devsecops_config.yaml without a key -> PipelineState and the run-state file pipeline-config.yaml
-│   ├── config/PortalConfigReader.groovy    <- reads the configuration of the pipeline keys from the portal over HTTPS
-│   ├── config/RepositoryConfigReader.groovy <- devsecops_config.yaml or config.yaml of the repository, without a key
+│   ├── config/ConfigLoader.groovy          <- the Jenkinsfile, devsecops_config.yaml and the bundled defaults -> PipelineState and the run-state file pipeline-config.yaml
+│   ├── config/RepositoryConfigReader.groovy <- devsecops_config.yaml or config.yaml of the repository and the bundled defaults
 │   ├── build/
 │   │   ├── BuildService.groovy             <- build, unit tests, coverage, remote test jobs, the Node.js build
 │   │   ├── BuildRunner.groovy              <- one runner for the Gradle and Maven commands
@@ -320,7 +323,9 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   └── MetricLine.groovy               <- line protocol formatting and escaping
 │   ├── report/HtmlReportService.groovy     <- one report template, the variant only selects the stage layout
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
-├── resources/com/bbh/devsecops/defaults.yaml <- the global defaults of a run without a pipeline key
+├── resources/com/bbh/devsecops/defaults.yaml <- the global settings: thresholds, coverage minimum, timeouts, GoldenFix policy, tool defaults
+├── Jenkinsfile.template           <- the Jenkinsfile of a project: services and agent labels
+├── devsecops_config.yaml.template <- one commented service with every key the library reads
 ├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html and documentation.md
 ├── grafana/                       <- the dashboard definitions devSecOpsDashboard and devSecOpsSecurityDashboard
 ├── test/                          <- the library test suite, see section 24
@@ -328,11 +333,10 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── run-all.sh                 <- one command: static checks, compilation, scenarios, demo reports, documentation
 │   ├── checks/                    <- static checks of the sources and of the generated documentation
 │   ├── coverage/                  <- the coverage scan script, run with python3 on report trees
-│   ├── portal/                    <- the portal query script, run with the real curl against a local HTTP portal
-│   ├── fixtures/                  <- the configuration files and the loader of the release before the portal
+│   ├── fixtures/                  <- the configuration files and the loader of release b815d55, the reference of the compatibility checks
 │   └── sandbox/                   <- the library running under the real Jenkins script sandbox
 └── examples/
-    ├── CertScanner/               <- a complete two project example: the Jenkinsfile with two pipeline keys
+    ├── CertScanner/               <- a complete two project example: the Jenkinsfile and devsecops_config.yaml
     └── reports/                   <- generated demo reports, one HTML page per pipeline and outcome
 {code}
 
@@ -341,25 +345,15 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 *Config split:*
 
 ||Source||Who controls it||Contains||
-|Global Settings of the DevSecOps portal|DevSecOps team|Security thresholds, required coverage, timeouts, tool defaults ({{defaults}}) and the platform values: AppScan, proxy and Nexus addresses, the iOS build agent ({{platform}})|
-|The service in the DevSecOps portal|Project team, in the portal|Service settings (appId, servers, test jobs, deploy targets), the pipeline type, the agent labels and the linked security or extended job|
-|One Jenkins global environment variable|Jenkins administrators|The address of the portal ({{DSO_PORTAL_URL}})|
-|{{devsecops_config.yaml}}, else {{config.yaml}}, in the repository|Project team, per branch|The {{projects:}} part, only for a Jenkinsfile without a pipeline key; the global defaults then come from {{resources/com/bbh/devsecops/defaults.yaml}} of the library|
+|The {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} in the library|DevSecOps team, with a library release|Security thresholds, required coverage, timeouts, the release gate, the GoldenFix policy and the tool defaults|
+|The optional {{platform:}} section of the same file|DevSecOps team, with a library release|The platform values: the AppScan client, proxy and AppScan addresses, the OIS host, the Nexus snapshot repository of the Flutter delivery and the iOS build agent. The production file has none, so the library's built-in BBH values apply|
+|The environment of the agent and the Jenkins global environment variables|Jenkins administrators|Tool environment values that win over the platform values, such as {{PROXY_HOST}} or {{APPSCAN_SERVER_URL}}, and the order of the static scans ({{DSO_STATIC_ANALYSIS_PARALLEL}})|
+|{{devsecops_config.yaml}}, else {{config.yaml}}, in the repository|Project team, per branch|The {{projects:}} section: the service settings (appId, the AppScan key ID, servers, test jobs, deploy targets)|
+|The {{Jenkinsfile}} in the repository|Project team, per branch|The entry point, the services of the run ({{projectNames}}), the agent labels ({{agentNames}}) and, for an extended pipeline, the security job ({{securityPipeline}})|
 
-Projects *cannot* override the {{defaults}}. Thresholds for SAST, SCA, Nexus IQ, DAST and the required line coverage exist in one place only, the Global Settings of the portal, and the next build of every pipeline uses a changed value. Without a key the thresholds are those of {{resources/com/bbh/devsecops/defaults.yaml}} of the library; a file in the repository cannot change them either.
+Projects *cannot* override the global thresholds. Thresholds for SAST, SCA, Nexus IQ, DAST, the required line coverage, the scan timeouts and the release gate exist in one place only, the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}}, and the library reads them from there only; a file in the repository cannot change them. To change one, the DevSecOps team changes that file and releases the library, and every build that loads the new version uses the new value. The other defaults, such as the GoldenFix policy, {{tests.maxParallel}} and {{staticAnalysis.parallel}}, are merged under every service as its starting values, and a service of {{devsecops_config.yaml}} may set its own.
 
 h3. How a pipeline reads its configuration
-
-# The entry point calls {{devSecOpsApi.configure('<variant>', [pipelineKey: '<key>'])}} before {{pipeline {}}}. The keys are checked before anything runs; the console and every message show only a hint of a key, its first eight and last four characters.
-# Outside a node the read runs on an agent of the label {{DSO_PORTAL_AGENT}} (default {{linux-agent}}) and must finish within five minutes. A custom Jenkinsfile that calls {{configure()}} inside a node of a Linux or macOS agent reads on that node.
-# A short {{sh}} script sends one {{GET <DSO_PORTAL_URL>/api/dso/config/<key>?format=json}} per key with {{curl}}, asking again twice, five seconds apart, when the portal cannot be reached or answers 408, 429 or 5xx. The keys reach the script only through its environment, and the answers go to a new directory below the workspace's {{@tmp}} folder, deleted afterwards. The portal renders the configuration at that moment from its database and records the key's last use; the library holds no account and changes nothing.
-# The library checks every answer: the portal issued the key, the key is active, the answer is a configuration, its pipeline type is the one of the entry point, all keys belong to one product and name each service once. The first key is the primary project, as the first name of {{projectNames}} was.
-# In the Monitor stage {{ConfigLoader.initialize()}} merges every service with the global defaults exactly as {{defaults.yaml}} was merged under {{config.yaml}}, and writes the services to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags.
-# An extended pipeline whose key names a security job copies {{pipeline-config.yaml}} and {{release-gate.json}} from the last successful build of that job and takes from the copy only the run-time tags: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the VM delivery version in {{delivery}}, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}.
-
-h3. Without a pipeline key: devsecops_config.yaml in the repository
-
-A Jenkinsfile that names no pipeline key runs as the library ran before the portal: it reads the settings of its services from a file in the repository.
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
@@ -370,34 +364,18 @@ devSecOpsPipeline(
 )
 {code}
 
-# The product page of the portal offers this Jenkinsfile: "Jenkinsfile without a key" in the More menu of a pipeline. It names the services of the repository and the agents of the pipeline.
-# {{agentNames}} is required: the Jenkins agent labels offered as the {{AGENT_NAME}} build parameter. Without a key and without {{agentNames}} the build stops before {{pipeline {}}} and the message shows both ways to write the Jenkinsfile. A Jenkinsfile that names {{pipelineKey}} or {{pipelineKeys}} with an empty value is not a Jenkinsfile without a key: it stops with "No pipeline key".
-# {{projectNames}} names the services to build, the primary project first. Without it the library builds the services of the {{PROJECT_NAMES}} or {{PROJECT_NAME}} environment variable or, without those, every service of the file in the order of the file. The product download holds every service of the product, so a repository with fewer services must name them.
-# {{securityPipeline}} names the security job whose {{pipeline-config.yaml}} and {{release-gate.json}} an extended pipeline copies. As before the portal, it also hides the Nexus IQ and SonarQube summary rows of the report.
-# In the Monitor stage, after the checkout, the library reads {{devsecops_config.yaml}} at the root of the workspace or, when there is none, {{config.yaml}}, the name the file had before the portal. When both are there it reads {{devsecops_config.yaml}} and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds {{Config.yaml}}, a Linux agent does not.
-# Only the {{projects:}} part of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the library ({{resources/com/bbh/devsecops/defaults.yaml}}), which the DevSecOps team keeps equal to the Global Settings of the portal, except {{staticAnalysis.parallel}}; a change there reaches a Jenkinsfile without a key with the next library version. A Jenkinsfile without a key therefore keeps Nexus IQ, SAST and SonarQube one after another unless the bundled defaults set {{staticAnalysis.parallel: true}}, every service of the file sets it, or {{DSO_STATIC_ANALYSIS_PARALLEL}} is {{true}} ([the stage reference|#ch16]). A {{defaults:}}, {{platform:}} or {{pipeline:}} part of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses and the iOS build agent are the values of the agent environment or the library's own.
-# The services of the run are merged with the global defaults exactly as before the portal and written to {{pipeline-config.yaml}}, as with a key. Every message that says where a setting lives names the file that was read.
-# The portal is not involved: no {{DSO_PORTAL_URL}}, no read before {{pipeline {}}}. The report header says "No pipeline key: settings from devsecops_config.yaml in the repository", and {{build_evidence}} carries {{config_file}} instead of the key's {{config_rendered_at}} and {{config_sha256}}. The settings follow the branch and the commit.
-# The product page downloads the file: "Settings sent to Jenkins (devsecops_config.yaml)", then Download. It holds every service of the product with the BBH defaults filled in, in the layout of the former {{config.yaml}}. A second download in the same browser may be saved as {{devsecops_config (1).yaml}}: rename it to exactly {{devsecops_config.yaml}}. A security job that should start its extended job needs {{jenkins.pipeline.extendedPipeline}} under its service, which the product download leaves out because the portal keeps it with the security pipeline.
-# The extended pipeline reads the file of its own checkout, so its Jenkinsfile lives in the repository of the service, and takes only the run-time tags of its own services from the security build. The Nexus IQ GoldenFix pipeline needs {{tools.nexusIq.application}} and its {{scanPatterns}} for every service of the run.
-# A custom Jenkinsfile that calls {{devSecOpsApi.initialize()}} without {{configure()}} reads the file too, as before the portal.
-# A Jenkinsfile with a key never reads the file, even when it is in the repository. When the Jenkins administrators set {{DSO_REQUIRE_PIPELINE_KEY}} to {{true}}, a Jenkinsfile without a key stops before {{pipeline {}}}.
+# The entry point calls {{devSecOpsApi.configure('<variant>', <the map of the Jenkinsfile>)}} before {{pipeline {}}}. It keeps {{projectNames}}, {{agentNames}} and {{securityPipeline}} of the Jenkinsfile and reads nothing yet, because the repository is checked out on the agent in the first stage.
+# {{agentNames}} is required: the Jenkins agent labels offered as the {{AGENT_NAME}} build parameter. Without it the build stops before {{pipeline {}}} with a message that shows the Jenkinsfile to write. A Jenkinsfile that names {{pipelineKey}} or {{pipelineKeys}}, also with an empty value, stops there as well, with the message described under [Troubleshooting|#ch23].
+# {{projectNames}} names the services to build, the primary project first, as one string separated by commas or as a list. Without it the library builds the services of the {{PROJECT_NAMES}} or {{PROJECT_NAME}} environment variable or, without those, every service of the file in the order of the file.
+# {{securityPipeline}} names the security job whose {{pipeline-config.yaml}} and {{release-gate.json}} an extended pipeline copies. In any entry point it also hides the Nexus IQ and SonarQube summary rows of the report.
+# In the Monitor stage, after the checkout, {{ConfigLoader.initialize()}} reads {{devsecops_config.yaml}} at the root of the workspace or, when there is none, {{config.yaml}}, the name the file had in the earlier releases of the library. When both are there it reads {{devsecops_config.yaml}} and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds {{Config.yaml}}, a Linux agent does not.
+# Only the {{projects:}} section of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} of the library; the console says so: "[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)". A {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses, the OIS host and the iOS build agent are the values of the agent environment, of the optional {{platform:}} section of the bundled defaults, or the library's own.
+# The services of the run are merged with the global defaults, the values of a service winning over the defaults, and written to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags. Every message that says where a setting lives names the file that was read.
+# An extended pipeline whose Jenkinsfile names a security job copies {{pipeline-config.yaml}} and {{release-gate.json}} from the last successful build of that job and takes from the copy only the run-time tags of its own services: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the VM delivery version in {{delivery}}, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
+# The report header says "Settings from devsecops_config.yaml in the repository", with the name of the file that was read, and {{build_evidence}} carries {{config_file}}. The settings follow the branch and the commit: a replayed build reads the file of its commit.
+# A custom Jenkinsfile that calls {{devSecOpsApi.initialize()}} without {{configure()}} reads the file too. The Nexus IQ GoldenFix pipeline needs {{tools.nexusIq.application}} and its {{scanPatterns}} for every service of the run.
 
-Compared with the release before the portal, a run without a key: writes its build tags to {{pipeline-config.yaml}} instead of the repository file; needs {{asoc.keyId}} for every service, because SAST and DAST sign in with the key of each service; requires {{agentNames}}; accepts {{projectNames}} as a list; reads its defaults from {{com/bbh/devsecops/defaults.yaml}}; marks the report and {{build_evidence}}; and names a file that is not valid YAML or has no {{projects:}}.
-
-h3. Differences from config.yaml
-
-With a pipeline key, the portal integration keeps every stage, scanner, deployment, report, metric, release gate and GoldenFix pull request as it was with {{config.yaml}} and {{defaults.yaml}}, except for these differences, each forced by having no {{config.yaml}} or by reading the portal only:
-
-# With a key, the configuration lives in the portal, not in the repository: there is no configuration per branch, pull request or commit, a replayed build uses today's portal values, and the release and develop jobs of one service share one pipeline per type. The console, the report header and {{build_evidence}} record the key hint, the time the portal rendered the configuration (the time of the read) and the sha256 hint of the answer.
-# With a key, a failure before {{pipeline {}}} (no key, a bad, unknown or invalidated key, a type or product mismatch, an unreachable portal) ends the build without a report, {{release-gate.json}} or InfluxDB point. {{build_duration}} and the DORA duration include the read.
-# The archived run-state file is {{pipeline-config.yaml}}, not {{config.yaml}}; the first extended build after the cutover needs one security build made by the new library.
-# The extended pipeline uses the services of its own key plus the run-time tags of the security build, not the whole {{config.yaml}} the security build archived.
-# Keys the portal does not model are gone from {{getCFG()}}, such as custom keys a team added to {{config.yaml}}. {{tests.<suite>.defaults}}, test jobs given as a bare URL and {{urls}} lists are expanded into jobs when a service is migrated. {{jobs[].auth}} maps other than credential IDs, OpenShift {{appName}}, {{imageNamespace}}, {{cluster}} and {{credentialsId}} (read only by the unused {{nexusDelivery}} method) and the keys no code reads ({{asoc.keySecret}}, {{sca.scanName}}, {{dast.scanName}}, {{build.maven.javaPath}}) are not modelled. {{jenkins.pipeline.extendedPipeline}} is in the documents of security pipelines only, so a custom Jenkinsfile that calls {{devSecOpsApi.runExtendedPipeline()}} configures itself with the key of the security pipeline.
-# With a key, selecting projects through {{PROJECT_NAMES}} or {{PROJECT_NAME}} is gone; without a key it works as before the portal.
-# Messages that named {{config.yaml}} or {{defaults.yaml}} now name the portal, also where they reach the report, {{release-gate.json}} and InfluxDB. A {{securityPipeline}} in the Jenkinsfile of a full, security or SAST pipeline with a key is ignored, which shows the Nexus IQ and SonarQube summary rows it used to hide.
-# Nexus IQ report links appear for every service, because the Nexus IQ server address is a global setting; GoldenFix stays governed by its own switch per service.
-# Every build with a key depends on the portal at its start: the agents of the {{DSO_PORTAL_AGENT}} label need HTTPS access to it.
+Compared with release b815d55 of the library, which read {{config.yaml}} and {{resources/defaults.yaml}}, a run of this release: reads {{devsecops_config.yaml}} first and {{config.yaml}} only without it; writes its build tags to {{pipeline-config.yaml}} instead of the repository file, so the first extended build after the update needs one security build made by this release; needs {{asoc.keyId}} for every service, because SAST and DAST sign in with the key of each service; requires {{agentNames}}; accepts {{projectNames}} as a list; reads its defaults from {{com/bbh/devsecops/defaults.yaml}}; names the file in the report header and in {{build_evidence}}; and names a file that is not valid YAML or has no {{projects:}}.
 
 ----
 
@@ -410,21 +388,21 @@ h1. 5. Application Prerequisites
 
 Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
 
-* *Git repository accessible from Jenkins.* The project must live in a Git repository that the Jenkins controller can clone. The {{Jenkinsfile}} must be committed at the repository root and pushed to the branch configured in the Jenkins job. Without a pipeline key, {{devsecops_config.yaml}} (or the former {{config.yaml}}) is committed at the root as well.
-* *Supported build tool: Gradle, Maven, or Flutter.* The codebase must use one of the three supported build systems. Gradle wrapper ({{gradlew}}) and Maven wrapper ({{mvnw}}) are preferred and must be executable and committed to the repository. The build tool is either set for the service in the DevSecOps portal or auto-detected.
+* *Git repository accessible from Jenkins.* The project must live in a Git repository that the Jenkins controller can clone. The {{Jenkinsfile}} must be committed at the repository root and pushed to the branch configured in the Jenkins job. {{devsecops_config.yaml}}, or the former {{config.yaml}}, is committed at the root as well.
+* *Supported build tool: Gradle, Maven, or Flutter.* The codebase must use one of the three supported build systems. Gradle wrapper ({{gradlew}}) and Maven wrapper ({{mvnw}}) are preferred and must be executable and committed to the repository. The build tool is either set for the service in {{devsecops_config.yaml}} ({{buildTool}}) or auto-detected.
 * *Optional: a frontend that npm builds first.* When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first ({{build.node.enabled: true}}). It needs the folder of the {{package.json}} ({{build.node.dir}}) and, for the default command {{npm ci}}, a committed {{package-lock.json}}. The frontend build must write its output outside {{build/}} and {{target/}}, because the {{clean}} task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting|#ch23]. Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
 * *Code must compile successfully.* The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless {{asoc.doCompile: false}}. The compile command comes from {{asoc.gradle}} / {{asoc.maven}}, or from the {{build}} section when {{asoc}} has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
-* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs {{flutter test --coverage}} in the main package and in each tested plugin and module, and reads the {{coverage/lcov.info}} of each.
+* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the defaults that the library bundles only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs {{flutter test --coverage}} in the main package and in each tested plugin and module, and reads the {{coverage/lcov.info}} of each.
 * *A JDK on the agent, named in the configuration.* Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}.
-* *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal for every service: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
+* *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from ASoC for every service: the key ID is set for the service in {{devsecops_config.yaml}} ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
 * *SonarQube project registered.* A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
-* *Nexus IQ application registered.* The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the {{scanPatterns}} configured for the service in the DevSecOps portal. The Nexus IQ server must be reachable from the Jenkins agent.
+* *Nexus IQ application registered.* The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the {{scanPatterns}} configured for the service in {{devsecops_config.yaml}}. The Nexus IQ server must be reachable from the Jenkins agent.
 * *Build artifacts produced in expected locations.* Gradle projects must produce artifacts under {{build/libs/}}. Maven projects under {{target/}}. These paths must match the {{scanPatterns}} configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the {{package-lock.json}} of its frontend folder scanned, see [the stage reference|#ch16].
-* *Several services in one repository.* The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names the pipeline keys of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13].
+* *Several services in one repository.* The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names all of them in {{projectNames}} and whose {{devsecops_config.yaml}} holds the settings of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13].
 * *Deployment script and version file (VM deployment over SSH).* For SSH deployment, the repository must contain a zero-downtime deployment shell script and a {{version.properties}} file with an {{APP_VERSION=<version>}} entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
 * *UrbanCode Deploy application (VM deployment in {{devSecOpsPipeline}}).* The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so {{deploy.vm.dod}} must name the site, the application and at least one component. The UrbanCode Deploy plugin ({{UCDeployPublisher}}) and the configured site must exist in Jenkins.
 * *OpenShift templates and a Dockerfile (OpenShift deployment).* For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by {{deploy.openshift.rd.buildConfigPath}}, {{dockerFilePath}}, {{deployConfigPath}} and {{configPathR}}. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with {{skopeo}}, so the agent needs {{skopeo}}, {{oc}} and the authfile named in {{deploy.openshift.rd.nexus.authfile}}.
-* *Test jobs exist in Jenkins.* Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in the DevSecOps portal. All three test types require at least one job entry — placeholder entries with {{job: ""}} are allowed initially and will show {{NOT_CONFIGURED}} without failing.
+* *Test jobs exist in Jenkins.* Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in {{devsecops_config.yaml}}. All three test types require at least one job entry — placeholder entries with {{job: ""}} are allowed initially and will show {{NOT_CONFIGURED}} without failing.
 * *DAST target accessible from Jenkins agent (DAST only).* When {{dast.enabled: true}}, the configured {{dast.targetUrl}} must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in {{dast.presenceId}}.
 * *InfluxDB endpoint accessible (optional).* If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
 
@@ -485,7 +463,6 @@ h3. Agent tools
 * Node.js with {{npm}}, for a service with {{build.node.enabled: true}}: in the folder of {{build.node.nodePath}}, from the NodeJS installation of {{build.node.installationName}}, or on the agent {{PATH}}
 * {{curl}}, {{python3}}, {{ssh}}, {{scp}} (Linux agents)
 * PowerShell (Windows agents)
-* On the agents of the {{DSO_PORTAL_AGENT}} label, and on a Linux or macOS agent where a custom Jenkinsfile calls {{configure()}} inside a node: {{curl}}, and {{sha256sum}} or {{shasum}}
 
 h3. Script security
 
@@ -501,55 +478,27 @@ h3. Jenkins global configuration
 
 ||Credential ID||Type||Used for||
 |{{nexusiqP}}|Username/Password|Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions)|
-|{{asoc.token}} of the service, otherwise a credential named like its {{asoc.keyId}}|Secret text|The AppScan key secret of the service, for the SAST login and the DAST sign-in; the portal stores only the key ID and the credentials ID|
+|{{asoc.token}} of the service, otherwise a credential named like its {{asoc.keyId}}|Secret text|The AppScan key secret of the service, for the SAST login and the DAST sign-in; {{devsecops_config.yaml}} holds only the key ID and the credentials ID|
 |{{tools.sonar.badgeCredentialsId}} of the service (optional)|Secret text|The SonarQube badge token for the badges in the report|
 |{{scm.bitbucket.credentialsId}}|Username/Password (or Secret text with {{authType: bearer}})|GoldenFix: push of branch {{GoldenFix-YYYYMMDDHHMM}}, pull request creation and comments on the pull request (repository write permission)|
-|{{build.node.npmrcCredentialsId}} of the service or of the Global Settings (optional)|Secret file|An {{.npmrc}} for the Node.js build and the npm pre-check of GoldenFix, bound as {{NPM_CONFIG_USERCONFIG}}|
+|{{build.node.npmrcCredentialsId}} of the service or of the bundled defaults (optional)|Secret file|An {{.npmrc}} for the Node.js build and the npm pre-check of GoldenFix, bound as {{NPM_CONFIG_USERCONFIG}}|
 |{{tests.*.jobs[].credentialsId}} (optional)|Username/Password (user + API token)|Triggering remote test jobs referenced by full URL|
 |{{openshift-rd-token}}|Secret text|OpenShift RD cluster token|
 |{{openshift-qc-token}}|Secret text|OpenShift QC cluster token|
-|{{influx.credentialsId}} of the service|Secret text|The InfluxDB token; the portal stores only the credentials ID|
-|{{tests.*.jobs[].tokenCredentialsId}} (optional)|Secret text|The build token of a remote test job, which the portal never stores|
+|{{influx.credentialsId}} of the service|Secret text|The InfluxDB token; {{devsecops_config.yaml}} holds only the credentials ID|
+|{{tests.*.jobs[].tokenCredentialsId}} (optional)|Secret text|The build token of a remote test job, which never goes into {{devsecops_config.yaml}}|
 
-*Global environment variables* go into *Manage Jenkins → System → Global properties → Environment variables*. They hold the library's own settings outside the portal: where the portal is, whether a key is required, and the order of the static scans.
+*Global environment variables* go into *Manage Jenkins → System → Global properties → Environment variables*. The environment variables of the node properties of an agent set the same values for the runs on that agent.
 
 ||Variable||Required||Value||
-|{{DSO_PORTAL_URL}}|yes|Address of the DevSecOps portal, the host of its OpenShift route, for example {{https://dso-portal.apps.bbh.com}}; without a user, password, query or trailing path to the API|
-|{{DSO_PORTAL_AGENT}}|no|Label of the agents that read the portal before the pipeline starts, default {{linux-agent}}|
-|{{DSO_REQUIRE_PIPELINE_KEY}}|no|{{true}} makes a pipeline key required: a Jenkinsfile without a key, or a branch with an older Jenkinsfile, then stops before {{pipeline {}}} as before this release. Unset, such a Jenkinsfile reads {{devsecops_config.yaml}} of its repository|
-|{{DSO_STATIC_ANALYSIS_PARALLEL}}|no|{{true}} or {{false}} decides, before the Global Settings, whether the full and security pipelines run Nexus IQ and SonarQube while AppScan scans. Unset, {{staticAnalysis.parallel}} of the services decides. The node properties of an agent can also set it for the runs on that agent ([the configuration reference|#ch15])|
+|{{DSO_STATIC_ANALYSIS_PARALLEL}}|no|{{true}} or {{false}} decides, before {{staticAnalysis.parallel}} of the services, whether the full and security pipelines run Nexus IQ and SonarQube while AppScan scans. Unset, {{staticAnalysis.parallel}} of the services decides ([the configuration reference|#ch15])|
+|{{SA_LINUX_URL}}, {{SA_WIN_URL}}, {{PROXY_HOST}}, {{PROXY_PORT}}, {{PROXY_USER}}, {{APPSCAN_HOST}}, {{APPSCAN_SERVER_URL}}|no|The tool environment of AppScan: the download of the AppScan client for Linux and Windows, the BBH proxy and the AppScan host. A value set here wins over {{platform.environment}} of the bundled defaults and over the library's own BBH value, see [Stage 1|#ch16]|
 
-h3. The DevSecOps portal
+h3. Global settings: the bundled defaults
 
-*Read only, no account.* The library sends {{GET /api/dso/config/<key>?format=json}} and nothing else. The portal answers 200 with the configuration, 403 with the reason when the key was invalidated and 404 for a key it never issued. Jenkins needs no database account, no credentials and no driver, and the portal's database is reached by the portal alone.
+The global settings of every pipeline are the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} in the library: the security thresholds, the required coverage, the timeouts, the release gate, the GoldenFix policy and the tool defaults. The DevSecOps team owns the file and changes it with a library release; a project neither copies nor overrides the thresholds. A job uses the defaults of the library version it loads: the default version of *Global Pipeline Libraries*, or the version pinned in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}}.
 
-*The key is the secret.* Whoever holds a key can read the configuration of that one pipeline, as anyone who could read a product repository could read its {{config.yaml}} before; it holds Jenkins credential IDs, not passwords. Invalidating the key in the portal stops it at once. A key cannot be guessed (a random UUID) and the portal offers no way to list keys over this request. When the portal moves behind BBH SSO, {{/api/dso/config/**}} stays outside the sign-in and keeps the key as its only check.
-
-*Network.* The agents of the {{DSO_PORTAL_AGENT}} label need HTTPS to the portal's route and must trust its certificate (the BBH certificate authority, as for Nexus and Bitbucket).
-
-*Failures.* An unreachable portal, an untrusted certificate or an answer other than 200, 403 or the portal's own 404 stops the build with one message naming {{DSO_PORTAL_URL}}, the cause (the {{curl}} error or the HTTP status with the portal's explanation) and the DevSecOps team, and sets the build description to {{DevSecOps portal unavailable}}. The read is retried twice, five seconds apart, when the connection times out or the portal answers 408, 429 or 5xx, so a restart of the portal, during which its OpenShift route answers 503, does not fail builds.
-
-h3. The agents that read the portal ({{DSO_PORTAL_AGENT}})
-
-Before {{pipeline {}}} the library takes one executor of an agent with the {{DSO_PORTAL_AGENT}} label for a few seconds, never the {{AGENT_NAME}} the build was started with. Those agents need:
-
-* Linux or macOS; a Windows agent is refused with a message asking for another label
-* HTTPS access to {{DSO_PORTAL_URL}}
-* {{curl}}, and {{sha256sum}} or {{shasum}}
-
-h3. Cutover to the DevSecOps portal
-
-# The DevSecOps team enters the Global Settings (the values of the former {{defaults.yaml}}) and the platform values in the portal, then every product and service.
-# The Jenkins administrators set {{DSO_PORTAL_URL}} and check that the agents of the {{DSO_PORTAL_AGENT}} label reach it.
-# Pin the portal-integrated library version in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}} of every migrated Jenkinsfile and in the portal's {{platform.jenkinsLibrary}}, from which the portal writes the Jenkinsfile it offers, until every job carries a key. A job without a key keeps working on the default version with its {{config.yaml}}, and on this version and later with {{devsecops_config.yaml}}, else {{config.yaml}}, of its repository. The portal-integrated versions before this one stop such a job, so do not move the default version to one of them while jobs without a key remain.
-# Replace each Jenkinsfile with the one the product page of the portal offers, and delete {{devsecops_config.yaml}} and {{config.yaml}} from the repository once the build is green: a job with a key never reads them, and a file left behind only misleads.
-# Run every security job once with the new library before its extended job: the extended job copies {{pipeline-config.yaml}}, which only the new library archives.
-# The DevSecOps team copies the {{defaults:}} part of "Shared settings sent to Jenkins (devsecops_config.yaml format)" of the portal into {{resources/com/bbh/devsecops/defaults.yaml}} of the library before each release, so that runs without a key apply the same thresholds and GoldenFix policy. It leaves out {{staticAnalysis.parallel}} and adds it only when the runs without a key should use the Static analysis stage.
-# When every job carries a key, move the default version of the library and drop the pins. Then set {{DSO_REQUIRE_PIPELINE_KEY}} to {{true}}, so that a branch with an older Jenkinsfile stops again instead of building with its old settings.
-
-h3. Before the portal is used outside the test network
-
-A change in the portal now steers every build. Until the portal signs users in through BBH SSO with role-based access and records an audit trail of who changed what, it must not be reachable outside the test network, and the portal-integrated library must not be used outside test.
+The optional {{platform:}} section of the same file holds the platform values. The production file has no such section, so the library uses its built-in BBH values, and a value of the agent or Jenkins environment still wins for the tool environment. [The configuration reference|#ch15] lists both sections.
 
 ----
 
@@ -558,7 +507,7 @@ h3. The BBH systems your pipeline will use
 All of these run inside the BBH network. You need an account or an entry in each of the ones your pipeline uses.
 
 ||System||Address||What it does for you||
-|Bitbucket|{{rdtools.testbbh.com:7990}}|Stores your source code and your {{Jenkinsfile}}, and receives the automatic dependency upgrade pull requests|
+|Bitbucket|{{rdtools.testbbh.com:7990}}|Stores your source code, your {{Jenkinsfile}} and your {{devsecops_config.yaml}}, and receives the automatic dependency upgrade pull requests|
 |Jenkins|your BBH Jenkins instance|Runs the pipeline, on OpenShift agents or on VM agents|
 |SonarQube Community|{{tools.bbh.com/sonar}}|Code quality analysis and the quality gate|
 |Nexus IQ|{{tools.bbh.com/IQ}}|Scans your third party dependencies for known vulnerabilities|
@@ -583,9 +532,9 @@ h3. Who does what
 |Proxy account, OIS certificates, agent connectivity|DevSecOps platform team|
 |Nexus repositories and publishing accounts|Nexus administrators|
 |Deployment hosts and accounts|The owners of your test environments|
-|The global environment variable {{DSO_PORTAL_URL}}|Jenkins administrators, once|
-|Global Settings and platform values in the portal, invalidating keys|DevSecOps team|
-|The service in the DevSecOps portal, the {{Jenkinsfile}}, the Jenkins job, the test jobs|You|
+|The global environment variables, such as {{DSO_STATIC_ANALYSIS_PARALLEL}}|Jenkins administrators|
+|The global settings and the platform values of the bundled defaults ({{resources/com/bbh/devsecops/defaults.yaml}})|DevSecOps team, with a library release|
+|{{devsecops_config.yaml}}, the {{Jenkinsfile}}, the Jenkins job, the test jobs|You|
 
 ----
 
@@ -594,7 +543,7 @@ h3. Who does what
 {anchor:ch7}
 h1. 7. Third-Party System Registration Procedure
 
-Do this before the first pipeline run. Each tool gives you an identifier that goes into the settings of your service in the DevSecOps portal. Keep a note of the values as you go; the checklist at the end of this chapter lists them.
+Do this before the first pipeline run. Each tool gives you an identifier that goes into the settings of your service in {{devsecops_config.yaml}}. Keep a note of the values as you go; the checklist at the end of this chapter lists them.
 
 h3. Nexus IQ — dependency scanning
 
@@ -603,7 +552,7 @@ h3. Nexus IQ — dependency scanning
 # *Sign in and open Organizations & Policies.* Find the organisation your team belongs to. If you do not know which one, ask your team lead.
 # *Create a new application.* Use a clear name such as {{MyApp-GUI}}. Nexus IQ also asks for an *Application ID*, the short public identifier — that is the value you need.
 # *Confirm a policy is assigned.* The application must inherit your organisation's policy, otherwise the scan reports nothing.
-# *Write down the Application ID.* It goes into the DevSecOps portal as {{tools.nexusIq.application}}.
+# *Write down the Application ID.* It goes into {{devsecops_config.yaml}} as {{tools.nexusIq.application}}.
 
 The pipeline fails the dependency stage if the application does not exist in Nexus IQ, so do this before the first run.
 
@@ -614,7 +563,7 @@ h3. SonarQube — code quality
 # *Create the project.* Choose *Create Project → Manually*, give it a display name such as {{MyApp-GUI}} and a project key such as {{myapp-gui}}. The key must be unique across BBH, so prefix it with your application name.
 # *Generate a token to read results back.* *My Account → Security → Generate token*. Give it to the Jenkins administrators to store as a *Secret text* credential and note the credential ID.
 # *Optional: generate a badge token.* *Project Settings → Badges*. Give it to the Jenkins administrators to store as a *Secret text* credential and name it in {{tools.sonar.badgeCredentialsId}}; the quality metrics then appear in the pipeline report.
-# *Write down the project key and the credential ID.* They go into the DevSecOps portal as {{tools.sonar.projectKey}} and {{tools.sonar.authToken}}.
+# *Write down the project key and the credential ID.* They go into {{devsecops_config.yaml}} as {{tools.sonar.projectKey}} and {{tools.sonar.authToken}}.
 
 *Flutter applications:* SonarQube Community has no Dart analyser and the library does not need one. It converts the coverage report and the {{dart analyze}} findings into the generic import formats SonarQube accepts for any language. No additional component is required; create the project as described above.
 
@@ -623,12 +572,12 @@ h3. HCL AppScan — SAST
 *Where:* {{bbh.cloud.appscan.com}} · *Who:* the DevSecOps team creates the application, you note the identifiers
 
 # *Request an AppScan application.* Ask the DevSecOps team to create one for your product, giving them the application name and your team.
-# *Receive the Application ID.* It looks like {{109f44ac-cc06-4ca0-884e-d944904f7019}} and goes into the DevSecOps portal as {{appId}}.
-# *Receive the API key ID and its secret.* The key ID looks like {{bbh_b81fbc9f-...}} and goes into the DevSecOps portal as {{asoc.keyId}} of the service. The matching secret is *not* put in the portal — the Jenkins administrators store it as a *Secret text* credential, and its ID goes into the portal as {{asoc.token}}. Without {{asoc.token}} the library reads the credential whose ID is the key ID. SAST and DAST both use this key.
+# *Receive the Application ID.* It looks like {{109f44ac-cc06-4ca0-884e-d944904f7019}} and goes into {{devsecops_config.yaml}} as {{appId}}.
+# *Receive the API key ID and its secret.* The key ID looks like {{bbh_b81fbc9f-...}} and goes into {{devsecops_config.yaml}} as {{asoc.keyId}} of the service. The matching secret is *not* put in the file — the Jenkins administrators store it as a *Secret text* credential, and its ID goes into the file as {{asoc.token}}. Without {{asoc.token}} the library reads the credential whose ID is the key ID. SAST and DAST both use this key.
 # *Confirm your agent can reach AppScan.* Ask the DevSecOps team to confirm the proxy service account and the OIS certificate are installed on your agent label. This is the most common reason a first SAST run fails.
 
 {info}
-*Never* put the AppScan key secret, the proxy password or any certificate into the DevSecOps portal or into Bitbucket. Secrets belong in the Jenkins credentials store, and the library reads them from there at run time.
+*Never* put the AppScan key secret, the proxy password or any certificate into {{devsecops_config.yaml}} or anywhere else in Bitbucket. Secrets belong in the Jenkins credentials store, and the library reads them from there at run time.
 {info}
 
 h3. HCL AppScan — DAST
@@ -637,10 +586,10 @@ h3. HCL AppScan — DAST
 
 DAST scans a *running* instance, so it only applies if you have one deployed in a test environment. If you do not, set {{dast.enabled: false}} and the pipeline reports the stage as not required instead of failing.
 
-# *Have a deployed test instance* and note its URL, for example {{http://rdltaapps1.testbbh.com}}. It goes into the DevSecOps portal as {{dast.targetUrl}}.
+# *Have a deployed test instance* and note its URL, for example {{http://rdltaapps1.testbbh.com}}. It goes into {{devsecops_config.yaml}} as {{dast.targetUrl}}.
 # *Request an AppScan Presence.* Your application is inside the BBH network and AppScan is outside it, so AppScan needs a Presence — a small agent inside the network that performs the scan. Ask the DevSecOps team for one and for its ID.
 # *Decide whether the scan needs to log in.* If the interesting parts are behind a login, provide a dedicated test account and give the credentials to the DevSecOps team rather than putting them in the file.
-# *Write down the target URL and the Presence ID.* They go into the DevSecOps portal as {{dast.targetUrl}} and {{dast.presenceId}}.
+# *Write down the target URL and the Presence ID.* They go into {{devsecops_config.yaml}} as {{dast.targetUrl}} and {{dast.presenceId}}.
 
 h3. Nexus repository — where artifacts are published
 
@@ -675,7 +624,7 @@ h1. 8. Detailed Description Guide for Application Integration
 
 This chapter is the same for all five pipelines. Do it once, then go to the chapter of the pipeline you chose.
 
-*You do not write any pipeline code.* Your application needs one new file, a {{Jenkinsfile}} of two lines, and its service in the DevSecOps portal. Everything else comes from the library.
+*You do not write any pipeline code.* Your application needs two new files: a {{Jenkinsfile}} of a few lines and a {{devsecops_config.yaml}} that describes its services. Everything else comes from the library.
 
 h3. Step 1 — Register the library in Jenkins
 
@@ -691,31 +640,41 @@ h3. Step 1 — Register the library in Jenkins
 |Load implicitly|off — projects declare {{@Library(...)}} themselves|
 |Allow default version to be overridden|on, so a project can pin a version while testing|
 
-Ask them to confirm this is done before you create your job. They also set up the read of the DevSecOps portal once per instance, see [Platform Prerequisites|#ch6]; during the cutover to the portal the jobs pin the portal-integrated version of the library.
+Ask them to confirm this is done before you create your job. The global settings come with the library version a job loads, see [Platform Prerequisites|#ch6].
 
-h3. Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsfile
+h3. Step 2 — Write devsecops_config.yaml and the Jenkinsfile
 
-*Who:* a developer on your team with access to the DevSecOps portal.
+*Who:* a developer on your team.
 
-# *Describe the service.* Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. To start from an existing service, copy it or import its {{devsecops_config.yaml}} or former {{config.yaml}}. A field that starts with a value shows it as the Library default of the Global Settings, and every field has a help text. *There are no thresholds or coverage minimum to set*: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch15].
-# *Save it.* The next build reads what you saved.
-# *Commit the Jenkinsfile.* Copy the Jenkinsfile the product page offers with the pipeline key of the service into the *root* of the repository, on the branch the pipeline will build:
+Both files go in the *root* of the repository, on the branch the pipeline will build.
+
+*{{devsecops_config.yaml}} describes the services.* Copy {{devsecops_config.yaml.template}} from the library, keep one entry under {{projects:}} for each service of the repository and fill in the values you collected in the previous chapter. A repository that already holds a {{config.yaml}} of an earlier release can rename it to {{devsecops_config.yaml}}; until then the library reads {{config.yaml}}. *Do not add thresholds or a coverage minimum*: they are global settings of the library and a project cannot change them, and a {{defaults:}} section in the file is ignored. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch15].
+
+{code:yaml}
+projects:
+  my-app:
+    appId:     "<AppScan application ID>"
+    buildTool: gradle
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+    asoc:
+      keyId: "<AppScan key ID>"
+      token: "<Jenkins credential ID of your AppScan key secret>"
+{code}
+
+*The {{Jenkinsfile}} starts the pipeline.* It names the entry point of your pipeline, the services of the run and the Jenkins agent labels; take it from your chapter:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-The entry point comes with the pipeline type of the key: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}}, {{devSecOpsSASTScanningPipeline}} or {{devSecOpsNexusIqGoldenFixPipeline}}. Several services of one product and one pipeline type run in one build with {{pipelineKeys: ['<key of gui>', '<key of backend-api>']}}; the first key is the primary project. Services that share one repository, such as the modules of a multimodule repository, take one Jenkinsfile with the keys of all of them and one Jenkins job per pipeline type; the product page of the portal offers that Jenkinsfile. One GoldenFix pull request then raises a shared version catalog once, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. The agent labels offered as the {{AGENT_NAME}} build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: {{projectNames}}, {{agentNames}} and {{securityPipeline}} in a Jenkinsfile are ignored, with a {{[PORTAL]}} line in the console saying so. Without a key these come from the Jenkinsfile, see [Without a pipeline key|#ch4].
+*Commit both files.* The next build of the branch reads them. A later change of {{devsecops_config.yaml}} needs no change of the Jenkinsfile: every build reads the file of the commit it builds.
 
-*The life of a pipeline key:*
-* The portal issues one key per service and pipeline type. The key selects a configuration and is the only thing a build shows the portal: whoever holds it can read the configuration of that pipeline, as anyone could read {{config.yaml}} in the repository before. It never unlocks a secret, because the configuration holds credential IDs only.
-* A change of the service in the portal needs no change of the Jenkinsfile: the next build reads the configuration saved last.
-* The DevSecOps team can invalidate a key in the portal with a reason. The next build of every job that uses it stops before the pipeline starts with "Key <hint> was invalidated in the DevSecOps portal (<when and why>)". Regenerate the key in the portal and put the new one in the Jenkinsfile.
-* A key of another pipeline type or of another product, or two keys for one service, stop the build with a message naming both values.
-
-A Jenkinsfile without a key is described in [Without a pipeline key|#ch4].
+The entry point is the one of your pipeline: {{devSecOpsPipeline}}, {{devSecOpsSecurityPipeline}}, {{devSecOpsExtendedPipeline}}, {{devSecOpsSASTScanningPipeline}} or {{devSecOpsNexusIqGoldenFixPipeline}}. {{projectNames}} must match the names under {{projects:}} in {{devsecops_config.yaml}}; several services run in one build with {{projectNames: 'gui,backend-api'}} or {{projectNames: ['gui', 'backend-api']}}, the first one is the primary project. {{agentNames}} are the Jenkins agent labels offered as the {{AGENT_NAME}} build parameter, and the build stops before it starts without them. An extended pipeline names its security job in {{securityPipeline}}. Services that share one repository, such as the modules of a multimodule repository, take one Jenkinsfile that names all of them and one Jenkins job per pipeline type; one GoldenFix pull request then raises a shared version catalog once, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. [How a pipeline reads its configuration|#ch4] describes how the library reads both files.
 
 h3. Step 3 — Create the test jobs
 
@@ -770,19 +729,22 @@ h3. Applicability
 
 A single Jenkins job executing the complete delivery flow: build, unit testing, all three security controls, code quality analysis, artifact publication, deployment to two environments, functional and performance testing, and dynamic security testing. Select this entry point where a single job covering the entire flow is acceptable and the resulting execution time is acceptable to the team.
 
-*Thirteen stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares one more, *Static analysis*, which runs stages 3 to 5 together when the Global Settings say so ([the stage reference|#ch16]).
+*Thirteen stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares one more, *Static analysis*, which runs stages 3 to 5 together when {{staticAnalysis.parallel}} is on ([the stage reference|#ch16]).
 
 h3. Jenkinsfile
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-h3. Settings in the DevSecOps portal
+h3. Settings in devsecops_config.yaml
 
-Set these for the service in the DevSecOps portal. The listing shows them in the shape in which the portal renders them and the library reads them.
+Put these under {{projects:}} in {{devsecops_config.yaml}} at the root of the repository. The name of the service, here {{my-app}}, is the name that {{projectNames}} of the Jenkinsfile gives.
 
 {code:yaml}
 projects:
@@ -864,7 +826,7 @@ The listing leaves out the optional keys of a service: {{sast.scanName}} names t
 
 h3. Optional: a frontend built with Node.js first
 
-A service whose repository holds a frontend that npm builds, for example an Angular application that the Gradle or Maven build packages into the jar, switches on the Node.js build. In the portal it is the checkbox *Build the frontend with Node.js first* in the Build section, with the *Folder with package.json*. The portal renders it as:
+A service whose repository holds a frontend that npm builds, for example an Angular application that the Gradle or Maven build packages into the jar, switches on the Node.js build in the {{build}} section of the service, with the folder of the {{package.json}}:
 
 {code:yaml}
     build:
@@ -873,7 +835,7 @@ A service whose repository holds a frontend that npm builds, for example an Angu
         dir: frontend
 {code}
 
-The *Node.js build* stage then runs {{npm ci}} and {{npm run build}} in {{frontend}} right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without {{build.node.installationName}} or {{build.node.nodePath}} the commands use the Library default installation of the Global Settings, and without that the {{node}} and {{npm}} on the {{PATH}} of the agent. The other keys, such as {{commands}}, {{env}} and the {{.npmrc}} credentials, are in [the configuration reference|#ch15]. How the output reaches the jar is described under [Troubleshooting|#ch23], *The frontend is missing from the jar*.
+The *Node.js build* stage then runs {{npm ci}} and {{npm run build}} in {{frontend}} right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without {{build.node.installationName}} or {{build.node.nodePath}} the commands use the installation that the bundled defaults name in {{build.node.installationName}}, and without one the {{node}} and {{npm}} on the {{PATH}} of the agent. The other keys, such as {{commands}}, {{env}} and the {{.npmrc}} credentials, are in [the configuration reference|#ch15]. How the output reaches the jar is described under [Troubleshooting|#ch23], *The frontend is missing from the jar*.
 
 h3. Specific to this pipeline
 
@@ -893,7 +855,7 @@ h3. Applicability
 
 The first half of the delivery flow, intended for execution on *every commit*. It requires no deployed environment and returns a security verdict within a short execution time. It is operated together with the entry point described in the following chapter, which executes the remaining stages on demand.
 
-*Six stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with {{build.node.enabled: true}} adds the Node.js build before the unit tests, as in the full pipeline. Jenkins declares one more, *Static analysis*, which runs stages 3 to 5 together when the Global Settings say so ([the stage reference|#ch16]).
+*Six stages:* source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with {{build.node.enabled: true}} adds the Node.js build before the unit tests, as in the full pipeline. Jenkins declares one more, *Static analysis*, which runs stages 3 to 5 together when {{staticAnalysis.parallel}} is on ([the stage reference|#ch16]).
 
 It also archives {{pipeline-config.yaml}}, which holds the build tags of its snapshot stage, and the release decision so the extended pipeline can pick them up, and can start the extended job automatically.
 
@@ -902,14 +864,17 @@ h3. Jenkinsfile
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsSecurityPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsSecurityPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-h3. Settings in the DevSecOps portal
+h3. Settings in devsecops_config.yaml
 
 Start from the settings in the previous chapter; this pipeline does not use the {{dast}}, {{deploy}} and {{tests.smoke}} / {{regression}} / {{performance}} blocks. It needs {{appId}}, {{asoc}}, {{tools.sonar}}, {{tools.nexusIq}}, {{build}}, {{tests.unitTests}} and {{scm.bitbucket}}.
 
-If you will also run the extended pipeline, name that job as the extended pipeline in the portal so this one can start it. The portal renders it as:
+If you will also run the extended pipeline, name that job under the service so this one can start it:
 
 {code:yaml}
     jenkins:
@@ -946,30 +911,32 @@ The second half of the flow, started after the security pipeline. It deploys, ru
 
 h3. Jenkinsfile
 
-The full Jenkins path of the security job, for example {{MyApp/MyApp-security-pipeline}}, is set in the portal as the security pipeline of the extended pipeline, and the key carries it:
+The Jenkinsfile names the full Jenkins path of the security job, for example {{MyApp/MyApp-security-pipeline}}, in {{securityPipeline}}:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsExtendedPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsExtendedPipeline(
+    projectNames:     'my-app',
+    agentNames:       ['linux-agent'],
+    securityPipeline: 'MyApp/MyApp-security-pipeline'
+)
 {code}
 
-If you keep both pipelines in one repository, give this file a different name such as {{Jenkinsfile.extended}} and point the job's *Script Path* at it.
+Keep this Jenkinsfile in the repository of the service: the job reads {{devsecops_config.yaml}} (else {{config.yaml}}) of its own checkout and takes only the run-time tags of its own services from the security build. If you keep both pipelines in one repository, give this file a different name such as {{Jenkinsfile.extended}} and point the job's *Script Path* at it.
 
-Without a key, write {{devSecOpsExtendedPipeline(projectNames: 'MyApp', agentNames: ['linux-agent'], securityPipeline: 'MyApp/MyApp-security-pipeline')}} and keep this Jenkinsfile in the repository of the service: the job reads {{devsecops_config.yaml}} (else {{config.yaml}}) of its own checkout and takes only the run-time tags of its own services from the security build, as with a key. The first extended build after the default library version moves needs one security build made by this library.
+h3. Settings in devsecops_config.yaml
 
-h3. Settings in the DevSecOps portal
+This pipeline needs the {{deploy}}, {{tests.smoke}}, {{tests.regression}}, {{tests.performance}} and {{dast}} blocks shown in the full pipeline chapter. It reads them from the file of its own checkout, so a change of the file applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference, the version of the VM delivery and the Flutter build tags. Run the security job once with this release of the library before the first extended build; a build of an earlier release archived {{config.yaml}} instead of {{pipeline-config.yaml}}, and the extended build stops with "[INIT] The last successful build of <job> has no pipeline-config.yaml: it was built by a library release that archived config.yaml instead; run <job> once with this release".
 
-This pipeline needs the {{deploy}}, {{tests.smoke}}, {{tests.regression}}, {{tests.performance}} and {{dast}} blocks shown in the full pipeline chapter. It reads them from its own key, so a change in the portal applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference, the version of the VM delivery and the Flutter build tags. Run the security job once with the portal-integrated library before the first extended build; an older build has no {{pipeline-config.yaml}} and the extended build stops with "... predates the DevSecOps portal integration; run <job> once".
-
-Without a security pipeline in the portal the extended pipeline runs on its own: it copies nothing and deploys what its own settings name, including a build tag pinned in the portal.
+Without {{securityPipeline}} in the Jenkinsfile the extended pipeline runs on its own: it copies nothing and deploys what its own settings name, including a build tag pinned in {{devsecops_config.yaml}}.
 
 h3. Specific to this pipeline
 
 * *VM deployment is over SSH* here, not UrbanCode Deploy. For OpenShift set {{deployTarget: openshift}} and provide the cluster tokens as credentials.
 * *Do not add a commit trigger.* This job is started by the security pipeline or by a person.
 * *Copy Artifact permission.* This job reads files archived by the security job, which on some Jenkins instances requires the upstream job to permit it. If the first run reports that it cannot copy artifacts, that is the setting to ask the administrators about.
-* *Connect the two jobs* by naming this job as the extended pipeline of the security pipeline in the portal ({{jenkins.pipeline.extendedPipeline}}). From then on, running the security pipeline with {{RUN_EXTENDED_PIPELINE}} ticked starts this one automatically.
+* *Connect the two jobs* by naming this job in {{jenkins.pipeline.extendedPipeline}} of the service, in the {{devsecops_config.yaml}} that the security job reads. From then on, running the security pipeline with {{RUN_EXTENDED_PIPELINE}} ticked starts this one automatically.
 * *A frontend built with Node.js.* This pipeline has no Node.js build stage, because it builds nothing until the release. The release delivery stage runs the Node.js build of each service with {{build.node.enabled: true}} right before {{./gradlew publish}} or {{mvn deploy}} rebuilds the artifact, so the released artifact holds the frontend. A service without it publishes as before.
 
 ----
@@ -996,10 +963,13 @@ h3. Jenkinsfile
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsSASTScanningPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsSASTScanningPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-h3. Settings in the DevSecOps portal
+h3. Settings in devsecops_config.yaml
 
 This pipeline needs very little — only the AppScan identifiers and, if your source is not at the repository root, where to find it.
 
@@ -1045,12 +1015,15 @@ h3. Jenkinsfile
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsNexusIqGoldenFixPipeline(
+    projectNames: 'my-app',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-The key is the one the portal issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type {{nexusiq}}. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline {{DevSecOps/<CODE>/<service>-nexusiq}}; services that share a repository share the job of the first of them, see below.
+Services that share a repository share one Jenkinsfile and one job, see below.
 
-h3. Settings in the DevSecOps portal
+h3. Settings in devsecops_config.yaml
 
 This pipeline needs the Nexus IQ application and the artifact it scans, the build that produces that artifact, and the repository GoldenFix raises the pull request in.
 
@@ -1091,27 +1064,29 @@ projects:
 * {{buildTool}}, {{build}} and {{javaPath}} (or {{buildToolAutoSetup: true}}) build the artifact; without a JDK the Build artifact stage stops with *JAVA_HOME parameter is not specified*.
 * {{scm.bitbucket}} is where the {{GoldenFix-YYYYMMDDHHMM}} branch is pushed and the pull request is raised, into {{targetBranch}} or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
 * {{goldenFix}} is on by default; every setting of [the configuration reference|#ch15] applies, such as {{minThreatLevel}}, {{ecosystems}} and the pre-check build under {{goldenFix.verify}}.
-* {{appId}} and {{asoc.keyId}} *stay required* although this pipeline runs no AppScan scan: the portal asks for the AppScan identifiers of every service, and the library checks {{asoc.keyId}} of every service at the start of every pipeline.
+* {{asoc.keyId}} *stays required* although this pipeline runs no AppScan scan: the library checks {{asoc.keyId}} of every service at the start of every pipeline. {{appId}} is shown so that one service entry serves every pipeline of the service.
 * {{build.node}} builds a frontend with Node.js before the artifact build, as in [the full pipeline|#ch9]. While {{build.node.nexusIqScan}} is not {{false}}, the {{package-lock.json}} of {{build.node.dir}} joins the scan patterns of the service, so that Nexus IQ also reports the npm dependencies and GoldenFix can raise them in {{package.json}}. The npm pre-check of GoldenFix then runs with the Node.js, the registry and the {{.npmrc}} of that build.
 
 h3. Several services in one repository: one job and shared version catalogs
 
 In a multimodule repository several services often take their dependency versions from one shared catalog, for example a Gradle version catalog {{gradle/libs.versions.toml}} or a Maven parent pom. GoldenFix raises such a version *in the catalog*, once, for every service that uses it. For that, the services of the repository must run in one build.
 
-*One Jenkins job for the repository.* Put one Jenkinsfile with the pipeline keys of all services of the repository into the repository and ask for one Jenkins job for it, not one per service. The product page of the portal shows a notice for services that share a repository; its button *Show the Jenkinsfile* opens that Jenkinsfile, and the self-service wizard groups the Jenkinsfile and the job name the same way:
+*One Jenkins job for the repository.* Put the settings of all services of the repository into its {{devsecops_config.yaml}}, put one Jenkinsfile that names all of them in {{projectNames}} into the repository, and ask for one Jenkins job for it, not one per service:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: [
-    '<nexusiq key of gui>',
-    '<nexusiq key of backend-api>',
-])
+devSecOpsNexusIqGoldenFixPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent']
+)
 {code}
+
+Without {{projectNames}} the job builds every service of the file, in the order of the file.
 
 *Nothing to list for the usual catalogs.* GoldenFix finds by itself every {{*.versions.toml}}, the catalogs that a {{settings.gradle}} or {{settings.gradle.kts}} imports or declares, the files that a build names in {{apply from}}, {{java-platform}} modules, and the poms that another pom of the repository names as {{<parent>}} or imports with {{<scope>import</scope>}}.
 
-*List the others.* A shared file that GoldenFix cannot recognise goes into *Shared version catalogs* in the GoldenFix section of the service, one repository-relative path or glob per line ({{*}} within a folder name, {{**}} across folders). A listed {{.toml}} file is read as a Gradle catalog whatever its name, an {{.xml}} file as a Maven pom and any other file as a Gradle build file. Listing a file makes it the place where its versions are raised. A listed Gradle file is verified only in a build that uses it; a listed pom in the aggregator that builds it with the poms that use it, otherwise in its own folder, as the [Pipeline Stage Reference|#ch16] describes. The portal renders it as:
+*List the others.* A shared file that GoldenFix cannot recognise goes into {{goldenFix.versionCatalogs}} of the service, one repository-relative path or glob per entry ({{*}} within a folder name, {{**}} across folders). A listed {{.toml}} file is read as a Gradle catalog whatever its name, an {{.xml}} file as a Maven pom and any other file as a Gradle build file. Listing a file makes it the place where its versions are raised. A listed Gradle file is verified only in a build that uses it; a listed pom in the aggregator that builds it with the poms that use it, otherwise in its own folder, as the [Pipeline Stage Reference|#ch16] describes. For example:
 
 {code:yaml}
     goldenFix:
@@ -1126,7 +1101,7 @@ What GoldenFix then does in one run:
 * Each later service of the same repository adds its upgrades to the same branch, never lowers a version an earlier service raised, and adds a comment to the pull request that lists its upgrades ({{PR_UPDATED}}). The catalog entry therefore ends at the highest version any service needs.
 * A later service whose upgrades the branch already carries, because an earlier service of the run raised them in a shared catalog, makes no commit and no comment. It ends {{PR_UPDATED}} with the link and the message {{Already raised to <component> <version> in the shared pull request <url>}}.
 
-Separate jobs per service still work, but each raises its own pull request, and the pull requests change the same catalog line. Two such jobs that start in the same minute compute the same branch name; the second push is then refused with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)}}.
+Separate jobs per service still work, but each raises its own pull request, and the pull requests change the same catalog line. Two such jobs that start in the same minute compute the same branch name; the second push is then refused with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (projectNames)}}.
 
 The catalog must live in the same repository as the services. A catalog published as an artifact ({{from("com.bbh:platform-catalog:1.2")}} in {{settings.gradle}}), a BOM resolved from Nexus and a catalog in another repository are not raised; the card names them as the reason, see [the stage reference|#ch16].
 
@@ -1160,20 +1135,24 @@ Both projects configure the JDK ({{javaPath}}), unit tests with coverage, regres
 h3. Files
 
 ||File||Purpose||
-|{{CertScanner/Jenkinsfile}}|Loads the library and calls the full pipeline with the keys of both services|
+|{{CertScanner/Jenkinsfile}}|Loads the library and calls the full pipeline for both services and two agent labels|
+|{{CertScanner/devsecops_config.yaml}}|The settings of both services, the only file you adapt|
 
-The configuration of both services lives in the DevSecOps portal, whose demo product CertScanner reproduces it. The former {{config.yaml}} of the example is kept as a test fixture, {{test/fixtures/CertScanner/config.yaml}}, and the test suite proves that the portal documents load the same configuration. Committed as {{devsecops_config.yaml}} or {{config.yaml}} next to a Jenkinsfile without a key, it runs the example without the portal.
+The former {{config.yaml}} of the example is kept unchanged as a test fixture, {{test/fixtures/CertScanner/config.yaml}}, as it was at release b815d55: the test suite proves that this release reads it, under either file name, into the configuration that release read, and that {{CertScanner/devsecops_config.yaml}} loads.
 
 h3. Choosing the entry point
 
-Every entry point takes the pipeline keys of the services, the primary project first. The Jenkins agent labels offered as the {{AGENT_NAME}} build parameter come from the portal.
+Every entry point takes {{projectNames}}, the names under {{projects:}} of {{devsecops_config.yaml}}, the primary project first, and {{agentNames}}, the Jenkins agent labels offered as the {{AGENT_NAME}} build parameter.
 
 The full pipeline runs all thirteen stages in one job:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKeys: ['<full key of gui>', '<full key of backend-api>'])
+devSecOpsPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent', 'windows-agent']
+)
 {code}
 
 Split the flow into two jobs when the static part should run on every commit and the deployment and test part on demand. The first job runs unit tests, Nexus IQ, SAST, SonarQube and the snapshot delivery, and archives {{pipeline-config.yaml}} together with the release gate verdict:
@@ -1181,30 +1160,40 @@ Split the flow into two jobs when the static part should run on every commit and
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsSecurityPipeline(pipelineKeys: ['<security key of gui>', '<security key of backend-api>'])
+devSecOpsSecurityPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent']
+)
 {code}
 
-The second job deploys to RD, runs regression, smoke and performance tests and DAST, and then decides about the release and the QC deployment. It copies the archived files from the first job, which the portal names as the security pipeline of its keys:
+The second job deploys to RD, runs regression, smoke and performance tests and DAST, and then decides about the release and the QC deployment. It copies the archived files from the first job, so {{securityPipeline}} must name that job:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsExtendedPipeline(pipelineKeys: ['<extended key of gui>', '<extended key of backend-api>'])
+devSecOpsExtendedPipeline(
+    projectNames:     'gui,backend-api',
+    agentNames:       ['linux-agent'],
+    securityPipeline: 'CertScanner-security'
+)
 {code}
 
-The static job starts the extended one when its {{RUN_EXTENDED_PIPELINE}} parameter is selected. The job it starts is the one named as the extended pipeline in the portal ({{jenkins.pipeline.extendedPipeline}}), and it is started after the static job finishes, also when that job ended unstable. The extended job inherits the verdict of the static one through the copied {{release-gate.json}}, so findings from the static part still block the Nexus release and the QC deployment.
+The static job starts the extended one when its {{RUN_EXTENDED_PIPELINE}} parameter is selected. The job it starts is the one named in {{jenkins.pipeline.extendedPipeline}} of {{devsecops_config.yaml}}, and it is started after the static job finishes, also when that job ended unstable. The extended job inherits the verdict of the static one through the copied {{release-gate.json}}, so findings from the static part still block the Nexus release and the QC deployment.
 
-A separate job that only builds the artifacts, checks their dependencies with Nexus IQ and raises the GoldenFix pull request runs the Nexus IQ GoldenFix pipeline with the keys of that pipeline type:
+A separate job that only builds the artifacts, checks their dependencies with Nexus IQ and raises the GoldenFix pull request runs the Nexus IQ GoldenFix pipeline:
 
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: ['<nexusiq key of gui>', '<nexusiq key of backend-api>'])
+devSecOpsNexusIqGoldenFixPipeline(
+    projectNames: 'gui,backend-api',
+    agentNames:   ['linux-agent']
+)
 {code}
 
 h3. What the thresholds are
 
-Nothing in these files or in the settings of a service sets a security threshold or a coverage minimum. Both come from the Global Settings of the DevSecOps portal and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
+Nothing in these files sets a security threshold or a coverage minimum. Both come from the defaults that the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}) and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
 
 Step by step onboarding instructions are in [Detailed Description Guide for Application Integration|#ch8] and in the five integration guide chapters that follow it.
 
@@ -1227,14 +1216,18 @@ h3. Demo reports
 ----
 
 {anchor:ch15}
-h1. 15. Configuration Reference: the DevSecOps Portal
+h1. 15. Configuration Reference: devsecops_config.yaml
 
-The DevSecOps portal publishes one document per pipeline key with four parts: {{pipeline}} (type, product, agent labels, the linked security job), {{platform}} (AppScan, proxy and Nexus addresses, the iOS build agent), {{defaults}} (the Global Settings) and {{projects}}, the settings of the service. You edit the settings in the portal; with a key there is no file in the repository. Without a key the {{projects}} part below is the content of {{devsecops_config.yaml}} (else {{config.yaml}}) at the root of the repository. Below is the {{projects}} part with every key the library reads and its default. A key the portal does not model is not available (see [Differences from config.yaml|#ch4]).
+{{devsecops_config.yaml}} at the root of the repository holds the settings of the services of the repository under {{projects:}}. A repository without it is read from {{config.yaml}}, the name the file had in the earlier releases of the library, with the same content. Only the {{projects:}} section is read: a {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console.
+
+The global settings are the library resource {{resources/com/bbh/devsecops/defaults.yaml}}, which the DevSecOps team owns and changes with a library release. Its {{defaults:}} section is merged under every service, and its optional {{platform:}} section holds the platform values (see *The bundled defaults* below). The thresholds, the required coverage, the scan timeouts and the release gate are read from the bundled defaults only, so a project cannot change them, also not by setting the same keys for a service; the other keys of the defaults are starting values that a service may set for itself.
+
+Below is the {{projects:}} section of {{devsecops_config.yaml}} with every key the library reads and its default. {{devsecops_config.yaml.template}} at the root of the library holds the same keys as a commented service to copy.
 
 {code:yaml}
 projects:
 
-  <project-name>:                    # the service name in the DevSecOps portal
+  <project-name>:                    # the service name, as projectNames of the Jenkinsfile gives it
 
     appId:        ""                 # HCL AppScan application ID (UUID)
     buildTool:    gradle             # gradle | maven | flutter  [default: gradle]
@@ -1247,7 +1240,8 @@ projects:
 
     jenkins:
       pipeline:
-        extendedPipeline: ""         # security pipeline only: the extended job named in the portal, started when RUN_EXTENDED_PIPELINE is selected
+        extendedPipeline: ""         # security pipeline only: the extended job started when RUN_EXTENDED_PIPELINE is selected;
+                                     # read from the current service, otherwise from any service of the run
 
     asoc:                            # HCL AppScan on Cloud (required)
       url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
@@ -1265,12 +1259,16 @@ projects:
     sast:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
 
+    staticAnalysis:
+      parallel:    false             # true in every service of the run: Nexus IQ and SonarQube run while AppScan scans [default: the bundled defaults]
+
     influx:                          # InfluxDB DORA metrics (optional)
       enabled:   false
       project:   ""                  # measurement tag [default: tools.sonar.projectName]
       env:       "dev"               # measurement tag
       url:       ""                  # InfluxDB v2 write endpoint
-      credentialsId: ""              # Jenkins Secret text credential with the token (the portal never stores a token)
+      credentialsId: ""              # Jenkins Secret text credential with the token
+      token:     ""                  # the token itself, read only without credentialsId; keep tokens out of the repository
 
     coverage:
       reportPath: ""                 # usually empty: every JaCoCo XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
@@ -1318,11 +1316,11 @@ projects:
         enabled:          false      # true: build this service with Node.js first [default: false]
         dir:              ""         # folder with package.json, relative to the workspace [default: the workspace]
         commands:         ['npm ci', 'npm run build']   # one shell command per entry, run in order (sh, bat on Windows)
-        installationName: ""         # NodeJS installation of Manage Jenkins > Tools [Library default]
+        installationName: ""         # NodeJS installation of Manage Jenkins > Tools [default: the bundled defaults]
         nodePath:         ""         # Node.js home on the agent; wins over installationName
         env: {}                      # environment variables of the commands, e.g. NODE_OPTIONS: "--max-old-space-size=4096"
-        registry:         ""         # exported as npm_config_registry unless an .npmrc credentials ID is set; wins over the registry line of an .npmrc in the repository [Library default]
-        npmrcCredentialsId: ""       # Jenkins Secret file with an .npmrc, bound as NPM_CONFIG_USERCONFIG [Library default]
+        registry:         ""         # exported as npm_config_registry unless an .npmrc credentials ID is set; wins over the registry line of an .npmrc in the repository [default: the bundled defaults]
+        npmrcCredentialsId: ""       # Jenkins Secret file with an .npmrc, bound as NPM_CONFIG_USERCONFIG [default: the bundled defaults]
         timeoutMin:       30         # minutes for all commands of the service together
         nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
 
@@ -1342,11 +1340,11 @@ projects:
         cloneUrl:      ""            # push URL override  [default: derived from url]
         reviewers:     []            # Bitbucket user names (server) / account UUIDs (cloud)
 
-    goldenFix:                       # library defaults shown, project values override them
+    goldenFix:                       # the bundled defaults shown, project values override them
       enabled:                true
       onlyDirectDependencies: true
       minThreatLevel:         2      # 2+ medium, 4+ high, 8+ critical
-      ecosystems:             [maven, npm, pypi, pub]
+      ecosystems:             [maven, npm, pypi]   # supported: maven, npm, pypi, pub; a Flutter service adds pub
       goldenVersionTypes:            # Nexus IQ remediation types taken as they are (the Golden Version)
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
@@ -1369,7 +1367,7 @@ projects:
                                      # repository-relative paths or globs (* within a folder name, ** across folders)
 
     tests:
-      maxParallel: 20                # [library default] max jobs of one test stage running at the same time
+      maxParallel: 20                # [default: the bundled defaults] max jobs of one test stage running at the same time
       unitTests:                     # stage 2: the test command and where the results are
         gradle:
           tasks: ['test', 'jacocoTestReport']
@@ -1381,7 +1379,9 @@ projects:
         allowEmptyResults: false     # Maven: accept a module without test results
       smoke:
         maxParallel: 20              # optional per-stage override
-        jobs:                        # the portal stores every job with its own settings
+        defaults: {}                 # optional: fields merged into every job entry
+        urls: []                     # optional shorthand: list of remote job URLs
+        jobs:
           - name:       ""           # display name (derived from the URL when empty)
             type:       local        # local | remote  [default: remote when job/url is a full URL]
             job:        ""           # Jenkins job path ("folder/job-name") or full job URL
@@ -1392,6 +1392,7 @@ projects:
             remoteJenkinsUrl: ""     # optional remote Jenkins base URL override
             credentialsId: ""        # optional: credentials (user + API token) for the remote Jenkins
             tokenCredentialsId: ""   # optional: Secret text credential with the build token of the remote job
+          - "https://jenkins.example.com/job/smoke/job/login"   # an entry may also be the job URL alone
       regression:
         jobs:
           - name:       ""
@@ -1484,18 +1485,129 @@ projects:
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
 {code}
 
-h3. Library defaults of the Node.js build
+h3. The bundled defaults
 
-The Global Settings of the portal may hold three Library defaults of the Node.js build, rendered as {{defaults.build.node.installationName}}, {{defaults.build.node.registry}} and {{defaults.build.node.npmrcCredentialsId}} and merged under every service. A value of the service replaces them, and {{build.node.nodePath}} of the service wins over any installation. The portal never renders {{defaults.build.node.enabled}}, so the Node.js build runs only for a service that switches it on. The registry is exported as {{npm_config_registry}} only while no {{.npmrc}} credentials ID is in effect, the Library default one included, because that {{.npmrc}} names its own registry. Once exported, it wins over the registry line of an {{.npmrc}} in the repository. The portal does not render {{build.node}} for a Flutter service, because a Flutter build has no Gradle or Maven stage for it to run before.
+{{resources/com/bbh/devsecops/defaults.yaml}} of the library holds the global settings in its {{defaults:}} section. The library reads it with {{libraryResource}} in the Monitor stage of every build, so a job uses the file of the library version it loads. The {{defaults:}} section of the production file:
 
-{{goldenFix.versionCatalogs}} is a setting of the service only. It is not a Global Settings value and it does not depend on whether the service inherits or overrides the GoldenFix rules of the Global Settings.
+{code:yaml}
+defaults:                            # merged under every service of the run
+
+  buildTool:    gradle               # starting values of every service
+  deployTarget: vm
+  sourceDir:    "."
+  coverage:
+    minLine: 60                      # required line coverage of a service, the mean of its reports; read from here only
+
+  tools:
+    sonar:
+      qualityGate:                   # read from here only
+        waitForQualityGate: true
+        timeoutMinutes:     5
+    nexusIq:                         # Nexus IQ thresholds, read from here only
+      maxCritical: 0
+      maxHigh:     0
+      maxMedium:   0
+
+  sast:                              # read from here only
+    maxCritical:       0
+    maxHigh:           0
+    maxMedium:         0
+    prepareTimeoutMin: 120           # IRX generation
+    pollTimeoutMin:    50            # wait for the SAST scan
+    pollIntervalSec:   30
+
+  sca:                               # SonarQube thresholds, read from here only
+    enabled:         true
+    maxCritical:     0
+    maxHigh:         0
+    maxMedium:       0
+    pollTimeoutMin:  40
+    pollIntervalSec: 30
+
+  dast:                              # read from here only
+    maxCritical:       0
+    maxHigh:           0
+    maxMedium:         0
+    pollTimeoutMin:    60            # wait for the DAST scan
+    pollIntervalSec:   60
+    reportTimeoutMin:  30            # wait for AppScan to render the HTML and PDF report
+    reportIntervalSec: 30            # delay between two attempts to fetch the rendered report
+
+  tests:
+    maxParallel: 20                  # max test jobs of one stage running at the same time; a service may set its own
+
+  releaseGate:                       # read from here only; a stage that breaks the policy blocks the release and QC
+    scanners:        [sast, sca, niq, dast]
+    requireCoverage: true            # line coverage must reach coverage.minLine
+    stateFile:       release-gate.json
+
+  goldenFix:                         # the GoldenFix policy; a service may set its own values
+    enabled:                true
+    onlyDirectDependencies: true
+    minThreatLevel:         2        # 2+ medium, 4+ high, 8+ critical
+    ecosystems:             [maven, npm, pypi]
+    goldenVersionTypes:
+      - recommended-non-breaking-with-dependencies
+      - recommended-non-breaking
+    verify:
+      enabled:        true
+      maxAttempts:    3
+      timeoutMinutes: 20
+      commands:                      # empty: the default check of each ecosystem
+        maven:  ""
+        gradle: ""
+        npm:    ""
+        pip:    ""
+        pub:    ""
+    commitAuthorName:  "DevSecOps GoldenFix"
+    commitAuthorEmail: "devsecops-goldenfix@noreply.local"
+    timeZone:          ""            # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default
+{code}
+
+The production file sets no {{staticAnalysis.parallel}} and no {{build.node}} defaults. A key the DevSecOps team adds to {{defaults:}}, such as {{staticAnalysis.parallel: true}} or {{build.node.installationName}}, is merged under every service like the keys above.
+
+The optional {{platform:}} section, a sibling of {{defaults:}}, holds the platform values. The production file has no such section, so the library uses its built-in BBH values, shown here:
+
+{code:yaml}
+platform:                            # optional; without it the values below apply
+  iosBuildAgent:              "mac002.bbh.com"   # agent of the iOS build of a Flutter service
+  oisHost:                    "oisapi.bbh.com"   # OIS host that releases the password of the proxy account
+  nexusSnapshotRepositoryId:  "bbh-snapshots"    # Nexus snapshot repository of the Flutter delivery
+  nexusSnapshotRepositoryUrl: "http://tools.bbh.com/nexus/content/repositories/snapshots/"
+  environment:                       # the tool environment; a value of the agent or Jenkins environment wins
+    SA_LINUX_URL:       "https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip"
+    SA_WIN_URL:         "https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip"
+    PROXY_HOST:         "tstproxy.bbh.com"
+    PROXY_PORT:         "9090"
+    PROXY_USER:         "PROXY_ASOCJenk"
+    APPSCAN_HOST:       "bbh.cloud.appscan.com"
+    APPSCAN_SERVER_URL: "https://bbh.cloud.appscan.com"
+{code}
+
+{{platform.oisHost}} must be a host name; otherwise the AppScan setup ({{appscanSetup()}}) stops with "[APPSCAN] platform.oisHost '<host>' of the library defaults is not a host name".
+
+h3. Where each key lives
+
+||Keys||File||Who changes them||
+|{{projects.<service>.*}}|{{devsecops_config.yaml}}, else {{config.yaml}}, at the root of the repository|The project team, per branch|
+|{{coverage.minLine}}; {{maxCritical}}, {{maxHigh}} and {{maxMedium}} of {{sast}}, {{sca}}, {{dast}} and {{tools.nexusIq}}; the timeouts of {{sast}} and {{dast}}; {{tools.sonar.qualityGate}}; {{releaseGate}}|{{defaults:}} of {{resources/com/bbh/devsecops/defaults.yaml}} in the library|The DevSecOps team only. The library reads them from there only, so the same keys under a service change nothing|
+|Every other key of {{defaults:}}, such as {{goldenFix}}, {{tests.maxParallel}}, {{buildTool}} and, when the team adds them, {{staticAnalysis.parallel}} and {{build.node}}|{{defaults:}} of the same file, merged under every service|The DevSecOps team; a service of {{devsecops_config.yaml}} may set its own value|
+|{{platform.*}}|The optional {{platform:}} section of the same file|The DevSecOps team; a value of the agent or Jenkins environment wins for {{platform.environment}}|
+|{{projectNames}}, {{agentNames}}, {{securityPipeline}}|The {{Jenkinsfile}}|The project team|
+|{{DSO_STATIC_ANALYSIS_PARALLEL}} and the tool environment variables|The Jenkins global properties, the node properties of an agent, or the {{environment}} block of a custom Jenkinsfile|The Jenkins administrators, or the project team in a custom Jenkinsfile|
+
+h3. Defaults of the Node.js build
+
+The bundled defaults may hold three defaults of the Node.js build, {{defaults.build.node.installationName}}, {{defaults.build.node.registry}} and {{defaults.build.node.npmrcCredentialsId}}, merged under every service; the production file holds none. A value of the service replaces them, and {{build.node.nodePath}} of the service wins over any installation. The bundled defaults do not set {{build.node.enabled}}, so the Node.js build runs only for a service that switches it on. The registry is exported as {{npm_config_registry}} only while no {{.npmrc}} credentials ID is in effect, one of the bundled defaults included, because that {{.npmrc}} names its own registry. Once exported, it wins over the registry line of an {{.npmrc}} in the repository. Leave {{build.node}} off for a Flutter service: a Flutter build has no Gradle or Maven stage for it to run before.
+
+{{goldenFix.versionCatalogs}} is a setting of the service only. The bundled defaults do not set it, and it does not depend on whether the service keeps or overrides the GoldenFix rules of the bundled defaults.
 
 h3. Nexus IQ and SonarQube while AppScan scans
 
-The Global Settings checkbox *Run Nexus IQ and SonarQube while AppScan scans* is rendered as {{defaults.staticAnalysis.parallel}} and merged under every service. With {{true}} the full and security pipelines run their three static scans in the *Static analysis* stage: SAST queues the scan of every service first, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last ([the stage reference|#ch16]). The SAST, Nexus IQ GoldenFix and extended pipelines are not affected.
+{{staticAnalysis.parallel}} decides the order of the three static scans. With {{true}} for every service of the run the full and security pipelines run their three static scans in the *Static analysis* stage: SAST queues the scan of every service first, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last ([the stage reference|#ch16]). The SAST, Nexus IQ GoldenFix and extended pipelines are not affected.
 
-* An absent key means one after another, as before, so nothing changes until the portal, a service or the environment turns it on.
-* Without a key, a service of {{devsecops_config.yaml}} or {{config.yaml}} may set {{staticAnalysis.parallel: false}} for itself. One service with {{false}} or without the key keeps the whole run one after another. The portal has no such setting for one service, so with a key every service has the value of the Global Settings, and {{DSO_STATIC_ANALYSIS_PARALLEL}} switches one job or agent off.
+* An absent key means one after another. The production bundled defaults leave the key out, so nothing changes until a service, the bundled defaults or the environment turns it on.
+* A service of {{devsecops_config.yaml}} or {{config.yaml}} sets {{staticAnalysis.parallel: true}} or {{false}} for itself, and a {{defaults.staticAnalysis.parallel}} of the bundled defaults is merged under every service. One service with {{false}} or without the key keeps the whole run one after another, so every service of the run needs {{true}}.
 * The environment variable {{DSO_STATIC_ANALYSIS_PARALLEL}} decides first: {{true}} or {{false}}, whatever the settings say. The library reads it once per run, on the agent, when Jenkins decides whether to run the *Static analysis* stage. It therefore counts when it is set in *Manage Jenkins → System → Global properties → Environment variables*, in the environment variables of the agent's node properties, or in the top-level {{environment}} block of a custom Jenkinsfile ([the API reference|#ch20]). A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build; the library calls no step such as {{withFolderProperties}}.
 * On a Linux or macOS agent, a service whose SAST compile is not its build command ({{asoc.gradle}} or {{asoc.maven}} differs from {{build.gradle}} or {{build.maven}}, and {{asoc.doCompile}} is not {{false}}) keeps the run one after another, also when the environment variable is {{true}}, because Nexus IQ must evaluate only files the build command built. The whole block is compared, so other flags, environment variables or folders count too. The console names those services: "[STATIC] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another". On Windows the IRX step compiles nothing, so the rule does not apply there.
 
@@ -1513,12 +1625,12 @@ h3. Which fields are required
 |{{deploy.vm.rd}}, {{deploy.vm.qc}}|Only if {{deployTarget: vm}}|SSH deployment of the extended pipeline and of the QC stage|
 |{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|{{appName}} and {{artifactName}} are required as well|
 |{{delivery.maven}}|Only if {{deployTarget: vm}} and {{buildTool: maven}}|Snapshot upload of the artifact to Nexus|
-|{{jenkins.pipeline.extendedPipeline}}|Only for {{devSecOpsSecurityPipeline}}|The job it starts when {{RUN_EXTENDED_PIPELINE}} is selected; the portal renders it from the extended pipeline named for the security pipeline|
+|{{jenkins.pipeline.extendedPipeline}}|Only for {{devSecOpsSecurityPipeline}}|The job it starts when {{RUN_EXTENDED_PIPELINE}} is selected; it may be set in any service of the run, the current service first|
 |{{scm.bitbucket.url}}|Only for GoldenFix|Without it the fixes are listed in the report but no pull request is raised|
 |{{scm.bitbucket.credentialsId}}|Only for GoldenFix|Needs push rights and permission to create and comment on pull requests|
 |{{build.node.enabled}}|Only for a Node.js build|{{true}} adds the Node.js build of stage 0 for the service; every other {{build.node}} key is optional|
 |{{build.node.dir}}|Only if {{package.json}} is not at the repository root|The commands run in the workspace otherwise|
-|{{build.node.installationName}} or {{build.node.nodePath}}|No|Without both, and without a Library default installation, the commands use {{node}} and {{npm}} on the agent {{PATH}}; the portal accepts one of them, not both, and {{nodePath}} wins over a Library default installation|
+|{{build.node.installationName}} or {{build.node.nodePath}}|No|Without both, and without an installation in the bundled defaults, the commands use {{node}} and {{npm}} on the agent {{PATH}}; {{nodePath}} wins over any installation|
 |{{goldenFix.versionCatalogs}}|No|Only for a shared catalog that GoldenFix does not find by itself, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]|
 
 ----
@@ -1533,17 +1645,16 @@ h1. 16. Pipeline Stage Reference
 h3. Stage 1: Monitor source changes (download sources)
 
 Performs:
-* Merges every service of the pipeline keys, read before the pipeline started (see [How a pipeline reads its configuration|#ch4]), with the global defaults of the portal and writes the services to {{pipeline-config.yaml}}; an extended pipeline first lays the run-time tags of its security job over them
+* Reads {{devsecops_config.yaml}}, else {{config.yaml}}, at the workspace root ({{projects:}} only), merges the services of the run with the {{defaults:}} of {{resources/com/bbh/devsecops/defaults.yaml}} of the library (see [How a pipeline reads its configuration|#ch4]) and writes them to {{pipeline-config.yaml}}; an extended pipeline first lays the run-time tags of its security job over them
 * Applies the library policy to the state, so every later stage compares against the same thresholds
 * Detects the agent operating system and makes {{gradlew}} executable
-* Sets the tool environment: ASoC URLs, proxy host, port and user (a value in the agent's environment first, then the platform value of the portal), and the AppScan working directories
+* Sets the tool environment: ASoC URLs, proxy host, port and user (a value in the agent's environment first, then {{platform.environment}} of the bundled defaults, then the library's own BBH value), and the AppScan working directories
 * {{devSecOpsSASTScanningPipeline}} and {{devSecOpsNexusIqGoldenFixPipeline}} also run {{checkout scm}} and pin {{JAVA_HOME}} before this
-* Without a key: reads {{devsecops_config.yaml}}, else {{config.yaml}}, at the workspace root ({{projects:}} only) and merges it with {{resources/com/bbh/devsecops/defaults.yaml}} of the library
 
 Fails if:
-* there is no key and neither {{devsecops_config.yaml}} nor {{config.yaml}} is at the workspace root, or the file read is not valid YAML or has no {{projects:}} section
-* with a key, the portal sent no global defaults
-* a name in {{PROJECT_NAMES}} is not a service of the pipeline keys
+* neither {{devsecops_config.yaml}} nor {{config.yaml}} is at the workspace root, or the file read is not valid YAML or has no {{projects:}} section
+* the library resource {{com/bbh/devsecops/defaults.yaml}} cannot be read
+* a name in {{projectNames}}, {{PROJECT_NAMES}} or {{PROJECT_NAME}} is not a service of the file
 * an extended pipeline finds no {{pipeline-config.yaml}} in the last successful build of its security job, a service of the run is missing from it, or a tag in it is not a plain tag
 * {{asoc.keyId}} is empty for a service of the run
 
@@ -1575,9 +1686,9 @@ h3. Stage 2: Unit tests
 Performs, once per project:
 * Builds the artifact with the command of the {{build}} section
 * Runs the unit tests with the command of {{tests.unitTests}}, then reads every JaCoCo and LCOV coverage report of the project (see *Coverage reports* below)
-* Compares the line coverage of that project, the mean of its reports, with {{coverage.minLine}} of the Global Settings in the DevSecOps portal (60 %)
+* Compares the line coverage of that project, the mean of its reports, with {{coverage.minLine}} of the bundled defaults (60 %)
 
-The stage never fails the pipeline. Below the required value the stage turns *orange*, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always the one from the Global Settings, so changing it there changes both the check and the report.
+The stage never fails the pipeline. Below the required value the stage turns *orange*, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always {{coverage.minLine}} of the bundled defaults, so a library release that changes it changes both the check and the report.
 
 h4. Coverage reports
 
@@ -1598,7 +1709,7 @@ Which reports count:
 
 How the values are computed:
 * The line coverage of a report is its covered lines over its lines, rounded to one decimal.
-* The line coverage of a service is the mean of its counted reports, rounded once to one decimal. Every report weighs the same, whatever its size: 82.4 % and 8.0 % give 45.2 %. The minimum of the Global Settings, the colour of the stage and the release gate use this mean.
+* The line coverage of a service is the mean of its counted reports, rounded once to one decimal. Every report weighs the same, whatever its size: 82.4 % and 8.0 % give 45.2 %. The minimum of the bundled defaults, the colour of the stage and the release gate use this mean.
 * The summary of the run, the *All services* bar of the card and the {{[COV]}} line of the log, is the mean of every counted report of the run, each report once: a report with the same path or the same bytes as a report already counted for another service is not counted again; the bar also says how many services meet the minimum. The covered, missed and total lines shown next to a mean are the sums over the counted reports.
 * A service with one report gets the value it got before.
 
@@ -1643,9 +1754,9 @@ Restart from Stage at *Static analysis* fails as a restart at stage 3, 4 or 5 do
 
 h3. Stage 3: Dependencies scan (Nexus IQ)
 
-Runs {{nexusPolicyEvaluation}} with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds ({{tools.nexusIq.max*}} of the Global Settings in the DevSecOps portal, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.
+Runs {{nexusPolicyEvaluation}} with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds ({{tools.nexusIq.max*}} of the bundled defaults, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.
 
-For a service with {{build.node.enabled: true}}, and {{build.node.nexusIqScan}} not {{false}}, the library adds {{<dir>/package-lock.json}} ({{package-lock.json}} without a {{dir}}) to the scan patterns of every Nexus IQ application of the service that has scan patterns, also when they are a single pattern instead of a list. A {{./}}, a doubled {{/}} and a trailing {{/}} of {{build.node.dir}} are left out of the pattern, because the Ant patterns of Nexus IQ would not match them. Nexus IQ then also evaluates the npm dependencies of the frontend, and GoldenFix can raise them. An application without scan patterns gets no scan, and the settings in the portal stay as they are. New npm findings count like any other finding and can turn the stage orange.
+For a service with {{build.node.enabled: true}}, and {{build.node.nexusIqScan}} not {{false}}, the library adds {{<dir>/package-lock.json}} ({{package-lock.json}} without a {{dir}}) to the scan patterns of every Nexus IQ application of the service that has scan patterns, also when they are a single pattern instead of a list. A {{./}}, a doubled {{/}} and a trailing {{/}} of {{build.node.dir}} are left out of the pattern, because the Ant patterns of Nexus IQ would not match them. Nexus IQ then also evaluates the npm dependencies of the frontend, and GoldenFix can raise them. An application without scan patterns gets no scan, and {{devsecops_config.yaml}} stays as it is. New npm findings count like any other finding and can turn the stage orange.
 
 h3. GoldenFix remediation (automatic pull request)
 
@@ -1736,7 +1847,7 @@ The services of one build that share a repository share one branch and one pull 
 * A version already raised on the branch is never lowered, so a shared catalog ends at the highest version any service needs.
 * A later service whose upgrades the branch already carries, because an earlier service of the run raised the same entry of a shared catalog on it to the target or higher, makes no commit and no comment. It ends {{PR_UPDATED}} with the link and the message {{Already raised to <component> <version> in the shared pull request <url>}}. A newer version declared elsewhere in the repository that the branch did not change, and a declaration that an earlier service raised in a build file that is not a catalog, do not count: the fix stays under "not applied automatically" with its reason.
 
-Separate Jenkins jobs for the services of one repository each raise their own pull request. Two of them that start in the same minute compute the same branch name, and the second push fails with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)}}, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. A push that Bitbucket refuses for another reason, for example a branch permission or a hook, ends with {{[GOLDENFIX] git push of <branch> to <repository> failed (exit code <n>)}}, followed by the {{remote:}} and {{! [remote rejected]}} lines of git. GoldenFix tells the two apart from the output of {{git push}}.
+Separate Jenkins jobs for the services of one repository each raise their own pull request. Two of them that start in the same minute compute the same branch name, and the second push fails with {{[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (projectNames)}}, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. A push that Bitbucket refuses for another reason, for example a branch permission or a hook, ends with {{[GOLDENFIX] git push of <branch> to <repository> failed (exit code <n>)}}, followed by the {{remote:}} and {{! [remote rejected]}} lines of git. GoldenFix tells the two apart from the output of {{git push}}.
 
 h4. Step 5: the report
 
@@ -1746,7 +1857,7 @@ GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange
 
 h3. Stage 4: SAST – HCL AppScan
 
-Downloads and unpacks SAClientUtil (the AppScan CLI), compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. Before a project is queued and before its results are read, the CLI logs in with the key of that project ({{asoc.keyId}} and the secret of {{asoc.token}}). The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the Global Settings in the DevSecOps portal (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
+Downloads and unpacks SAClientUtil (the AppScan CLI), compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. Before a project is queued and before its results are read, the CLI logs in with the key of that project ({{asoc.keyId}} and the secret of {{asoc.token}}). The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the bundled defaults (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
 
 After a Node.js build in the same run, the folders that an IRX archive leaves out also hold {{node_modules}}, so the installed npm packages are not scanned as source code. This applies to every IRX archive of the run, unless included folders ({{includedDirs}}) are set or {{node_modules}} is already among the excluded folders ({{excludedDirs}}). Without a Node.js build nothing changes. The rule has limits:
 * With included folders set, only those folders are scanned and the excluded folders do not apply.
@@ -1758,7 +1869,7 @@ In the *Static analysis* stage the staging copy {{appscan-source-staged}} (Windo
 
 h3. Stage 5: SCA (SonarQube)
 
-Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open *vulnerabilities* of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above {{sca.maxCritical}}, {{sca.maxHigh}} and {{sca.maxMedium}} of the Global Settings in the DevSecOps portal (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
+Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open *vulnerabilities* of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above {{sca.maxCritical}}, {{sca.maxHigh}} and {{sca.maxMedium}} of the bundled defaults (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
 
 h3. Stages 6–10: Delivery and tests
 
@@ -1776,7 +1887,7 @@ h3. Stage 11: DAST – HCL AppScan
 
 Runs only for projects with {{dast.enabled: true}}. Signs in to the AppScan REST API with the key of the project ({{asoc.keyId}} and the secret of {{asoc.token}}) and queues a DAST scan against {{dast.targetUrl}}. Uses optional {{dast.presenceId}} for scanning internal (non-internet-accessible) environments.
 
-The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as *PDF*. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the *HCL AppScan* console page of the scan (under {{asoc.url}}, otherwise {{APPSCAN_SERVER_URL}}) and the PDF report. Above the DAST thresholds of the Global Settings in the DevSecOps portal the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
+The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as *PDF*. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the *HCL AppScan* console page of the scan (under {{asoc.url}}, otherwise {{APPSCAN_SERVER_URL}}) and the PDF report. Above the DAST thresholds of the bundled defaults the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
 
 h3. Stage 12: Nexus delivery (safe artifact)
 
@@ -1816,7 +1927,7 @@ Each pipeline evaluates the results it owns and hands its verdict to the next on
 {anchor:ch17}
 h1. 17. Security Policy Thresholds
 
-All thresholds are Global Settings of the DevSecOps portal, which only the DevSecOps team edits. A project *cannot* change any of them: the library takes them from the global defaults only. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
+All thresholds are global settings in the defaults that the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which only the DevSecOps team changes, with a library release. A project *cannot* change any of them: the library takes them from the bundled defaults only, and the same keys under a service of {{devsecops_config.yaml}} change nothing. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
 ||Scanner||Metric||Library policy||Overridable by a project||
 |SAST|maxCritical / maxHigh / maxMedium|0|no|
@@ -1828,9 +1939,9 @@ All thresholds are Global Settings of the DevSecOps portal, which only the DevSe
 |SAST IRX generation|prepareTimeoutMin|120 min|no|
 |SAST result polling|pollTimeoutMin / pollIntervalSec|50 min / 30 s|no|
 |DAST result polling|pollTimeoutMin / pollIntervalSec|60 min / 60 s|no|
-|Static scan order|staticAnalysis.parallel|one after another; the portal default runs Nexus IQ and SonarQube while AppScan scans|only without a key: false in any project of {{devsecops_config.yaml}} or {{config.yaml}} keeps the run one after another|
+|Static scan order|staticAnalysis.parallel|one after another; the bundled defaults leave the key out|yes: true in every service of {{devsecops_config.yaml}} or {{config.yaml}} runs Nexus IQ and SonarQube while AppScan scans, false in any service keeps the run one after another|
 
-The required coverage is shown in the report exactly as configured in the Global Settings, so raising or lowering it there immediately changes the value the report checks against and displays.
+The required coverage is shown in the report exactly as configured in the bundled defaults, so a library release that raises or lowers it changes the value the report checks against and displays from the first build that loads it.
 
 ----
 
@@ -1847,7 +1958,7 @@ h1. 18. Supported Build Tools
 |Flutter|{{flutter build <platform>}}|{{flutter test --coverage --concurrency=32 --reporter expanded}} in the main package and in each of {{tests.subplugins}} and {{tests.submodules}}|LCOV of each package|Nexus upload of the APK/IPA|
 |Node.js (stage 0, optional)|{{build.node.commands}}, by default {{npm ci}} and {{npm run build}}|–|–|– (the Gradle or Maven build packages the output)|
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in {{devsecops_config.yaml}}; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
 
 Gradle always runs through the {{./gradlew}} wrapper, which the library makes executable. Maven uses the installation of {{build.maven.mvnPath}} when it is set, otherwise {{./mvnw}} when the wrapper is committed, otherwise the {{mvn}} on the agent {{PATH}}.
 
@@ -1864,7 +1975,7 @@ Node.js is not a build tool of its own: {{buildTool}} stays {{gradle}} or {{mave
 * *Commands:* {{build.node.commands}} in {{build.node.dir}}, with {{sh}} or, on Windows, {{bat}}; at most {{build.node.timeoutMin}} minutes in all.
 * *Output:* outside {{build/}} and {{target/}}, and copied into the artifact by the Gradle or Maven build, see [Troubleshooting|#ch23], *The frontend is missing from the jar*.
 
-The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: the portal does not render one for it.
+The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: leave {{build.node}} off for it.
 
 h3. Coverage report detection
 
@@ -1962,8 +2073,6 @@ If the standard pipeline does not fit your project structure, you can call indiv
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>'])
-
 pipeline {
     agent any
 
@@ -2022,16 +2131,16 @@ pipeline {
 }
 {code}
 
-Without a key, {{initialize()}} alone reads {{devsecops_config.yaml}}, else {{config.yaml}}, as before the portal; {{devSecOpsApi.configure('full', [agentNames: ['linux-agent']])}} (optionally {{projectNames}} and {{securityPipeline}}) does the same with the agents of the {{AGENT_NAME}} parameter.
+{{initialize()}} reads {{devsecops_config.yaml}}, else {{config.yaml}}, of the workspace, so the {{checkout scm}} comes first, and builds the services of the {{PROJECT_NAMES}} or {{PROJECT_NAME}} environment variable or, without those, every service of the file. To name the services and the variant of the report, call {{devSecOpsApi.configure('<variant>', [projectNames: 'my-app', agentNames: ['linux-agent']])}} before {{pipeline {}}}, as the entry points do; {{agentNames}} is then required, and {{securityPipeline}} names the security job of an extended run.
 
-{{configure()}} reads the documents of the key before {{pipeline {}}}, on an agent of the {{DSO_PORTAL_AGENT}} label; called inside a node of a Linux or macOS agent, it reads on that node. {{initialize()}} without it reads the file of the repository; with {{DSO_REQUIRE_PIPELINE_KEY}} it stops with a message naming {{configure()}}. The tool environment variables such as {{APPSCAN_SERVER_URL}} or the proxy settings are set by {{initialize()}}: a value already in the environment wins, then the platform value of the portal, then the library's own default, so the {{environment}} block above is needed only when you want different values.
+The tool environment variables such as {{APPSCAN_SERVER_URL}} or the proxy settings are set by {{initialize()}}: a value already in the environment wins, then {{platform.environment}} of the bundled defaults, then the library's own default, so the {{environment}} block above is needed only when you want different values.
 
 h3. Complete method reference
 
 ||Method||Description||
-|{{initialize()}}|Set the tool environment variables, merge the configuration of the pipeline keys, or without a key of {{devsecops_config.yaml}} (else {{config.yaml}}) with the bundled defaults, write {{pipeline-config.yaml}}, check that the Nexus IQ GoldenFix pipeline has an application and scan patterns for every service, apply the library policy, detect OS|
-|{{configure(String variant, Map config)}}|Read the documents of {{config.pipelineKey}} or {{config.pipelineKeys}} from the DevSecOps portal, or without a key keep {{projectNames}}, {{agentNames}} and {{securityPipeline}} of the Jenkinsfile ({{agentNames}} is required), check them against the variant ({{full}}, {{security}}, {{extended}}, {{sast}}, {{nexusiq}}), select the report variant and keep the entry point configuration; call it before {{initialize()}}|
-|{{settingsPlace()}}|Where the settings of the run live, for messages: the DevSecOps portal, or the file read without a key|
+|{{initialize()}}|Set the tool environment variables, read {{devsecops_config.yaml}} (else {{config.yaml}}) and merge its services with the bundled defaults, write {{pipeline-config.yaml}}, check that the Nexus IQ GoldenFix pipeline has an application and scan patterns for every service, apply the library policy, detect OS|
+|{{configure(String variant, Map config)}}|Keep {{projectNames}}, {{agentNames}} and {{securityPipeline}} of the Jenkinsfile ({{agentNames}} is required; {{pipelineKey}} and {{pipelineKeys}} stop the build), select the variant ({{full}}, {{security}}, {{extended}}, {{sast}}, {{nexusiq}}) and with it the report layout, and keep the entry point configuration; call it before {{initialize()}}|
+|{{settingsPlace()}}|Where the settings of the run live, for messages: the file that was read, or before {{initialize()}} both names, {{devsecops_config.yaml or config.yaml}}|
 |{{runStage(String name, Closure body)}}|Run a stage body with the bookkeeping: start, result, duration, and a red stage on an exception|
 |{{eachProject(Closure body)}}|Run the body once per configured project, switching the project context first|
 |{{finishPipeline(Map options)}}|Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call|
@@ -2056,7 +2165,7 @@ h3. Complete method reference
 |{{dastScan()}}|Full DAST run, downloads the HTML and PDF reports, returns the count|
 |{{buildArtifact()}}|Build with Gradle, Maven or Flutter|
 |{{unitTests()}}|Run unit tests with coverage collection|
-|{{checkCoverage()}}|Read every coverage report of the project and compare their mean with the required value of the Global Settings|
+|{{checkCoverage()}}|Read every coverage report of the project and compare their mean with the required value of the bundled defaults|
 |{{depVulnScan()}}|Nexus IQ scan, with the {{package-lock.json}} of a Node.js build among the scan patterns; raises or updates the GoldenFix pull request on a violation|
 |{{codeQualityScan()}}|SonarQube analysis|
 |{{reportArtifactBuild()}}, {{reportUnitTests()}}|BBH build reporting|
@@ -2111,7 +2220,7 @@ h3. What is written
 |{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it|
 |{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request|
 |{{test_execution}} with {{suite=unit}}|project, env, module, suite|Unit test totals of each module: total, passed, failed, skipped, success rate and duration|
-|{{build_evidence}}|project, env, module|The change evidence the DevSecOps portal shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used ({{config_rendered_at}}, {{config_sha256}}) or, without a key, the settings file of the build ({{config_file}}). Empty values are left out|
+|{{build_evidence}}|project, env, module|The change evidence of a build: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and the settings file the build read ({{config_file}}). Empty values are left out|
 
 The measurements written before this revision - {{deployments}}, {{change_failure}}, {{build_duration}}, {{stage_metric}}, {{vulnerabilities}} and {{test_coverage}} - are still written unchanged, so dashboards built against them keep working. The {{line_pct}} of {{test_coverage}} and {{code_coverage}} is the mean of the reports of the run and of the module, which is the value written before when there is one report; their {{covered}}, {{missed}} and {{total}} are the sums over the same reports.
 
@@ -2137,7 +2246,7 @@ influx:
   credentialsId: "influxdb-token"    # Jenkins Secret text credential with the token
 {code}
 
-These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal. A run with several pipeline keys writes its metrics with the settings of the service of the first key, the primary service.
+These are settings of the service in {{devsecops_config.yaml}}; an {{influx}} section in {{defaults:}} of the bundled defaults would be merged under every service, and the production file has none. A run with several services writes its metrics with the settings of the primary service, the first name of {{projectNames}}.
 
 The {{variant}} tag names the pipeline that wrote the run: {{full}}, {{security}}, {{extended}}, {{sast}} or {{nexusiq}}. Every pipeline except the full one also appends its variant to the {{project}} tag, so the Nexus IQ GoldenFix pipeline of {{influx.project: MyApp}} writes {{project=MyAppnexusiq}}.
 
@@ -2184,7 +2293,7 @@ h3. What the pipeline writes
 |{{code_coverage}}|project, env, module, measured|line_pct, covered, missed, total, required, met, gap|Coverage per module against the required minimum|
 |{{coverage_report}}|project, env, module, report, tool, counted|line_pct (left out for a report without lines), covered, missed, total|Coverage per report; {{counted=no}} marks a copy, an aggregate, a report without lines or one that cannot be read|
 |{{test_execution}}|project, env, module, suite|total, passed, failed, not_configured, duration_ms, success_rate; skipped for {{suite=unit}}|Smoke, regression and performance suites, and the unit tests of each module ({{suite=unit}})|
-|{{build_evidence}}|project, env, module|artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_rendered_at, config_sha256, config_file|The change evidence of a build and the portal configuration it used, or the settings file of a build without a key|
+|{{build_evidence}}|project, env, module|artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_file|The change evidence of a build and the settings file it read|
 |{{test_job}}|project, env, module, suite, status, type|duration_ms, name, ok|Individual test jobs|
 |{{release_gate}}|project, env, allowed|allowed, blocked, violations, reason|Whether the release was permitted|
 |{{goldenfix}}|project, env, module, status|offered, applied, unresolved, pr_raised, build_check, build_failed; pr_url and pr_title only when a pull request was raised|Automated dependency remediation|
@@ -2689,60 +2798,42 @@ The cumulative panels in section 7 read from the beginning of the bucket, so the
 {anchor:ch23}
 h1. 23. Troubleshooting Guide
 
-h3. "[PORTAL] No pipeline key" or "No pipeline key and no agentNames" or "is not a key of the DevSecOps portal"
+h3. "[INIT] pipelineKey and pipelineKeys are settings of the DevSecOps portal ..."
 
-The Jenkinsfile names no key, or something that is not a key the portal issues. Copy the Jenkinsfile with the key of the service from its product page in the portal:
-{code:groovy}
-@Library('DevSecOpsJenkinsLibrary') _
-
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
-{code}
-
-Or, without a key, name the services of the repository and the agents, and commit {{devsecops_config.yaml}} at the root of the repository:
+The Jenkinsfile was written for the {{main}} release of the library and names a pipeline key. This release reads no key, also no empty one: the build stops before {{pipeline {}}} and runs nothing. The message names the entry point of the Jenkinsfile, for example "[INIT] pipelineKey and pipelineKeys are settings of the DevSecOps portal, which this release of the library does not read: write devSecOpsPipeline(projectNames: '<services of this repository>', agentNames: ['<agent label>']) and commit devsecops_config.yaml at the root of the repository"; for an extended pipeline it adds {{, securityPipeline: '<security job>'}}. Name the services of the repository and the agents in the Jenkinsfile, and commit {{devsecops_config.yaml}} with the settings of the services at the root of the repository:
 {code:groovy}
 @Library('DevSecOpsJenkinsLibrary') _
 
 devSecOpsPipeline(projectNames: 'gateway', agentNames: ['linux-agent'])
 {code}
 
-A Jenkinsfile that names {{pipelineKey}} or {{pipelineKeys}} with an empty value, and every Jenkinsfile without a key while {{DSO_REQUIRE_PIPELINE_KEY}} is set, keeps the first message, "[PORTAL] No pipeline key".
+h3. "[INIT] No agentNames in the Jenkinsfile"
 
-h3. "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml"
+The Jenkinsfile names no Jenkins agent labels, so the build has no choices for its {{AGENT_NAME}} parameter and stops before {{pipeline {}}}: "[INIT] No agentNames in the Jenkinsfile: write devSecOpsPipeline(projectNames: '<services of this repository>', agentNames: ['<agent label>']) and commit devsecops_config.yaml or config.yaml at the root of the repository". The message names the entry point of the Jenkinsfile and, for an extended pipeline, adds {{, securityPipeline: '<security job>'}}. Add {{agentNames}} to the Jenkinsfile.
 
-The Jenkinsfile names no key and the checkout has neither file at its root. The file is not committed at the root, the job builds another branch, or the file is named in another case: the names are exact and case-sensitive. A Windows agent finds {{Config.yaml}} as {{config.yaml}} and a Linux agent does not, so a build that passes on {{windows-agent}} and fails on {{linux-agent}} has the file in another case; rename it to {{devsecops_config.yaml}}.
+h3. "[INIT] Neither devsecops_config.yaml nor config.yaml is at the root of the repository"
+
+"[INIT] Neither devsecops_config.yaml nor config.yaml is at the root of the repository: commit devsecops_config.yaml with a projects: section for the services of this repository (examples/CertScanner/devsecops_config.yaml shows one)". The checkout has neither file at its root. The file is not committed at the root, the job builds another branch, or the file is named in another case: the names are exact and case-sensitive. A Windows agent finds {{Config.yaml}} as {{config.yaml}} and a Linux agent does not, so a build that passes on {{windows-agent}} and fails on {{linux-agent}} has the file in another case; rename it to {{devsecops_config.yaml}}.
 
 h3. "... must contain a 'projects:' section" or "not found in devsecops_config.yaml"
 
-The file read without a key has no {{projects:}} map, or the service named in {{projectNames}}, {{PROJECT_NAMES}} or {{PROJECT_NAME}} is not in it; the message lists the services of the file. Download the file again from the product page of the portal, or correct the name in the Jenkinsfile.
+The file read has no {{projects:}} map, or the service named in {{projectNames}}, {{PROJECT_NAMES}} or {{PROJECT_NAME}} is not in it; the message lists the services of the file. Add the service to the file, or correct the name in the Jenkinsfile.
 
 h3. "The library resource com/bbh/devsecops/defaults.yaml cannot be read"
 
-A run without a key takes its global settings from this file of the library. The library version the job loads lacks the file, or another library loaded in the same build shadows it. Ask the DevSecOps team.
-
-h3. "it predates the DevSecOps portal integration" in a job without a key
-
-The last successful security build was made by a library before it wrote {{pipeline-config.yaml}}, that is before the portal integration. Run the security job once with this library, then the extended job.
-
-h3. "[PORTAL] Key ... was not issued" or "was invalidated"
-
-* *Not issued:* the key is mistyped or belongs to another portal (the message names the portal it asked). Copy it again from the product page.
-* *Invalidated:* the DevSecOps team invalidated the key; the message gives their reason. Regenerate the key in the portal and put the new one in the Jenkinsfile.
-
-h3. "[PORTAL] Key ... configures a security pipeline, devSecOpsPipeline runs the full pipeline"
-
-Each key belongs to one pipeline type; use the key of that type, or the entry point the product page offers for the key. The same applies to keys of two products in one run, and to two keys that configure the same service.
-
-h3. "[PORTAL] The configuration could not be read from the DevSecOps portal at ..."
-
-The agent could not reach the portal, did not trust its certificate, or the portal answered with an error; the build description says {{DevSecOps portal unavailable}} and the message names the portal address, the cause and the DevSecOps team. A missing or malformed {{DSO_PORTAL_URL}} and a Windows agent of the {{DSO_PORTAL_AGENT}} label each have their own message. None of them can be fixed in the Jenkinsfile; [Platform Prerequisites|#ch6] lists what the administrators set up.
+"[INIT] The library resource com/bbh/devsecops/defaults.yaml cannot be read (<cause>): the global settings come from it; ask the DevSecOps team". Every run takes its global settings from this file of the library. The library version the job loads lacks the file, or another library loaded in the same build shadows it. Ask the DevSecOps team.
 
 h3. "The last successful build of ... has no pipeline-config.yaml"
 
-The extended pipeline copies {{pipeline-config.yaml}} from the security job the portal names, and the last successful build of that job was made by a library before the portal integration. Run the security job once.
+"[INIT] The last successful build of <job> has no pipeline-config.yaml: it was built by a library release that archived config.yaml instead; run <job> once with this release". The extended pipeline copies {{pipeline-config.yaml}} from the security job that its Jenkinsfile names in {{securityPipeline}}, and the last successful build of that job was made by an earlier release of the library, which archived {{config.yaml}}. Run the security job once with this release, then the extended job.
+
+h3. "[INIT] Security pipeline <job> builds <services>, this run builds <service>"
+
+The security build copied by the extended pipeline holds no run-time tags for a service of the extended run. The two Jenkinsfiles name other services; give both the same {{projectNames}}, or name the security job of these services in {{securityPipeline}}.
 
 h3. "asoc.keyId must be set for the service <service> in ..."
 
-Set the AppScan key ID of the named service where the message says: in the DevSecOps portal, or, for a Jenkinsfile without a key, in the file it names ({{devsecops_config.yaml}} or {{config.yaml}} of the repository). Every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a portal setting.
+Set the AppScan key ID of the named service in the file the message names ({{devsecops_config.yaml}} or {{config.yaml}} of the repository). Every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a value of the file.
 
 h3. "JAVA_HOME parameter is not specified"
 
@@ -2757,7 +2848,7 @@ The test command returned a non-zero exit code. The stage is orange, not red: Ne
 
 h3. "[NODE] <service>: build.node.enabled is not set - no Node.js build"
 
-Not an error. Another service of the run has a Node.js build, so the stage runs, and this service has none. When the service has a frontend that npm must build first, tick *Build the frontend with Node.js first* for it in the portal ({{build.node.enabled: true}}).
+Not an error. Another service of the run has a Node.js build, so the stage runs, and this service has none. When the service has a frontend that npm must build first, set {{build.node.enabled: true}} for it in {{devsecops_config.yaml}}.
 
 h3. "[NODE] <service>: the SAST scan does not compile this service - no Node.js build"
 
@@ -2770,7 +2861,7 @@ A command of {{build.node.commands}} failed, or the Node.js build could not star
 * {{npm ci}} needs a committed {{package-lock.json}} in {{build.node.dir}} that matches {{package.json}}. Commit the lock file, or set the commands to {{npm install}} and {{npm run build}}.
 * A wrong folder: {{build.node.dir}} is relative to the workspace, which is the repository root.
 * No Node.js: the {{tool}} step stops when no NodeJS installation of the name in {{build.node.installationName}} exists under *Manage Jenkins → Tools*, and {{node: not found}} or {{npm: not found}} means the agent has none on its {{PATH}}. Name an existing installation, set {{build.node.nodePath}} to the Node.js folder of the agent, or ask the Jenkins administrators to install Node.js.
-* npm cannot reach or log in to the registry: set {{build.node.registry}}, or an {{.npmrc}} Secret file in {{build.node.npmrcCredentialsId}} when the registry needs a login. A package that exists only in the registry of an {{.npmrc}} in the repository fails with 404 while {{build.node.registry}} (or its Library default) is set, because {{npm_config_registry}} wins over that file: leave the registry empty, or name a registry that holds every package.
+* npm cannot reach or log in to the registry: set {{build.node.registry}}, or an {{.npmrc}} Secret file in {{build.node.npmrcCredentialsId}} when the registry needs a login. A package that exists only in the registry of an {{.npmrc}} in the repository fails with 404 while {{build.node.registry}} (or its value in the bundled defaults) is set, because {{npm_config_registry}} wins over that file: leave the registry empty, or name a registry that holds every package.
 * The build ran out of time: raise {{build.node.timeoutMin}} (default 30 minutes, for all commands together), or out of memory: add {{NODE_OPTIONS: "--max-old-space-size=4096"}} to {{build.node.env}}.
 
 h3. The frontend is missing from the jar
@@ -2810,7 +2901,7 @@ h3. "[DOD] No UrbanCode Deploy applications are configured"
 
 h3. "The required parameter (buildTag) is not defined"
 
-An OpenShift deployment ran without the image built by the snapshot stage. In the split setup the build tag travels in {{pipeline-config.yaml}}, so the extended job must copy it from the static job: name the static job as the security pipeline of the extended pipeline in the portal, and run the static job once with the portal-integrated library.
+An OpenShift deployment ran without the image built by the snapshot stage. In the split setup the build tag travels in {{pipeline-config.yaml}}, so the extended job must copy it from the static job: name the static job in {{securityPipeline}} of the Jenkinsfile of the extended job, and run the static job once with this release of the library.
 
 h3. "Scripts not permitted to use ..."
 
@@ -2818,7 +2909,7 @@ The Jenkins sandbox rejected a signature. The library is tested against the real
 
 h3. SAST stage takes very long or times out
 
-* Default {{sast.pollTimeoutMin}} is 50 minutes. This is a library default that only the library team can change.
+* Default {{sast.pollTimeoutMin}} is 50 minutes. This is a global setting of the bundled defaults that only the DevSecOps team can change.
 * The IRX generation step (compile via Gradle + AppScan prepare) can take 10–20 minutes on large projects.
 * In the *Static analysis* stage the status poll starts after Nexus IQ and SonarQube; its timeout counts from then.
 
@@ -2832,7 +2923,7 @@ SAST failed before every scan was queued, in the AppScan client, the login, the 
 
 h3. How to switch the order off for all jobs, one agent or one job
 
-Set the environment variable {{DSO_STATIC_ANALYSIS_PARALLEL=false}} in *Manage Jenkins → System → Global properties → Environment variables* for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the full and security pipelines then run Nexus IQ, SAST and SonarQube one after another, whatever the Global Settings say. {{true}} turns the order on without the setting. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference|#ch15]). For one job without a key, set {{staticAnalysis.parallel: false}} on one of its services in {{devsecops_config.yaml}} or {{config.yaml}}: one such service keeps the whole run one after another. The portal has no such setting for one service or job. For a job with a key, untick *Run Nexus IQ and SonarQube while AppScan scans* in the Global Settings, which switches the order off for every job with a key, set the variable in the node properties of the agents the job uses, or run the job with a custom Jenkinsfile built on {{devSecOpsApi}} ([the API reference|#ch20]) whose top-level {{environment}} block sets {{DSO_STATIC_ANALYSIS_PARALLEL = 'false'}}.
+Set the environment variable {{DSO_STATIC_ANALYSIS_PARALLEL=false}} in *Manage Jenkins → System → Global properties → Environment variables* for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the full and security pipelines then run Nexus IQ, SAST and SonarQube one after another, whatever {{staticAnalysis.parallel}} says. {{true}} turns the order on without the setting. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference|#ch15]). For one job, set {{staticAnalysis.parallel: false}} on one of its services in {{devsecops_config.yaml}} or {{config.yaml}}: one such service keeps the whole run one after another. A custom Jenkinsfile built on {{devSecOpsApi}} ([the API reference|#ch20]) can also set {{DSO_STATIC_ANALYSIS_PARALLEL = 'false'}} in its top-level {{environment}} block. When the bundled defaults set {{staticAnalysis.parallel: true}}, every job without its own value follows them, and the DevSecOps team switches the order off for all of them with a library release that removes it.
 
 h3. "IRX not found after prepare"
 
@@ -2909,7 +3000,7 @@ The build reads the version as a constant of {{buildSrc}}, for example {{Version
 
 h3. "version catalog <path> not found in the repository" or "version catalog <path> is outside the repository"
 
-A path of {{goldenFix.versionCatalogs}} of the service matched no file, or matched only files in a folder of {{goldenFix.excludeDirs}}; or it is an absolute path, a Windows path or a path with {{..}}. Paths are relative to the root of the repository, with {{/}} between folders, and may use {{*}}, {{**}} and {{?}}; {{./}}, a doubled {{/}} and a trailing {{/}} are ignored. Correct the path in the portal, or remove it: the usual catalogs are found without being listed. The run continues; the note only appears in the report card and in the pull request.
+A path of {{goldenFix.versionCatalogs}} of the service matched no file, or matched only files in a folder of {{goldenFix.excludeDirs}}; or it is an absolute path, a Windows path or a path with {{..}}. Paths are relative to the root of the repository, with {{/}} between folders, and may use {{*}}, {{**}} and {{?}}; {{./}}, a doubled {{/}} and a trailing {{/}} are ignored. Correct the path in {{devsecops_config.yaml}}, or remove it: the usual catalogs are found without being listed. The run continues; the note only appears in the report card and in the pull request.
 
 h3. "<file>: <component> declared outside the catalog <catalog file> (<alias>)"
 
@@ -2933,7 +3024,7 @@ The service added its commit to the shared pull request, but Bitbucket refused t
 
 h3. "[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; ..."
 
-Two GoldenFix jobs for services of one repository started in the same minute, computed the same branch name {{GoldenFix-YYYYMMDDHHMM}}, and git refused the second push because the branch exists ({{! [rejected] ... (fetch first)}} or {{(non-fast-forward)}} in the output of {{git push}}). The first job raised its pull request; the second one ends with {{ERROR}}. Run one Nexus IQ GoldenFix job for all services of the repository, with {{pipelineKeys}}, as described in [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. The services then share one branch and one pull request.
+Two GoldenFix jobs for services of one repository started in the same minute, computed the same branch name {{GoldenFix-YYYYMMDDHHMM}}, and git refused the second push because the branch exists ({{! [rejected] ... (fetch first)}} or {{(non-fast-forward)}} in the output of {{git push}}). The first job raised its pull request; the second one ends with {{ERROR}}. Run one Nexus IQ GoldenFix job for all services of the repository, named together in {{projectNames}}, as described in [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]. The services then share one branch and one pull request.
 
 h3. "[GOLDENFIX] git push of <branch> to <repository> failed (exit code <n>): ..."
 
@@ -2951,7 +3042,7 @@ The HTML report *is* required, because the findings of the scan are read from it
 * the report was still not ready when {{dast.reportTimeoutMin}} ran out;
 * AppScan reported the rendering as {{Failed}}.
 
-Raise {{dast.reportTimeoutMin}} (default 30 minutes) or {{dast.reportIntervalSec}} (default 30 seconds) in the Global Settings of the portal for scans whose reports take longer to render. The stage deliberately fails instead of recording zero findings: a green DAST stage always means a real report was parsed.
+{{dast.reportTimeoutMin}} (default 30 minutes) and {{dast.reportIntervalSec}} (default 30 seconds) are global settings of the bundled defaults: ask the DevSecOps team to raise them for scans whose reports take longer to render. The stage deliberately fails instead of recording zero findings: a green DAST stage always means a real report was parsed.
 
 h3. Hundreds of smoke jobs
 
@@ -2962,13 +3053,13 @@ All jobs are executed even when some fail, and at most {{tests.maxParallel}} run
 h3. Problems on a first run
 
 ||What you see||What it means and what to do||
-|{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names an empty pipeline key, or names none while {{DSO_REQUIRE_PIPELINE_KEY}} is set, or the job builds a branch with an older {{Jenkinsfile}} while it is set. Check the branch in the job configuration.|
-|{{No pipeline key and no agentNames}}|The Jenkinsfile names neither a key nor agentNames.|
-|{{neither devsecops_config.yaml nor config.yaml}}|A Jenkinsfile without a key needs one of the two files, spelled exactly so, at the root of the repository.|
-|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the place the message names: the DevSecOps portal, or for a Jenkinsfile without a key {{devsecops_config.yaml}} or {{config.yaml}}.|
+|{{[INIT] pipelineKey and pipelineKeys are settings of ...}}|The {{Jenkinsfile}} was written for the {{main}} release and names a pipeline key. Name the services in {{projectNames}} and the agents in {{agentNames}}, and commit {{devsecops_config.yaml}}.|
+|{{No agentNames in the Jenkinsfile}}|The Jenkinsfile names no agent labels. Add {{agentNames}}.|
+|{{Neither devsecops_config.yaml nor config.yaml is at the root of the repository}}|The repository needs one of the two files, spelled exactly so, at its root, on the branch the job builds.|
+|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the file the message names, {{devsecops_config.yaml}} or {{config.yaml}}.|
 |{{[SONAR] Badge token credentials ... could not be read}}|The credential named in {{tools.sonar.badgeCredentialsId}} does not exist or is not Secret text. The stage result does not change; the report uses {{badgeToken}} or shows no badges.|
 |{{[OPENSHIFT] <service>: RD deployment not required}}, {{QC deployment not required}}|Nexus delivery is off for the service and the region has no build tag, so there is no image to deploy: RD needs {{deploy.openshift.rd.buildTag}}, QC its own {{deploy.openshift.qc.buildTag}} or the RD tag. Pin a tag or turn the delivery on.|
-|{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the place the message names: the DevSecOps portal, or for a Jenkinsfile without a key {{devsecops_config.yaml}} or {{config.yaml}}. Set both under {{tools.nexusIq}}.|
+|{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the file the message names, {{devsecops_config.yaml}} or {{config.yaml}}. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
 |Coverage shows {{not measured}}|No JaCoCo or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a JaCoCo XML or LCOV report, or point {{coverage.reportPath}} at it.|
@@ -2978,11 +3069,11 @@ h3. Problems on a first run
 |A service counts a report of another service|The report, or a copy of it, for example under {{release/<other service>}}, lies in a folder in which the service is tested, outside the folders of the other service. The summary of the run counts a byte copy once. Name the reports of the service in {{coverage.reportPath}}, or test it in a folder of its own.|
 |The log says {{The coverage scan failed}}|The {{python3}} of the agent could not run the search, for example a shim without a configured version, or the search took longer than 15 minutes. The reports were read as before; the reason follows in the log. If {{python3}} could not run, fix it on the agent to get every report. If the search took longer than 15 minutes, name the reports of the service in {{coverage.reportPath}}: a path without {{*}} or {{?}} is read without a search, and a pattern searches only the folder before its first wildcard, so start it with a folder, such as {{build/reports/jacoco/**/*.xml}}.|
 |DAST fails saying the HTML report could not be produced|AppScan did not render the report in time or returned a message instead. The stage deliberately fails rather than recording zero findings. Re-run; if it repeats, ask for a higher {{dast.reportTimeoutMin}}.|
-|A test stage is orange with {{NOT_CONFIGURED}}|A test job named for the service in the portal does not exist in Jenkins yet. Create it, or accept the orange stage until the suite is ready.|
+|A test stage is orange with {{NOT_CONFIGURED}}|A test job named for the service in {{devsecops_config.yaml}} does not exist in Jenkins yet. Create it, or accept the orange stage until the suite is ready.|
 |No dependency upgrade pull request appears|The pipeline needs {{scm.bitbucket.url}} and a credential with write access. The report states this in plain language when it is the cause.|
 |The Node.js build stage fails at {{npm ci}}|{{npm ci}} needs a committed {{package-lock.json}} in {{build.node.dir}}. Commit it, or set {{build.node.commands}} to {{npm install}} and {{npm run build}}.|
 |The frontend is missing from the jar|The Node.js build leaves its output in the workspace; the Gradle or Maven build must copy it into the jar. See *The frontend is missing from the jar* above.|
-|{{[GOLDENFIX] The branch ... already exists}}|Two GoldenFix jobs of one repository started in the same minute. Run one job for all services of the repository with {{pipelineKeys}}.|
+|{{[GOLDENFIX] The branch ... already exists}}|Two GoldenFix jobs of one repository started in the same minute. Run one job for all services of the repository, named together in {{projectNames}}.|
 |{{[GOLDENFIX] git push of ... failed}}|Bitbucket refused the push, for example through a branch permission or a hook; the message quotes the answer of the remote.|
 |The extended pipeline cannot copy artifacts|The Copy Artifact permission on the upstream security job. Ask the Jenkins administrators.|
 
@@ -2990,7 +3081,7 @@ h3. Where to go for help
 
 ||Question about||Ask||
 |The library, the report, a stage that behaves unexpectedly|The DevSecOps team|
-|A pipeline key, the settings of a service, the portal|The DevSecOps team|
+|The bundled defaults: thresholds, coverage minimum, timeouts, platform values|The DevSecOps team|
 |AppScan connectivity, the proxy account, OIS certificates, a DAST Presence|The DevSecOps team|
 |Agents, credentials, registering the shared library, Copy Artifact permissions|The Jenkins administrators|
 |Nexus IQ applications and policies|The Nexus IQ administrators|
@@ -3032,14 +3123,13 @@ h3. What it runs
 |{{test/checks/docs-html.sh}}|{{documentation.html}} is the rendering of {{documentation.confluence}}; the check regenerates it when it is not|
 |{{test/checks/docs-md.sh}}|{{documentation.md}} is the Markdown rendering of {{documentation.confluence}}; the check regenerates it when it is not|
 |compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration|
-|{{test/portal/query-scenarios.sh}}|The query script of {{PortalConfigReader}}, run with the real {{curl}} against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key|
 |{{test/coverage/scan-scenarios.sh}}|The scan script of {{CoverageReports}}, run with {{python3 -I}} on report trees: services that share a folder, modules with release folders, copies, aggregates and their rest, patterns, Android, Kover, Flutter and LCOV variants, non-ASCII names, the SHA-1 of each report, a report of another service skipped before it is read, the time limit, the class listing of the earlier reader and 400 module reports|
 |{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a {{resolutions}} block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a {{strictly}} or {{require}} range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores {{./}} in listed paths, reads a listed pom with another name and builds it with {{mvn -f}}, also with a Maven command of {{goldenFix.verify.commands}}, resolves {{from files(..)}} and {{$rootDir}} imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in {{buildSrc}} only for a holder it can declare and records an escaping {{Error}} as {{ERROR}}; it refreshes a {{package-lock.json}} (not in front of an npm command of {{goldenFix.verify.commands}}), raises npm {{overrides}} and {{resolutions}}, tells a branch that exists from a push a hook declines and names pub components; the {{package-lock.json}} pattern of a Node.js build names its folder without {{./}}; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the {{goldenfix}} point carries {{pr_url}} and {{pr_title}} only when a pull request was raised; eight service level pipelines produce the demo reports|
 |{{test/sandbox/CoverageScenarios.groovy}}|{{checkCoverage}}, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of {{coverage.reportPath}}, a copy of the report of another service, the fallbacks without {{python3}} or after a failed scan, Windows, and one real {{sh}} run of the scan step|
 |{{test/sandbox/StaticAnalysisScenarios.groovy}}|The switch of the static scan order (the environment variable first, then {{staticAnalysis.parallel}} of every service), the services whose SAST compile differs from their build command, the order {{PipelineState.settle}} restores, and the removal of the SAST staging copy on Linux and Windows|
-|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over {{devsecops_config.yaml}} or {{config.yaml}} against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service|
-|{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key; and the runs without a key|
-|{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of the {{config.yaml}} library, the portal loader and the loader of a run without a key produce the same configuration: exactly for documents with the same values, exactly for {{devsecops_config.yaml}} and {{config.yaml}} over the same defaults ({{devsecops_config.yaml}} first when both exist), and after declared rules for the documents the portal renders; the bundled defaults can be applied|
+|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs. Every run reads a repository file: it plants {{devsecops_config.yaml}} or {{config.yaml}} in the workspace, takes the defaults of the run as the bundled resource and gives the entry point {{projectNames}}, {{agentNames}} and, for the extended pipeline, {{securityPipeline}}; the runs cover both file names, both files at once, a Jenkinsfile without {{projectNames}} and another {{appId}} in a {{config.yaml}} that is not read. The eleven golden runs of the first four entry points, recorded at release b815d55, are unchanged byte for byte and are compared after declared rules for what this release adds: the run-state file {{pipeline-config.yaml}}, the {{build_evidence}} and unit {{test_execution}} points, the InfluxDB line count, the settings line of the report header and {{config_file}}. The golden runs of the Nexus IQ GoldenFix pipeline (green, orange, build failure, the shared catalog run of two services) and {{full-pipeline-orange-parallel-scans.txt}} were recorded again for this branch; before they were committed, a one-off comparison proved that each new file equals the file recorded on {{main}} with the steps and lines of the key read removed and the lines that name the settings file added. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service|
+|{{test/sandbox/ConfigScenarios.groovy}}|The configuration of a run: {{projectNames}} as a string or a list, {{securityPipeline}}, a Jenkinsfile that names {{pipelineKey}} or {{pipelineKeys}}, also empty, which stops with its message and runs nothing, a Jenkinsfile without {{agentNames}}, {{DSO_REQUIRE_PIPELINE_KEY=true}}, which changes nothing, {{configure()}} twice and {{initialize()}} without {{configure()}}, the two file names and their order, the file errors and their messages; the {{platform:}} section of the bundled defaults, which changes the iOS build agent, the OIS host, the Flutter snapshot repository and the tool environment, with an environment variable that wins over {{platform.environment}}; the extended handoff; and the Nexus IQ GoldenFix entry point, which names its own call and stops at the start for a service it would not scan|
+|{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of release b815d55 and the loader of this release produce the same configuration, exactly, from {{devsecops_config.yaml}} and from {{config.yaml}} over the same defaults ({{devsecops_config.yaml}} first when both exist); the production bundled defaults have the structure the library reads, with an optional {{platform:}} map, and can be applied; {{examples/CertScanner/devsecops_config.yaml}} loads|
 
 The sandbox tests execute the library inside {{GroovySandbox.runInSandbox}} with the real {{script-security}} whitelists and a fake Jenkins ({{test/sandbox/harness}}), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.
 
