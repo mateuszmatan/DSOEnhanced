@@ -490,13 +490,14 @@ Every class of the library is loaded and every pipeline is executed under the re
 | `influx.credentialsId` of the service | Secret text | The InfluxDB token; the portal stores only the credentials ID |
 | `tests.*.jobs[].tokenCredentialsId` (optional) | Secret text | The build token of a remote test job, which the portal never stores |
 
-**Global environment variables** go into **Manage Jenkins → System → Global properties → Environment variables**. They are the only settings of the library outside the portal: where the portal is, and whether a key is required.
+**Global environment variables** go into **Manage Jenkins → System → Global properties → Environment variables**. They hold the library's own settings outside the portal: where the portal is, whether a key is required, and the order of the static scans.
 
 | Variable | Required | Value |
 |---|---|---|
 | `DSO_PORTAL_URL` | yes | Address of the DevSecOps portal, the host of its OpenShift route, for example `https://dso-portal.apps.bbh.com`; without a user, password, query or trailing path to the API |
 | `DSO_PORTAL_AGENT` | no | Label of the agents that read the portal before the pipeline starts, default `linux-agent` |
 | `DSO_REQUIRE_PIPELINE_KEY` | no | `true` makes a pipeline key required: a Jenkinsfile without a key, or a branch with an older Jenkinsfile, then stops before `pipeline {}` as before this release. Unset, such a Jenkinsfile reads `devsecops_config.yaml` of its repository |
+| `DSO_STATIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before the Global Settings, whether the full and security pipelines run Nexus IQ and SonarQube while AppScan scans. Unset, `staticAnalysis.parallel` of the services decides. The node properties of an agent can also set it for the runs on that agent ([the configuration reference](#15-configuration-reference-the-devsecops-portal)) |
 
 ### The DevSecOps portal
 
@@ -1433,7 +1434,7 @@ The Global Settings checkbox **Run Nexus IQ and SonarQube while AppScan scans** 
 
 - An absent key means one after another, as before, so nothing changes until the portal, a service or the environment turns it on.
 - A service may set `staticAnalysis.parallel: false` for itself. One service with `false` or without the key keeps the whole run one after another.
-- The environment variable `DSO_STATIC_ANALYSIS_PARALLEL` of a Jenkins folder, job or agent decides first: `true` or `false`, whatever the settings say.
+- The environment variable `DSO_STATIC_ANALYSIS_PARALLEL` decides first: `true` or `false`, whatever the settings say. The library reads it once per run, on the agent, when Jenkins decides whether to run the **Static analysis** stage. It therefore counts when it is set in **Manage Jenkins → System → Global properties → Environment variables** or in the environment variables of the agent's node properties. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build; the library calls no step such as `withFolderProperties`.
 - On a Linux or macOS agent, a service whose SAST compile is not its build command (`asoc.gradle` or `asoc.maven` differs from `build.gradle` or `build.maven`, and `asoc.doCompile` is not `false`) keeps the run one after another, also when the environment variable is `true`, because Nexus IQ must evaluate only files the build command built. The whole block is compared, so other flags, environment variables or folders count too. The console names those services: "\[STATIC\] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another". On Windows the IRX step compiles nothing, so the rule does not apply there.
 
 ### Which fields are required
@@ -2736,9 +2737,9 @@ Nexus IQ and SonarQube run while AppScan scans only when the SAST compile builds
 
 SAST failed before every scan was queued, in the AppScan client, the login, the compile, the IRX archive, the upload or the queue, so the workspace may be half built and Nexus IQ and SonarQube do not run on it. The report shows Nexus IQ as SKIP and SonarQube as blocked, and the release gate lists the SAST failure. Fix the SAST failure the console shows above the message; Nexus IQ and SonarQube run again in the next build.
 
-### How to switch the order off for one folder, job or agent
+### How to switch the order off for all jobs, one agent or one job
 
-Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` on the Jenkins folder, the job or the agent: the full and security pipelines then run Nexus IQ, SAST and SonarQube one after another, whatever the Global Settings say. `true` turns the order on without the setting. A single service keeps the run one after another with `staticAnalysis.parallel: false`.
+Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` in **Manage Jenkins → System → Global properties → Environment variables** for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the full and security pipelines then run Nexus IQ, SAST and SonarQube one after another, whatever the Global Settings say. `true` turns the order on without the setting. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference](#15-configuration-reference-the-devsecops-portal)). For one job, set `staticAnalysis.parallel: false` on one of its services: one such service keeps the whole run one after another.
 
 ### "IRX not found after prepare"
 
