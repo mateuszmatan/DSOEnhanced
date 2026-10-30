@@ -20,6 +20,10 @@ class BuildService implements Serializable {
         this.policy = policy
     }
 
+    void nodeBuild() {
+        new NodeBuildRunner(script, os).build(state.currentProjectName, (state.cfg.build?.node ?: [:]) as Map)
+    }
+
     void buildArtifact() {
         def tool = setupBuildTool()
         script.echo "[BUILD] Tool: ${tool} OS: ${os.getType()}"

@@ -881,6 +881,70 @@ List pubCandidates = parserHarness.run {
 } as List
 check('GoldenFix: pub components of an assumed Nexus IQ payload are named by packageId or name',
         pubCandidates.collect { "${it.name}@${it.version}".toString() } == ['http@0.13.4', 'intl@0.17.0'], pubCandidates)
+SandboxHarness nodeHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
+Closure nodeRunnerFor = { FakeScript sc ->
+    def os = nodeHarness.type('com.bbh.core.OsHelper').newInstance(sc)
+    os.detect()
+    nodeHarness.type('com.bbh.build.NodeBuildRunner').newInstance(sc, os)
+}
+Closure nodeEnvOf = { FakeScript sc, Map a ->
+    "${String.valueOf(a.label).replace('GoldenFix: pre-check ', '')} ${sc.env.vars['PATH+NODEJS'] ?: 'agent PATH'} ${sc.env.vars['NPM_CONFIG_USERCONFIG'] ?: 'no npmrc'}".toString()
+}
+List<String> nodeErrors = []
+FakeScript windowsNode = new FakeScript(unix: false)
+FakeScript verifyNode = new FakeScript()
+FakeScript serviceNode = new FakeScript()
+List<String> verifyEnvs = []
+List<String> serviceEnvs = []
+List<Map> nodeVerdicts = []
+List<String> windowsDirs = []
+windowsNode.shHandler = { Map a -> windowsDirs << windowsNode.cwd; null }
+verifyNode.shHandler = { Map a -> if (a.returnStatus) verifyEnvs << nodeEnvOf(verifyNode, a); a.returnStatus ? 0 : 'Linux' }
+serviceNode.env.vars.putAll([WORKSPACE: '/ws', JOB_NAME: 'DevSecOps/CertScanner-nexusiq-pipeline', BUILD_NUMBER: '64'])
+serviceNode.shHandler = { Map a ->
+    if (String.valueOf(a.label ?: '').startsWith('GoldenFix: pre-check ')) serviceEnvs << nodeEnvOf(serviceNode, a)
+    a.returnStdout ? '202609191405' : (a.returnStatus ? 0 : null)
+}
+Map npmrcNode = [enabled: true, installationName: 'NodeJS-20', npmrcCredentialsId: 'npmrc-file', registry: 'https://tools.bbh.com/nexus/repository/npm-group/']
+String serviceStatus = ''
+try {
+    nodeHarness.run {
+        nodeRunnerFor(windowsNode).build('web', [enabled: true, nodePath: 'C:\\Program Files\\nodejs', dir: 'web', commands: 'npm ci\nnpm run build:prod'])
+        def verifier = nodeHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(verifyNode, nodeRunnerFor(verifyNode))
+        nodeVerdicts << verifier.verify('/ws@tmp/gf', ['web/package.json', 'gui/build.gradle'], [node: npmrcNode])
+        nodeVerdicts << verifier.verify('/ws@tmp/gf', ['web/package.json'], [node: npmrcNode + [enabled: false]])
+        nodeVerdicts << verifier.verify('/ws@tmp/gf', ['web/package.json'], [:])
+        def state = nodeHarness.type('com.bbh.core.PipelineState').newInstance()
+        state.currentProjectName = 'web'
+        state.cfg = [goldenFix: [enabled: true], build: [node: [enabled: true, nodePath: '/opt/node-20']],
+                     scm: [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
+        String app = 'CertScanner-Web'
+        List fixes = [nodeHarness.type('com.bbh.remediation.model.GoldenFix').create('npm', '', 'lodash', '4.17.15', '4.17.21', 'next-no-violations', '', 4, true, app)]
+        def repository = nodeHarness.type('com.bbh.fixture.InMemorySourceRepository').newInstance([['web/package.json': '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  }\n}\n']] as Object[])
+        def service = nodeHarness.type('com.bbh.remediation.GoldenFixService').newInstance(serviceNode, state,
+                nodeHarness.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[]), repository,
+                nodeHarness.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance(),
+                [nodeHarness.type('com.bbh.remediation.updater.NpmPackageJsonUpdater').newInstance()],
+                nodeHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(serviceNode, nodeRunnerFor(serviceNode)))
+        service.remediate([[application: app, serverUrl: 'https://tools.bbh.com/IQ', scanId: 'a' * 32]])
+        serviceStatus = (state.projectsGoldenFix['web']?.status ?: '') as String
+    }
+} catch (Throwable t) {
+    nodeErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
+}
+check('Node.js build: on Windows the Node.js home itself goes on PATH and each line of build.node.commands runs with bat in build.node.dir',
+        nodeErrors.isEmpty() && windowsNode.calls == ['withEnv [PATH+NODEJS=C:\\Program Files\\nodejs]', 'bat [Node.js: npm ci] npm ci', 'bat [Node.js: npm run build:prod] npm run build:prod']
+                && windowsDirs == ['web', 'web'] && windowsNode.log == ['[NODE] web: Node.js from C:\\Program Files\\nodejs in web: npm ci && npm run build:prod'],
+        nodeErrors + windowsNode.calls + windowsDirs + windowsNode.log)
+check('GoldenFix pre-check: with build.node.enabled the npm check runs inside the Node.js environment of the service (installation, .npmrc instead of the registry), '
+        + 'the Gradle check and a service without it run as before',
+        nodeErrors.isEmpty() && nodeVerdicts.every { it.ok } && verifyEnvs == ['npm /opt/tools/NodeJS-20/bin fake-NPM_CONFIG_USERCONFIG', 'gradle agent PATH no npmrc',
+                                                                             'npm agent PATH no npmrc', 'npm agent PATH no npmrc']
+                && verifyNode.calls.count { it.startsWith('withEnv') } == 1 && verifyNode.calls.contains('withEnv [PATH+NODEJS=/opt/tools/NodeJS-20/bin]'),
+        nodeErrors + verifyEnvs + verifyNode.calls.findAll { it.startsWith('with') })
+check('GoldenFix pre-check: GoldenFixService hands build.node of the service to the verifier, so the npm pre-check of the pull request runs with its Node.js',
+        nodeErrors.isEmpty() && serviceEnvs == ['npm /opt/node-20/bin no npmrc'] && serviceStatus == 'PR_CREATED',
+        nodeErrors + serviceEnvs + [serviceStatus])
 
 SandboxHarness pickHarness = new SandboxHarness(srcDir, stubDir)
 List<String> pickProblems = []

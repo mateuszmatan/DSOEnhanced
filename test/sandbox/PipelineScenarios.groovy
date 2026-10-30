@@ -23,6 +23,7 @@ Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security'
 String securityJob = 'DevSecOps/CertScanner-security-pipeline'
 
 String MONITOR = 'Monitor source changes (download sources)'
+String NODE = 'Node.js build'
 String UNIT = 'Unit tests'
 String BUILD = 'Build artifact'
 String NIQ = 'Dependencies scan (Nexus IQ)'
@@ -79,6 +80,7 @@ Closure runPipeline = { Map spec ->
     Map defaults = yaml.load(defaultsText) as Map
     Map projects = yaml.load(configText) as Map
     if (spec.coverageMinLine) (((defaults.defaults as Map).coverage as Map)).minLine = spec.coverageMinLine
+    if (spec.defaults) (spec.defaults as Closure).call(defaults.defaults as Map)
     if (spec.dastDisabledFor) (((projects.projects as Map)[spec.dastDisabledFor] as Map).dast as Map).enabled = false
     if (spec.mavenVmDelivery) {
         Map backend = (projects.projects as Map)['backend-api'] as Map
@@ -138,6 +140,7 @@ Closure runPipeline = { Map spec ->
         if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
         if (spec.breakSast && text.contains('api_login')) throw new FakeAbort('script returned exit code 1')
         if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
+        if (spec.breakNode && label.startsWith('Node.js: ')) throw new FakeAbort('script returned exit code 1')
         if (a.returnStatus) return 0
         def move = text =~ /mv '([^']+)' '([^']+)'/
         if (move.find() && j.files.containsKey(relative(move.group(1)))) j.files[relative(move.group(2))] = j.files.remove(relative(move.group(1)))
@@ -168,8 +171,10 @@ Closure runPipeline = { Map spec ->
         return ''
     }
     List<Integer> evaluatedAt = []
+    List<Map> evaluations = []
     j.steps['nexusPolicyEvaluation'] = { Map a ->
         evaluatedAt << j.calls.size()
+        evaluations << a
         List n = data[project()].niq as List
         new FakeIqEvaluation(criticalComponentCount: n[0] as int, severeComponentCount: n[1] as int, moderateComponentCount: n[2] as int,
                 applicationCompositionReportUrl: "https://tools.bbh.com/IQ/ui/links/application/${a.iqApplication}/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0".toString())
@@ -195,7 +200,7 @@ Closure runPipeline = { Map spec ->
         crash = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
     return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String,
-            goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt]
+            goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt, evaluations: evaluations]
 }
 
 List<String> staticStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
@@ -259,25 +264,25 @@ Map baselines = [
 
 List<Map> specs = [
         [name: 'security pipeline, green', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline', buildNumber: 212,
-         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'],
          coverageMinLine: 75],
         [name: 'security pipeline, orange', var: 'devSecOpsSecurityPipeline', fail: true, job: 'CertScanner-security-pipeline', buildNumber: 213,
-         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'security pipeline, Maven artifact to Nexus', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline',
-         buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [], result: 'SUCCESS',
+         buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [NODE], result: 'SUCCESS',
          post: ['always', 'success'], mavenVmDelivery: true],
         [name: 'SAST pipeline, green', var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: 87,
-         params: [:], executed: [MONITOR, SAST], skipped: [], result: 'SUCCESS', post: ['always', 'success']],
+         params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'SAST pipeline, orange', var: 'devSecOpsSASTScanningPipeline', fail: true, job: 'CertScanner-sast-pipeline', buildNumber: 88,
-         params: [:], executed: [MONITOR, SAST], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'Nexus IQ GoldenFix pipeline, green', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, job: 'CertScanner-nexusiq-pipeline', buildNumber: 61,
-         params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'SUCCESS', post: ['always', 'success'], baseline: 'nexusiq'],
+         params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'], baseline: 'nexusiq'],
         [name: 'Nexus IQ GoldenFix pipeline, orange', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: true, goldenFix: true, job: 'CertScanner-nexusiq-pipeline',
-         buildNumber: 62, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'UNSTABLE', post: ['always', 'unstable'], baseline: 'nexusiq'],
+         buildNumber: 62, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [NODE], result: 'UNSTABLE', post: ['always', 'unstable'], baseline: 'nexusiq'],
         [name: 'Nexus IQ GoldenFix pipeline, build failure', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, breakBuild: true, job: 'CertScanner-nexusiq-pipeline',
-         buildNumber: 63, params: [:], executed: [MONITOR], skipped: [NIQ], result: 'FAILURE', post: ['always', 'failure'], failedStage: BUILD, baseline: 'nexusiq'],
+         buildNumber: 63, params: [:], executed: [MONITOR], skipped: [NODE, NIQ], result: 'FAILURE', post: ['always', 'failure'], failedStage: BUILD, baseline: 'nexusiq'],
         [name: 'Nexus IQ GoldenFix pipeline, shared catalog', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: true, goldenFix: true, sharedCatalog: true,
-         job: 'CertScanner-nexusiq-pipeline', buildNumber: 64, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'UNSTABLE',
+         job: 'CertScanner-nexusiq-pipeline', buildNumber: 64, params: [:], executed: [MONITOR, BUILD, NIQ], skipped: [NODE], result: 'UNSTABLE',
          post: ['always', 'unstable'], baseline: 'catalog'],
         [name: 'extended pipeline, green', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 118,
          params: [DEPLOY_HIGHER_ENV: true],
@@ -287,14 +292,14 @@ List<Map> specs = [
          upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [NODE, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green but QC not selected', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 343,
-         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [QC], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [NODE, QC], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, stage failure', var: 'devSecOpsPipeline', fail: false, breakSast: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 344,
-         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: fullStages - [MONITOR, UNIT, NIQ, SAST],
+         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, UNIT, NIQ], skipped: [NODE] + (fullStages - [MONITOR, UNIT, NIQ, SAST]),
          result: 'FAILURE', post: ['always', 'failure'], failedStage: SAST]
 ]
 
@@ -333,7 +338,7 @@ specs.each { Map spec ->
     int greyBoxes = flow.split('>SKIP<', -1).length - 1
     // Only a stage that never started may stay grey, and a blocked or skipped one is amber or red,
     // so the bound holds from both sides: a state that was never filled turns every box grey.
-    int expectedGrey = (spec.skipped as List).size() * 2
+    int expectedGrey = ((spec.skipped as List) - NODE).size() * 2
     check("${name}: the stage flow shows what the stages collected, not empty grey boxes",
             flow && greyBoxes <= expectedGrey && flow.contains('&#9201;')
                     && (!spec.executed.contains(UNIT) || !flow.contains('not measured')),
@@ -577,6 +582,126 @@ check('full pipeline, Nexus delivery disabled for one service: the stages stay P
                 && (oneDelivery.j as FakeScript).calls.count('step UCDeployPublisher') == 2
                 && (oneDelivery.j as FakeScript).log.count { it.startsWith('[OPENSHIFT] backend-api:') } == 2,
         [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) })
+
+Closure nodeOf = { Map p, String project -> (((p[project] as Map).build ?: [:]) as Map) }
+Closure firstCall = { FakeScript j, String prefix -> j.calls.findIndexOf { it.startsWith(prefix) } }
+String registry = 'https://tools.bbh.com/nexus/repository/npm-group/'
+Closure nodeDefaults = { Map d -> d.build = [node: [installationName: 'NodeJS-20', registry: registry]] }
+
+Map nodeRun = focused([name: 'full pipeline, Node.js build for one service', buildNumber: 357, defaults: nodeDefaults, configure: { Map p ->
+    nodeOf(p, 'gui').node = [enabled: true, dir: 'gui/frontend', env: [NODE_OPTIONS: '--max-old-space-size=4096'], nexusIqScan: false]
+}])
+FakeScript nodeJenkins = nodeRun.j as FakeScript
+List<String> nodeSteps = nodeJenkins.calls.findAll { it.startsWith('withEnv [PATH+NODEJS') || it.startsWith('sh [Node.js: ') }.collect { it.readLines()[0].trim() }
+check('full pipeline, Node.js build for one service: the stage runs after Monitor with the installation, registry and env of the service, and its commands run before the first Gradle build',
+        (nodeRun.var as FakeCpsScript).executedStages == [MONITOR, NODE] + fullStages.drop(1) && resultOf(nodeRun, NODE) == 'PASS'
+                && nodeSteps == ["withEnv [PATH+NODEJS=/opt/tools/NodeJS-20/bin, npm_config_registry=${registry}, NODE_OPTIONS=--max-old-space-size=4096]".toString(),
+                                 'sh [Node.js: npm ci]', 'sh [Node.js: npm run build]']
+                && firstCall(nodeJenkins, 'sh [Node.js: npm run build]') < firstCall(nodeJenkins, 'sh [Gradle: ')
+                && nodeJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1,
+        nodeSteps + [resultOf(nodeRun, NODE)])
+check('full pipeline, Node.js build for one service: one [NODE] line per service, the other service is not required and the release gate allows',
+        nodeJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: Node.js from installation NodeJS-20 in gui/frontend: npm ci && npm run build',
+                                                              '[NODE] backend-api: build.node.enabled is not set - no Node.js build']
+                && ((nodeJenkins.jsonFiles['release-gate.json'] as Map).allowed as boolean),
+        nodeJenkins.log.findAll { it.startsWith('[NODE]') })
+
+Closure boxesOf = { String html -> (html =~ />([0-9.]+)<\/span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>([^<]+)<\/span>/).collect { "${it[1]} ${it[2]}".toString() } }
+Closure boxOf = { String html, String name ->
+    int at = html.indexOf(">${name}</span>".toString())
+    int next = html.indexOf("<div style='border:1px solid", at)
+    at < 0 ? '' : html.substring(at, next < 0 ? html.length() : next)
+}
+List<String> nodeBoxes = boxesOf(nodeRun.html as String)
+check('full pipeline, Node.js build for one service: the report shows it as stage 0 after Monitor, the later stages keep their numbers, and InfluxDB gets its stage_event',
+        nodeBoxes.take(6) == ['1.1 Monitor source changes (download sources) - gui', '1.2 Monitor source changes (download sources) - backend-api',
+                              '0.1 Node.js build - gui', '0.2 Node.js build - backend-api', '2.1 Unit tests - gui', '2.2 Unit tests - backend-api']
+                && nodeBoxes.contains('13.2 Higher test environment deployment - backend-api')
+                && influxOf(nodeJenkins).readLines().any { it.startsWith('stage_event,') && it.contains('stage=Node.js\\ build') },
+        nodeBoxes.take(6))
+
+Map nodeFailure = runPipeline([name: 'full pipeline, Node.js build failure', var: 'devSecOpsPipeline', fail: false, breakNode: true, job: 'CertScanner-devsecops-pipeline',
+                               buildNumber: 358, params: [DEPLOY_HIGHER_ENV: true], configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
+FakeCpsScript nodeFailureVar = nodeFailure.var as FakeCpsScript
+String failureHtml = nodeFailure.html as String
+check('full pipeline, Node.js build failure: the stage fails hard, the later stages are skipped, the report is written and Unit tests is numbered 2 and blocked',
+        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == fullStages.drop(1)
+                && nodeFailureVar.stageFailures.size() == 1 && nodeFailureVar.stageFailures[0].startsWith(NODE)
+                && (nodeFailure.j as FakeScript).currentBuild.currentResult == 'FAILURE' && resultOf(nodeFailure, NODE) == 'FAIL'
+                && boxesOf(failureHtml).take(6).drop(2) == ['0.1 Node.js build - gui', '0.2 Node.js build - backend-api', '2.1 Unit tests - gui', '2.2 Unit tests - backend-api']
+                && boxOf(failureHtml, 'Unit tests - gui').contains('pipeline blocked by previous failure')
+                && !boxOf(failureHtml, 'Node.js build - gui').contains('pipeline blocked by previous failure'),
+        [nodeFailure.crash, nodeFailureVar.executedStages, nodeFailureVar.stageFailures, boxesOf(failureHtml).take(6)])
+
+Closure irxExcluded = { FakeScript j ->
+    j.calls.findAll { it.startsWith('withEnv [APPSCAN_CMD_RUNTIME=') && it.contains('APPSCAN_SOURCE_DIR_RUNTIME=') }.collect { (it =~ /APPSCAN_EXCLUDED_FOLDERS=(.*?), APPSCAN_OPTS=/)[0][1] }
+}
+Closure sastRun = { String name, int buildNumber, Closure configure ->
+    Map r = runPipeline([name: name, var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: buildNumber,
+                         params: [:], defaults: nodeDefaults, configure: configure])
+    check("${name}: the pipeline var runs to the end without a stage failure, with the Node.js build after Monitor",
+            !r.crash && (r.var as FakeCpsScript).stageFailures.isEmpty() && (r.var as FakeCpsScript).executedStages == [MONITOR, NODE, SAST],
+            ([r.crash] + (r.var as FakeCpsScript).stageFailures + (r.var as FakeCpsScript).executedStages).join('\n      '))
+    return r
+}
+Map sastFirst = sastRun('SAST pipeline, Node.js build for the first service', 89) { Map p ->
+    nodeOf(p, 'gui').node = [enabled: true, dir: 'gui/frontend']
+    nodeOf(p, 'backend-api').node = [enabled: true]
+    ((p['backend-api'] as Map).asoc as Map).doCompile = false
+    (p['backend-api'] as Map).excludedDirs = 'test'
+}
+FakeScript sastFirstJenkins = sastFirst.j as FakeScript
+check('SAST pipeline, Node.js build for the first service: the Node.js build runs before the SAST compile, a service whose SAST scan does not compile is not built, '
+        + 'and every IRX excludes node_modules',
+        firstCall(sastFirstJenkins, 'sh [Node.js: npm run build]') < firstCall(sastFirstJenkins, 'sh [Gradle: ')
+                && sastFirstJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
+                && sastFirstJenkins.log.contains('[NODE] backend-api: the SAST scan does not compile this service - no Node.js build')
+                && irxExcluded(sastFirstJenkins) == ['test,node_modules', 'test,node_modules'],
+        irxExcluded(sastFirstJenkins) + sastFirstJenkins.log.findAll { it.startsWith('[NODE]') })
+Map sastLast = sastRun('SAST pipeline, Node.js build for the last service', 90) { Map p ->
+    nodeOf(p, 'backend-api').node = [enabled: true, nodePath: '/opt/node-20', npmrcCredentialsId: 'npmrc-file']
+    (p.gui as Map).excludedDirs = 'node_modules'
+}
+FakeScript sastLastJenkins = sastLast.j as FakeScript
+int npmrcAt = sastLastJenkins.calls.indexOf('withCredentials [npmrc-file]')
+check('SAST pipeline, Node.js build for the last service: nodePath wins over the Library default installation, the .npmrc credentials replace the registry export, '
+        + 'Library defaults alone do not enable the build, and every IRX excludes node_modules',
+        npmrcAt >= 0 && sastLastJenkins.calls[npmrcAt + 1] == 'withEnv [PATH+NODEJS=/opt/node-20/bin]'
+                && sastLastJenkins.calls[npmrcAt + 2].startsWith('sh [Node.js: npm ci]')
+                && sastLastJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: build.node.enabled is not set - no Node.js build',
+                                                                            '[NODE] backend-api: Node.js from /opt/node-20 in the workspace: npm ci && npm run build']
+                && irxExcluded(sastLastJenkins) == ['node_modules', 'node_modules'],
+        irxExcluded(sastLastJenkins) + sastLastJenkins.log.findAll { it.startsWith('[NODE]') } + (npmrcAt >= 0 ? sastLastJenkins.calls.subList(npmrcAt, npmrcAt + 3) : []))
+Map sastIncluded = sastRun('SAST pipeline, Node.js build with included folders', 91) { Map p ->
+    nodeOf(p, 'gui').node = [enabled: true]
+    (p['backend-api'] as Map).includedDirs = 'src'
+}
+check('SAST pipeline, Node.js build with included folders: the IRX keeps its folders when includedDirs is set',
+        irxExcluded(sastIncluded.j as FakeScript) == ['', ''], irxExcluded(sastIncluded.j as FakeScript))
+
+check('full pipeline, Node.js build for one service: nexusIqScan false keeps the Nexus IQ scan patterns of the service',
+        (nodeRun.evaluations as List<Map>).collect { it.iqScanPatterns } == [[[scanPattern: '**/gui/build/libs/*.jar']], [[scanPattern: '**/api/target/*.jar']]],
+        (nodeRun.evaluations as List<Map>).collect { it.iqScanPatterns })
+
+Map nexusIqNode = runPipeline([name: 'Nexus IQ GoldenFix pipeline, Node.js build', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, job: 'CertScanner-nexusiq-pipeline',
+                               buildNumber: 64, params: [:], configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true, dir: 'gui/frontend'] }])
+FakeScript nexusIqNodeJenkins = nexusIqNode.j as FakeScript
+check('Nexus IQ GoldenFix pipeline, Node.js build: the Node.js build runs before Build artifact and package-lock.json of its folder joins the Nexus IQ scan of that service only',
+        !nexusIqNode.crash && (nexusIqNode.var as FakeCpsScript).executedStages == [MONITOR, NODE, BUILD, NIQ]
+                && firstCall(nexusIqNodeJenkins, 'sh [Node.js: npm run build]') < firstCall(nexusIqNodeJenkins, 'sh [Gradle: ')
+                && (nexusIqNode.evaluations as List<Map>).collect { it.iqScanPatterns } == [[[scanPattern: '**/gui/build/libs/*.jar'], [scanPattern: 'gui/frontend/package-lock.json']],
+                                                                                          [[scanPattern: '**/api/target/*.jar']]],
+        [nexusIqNode.crash, (nexusIqNode.var as FakeCpsScript).executedStages, (nexusIqNode.evaluations as List<Map>).collect { it.iqScanPatterns }])
+
+Map extendedNode = runPipeline([name: 'extended pipeline, Node.js build', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 120,
+                                params: [DEPLOY_HIGHER_ENV: true], dastDisabledFor: 'backend-api', configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
+FakeScript extendedNodeJenkins = extendedNode.j as FakeScript
+check('extended pipeline, Node.js build: the release delivery builds Node.js once before the publish of the service that enables it, without a line for the other service',
+        !extendedNode.crash && (extendedNode.var as FakeCpsScript).executedStages == extendedStages && resultOf(extendedNode, RELEASE) == 'PASS'
+                && extendedNodeJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
+                && firstCall(extendedNodeJenkins, 'sh [Node.js: npm run build]') < firstCall(extendedNodeJenkins, 'sh ./gradlew publish')
+                && extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: Node.js from the agent PATH in the workspace: npm ci && npm run build'],
+        [extendedNode.crash, resultOf(extendedNode, RELEASE)] + extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') })
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

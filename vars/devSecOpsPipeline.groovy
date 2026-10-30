@@ -30,6 +30,11 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.monitorSources(devSecOpsApi) } }
             }
 
+            stage('Node.js build') {
+                when { expression { return devSecOpsApi.nodeBuildRequired() } }
+                steps { script { devSecOpsSteps.nodeBuild(devSecOpsApi) } }
+            }
+
             stage('Unit tests') {
                 steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
             }

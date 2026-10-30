@@ -110,7 +110,7 @@ echo "[INFO] AppScan CLI login succeeded."
                     "APPSCAN_CMD_RUNTIME=${appscanCmd()}",
                     "APPSCAN_SOURCE_DIR_RUNTIME=${script.env.APPSCAN_SOURCE_DIR_RESOLVED}",
                     "APPSCAN_SOURCE_FOLDERS=${script.env.APPSCAN_SOURCE_FOLDERS ?: ''}",
-                    "APPSCAN_EXCLUDED_FOLDERS=${script.env.APPSCAN_EXCLUDED_FOLDERS ?: ''}",
+                    "APPSCAN_EXCLUDED_FOLDERS=${excludedFolders()}",
                     "APPSCAN_OPTS=${proxyOpts()}"
             ]) {
                 if (os.isWindows()) {
@@ -1095,6 +1095,13 @@ ${zipBase64}
 
     private String readProxyPassword() {
         return readAppscanLogFile('proxy.pass', true)
+    }
+
+    private String excludedFolders() {
+        String excluded = (script.env.APPSCAN_EXCLUDED_FOLDERS ?: '') as String
+        boolean nodeBuilt = state.stageResults.containsKey('Node.js build')
+        if (!nodeBuilt || script.env.APPSCAN_SOURCE_FOLDERS || excluded.tokenize(',').collect { it.trim() }.contains('node_modules')) return excluded
+        return excluded ? "${excluded},node_modules".toString() : 'node_modules'
     }
 
     private String appscanCmd() {

@@ -3,6 +3,7 @@ package com.bbh.scanner
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
 import com.bbh.remediation.port.DependencyRemediation
+import com.bbh.utils.BuildUtils
 
 class NexusIqService implements Serializable {
 
@@ -28,7 +29,7 @@ class NexusIqService implements Serializable {
         List<Map> scanRefs = []
         try {
             apps.each {application, params ->
-                def scanPatterns = params.scanPatterns
+                def scanPatterns = scanPatternsOf(params)
                 if (!scanPatterns) {
                     script.echo "[DEP-SCAN] Nexus IQ not configured - skipping."
                     state.policyStatus['iast'] = 'SKIP'
@@ -134,6 +135,15 @@ class NexusIqService implements Serializable {
             return [(app): niqCfg]
         }
         return app as Map<String, Object>
+    }
+
+    @NonCPS
+    private def scanPatternsOf(Map params) {
+        def patterns = params.scanPatterns
+        Map node = (state.cfg.build?.node ?: [:]) as Map
+        if (!patterns || !(patterns instanceof List) || !BuildUtils.nodeBuildEnabled(state.cfg) || !BuildUtils.booleanValue(node.nexusIqScan, true)) return patterns
+        String lock = "${node.dir ? node.dir + '/' : ''}package-lock.json".toString()
+        return patterns.contains(lock) ? patterns : patterns + [lock]
     }
 
     @NonCPS

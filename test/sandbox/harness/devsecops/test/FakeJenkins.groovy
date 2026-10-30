@@ -281,6 +281,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     def usernamePassword(Map args) { args }
     def string(Map args) { args }
+    def file(Map args) { args }
     def timeout(Map args, Closure body) { body.call() }
     def sleep(Object args) {}
     def dir(String path, Closure body) {

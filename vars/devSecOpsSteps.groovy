@@ -14,6 +14,20 @@ def monitorSources(def api, Map options = [:]) {
     }
 }
 
+def nodeBuild(def api) {
+    api.runStage('Node.js build') {
+        api.eachProject { String projectName ->
+            if (api.nodeBuildNeeded()) {
+                api.nodeBuild()
+            } else if (api.nodeBuildEnabled()) {
+                api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
+            } else {
+                api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+            }
+        }
+    }
+}
+
 def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
@@ -138,9 +152,12 @@ def dast(def api, Map options = [:]) {
     }
 }
 
-def nexusReleaseDelivery(def api) {
+def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
+            if (options.nodeBuild && api.nodeBuildEnabled()) {
+                api.nodeBuild()
+            }
             api.publishArtifactQC()
         }
     }

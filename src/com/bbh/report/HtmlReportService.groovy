@@ -25,6 +25,7 @@ class HtmlReportService implements Serializable {
     protected final String BAD_COLOR  = '#991b1b'
 
     protected final String NIQ_STAGE  = 'Dependencies scan (Nexus IQ)'
+    protected final String NODE_STAGE = 'Node.js build'
     protected final String DAST_STAGE = 'DAST - Dynamic Application Security Tests - HCL AppScan'
     protected final List TEST_STAGES  = ['Smoke tests', 'Regression tests (>60% user stories coverage)', 'Performance tests']
 
@@ -48,7 +49,7 @@ class HtmlReportService implements Serializable {
         this.os     = os
         this.policy = policy
         this.variant = variant ?: 'full'
-        Map stageLayout = layout(this.variant)
+        Map stageLayout = layout(this.variant, state.stageResults.containsKey(NODE_STAGE))
         this.appscanScnrs = stageLayout.appscanScnrs
         this.stageOrder = stageLayout.stageOrder
         this.secStageNames = stageLayout.secStageNames
@@ -921,7 +922,8 @@ class HtmlReportService implements Serializable {
                     String project = projectKeys.get(pi)?.toString() ?: ''
                     Map box = stageBoxData(ctx, baseName, project, groupStatus)
                     String displayName = isMulti ? "${baseName} - ${project}" : baseName
-                    String displayNum = isMulti ? "${stageNumber}.${pi + 1}" : "${stageNumber}"
+                    String number = baseName == NODE_STAGE ? '0' : "${stageNumber}"
+                    String displayNum = isMulti ? "${number}.${pi + 1}" : number
                     String duration = ''
                     def timeInfo = (ctx.stageTimes as Map)?.get(baseName)
                     if (timeInfo != null && pi == projectKeys.size() - 1) {
@@ -934,7 +936,7 @@ class HtmlReportService implements Serializable {
                     boolean isLastInGroup = (si == stages.size() - 1) && (pi == projectKeys.size() - 1)
                     if (!isLastInGroup) flow.append(arrow())
                 }
-                stageNumber++
+                if (baseName != NODE_STAGE) stageNumber++
                 globalIdx++
             }
             flow.append("</div></div>")
@@ -1236,7 +1238,23 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
     }
 
     @NonCPS
-    static Map layout(String variant) {
+    static Map layout(String variant, boolean nodeBuild = false) {
+        Map chosen = stageLayout(variant)
+        if (nodeBuild) {
+            Map first = (chosen.phaseGroups as List)[0] as Map
+            chosen.stageOrder = withNodeBuild(chosen.stageOrder as List)
+            first.stages = withNodeBuild(first.stages as List)
+        }
+        return chosen
+    }
+
+    @NonCPS
+    private static List withNodeBuild(List stages) {
+        return [stages[0], 'Node.js build'] + stages.drop(1)
+    }
+
+    @NonCPS
+    private static Map stageLayout(String variant) {
         String monitor     = 'Monitor source changes (download sources)'
         String unit        = 'Unit tests'
         String build       = 'Build artifact'
