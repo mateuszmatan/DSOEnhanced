@@ -1043,6 +1043,17 @@ check('Nexus IQ, Node.js build: the lock pattern names the folder without ./ or 
         lockPatterns == [['**/*.jar', 'package-lock.json'], ['**/*.jar', 'package-lock.json'], ['**/*.jar', 'frontend/package-lock.json'],
                          ['**/*.jar', 'frontend/package-lock.json'], ['**/*.jar', 'web/frontend/package-lock.json'], ['**/*.jar', 'package-lock.json']],
         lockPatterns)
+Map cardTexts = parserHarness.run {
+    FakeScript sc = new FakeScript()
+    def state = parserHarness.type('com.bbh.core.PipelineState').newInstance()
+    def os = parserHarness.type('com.bbh.core.OsHelper').newInstance(sc)
+    def report = parserHarness.type('com.bbh.report.HtmlReportService').newInstance(sc, state, os, parserHarness.type('com.bbh.core.PolicyEngine').newInstance(sc, state, os), 'nexusiq')
+    ['NO_MANIFEST_CHANGES', 'BUILD_FAILED'].collectEntries { [(it): report.goldenFixPlainText([status: it]).explanation] }
+} as Map
+check('GoldenFix card: NO_MANIFEST_CHANGES names more places than another library, and BUILD_FAILED claims only the versions the pipeline tried',
+        (cardTexts.NO_MANIFEST_CHANGES as String).contains('or a BOM that this project depends on, or they are set in a way the pipeline does not edit, such as a version range')
+                && (cardTexts.BUILD_FAILED as String).contains('failed again with the other versions the pipeline tried'),
+        cardTexts)
 SandboxHarness nodeHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
 Closure nodeRunnerFor = { FakeScript sc ->
     def os = nodeHarness.type('com.bbh.core.OsHelper').newInstance(sc)

@@ -554,13 +554,14 @@ class HtmlReportService implements Serializable {
         }
         if (status == 'NO_MANIFEST_CHANGES') {
             return [headline   : 'Nothing could be upgraded in this project.',
-                    explanation: "The vulnerable versions are not chosen by this project. They arrive through another library that this project " +
-                            'depends on, so the upgrade has to be made in that library first.']
+                    explanation: 'The vulnerable versions are not chosen in a file that the pipeline can change. They arrive through another library ' +
+                            'or a BOM that this project depends on, or they are set in a way the pipeline does not edit, such as a version range. ' +
+                            'The reasons below say where each one is set, and the upgrade has to be made there.']
         }
         if (status == 'BUILD_FAILED') {
             return [headline   : 'The upgrade was not proposed because the application stopped building with it.',
                     explanation: 'Before proposing anything the pipeline builds the application with the new versions. That build failed, and it ' +
-                            'failed again with every lower version the supplier offers, so nothing was proposed rather than handing over a change ' +
+                            'failed again with the other versions the pipeline tried, so nothing was proposed rather than handing over a change ' +
                             'that breaks the application. The vulnerabilities above are still there and the upgrade has to be done by a developer.']
         }
         if (status == 'SKIPPED') {
