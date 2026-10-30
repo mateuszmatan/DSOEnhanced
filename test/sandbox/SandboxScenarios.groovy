@@ -588,6 +588,7 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
             out.commits = repository.commits
             out.prs = publisher.created
             out.comments = publisher.comments
+            out.searches = repository.searches
         }
     } catch (Throwable t) {
         out.errors << (SandboxHarness.rejectionOf(t) ?: t.toString())
@@ -773,6 +774,16 @@ check('GoldenFix catalogs: a version held in buildSrc is not edited and the reas
         buildSrcRun.errors.isEmpty() && !buildSrcRun.written && reasonsOf(buildSrcRun, 'svc-a') ==
                 ['com.fasterxml.jackson.core:jackson-databind: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically'],
         "${buildSrcRun.errors} ${reasonsOf(buildSrcRun, 'svc-a')}")
+Map getenvRun = catalogRun([
+        'settings.gradle'                        : "rootProject.name = 'svc'\n",
+        'build.gradle'                           : "def pass = \"\${System.getenv('NEXUS_PASS')}\"\njava { sourceCompatibility = \"\$JavaVersion.VERSION_17\" }\n" +
+                                                   "dependencies {\n    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.4'\n}\n",
+        'buildSrc/build.gradle.kts'              : 'plugins { `kotlin-dsl` }\n',
+        'buildSrc/src/main/kotlin/Conventions.kt': 'object Conventions { const val group = "com.bbh" }\n'
+], [[name: 'svc', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+check('GoldenFix catalogs: System.getenv and JavaVersion in a build script do not look for version holders in buildSrc, so the manifests are searched once as on the main branch',
+        getenvRun.errors.isEmpty() && gfOf(getenvRun, 'svc').status == 'PR_CREATED' && (getenvRun.searches as List).size() == 1,
+        "${getenvRun.errors} ${gfOf(getenvRun, 'svc').status} ${getenvRun.searches}")
 
 Map bomRun = catalogRun([
         'settings.gradle'          : 'dependencyResolutionManagement {\n    versionCatalogs {\n        create("company") {\n            from("com.bbh:platform-catalog:1.2")\n        }\n    }\n}\n',

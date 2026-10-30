@@ -127,7 +127,7 @@ class CatalogDiscovery implements Serializable {
                 if (path != null) (out.applied as List) << [path: path, root: root != null ? root : folder]
             }
             if (text =~ /['"`]java-platform['"`]/) (out.platforms as List) << [path: f, root: root]
-            if (text =~ /\$\{?[A-Z]\w*\.\w+/) out.buildSrc = true
+            if (text =~ /\$\{?(?!(?:System|JavaVersion|JavaLanguageVersion|Project|Gradle|Math|Integer|Long|String|Boolean|File)\.)[A-Z]\w*\.\w+/) out.buildSrc = true
         }
         return out
     }

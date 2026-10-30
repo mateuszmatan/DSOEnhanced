@@ -1594,7 +1594,7 @@ What GoldenFix does not raise, and the reason the report gives instead:
 |The catalog key or property that a build asks for is missing or already newer|{{managed by version catalog <file> (<key>): not found or already newer}}|
 |A BOM or platform that the build imports manages the component (Gradle {{platform()}} or {{enforcedPlatform()}}, a {{*-bom}} entry of a catalog, a Maven {{<scope>import</scope>}}) and its group is the group of the BOM or below it|{{managed by BOM <group>:<artifact>:<version> imported in <file>: raise the BOM or add an override to the catalog}}|
 |The catalog is an artifact that {{settings.gradle}} imports with {{from("<group>:<artifact>:<version>")}}|{{managed by the version catalog artifact <group>:<artifact>:<version> outside this repository}}|
-|The version is a constant in {{buildSrc}} that a build reads as {{Versions.<name>}}|{{version <name> is defined in buildSrc/<file>: not updated automatically}}|
+|The version is a constant in {{buildSrc}} that a build reads as {{Versions.<name>}} (GoldenFix reads {{buildSrc}} only when a build script names such a holder; {{System}}, {{JavaVersion}}, {{JavaLanguageVersion}}, {{Project}}, {{Gradle}}, {{Math}}, {{Integer}}, {{Long}}, {{String}}, {{Boolean}} and {{File}} do not count)|{{version <name> is defined in buildSrc/<file>: not updated automatically}}|
 
 A catalog in another repository and a BOM or parent resolved from Nexus are not raised: GoldenFix changes only the repository of the service.
 

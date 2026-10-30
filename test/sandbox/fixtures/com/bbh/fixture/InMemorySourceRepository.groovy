@@ -9,6 +9,7 @@ class InMemorySourceRepository implements SourceRepository {
     Map<String, String> written = [:]
     List<Map> commits = []
     List<String> pushedBranches = []
+    List<List<String>> searches = []
     int reverts = 0
 
     InMemorySourceRepository(Map<String, String> files) {
@@ -21,6 +22,7 @@ class InMemorySourceRepository implements SourceRepository {
     }
 
     List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs) {
+        searches << ([] + patterns)
         List<String> found = []
         for (String path : files.keySet()) {
             List<String> segments = path.tokenize('/')
