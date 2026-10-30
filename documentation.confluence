@@ -56,7 +56,7 @@ The library executes the following pipeline automatically when you call {{devSec
 ||#||Stage||What it does||
 |1|Monitor source changes|Reads the configuration of the pipeline keys, merges it with the Global Settings and sets the tool environment|
 |0|Node.js build (optional)|Runs the npm commands of each service that sets {{build.node.enabled: true}}, for example to build an Angular frontend, before the Gradle or Maven build; the stage is left out when no service of the run sets it|
-|2|Unit tests|Build tool tests plus JaCoCo/lcov line coverage check against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues|
+|2|Unit tests|Build tool tests, then the line coverage of every JaCoCo and LCOV report of the service, whose mean is checked against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues|
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
 |4|SAST – HCL AppScan|Static Application Security Testing: compile, IRX archive and scan, queued per project|
 |5|SCA (SonarQube)|Static code analysis and quality gate|
@@ -83,7 +83,7 @@ The library ships five entry points. They share the same services, thresholds, r
 |{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, the optional Node.js build, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
 
 After all stages, the library always:
-* Generates an HTML pipeline report with the stage flow, vulnerability counts, policy status, SonarQube badges and coverage
+* Generates an HTML pipeline report with the stage flow, vulnerability counts, policy status, SonarQube badges and coverage, with a row for every coverage report
 * Adds a *Smoke tests* table with one row per executed job and a link to each build
 * Adds a *Nexus IQ GoldenFix* card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically
 * Adds a *Release policy* card stating whether the artifact may be released to Nexus and deployed to QC
@@ -207,7 +207,7 @@ The severity counts the pipeline reports are the ones printed in the tool's own 
 
 h3. Code quality and coverage
 
-Unit tests run through the project's own Gradle, Maven or Flutter build. Line coverage is read from JaCoCo (with auto detection of the report location) or from an LCOV file for Flutter, aggregated across modules and projects, and checked against the minimum required by the library. A failing test suite turns the stage orange and coverage is still measured on whatever reports were produced.
+Unit tests run through the project's own Gradle, Maven or Flutter build. The pipeline then finds every JaCoCo XML and LCOV report of the service, in {{build}}, {{target}}, {{release}} or any other folder, and reads the line coverage of each. The report shows one row per report; the coverage of the service is the mean of its reports and is checked against the minimum required by the library, and the summary of the run is the mean of all reports. A failing test suite turns the stage orange and coverage is still measured on whatever reports were produced.
 
 Flutter projects are analysed by SonarQube *without the commercial Dart plugin*: coverage and {{dart analyze}} findings are converted into SonarQube's generic import formats, which every edition supports.
 
@@ -238,7 +238,7 @@ Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image 
 
 h3. Reporting and metrics
 
-A single HTML report per build with the stage flow, finding counts against the policy, coverage bars, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
+A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
 
 h3. Platform support
 
@@ -378,7 +378,7 @@ Before onboarding a project to the DevSecOps pipeline, the application and its r
 * *Supported build tool: Gradle, Maven, or Flutter.* The codebase must use one of the three supported build systems. Gradle wrapper ({{gradlew}}) and Maven wrapper ({{mvnw}}) are preferred and must be executable and committed to the repository. The build tool is either set for the service in the DevSecOps portal or auto-detected.
 * *Optional: a frontend that npm builds first.* When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first ({{build.node.enabled: true}}). It needs the folder of the {{package.json}} ({{build.node.dir}}) and, for the default command {{npm ci}}, a committed {{package-lock.json}}. The frontend build must write its output outside {{build/}} and {{target/}}, because the {{clean}} task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting|#ch23]. Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
 * *Code must compile successfully.* The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless {{asoc.doCompile: false}}. The compile command comes from {{asoc.gradle}} / {{asoc.maven}}, or from the {{build}} section when {{asoc}} has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
-* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. Flutter projects must use the {{--coverage}} flag which produces {{coverage/lcov.info}}.
+* *Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs {{flutter test --coverage}} in the main package and in each tested plugin and module, and reads the {{coverage/lcov.info}} of each.
 * *A JDK on the agent, named in the configuration.* Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, the Unit tests stage stops with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}.
 * *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from the ASoC portal for every service: the key ID is set for the service in the DevSecOps portal ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
 * *SonarQube project registered.* A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
@@ -1230,7 +1230,7 @@ projects:
       credentialsId: ""              # Jenkins Secret text credential with the token (the portal never stores a token)
 
     coverage:
-      reportPath: ""                 # custom JaCoCo XML path (optional, auto-detected if empty)
+      reportPath: ""                 # usually empty: every JaCoCo XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
                                      # the required 60% comes from the library defaults and cannot be set here
 
     tools:
@@ -1520,10 +1520,36 @@ h3. Stage 2: Unit tests
 
 Performs, once per project:
 * Builds the artifact with the command of the {{build}} section
-* Runs the unit tests with the command of {{tests.unitTests}} and collects coverage (JaCoCo for Gradle/Maven, lcov for Flutter)
-* Compares the line coverage of that project with {{coverage.minLine}} of the Global Settings in the DevSecOps portal (60 %)
+* Runs the unit tests with the command of {{tests.unitTests}}, then reads every JaCoCo and LCOV coverage report of the project (see *Coverage reports* below)
+* Compares the line coverage of that project, the mean of its reports, with {{coverage.minLine}} of the Global Settings in the DevSecOps portal (60 %)
 
 The stage never fails the pipeline. Below the required value the stage turns *orange*, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always the one from the Global Settings, so changing it there changes both the check and the report.
+
+h4. Coverage reports
+
+Where the pipeline looks:
+# When {{coverage.reportPath}} is set, the reports it names count, and only those, so a frontend report must be named as well. It holds one path, several paths one per line or separated by commas, or a YAML list, relative to the workspace; {{*}} matches within a folder or file name, {{?}} one character and {{**}} any number of folders, for example {{**/build/reports/jacoco/test/*.xml}}. When none of them exists, the pipeline searches as if it were empty. Leave it empty unless the search takes the wrong reports.
+# Otherwise the pipeline searches the folders in which the service is tested and every folder below them, such as {{build}}, {{target}}, {{release}} and the folders of the modules: the folder of the unit test command ({{tests.unitTests.gradle.dir}} or {{tests.unitTests.maven.dir}}), otherwise the folder of the build command ({{build.gradle.dir}} or {{build.maven.dir}}), otherwise the source folder ({{sourceDir}}), otherwise the workspace; and, with the Node.js build, the folder of its {{package.json}} ({{build.node.dir}}, the workspace by default). The folders of the other services of the build are left out. When these folders hold no report and none of them is the workspace, the whole workspace is searched the same way.
+# A JaCoCo report is an XML file that holds a JaCoCo report and has {{jacoco}} in its path, such as {{jacoco.xml}} or {{jacocoTestReport.xml}}, or lies under {{reports/coverage}} (Android) or {{reports/kover}} (Kover). An LCOV report is a file ending in {{.info}} or {{.lcov}}, such as {{lcov.info}}, that starts with an LCOV record. An LCOV report whose source files are mostly Dart files is shown as Flutter.
+# Tool and dependency folders are never searched ({{.git}}, {{node_modules}}, {{.gradle}}, {{.m2}}, {{.dart_tool}}, {{.pub-cache}}, {{.symlinks}}, {{Pods}}, {{.angular}}, {{.next}}, {{.yarn}}, {{.cache}}, {{venv}}, {{__pycache__}} and the like), nor are {{DevSecOpsJenkinsLibrary}}, {{appscan-source-staged}}, {{.appscan-logs}}, {{.scannerwork}} and the Jenkins folders whose name ends in {{@tmp}}, {{@script}} or {{@libs}}.
+# Services that are tested in the same folder each take the reports of their own build tool: a JaCoCo report below a {{target}} folder belongs to a Maven service, one below a {{build}} folder to a Gradle service, a Dart LCOV report to a Flutter service and any other LCOV report to a service with the Node.js build. A report that no service of the folder owns, or that two of them own, counts for each of them, and its row says {{also counted for}} the others. Give such services their own test folders, or name their reports in {{coverage.reportPath}}.
+
+Which reports count:
+* Every report is one row of the *Code Coverage* card, with its service, its path, its tool, its line coverage and its covered and total lines.
+* A copy of another report (the same file, or the same classes or source files with the same numbers, for example a copy under {{release}}) and a report that combines other reports found with it (a Maven {{report-aggregate}} or a Gradle {{testCodeCoverageReport}}, recognised because at least two of the other reports hold separate parts of its classes) are shown but not counted, and so are a report without lines and a file that cannot be read. Each such row names the reason. An older report of the same module with other numbers, for example under {{release/2.3}}, counts.
+* When a combined report holds classes that no other report holds, for example of a module without tests, those classes count as one more row of that report, so a module whose tests are removed still lowers the coverage.
+* The reports named by {{coverage.reportPath}} always count.
+* The files that the Flutter unit tests merge ({{total_lcov.info}}, {{main_lcov.info}}, {{plugins_lcov.info}} and {{modules_lcov.info}}) are not searched, because the {{coverage/lcov.info}} files of the packages they merge are. Name {{total_lcov.info}} in {{coverage.reportPath}} to measure a Flutter project as one report with the value of before: each of its lines is then counted as the earlier reader counted it.
+
+How the values are computed:
+* The line coverage of a report is its covered lines over its lines, rounded to one decimal.
+* The line coverage of a service is the mean of its counted reports, rounded once to one decimal. Every report weighs the same, whatever its size: 82.4 % and 8.0 % give 45.2 %. The minimum of the Global Settings, the colour of the stage and the release gate use this mean.
+* The summary of the run, the *All services* bar of the card and the {{[COV]}} line of the log, is the mean of every counted report of the run, each report once; the bar also says how many services meet the minimum. The covered, missed and total lines shown next to a mean are the sums over the counted reports.
+* A service with one report gets the value it got before.
+
+Frontend tests: an LCOV report counts when the unit test step writes it, for example through a task of the Node plugin of the Gradle build or the {{frontend-maven-plugin}} of the Maven build that runs {{ng test --code-coverage}}. Do not add the frontend tests to the commands of the Node.js build: those run in every pipeline, also before SAST, Nexus IQ GoldenFix and the release delivery, and a failing command stops the pipeline.
+
+The search is one {{python3}} step per service on Linux and macOS agents. When {{python3}} is missing, or the search step fails, the log says so and the pipeline reads the reports as before: the paths of {{coverage.reportPath}} (with {{findFiles}} for a pattern), otherwise {{total_lcov.info}} for Flutter or the usual JaCoCo paths of the build tool, then every {{jacoco.xml}} of the workspace; see *Coverage report detection* in section 18. A JaCoCo report still needs {{python3}} there, as before. Windows agents always read the reports this way, and the class listing of a JaCoCo report still runs {{sh}} and {{python3}} on them, as before.
 
 A compilation error of the artifact build is a real failure and stops the pipeline, because nothing can be scanned or deployed without an artifact.
 
@@ -1682,7 +1708,7 @@ No security or test finding stops the pipeline. Every stage from the unit tests 
 
 ||Stage||On a policy violation||Consequence||
 |Node.js build (optional)|No policy applies; a failing command is red and stops the pipeline|The later stages do not run|
-|Unit tests|Orange, with the measured and required line coverage, or with the exit code of a failed test run|Release and QC blocked|
+|Unit tests|Orange, with the line coverage of the service (the mean of its reports) and the required one, or with the exit code of a failed test run|Release and QC blocked|
 |Dependencies scan (Nexus IQ)|Orange, with critical / high / medium counts, GoldenFix pull request raised|Release and QC blocked|
 |SAST|Orange, with critical / high / medium counts|Release and QC blocked|
 |SCA (SonarQube)|Orange, with the quality gate status|Release and QC blocked|
@@ -1693,7 +1719,7 @@ No security or test finding stops the pipeline. Every stage from the unit tests 
 |Nexus delivery (release)|Skipped when anything above is orange|No release artifact|
 |Higher test environment deployment (QC)|Skipped unless everything is green and the checkbox is selected|No QC deployment|
 
-The *release gate* collects the verdict. It blocks the second Nexus delivery and the QC deployment when any stage is not green, when a scanner count exceeds the library policy, or when the line coverage is below the required 60 %. The HTML report shows a *Release policy* card listing every violation, for example {{gui Dependencies (Nexus IQ) critical 1 > 0}} or {{line coverage 41.0% below the required 60%}}.
+The *release gate* collects the verdict. It blocks the second Nexus delivery and the QC deployment when any stage is not green, when a scanner count exceeds the library policy, or when the line coverage of a service is below the required 60 %. The HTML report shows a *Release policy* card listing every violation, for example {{gui Dependencies (Nexus IQ) critical 1 > 0}} or {{line coverage 41.0% below the required 60%}}.
 
 Each pipeline evaluates the results it owns and hands its verdict to the next one through the archived {{release-gate.json}}, so a security pipeline with an orange stage also blocks the release in the extended pipeline.
 
@@ -1729,9 +1755,9 @@ The required coverage is shown in the report exactly as configured in the Global
 h1. 18. Supported Build Tools
 
 ||Tool||Build||Unit tests||Coverage||Release publish||
-|Gradle|{{./gradlew}} + {{build.gradle.tasks}} and {{flags}}|{{./gradlew}} + {{tests.unitTests.gradle.tasks}}|JaCoCo XML|{{./gradlew publish}}|
-|Maven|{{mvn}} + {{build.maven.goals}} and {{flags}}|{{mvn}} + {{tests.unitTests.maven.goals}}|JaCoCo XML|{{mvn deploy}}|
-|Flutter|{{flutter build <platform>}}|{{flutter test --coverage --machine}}|lcov|Nexus upload of the APK/IPA|
+|Gradle|{{./gradlew}} + {{build.gradle.tasks}} and {{flags}}|{{./gradlew}} + {{tests.unitTests.gradle.tasks}}|JaCoCo XML and LCOV|{{./gradlew publish}}|
+|Maven|{{mvn}} + {{build.maven.goals}} and {{flags}}|{{mvn}} + {{tests.unitTests.maven.goals}}|JaCoCo XML and LCOV|{{mvn deploy}}|
+|Flutter|{{flutter build <platform>}}|{{flutter test --coverage --concurrency=32 --reporter expanded}} in the main package and in each of {{tests.subplugins}} and {{tests.submodules}}|LCOV of each package|Nexus upload of the APK/IPA|
 |Node.js (stage 0, optional)|{{build.node.commands}}, by default {{npm ci}} and {{npm run build}}|–|–|– (the Gradle or Maven build packages the output)|
 
 Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
@@ -1753,20 +1779,13 @@ Node.js is not a build tool of its own: {{buildTool}} stays {{gradle}} or {{mave
 
 The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: the portal does not render one for it.
 
-h3. JaCoCo report auto-detection (Gradle)
+h3. Coverage report detection
 
-Searched in order:
-# {{build/jacoco/jacoco.xml}}
-# {{build/reports/jacoco/test/jacocoTestReport.xml}}
-# {{build/reports/jacoco/jacocoTestReport.xml}}
-# {{coverage.reportPath}} of the service (custom path)
-
-h3. JaCoCo report auto-detection (Maven)
-
-Searched in order:
-# {{target/site/jacoco/jacoco.xml}}
-# {{target/jacoco/jacoco.xml}}
-# {{coverage.reportPath}} of the service (custom path)
+On Linux and macOS agents every JaCoCo and LCOV report of the service counts, as described under *Coverage reports* in Stage 2. On Windows agents, on agents without {{python3}} and when the search step fails, the pipeline reads, in order:
+# the paths of {{coverage.reportPath}} of the service that exist, a pattern ({{*}}, {{?}}, {{**}}) through {{findFiles}}, each file once;
+# Flutter: {{total_lcov.info}};
+# Gradle: the first of {{build/jacoco/jacoco.xml}}, {{build/reports/jacoco/test/jacocoTestReport.xml}} and {{build/reports/jacoco/jacocoTestReport.xml}} that exists; Maven: the first of {{target/site/jacoco/jacoco.xml}} and {{target/jacoco/jacoco.xml}};
+# every {{jacoco.xml}} of the workspace.
 
 ----
 
@@ -1947,7 +1966,7 @@ h3. Complete method reference
 |{{dastScan()}}|Full DAST run, downloads the HTML and PDF reports, returns the count|
 |{{buildArtifact()}}|Build with Gradle, Maven or Flutter|
 |{{unitTests()}}|Run unit tests with coverage collection|
-|{{checkCoverage()}}|Compare the line coverage with the required value of the Global Settings|
+|{{checkCoverage()}}|Read every coverage report of the project and compare their mean with the required value of the Global Settings|
 |{{depVulnScan()}}|Nexus IQ scan, with the {{package-lock.json}} of a Node.js build among the scan patterns; raises or updates the GoldenFix pull request on a violation|
 |{{codeQualityScan()}}|SonarQube analysis|
 |{{reportArtifactBuild()}}, {{reportUnitTests()}}|BBH build reporting|
@@ -1996,14 +2015,15 @@ h3. What is written
 |{{stage_event}}|project, env, stage, status|Per stage: duration, whether it was executed, its order and the reason when it was not green. *Stamped at the end of that stage*, so the timeline is accurate|
 |{{security_findings}}|project, env, module, scanner, status|Severity counts per scanner per module, the policy limits, and how many findings are above them; for {{scanner=niq}} only the status, the Nexus IQ counts are in {{vulnerabilities}} with {{scanner=nexusiq}}|
 |{{policy_status}}|project, env, scanner, status|Which gates were evaluated and which held|
-|{{code_coverage}}|project, env, module, measured|Line coverage against the required minimum, and the shortfall|
+|{{code_coverage}}|project, env, module, measured|Line coverage of each module, the mean of its reports, against the required minimum, and the shortfall|
+|{{coverage_report}}|project, env, module, report, tool, counted|One point per coverage report: its line coverage and whether it counts in the mean of its module|
 |{{test_execution}} / {{test_job}}|project, env, module, suite, status, type|Suite totals and success rate, and each individual job|
 |{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it|
 |{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request|
 |{{test_execution}} with {{suite=unit}}|project, env, module, suite|Unit test totals of each module: total, passed, failed, skipped, success rate and duration|
 |{{build_evidence}}|project, env, module|The change evidence the DevSecOps portal shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used ({{config_rendered_at}}, {{config_sha256}}). Empty values are left out|
 
-The measurements written before this revision - {{deployments}}, {{change_failure}}, {{build_duration}}, {{stage_metric}}, {{vulnerabilities}} and {{test_coverage}} - are still written unchanged, so dashboards built against them keep working.
+The measurements written before this revision - {{deployments}}, {{change_failure}}, {{build_duration}}, {{stage_metric}}, {{vulnerabilities}} and {{test_coverage}} - are still written unchanged, so dashboards built against them keep working. The {{line_pct}} of {{test_coverage}} and {{code_coverage}} is the mean of the reports of the run and of the module, which is the value written before when there is one report; their {{covered}}, {{missed}} and {{total}} are the sums over the same reports.
 
 A run with a Node.js build writes its stage as {{stage=Node.js build}} in {{stage_event}} and {{stage_metric}} and counts it in {{pipeline_run}}; a run without one writes exactly what it wrote before. In the {{goldenfix}} point a later service of a shared pull request has {{status=PR_UPDATED}} and {{pr_raised}} 1, and a service whose upgrades the shared pull request already carried has {{applied}} 0. The notes of a GoldenFix run are not written to InfluxDB.
 
@@ -2072,6 +2092,7 @@ h3. What the pipeline writes
 |{{security_findings}}|project, env, module, scanner, status|critical, high, medium, low, total, above_policy, max_*, exceeded; every count is 0 for {{scanner=niq}}|Findings per scanner per module against policy|
 |{{policy_status}}|project, env, scanner, status|ok, measured|Which gates were evaluated and which held|
 |{{code_coverage}}|project, env, module, measured|line_pct, covered, missed, total, required, met, gap|Coverage per module against the required minimum|
+|{{coverage_report}}|project, env, module, report, tool, counted|line_pct (left out for a report without lines), covered, missed, total|Coverage per report; {{counted=no}} marks a copy, an aggregate, a report without lines or one that cannot be read|
 |{{test_execution}}|project, env, module, suite|total, passed, failed, not_configured, duration_ms, success_rate; skipped for {{suite=unit}}|Smoke, regression and performance suites, and the unit tests of each module ({{suite=unit}})|
 |{{build_evidence}}|project, env, module|artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_rendered_at, config_sha256|The change evidence of a build and the portal configuration it used|
 |{{test_job}}|project, env, module, suite, status, type|duration_ms, name, ok|Individual test jobs|
@@ -2380,6 +2401,23 @@ from(bucket: "DORA-metrics")
   |> yield(name: "Flaky or failing jobs")
 {code}
 
+h3. 5.5 Coverage of each report in the latest run
+
+*Visualization: Table.*
+
+{code:none}
+from(bucket: "DORA-metrics")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "coverage_report" and r._field == "line_pct")
+  |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
+  |> group(columns: ["module", "report", "tool", "counted"])
+  |> last()
+  |> group()
+  |> keep(columns: ["module", "report", "tool", "counted", "_value"])
+  |> sort(columns: ["module", "report"])
+  |> yield(name: "Coverage per report")
+{code}
+
 
 h3. Automated remediation (GoldenFix)
 
@@ -2535,7 +2573,7 @@ h3. Suggested dashboard layout
 |*Value delivered*|Findings caught cumulatively (7.2) · Dependency upgrades cumulative (7.3) · Coverage then and now (7.4) · Blocked releases (4.5)|
 |*Pipeline health*|Run outcome timeline (3.1) · Build duration trend (3.2) · Slowest stages (3.4) · Most broken stages (3.5)|
 |*Security*|Findings by scanner (4.1) · Above policy (4.2) · Severity table (4.3) · Policy status timeline (4.4)|
-|*Quality*|Coverage per module (5.1) · Coverage shortfall (5.2) · Suite success rate (5.3) · Failing jobs (5.4)|
+|*Quality*|Coverage per module (5.1) · Coverage shortfall (5.2) · Suite success rate (5.3) · Failing jobs (5.4) · Coverage per report (5.5)|
 |*Remediation*|Pull requests raised (6.1) · Remediation funnel (6.2) · Upgrades withheld (6.3)|
 |*Detail*|Failure reasons (3.6) · Recent builds table (7.6)|
 
@@ -2794,7 +2832,11 @@ h3. Problems on a first run
 |{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the DevSecOps portal. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
-|Coverage shows {{not measured}}|The build produced no coverage report. Confirm your test task generates JaCoCo XML, or point {{coverage.reportPath}} at it.|
+|Coverage shows {{not measured}}|No JaCoCo or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a JaCoCo XML or LCOV report, or point {{coverage.reportPath}} at it.|
+|A coverage report is marked {{not counted}}|It is a copy of another report, combines other reports, has no lines or cannot be read; the row names the reason. To count other reports, name them in {{coverage.reportPath}}.|
+|A coverage report says {{also counted for}} another service|The services are tested in the same folder, and the report belongs to no build tool of them, or to the build tool of both, so it counts for each. Set the folder of the unit test command or of the Node.js build of each service, or name the reports of each in {{coverage.reportPath}}.|
+|The coverage of a service changed after the library update|The service has more than one report (modules, a frontend LCOV report, an integration test report, an older report under {{release}}), and its coverage is now their mean; a Flutter service is measured per package. The log and the card list them; set {{coverage.reportPath}} to the reports that should count, for Flutter {{total_lcov.info}}.|
+|The log says {{The coverage scan failed}}|The {{python3}} of the agent could not run the search, for example a shim without a configured version. The reports were read as before; the reason follows in the log. Fix {{python3}} on the agent to get every report.|
 |DAST fails saying the HTML report could not be produced|AppScan did not render the report in time or returned a message instead. The stage deliberately fails rather than recording zero findings. Re-run; if it repeats, ask for a higher {{dast.reportTimeoutMin}}.|
 |A test stage is orange with {{NOT_CONFIGURED}}|A test job named for the service in the portal does not exist in Jenkins yet. Create it, or accept the orange stage until the suite is ready.|
 |No dependency upgrade pull request appears|The pipeline needs {{scm.bitbucket.url}} and a credential with write access. The report states this in plain language when it is the cause.|
