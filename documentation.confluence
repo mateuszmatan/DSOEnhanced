@@ -327,6 +327,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── README.md                  <- what every check and scenario proves
 │   ├── run-all.sh                 <- one command: static checks, compilation, scenarios, demo reports, documentation
 │   ├── checks/                    <- static checks of the sources and of the generated documentation
+│   ├── coverage/                  <- the coverage scan script, run with python3 on report trees
 │   ├── portal/                    <- the portal query script, run with the real curl against a local HTTP portal
 │   ├── fixtures/                  <- the configuration files and the loader of the release before the portal
 │   └── sandbox/                   <- the library running under the real Jenkins script sandbox
@@ -540,7 +541,7 @@ h3. Cutover to the DevSecOps portal
 
 # The DevSecOps team enters the Global Settings (the values of the former {{defaults.yaml}}) and the platform values in the portal, then every product and service.
 # The Jenkins administrators set {{DSO_PORTAL_URL}} and check that the agents of the {{DSO_PORTAL_AGENT}} label reach it.
-# Pin the portal-integrated library version in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}} of every migrated Jenkinsfile and in the portal's {{platform.jenkinsLibrary}}, from which the portal writes the Jenkinsfile it offers, until every job carries a key. A job without a key keeps working on any version of the library: it reads {{devsecops_config.yaml}}, else {{config.yaml}}, of its repository.
+# Pin the portal-integrated library version in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}} of every migrated Jenkinsfile and in the portal's {{platform.jenkinsLibrary}}, from which the portal writes the Jenkinsfile it offers, until every job carries a key. A job without a key keeps working on the default version with its {{config.yaml}}, and on this version and later with {{devsecops_config.yaml}}, else {{config.yaml}}, of its repository. The portal-integrated versions before this one stop such a job, so do not move the default version to one of them while jobs without a key remain.
 # Replace each Jenkinsfile with the one the product page of the portal offers, and delete {{devsecops_config.yaml}} and {{config.yaml}} from the repository once the build is green: a job with a key never reads them, and a file left behind only misleads.
 # Run every security job once with the new library before its extended job: the extended job copies {{pipeline-config.yaml}}, which only the new library archives.
 # The DevSecOps team copies the {{defaults:}} part of "Shared settings sent to Jenkins (devsecops_config.yaml format)" of the portal into {{resources/com/bbh/devsecops/defaults.yaml}} of the library before each release, so that runs without a key apply the same thresholds and GoldenFix policy.
@@ -2494,15 +2495,24 @@ h3. 5.5 Coverage of each report in the latest run
 
 *Visualization: Table.*
 
+All points of one run carry the same time, so the query keeps the points of the newest time and puts their fields side by side; a report without lines has an empty {{line_pct}}.
+
 {code:none}
-from(bucket: "DORA-metrics")
+reports = from(bucket: "DORA-metrics")
   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-  |> filter(fn: (r) => r._measurement == "coverage_report" and r._field == "line_pct")
+  |> filter(fn: (r) => r._measurement == "coverage_report")
   |> filter(fn: (r) => r.project == "${project}" and r.env == "${env}")
-  |> group(columns: ["module", "report", "tool", "counted"])
-  |> last()
+latest = (reports
+  |> filter(fn: (r) => r._field == "total")
   |> group()
-  |> keep(columns: ["module", "report", "tool", "counted", "_value"])
+  |> sort(columns: ["_time"])
+  |> last()
+  |> findRecord(fn: (key) => true, idx: 0))._time
+reports
+  |> filter(fn: (r) => r._time == latest)
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> group()
+  |> keep(columns: ["module", "report", "tool", "counted", "line_pct", "covered", "total"])
   |> sort(columns: ["module", "report"])
   |> yield(name: "Coverage per report")
 {code}
@@ -2730,9 +2740,9 @@ h3. "The last successful build of ... has no pipeline-config.yaml"
 
 The extended pipeline copies {{pipeline-config.yaml}} from the security job the portal names, and the last successful build of that job was made by a library before the portal integration. Run the security job once.
 
-h3. "asoc.keyId must be set for the service <service> in the DevSecOps portal"
+h3. "asoc.keyId must be set for the service <service> in ..."
 
-Set the AppScan key ID of the named service in the portal; every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a portal setting.
+Set the AppScan key ID of the named service where the message says: in the DevSecOps portal, or, for a Jenkinsfile without a key, in the file it names ({{devsecops_config.yaml}} or {{config.yaml}} of the repository). Every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a portal setting.
 
 h3. "JAVA_HOME parameter is not specified"
 
@@ -2955,10 +2965,10 @@ h3. Problems on a first run
 |{{[PORTAL] No pipeline key}}|The {{Jenkinsfile}} names an empty pipeline key, or names none while {{DSO_REQUIRE_PIPELINE_KEY}} is set, or the job builds a branch with an older {{Jenkinsfile}} while it is set. Check the branch in the job configuration.|
 |{{No pipeline key and no agentNames}}|The Jenkinsfile names neither a key nor agentNames.|
 |{{neither devsecops_config.yaml nor config.yaml}}|A Jenkinsfile without a key needs one of the two files, spelled exactly so, at the root of the repository.|
-|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the DevSecOps portal.|
+|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the place the message names: the DevSecOps portal, or for a Jenkinsfile without a key {{devsecops_config.yaml}} or {{config.yaml}}.|
 |{{[SONAR] Badge token credentials ... could not be read}}|The credential named in {{tools.sonar.badgeCredentialsId}} does not exist or is not Secret text. The stage result does not change; the report uses {{badgeToken}} or shows no badges.|
 |{{[OPENSHIFT] <service>: RD deployment not required}}, {{QC deployment not required}}|Nexus delivery is off for the service and the region has no build tag, so there is no image to deploy: RD needs {{deploy.openshift.rd.buildTag}}, QC its own {{deploy.openshift.qc.buildTag}} or the RD tag. Pin a tag or turn the delivery on.|
-|{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the DevSecOps portal. Set both under {{tools.nexusIq}}.|
+|{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the place the message names: the DevSecOps portal, or for a Jenkinsfile without a key {{devsecops_config.yaml}} or {{config.yaml}}. Set both under {{tools.nexusIq}}.|
 |SAST fails while connecting, or times out|The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this.|
 |Nexus IQ reports the application does not exist|{{tools.nexusIq.application}} does not match an application in Nexus IQ.|
 |Coverage shows {{not measured}}|No JaCoCo or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a JaCoCo XML or LCOV report, or point {{coverage.reportPath}} at it.|
@@ -3023,9 +3033,11 @@ h3. What it runs
 |{{test/checks/docs-md.sh}}|{{documentation.md}} is the Markdown rendering of {{documentation.confluence}}; the check regenerates it when it is not|
 |compilation|{{src}} and {{vars}} compile with the sandbox compiler configuration|
 |{{test/portal/query-scenarios.sh}}|The query script of {{PortalConfigReader}}, run with the real {{curl}} against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key|
+|{{test/coverage/scan-scenarios.sh}}|The scan script of {{CoverageReports}}, run with {{python3 -I}} on report trees: services that share a folder, modules with release folders, copies, aggregates and their rest, patterns, Android, Kover, Flutter and LCOV variants, non-ASCII names, the SHA-1 of each report, a report of another service skipped before it is read, the time limit, the class listing of the earlier reader and 400 module reports|
 |{{test/sandbox/SandboxScenarios.groovy}}|Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real {{pom.xml}}, {{build.gradle}}, {{gradle.properties}}, {{package.json}}, {{requirements.txt}} and {{pubspec.yaml}}; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a {{resolutions}} block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a {{strictly}} or {{require}} range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores {{./}} in listed paths, reads a listed pom with another name and builds it with {{mvn -f}}, also with a Maven command of {{goldenFix.verify.commands}}, resolves {{from files(..)}} and {{$rootDir}} imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in {{buildSrc}} only for a holder it can declare and records an escaping {{Error}} as {{ERROR}}; it refreshes a {{package-lock.json}} (not in front of an npm command of {{goldenFix.verify.commands}}), raises npm {{overrides}} and {{resolutions}}, tells a branch that exists from a push a hook declines and names pub components; the {{package-lock.json}} pattern of a Node.js build names its folder without {{./}}; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the {{goldenfix}} point carries {{pr_url}} and {{pr_title}} only when a pull request was raised; eight service level pipelines produce the demo reports|
-|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over {{devsecops_config.yaml}} or {{config.yaml}} against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service|
+|{{test/sandbox/CoverageScenarios.groovy}}|{{checkCoverage}}, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of {{coverage.reportPath}}, a copy of the report of another service, the fallbacks without {{python3}} or after a failed scan, Windows, and one real {{sh}} run of the scan step|
 |{{test/sandbox/StaticAnalysisScenarios.groovy}}|The switch of the static scan order (the environment variable first, then {{staticAnalysis.parallel}} of every service), the services whose SAST compile differs from their build command, the order {{PipelineState.settle}} restores, and the removal of the SAST staging copy on Linux and Windows|
+|{{test/sandbox/PipelineScenarios.groovy}}|The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over {{devsecops_config.yaml}} or {{config.yaml}} against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service|
 |{{test/sandbox/PortalScenarios.groovy}}|Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key; and the runs without a key|
 |{{test/sandbox/CompatibilityScenarios.groovy}}|The loader of the {{config.yaml}} library, the portal loader and the loader of a run without a key produce the same configuration: exactly for documents with the same values, exactly for {{devsecops_config.yaml}} and {{config.yaml}} over the same defaults ({{devsecops_config.yaml}} first when both exist), and after declared rules for the documents the portal renders; the bundled defaults can be applied|
 
