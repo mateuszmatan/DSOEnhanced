@@ -235,9 +235,13 @@ class GoldenFix implements Serializable {
                         referencedIn : [] + (request.referencedIn as List)
                 ]
                 if (catalog) merged.catalog = catalog
+                if (request.alignedTo) merged.alignedTo = request.alignedTo
                 byName[key] = merged
             } else {
-                existing.targetVersion = max(existing.targetVersion as String, request.targetVersion as String)
+                String target = max(existing.targetVersion as String, request.targetVersion as String)
+                if (target != existing.targetVersion) existing.remove('alignedTo')
+                if (target == request.targetVersion && request.alignedTo && !existing.alignedTo) existing.alignedTo = request.alignedTo
+                existing.targetVersion = target
                 addAllUnique(existing.componentKeys as List, request.componentKeys as List)
                 addAllUnique(existing.components as List, request.components as List)
                 addAllUnique(existing.referencedIn as List, request.referencedIn as List)

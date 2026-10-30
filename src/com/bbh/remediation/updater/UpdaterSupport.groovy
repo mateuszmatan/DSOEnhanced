@@ -77,7 +77,7 @@ class UpdaterSupport implements Serializable {
 
     @NonCPS
     static Map propertyChange(String path, Map property, String from) {
-        return [
+        Map row = [
                 file           : path,
                 ecosystem      : property.ecosystem,
                 component      : (property.components as List).join(', '),
@@ -87,6 +87,8 @@ class UpdaterSupport implements Serializable {
                 property       : property.name,
                 remediationType: ''
         ]
+        if (property.alignedTo) row.alignedTo = property.alignedTo
+        return row
     }
 
     @NonCPS
@@ -129,6 +131,7 @@ class UpdaterSupport implements Serializable {
                 referencedIn : [path]
         ]
         if (catalog) request.catalog = catalog
+        if (fix.alignedTo) request.alignedTo = fix.alignedTo
         return request
     }
 

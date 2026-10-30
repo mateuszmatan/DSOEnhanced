@@ -1060,6 +1060,20 @@ check('GoldenFix catalogs: a declaration raised to the catalog version says so i
         ((alignedRun.prs as List)[0]?.description as String)?.contains('| `svc-b/build.gradle` | com.example:lib | 1.0 | **2.0** | version of the shared catalog gradle/libs.versions.toml |')
                 && ((alignedPom.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind | 2.13.4 | **2.17.0** | version of the shared catalog pom.xml |'),
         "${(alignedRun.prs as List)[0]?.description} ${(alignedPom.prs as List)[0]?.description}")
+Map overtakenRun = catalogRun([
+        'pom.xml'      : parentPoms['pom.xml'],
+        'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId>' +
+                         '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.18.0']]]])
+check('GoldenFix catalogs: a property raised to the catalog version names the shared catalog in its row, and not when another component raises it higher',
+        keysRun.errors.isEmpty() && overtakenRun.errors.isEmpty()
+                && ((keysRun.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core ' +
+                '(property `jackson.version`) | 2.13.4 | **2.17.0** | version of the shared catalog pom.xml |')
+                && ((overtakenRun.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core ' +
+                '(property `jackson.version`) | 2.13.4 | **2.18.0** | newest patch-level version |'),
+        "${keysRun.errors} ${overtakenRun.errors} ${(keysRun.prs as List)[0]?.description} ${(overtakenRun.prs as List)[0]?.description}")
 
 Map unrelatedRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",
