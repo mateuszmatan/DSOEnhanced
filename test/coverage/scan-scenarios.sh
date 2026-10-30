@@ -29,7 +29,7 @@ def put(tree, rel, text):
         f.write(text)
 
 
-def jacoco(classes, groups=None):
+def jacoco(classes, groups=None, name='r', session=''):
     def package(items):
         return '<package name="com/bbh/x">' + ''.join(
             '<class name="com/bbh/x/%s" sourcefilename="%s.java"><counter type="LINE" missed="%d" covered="%d"/></class>'
@@ -39,7 +39,7 @@ def jacoco(classes, groups=None):
     covered = sum(c for _, c, _ in every)
     missed = sum(m for _, _, m in every)
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd"><report name="r">'
+            '<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd"><report name="%s">%s' % (name, session)
             + body + '<counter type="LINE" missed="%d" covered="%d"/></report>' % (missed, covered))
 
 
@@ -172,18 +172,19 @@ check('the classes of an aggregate that no other report holds count as one more 
       and 'C\tPackage: com.bbh.x, Class: com.bbh.x.Legacy, Coverage: 0.0, Missed: 20, Covered: 0' in classes and len(classes) == 4,
       found + classes)
 
-put('android', 'app/build/reports/coverage/test/release/report.xml', jacoco([('Main', 6, 4)]))
+put('android', 'app/build/reports/coverage/test/release/report.xml',
+    jacoco([('Main', 6, 4)], name='release', session='<sessioninfo id="h" start="1" dump="2"/>'))
 put('android', 'app/build/reports/coverage/test/debug/report.xml', jacoco([('Main', 6, 4)]))
 put('android', 'lib/build/reports/kover/report.xml', jacoco([('Lib', 1, 1)]))
 put('android', 'app/build/test-results/TEST-x.xml', '<testsuite/>')
 found, _, _ = run('android', '--root', '.', '--own', 'gradle')
-check('Android and Kover reports in JaCoCo format are found; the debug and release reports of one variant with the same numbers count once',
+check('Android and Kover reports in JaCoCo format are found; the debug and release reports of one variant with the same classes and numbers but other bytes count once',
       found == rows(('jacoco', 'app/build/reports/coverage/test/debug/report.xml', 6, 10),
                     ('jacoco', 'app/build/reports/coverage/test/release/report.xml', 6, 10,
                      'copy:app/build/reports/coverage/test/debug/report.xml'),
                     ('jacoco', 'lib/build/reports/kover/report.xml', 1, 2)), found)
 
-put('flutter', 'coverage/lcov.info', 'SF:lib/main.dart\nDA:1,1\nDA:2,0\nLF:2\nLH:1\nend_of_record\nSF:lib/main.dart\nDA:2,3\nend_of_record\n')
+put('flutter', 'coverage/lcov.info', 'SF:lib/main.dart\nDA:1,1\nDA:2,0\nLF:2\nLH:1\nend_of_record\nSF:lib/main.dart\nDA:2,3\nDA:1,0\nend_of_record\n')
 put('flutter', 'plugins/camera/coverage/lcov.info', 'SF:lib/src/x.dart\nDA:1,1\nDA:2,1\nDA:3,0\nLF:3\nLH:2\nend_of_record\n')
 put('flutter', 'modules/pay/coverage/lcov.info', 'SF:lib/src/x.dart\nDA:1,0\nDA:2,0\nLF:2\nLH:0\nend_of_record\n')
 for name in ['plugins_lcov.info', 'modules_lcov.info', 'main_lcov.info']:
@@ -193,7 +194,7 @@ put('flutter', 'total_lcov.info', 'SF:lib/src/x.dart\nDA:1,1\nDA:2,1\nDA:3,0\nLF
 put('flutter', '.dart_tool/x/coverage/lcov.info', 'SF:lib/a.dart\nDA:1,1\nend_of_record\n')
 put('flutter', 'ios/.symlinks/plugins/p/coverage/lcov.info', 'SF:lib/a.dart\nDA:1,1\nend_of_record\n')
 found, _, _ = run('flutter', '--root', '.', '--own', 'flutter')
-check('Flutter: one row per package, the merged files of the library are not counted again, a line is counted once',
+check('Flutter: one row per package, the merged files of the library are not counted again, a line is counted once with its highest hit count',
       found == rows(('flutter', 'coverage/lcov.info', 2, 2), ('flutter', 'modules/pay/coverage/lcov.info', 0, 2),
                     ('flutter', 'plugins/camera/coverage/lcov.info', 2, 3)), found)
 found, _, _ = run('flutter', '--pattern', 'total_lcov.info')
@@ -211,10 +212,23 @@ check('LCOV: CRLF line ends, LF/LH totals without DA lines, absolute source path
       found == rows(('lcov', 'abs/coverage/lcov.info', 1, 1), ('lcov', 'bom/coverage/lcov.info', 1, 2),
                     ('lcov', 'crlf/coverage/lcov.info', 1, 3), ('lcov', 'totals/coverage/lcov.info', 7, 10)), found)
 
+put('sources', 'apps/web/coverage/lcov.info', 'TN:web\nSF:src/app/a.ts\nDA:1,1\nDA:2,0\nend_of_record\n')
+put('sources', 'apps/admin/coverage/lcov.info', 'TN:admin\nSF:src/app/a.ts\nDA:1,1\nDA:2,0\nend_of_record\n')
+put('sources', 'archive/2.3/web/coverage/lcov.info',
+    'SF:%s/apps/web/src/app/a.ts\nDA:1,1\nDA:2,0\nend_of_record\n' % os.path.realpath(os.path.join(work, 'sources')))
+found, _, _ = run('sources', '--root', '.', '--own', 'node')
+check('LCOV: a source path counts from the folder above the coverage folder and an absolute one from the workspace, '
+      'so two packages with the same file names both count and a copy with absolute paths is a copy',
+      found == rows(('lcov', 'apps/admin/coverage/lcov.info', 1, 2), ('lcov', 'apps/web/coverage/lcov.info', 1, 2),
+                    ('lcov', 'archive/2.3/web/coverage/lcov.info', 1, 2, 'copy:apps/web/coverage/lcov.info')), found)
+
 put('fifo', 'target/site/jacoco/jacoco.xml', jacoco([('Api', 8, 2)]))
 fifo = os.path.join(work, 'fifo', 'build', 'reports', 'jacoco', 'test', 'jacocoTestReport.xml')
 os.makedirs(os.path.dirname(fifo))
 os.mkfifo(fifo)
+found, _, head = run('fifo', '--root', '.', '--own', 'maven', '--others', 'gradle', limit=20)
+check('a report of the build tool of another service of the folder is skipped before it is read',
+      head == ['S\t0'] and found == rows(('jacoco', 'target/site/jacoco/jacoco.xml', 8, 10)), head + found)
 late = os.path.join(work, 'late.py')
 open(late, 'w').write(script.replace('signal.alarm(900)', 'signal.alarm(1)'))
 found, _, head = run('fifo', '--root', '.', '--own', 'gradle', limit=20, program=late)
