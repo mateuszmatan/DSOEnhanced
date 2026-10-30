@@ -1,6 +1,7 @@
 package com.bbh.remediation
 
 import com.bbh.remediation.model.GoldenFix
+import com.bbh.remediation.model.VersionCatalogs
 import com.bbh.core.PipelineState
 import com.bbh.remediation.port.BuildVerifier
 import com.bbh.remediation.port.DependencyRemediation
@@ -301,7 +302,7 @@ class GoldenFixService implements DependencyRemediation {
         List<Map> effective = align ? aligned.fixes as List<Map> : fixes
         applyRound(dir, active, effective, others, files, texts, run)
         run.changes = collapseChanges(run.changes as List<Map>)
-        for (ManifestUpdater updater : active) labelProperties(run.changes as List<Map>, run.references as List<Map>, filesOf(updater, files))
+        for (ManifestUpdater updater : active) labelProperties(run.changes as List<Map>, run.references as List<Map>, filesOf(updater, files), catalogs.holders as Map)
 
         for (Map c : (run.changes as List<Map>)) {
             String what = c.property ? "property ${c.property} (${c.component})" : c.component
@@ -417,7 +418,7 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static void labelProperties(List<Map> changes, List<Map> references, List<String> files) {
+    static void labelProperties(List<Map> changes, List<Map> references, List<String> files, Map holders) {
         Map position = [:]
         List byFile = []
         for (int i = 0; i < files.size(); i++) {
@@ -425,7 +426,7 @@ class GoldenFixService implements DependencyRemediation {
             byFile << []
         }
         for (Map r : references) {
-            if (r.catalog || r.name == null) continue
+            if (r.name == null) continue
             int first = -1
             for (def f : (r.referencedIn as List)) {
                 Integer at = position[f] as Integer
@@ -434,11 +435,23 @@ class GoldenFixService implements DependencyRemediation {
             if (first >= 0) (byFile[first] as List) << r
         }
         Map byName = [:]
+        Map byKey = [:]
         for (def bucket : byFile) {
-            for (def r : (bucket as List)) {
-                String name = String.valueOf((r as Map).name)
-                if (!byName.containsKey(name)) byName[name] = []
-                (byName[name] as List) << r
+            for (def entry : (bucket as List)) {
+                Map r = entry as Map
+                Map catalog = r.catalog as Map
+                if (!catalog) {
+                    String name = String.valueOf(r.name)
+                    if (!byName.containsKey(name)) byName[name] = []
+                    (byName[name] as List) << r
+                } else if (catalog.file) {
+                    String key = "${catalog.file}#${VersionCatalogs.alias(r.name as String)}".toString()
+                    if (!byKey.containsKey(key)) byKey[key] = [:]
+                    Map groups = byKey[key] as Map
+                    String name = String.valueOf(catalog.name)
+                    if (!groups.containsKey(name)) groups[name] = [keys: []]
+                    GoldenFix.addAllUnique((groups[name] as Map).keys as List, r.componentKeys as List)
+                }
             }
         }
         Map labels = [:]
@@ -446,15 +459,31 @@ class GoldenFixService implements DependencyRemediation {
             if (!c.property || !position.containsKey(c.file)) continue
             String name = String.valueOf(c.property)
             String to = c.to as String
-            if (!labels.containsKey(name)) labels[name] = [:]
-            Map known = labels[name] as Map
-            if (!known.containsKey(to)) known[to] = reachedBy((byName[name] ?: []) as List, to)
-            List keys = [] + ((known[to] as Map).keys as List)
-            List names = [] + ((known[to] as Map).names as List)
+            List groups = catalogGroups(byKey["${c.file}#${VersionCatalogs.alias(name)}".toString()] as Map, c.componentKeys as List)
+            boolean held = groups && (holders ?: [:])[name]
+            List id = [name, to, held]
+            if (!labels.containsKey(id)) labels[id] = reachedBy(held ? [] : (byName[name] ?: []) as List, to)
+            List keys = [] + ((labels[id] as Map).keys as List)
+            List names = [] + ((labels[id] as Map).names as List)
             GoldenFix.addAllUnique(keys, c.componentKeys as List)
             GoldenFix.addAllUnique(names, (c.component as String).split(', ') as List)
             c.putAll([componentKeys: keys, component: names.join(', ')])
         }
+    }
+
+    @NonCPS
+    private static List catalogGroups(Map groups, List keys) {
+        List out = []
+        for (def group : (groups ?: [:]).values()) {
+            List known = (group as Map).keys as List
+            for (def key : (keys ?: [])) {
+                if (known.contains(key)) {
+                    out << group
+                    break
+                }
+            }
+        }
+        return out
     }
 
     @NonCPS

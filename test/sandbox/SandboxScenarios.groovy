@@ -774,6 +774,21 @@ check('GoldenFix catalogs: a version held in buildSrc is not edited and the reas
         buildSrcRun.errors.isEmpty() && !buildSrcRun.written && reasonsOf(buildSrcRun, 'svc-a') ==
                 ['com.fasterxml.jackson.core:jackson-databind: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically'],
         "${buildSrcRun.errors} ${reasonsOf(buildSrcRun, 'svc-a')}")
+Map halfMovedRun = catalogRun([
+        'settings.gradle.kts'                 : 'include("svc-a")\n',
+        'gradle/libs.versions.toml'           : jacksonToml,
+        'svc-a/build.gradle.kts'              : 'dependencies {\n    implementation(libs.jackson.databind)\n    implementation("com.fasterxml.jackson.core:jackson-core:${Versions.jackson}")\n}\n',
+        'buildSrc/src/main/kotlin/Versions.kt': 'object Versions {\n    const val jackson = "2.13.4"\n}\n'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+String halfMovedPr = ((halfMovedRun.prs as List)[0]?.description ?: '') as String
+check('GoldenFix catalogs: a catalog key and a buildSrc constant of the same name keep apart, so the catalog row names only its own component and the other keeps the buildSrc reason',
+        halfMovedRun.errors.isEmpty() && (gfOf(halfMovedRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
+                ['gradle/libs.versions.toml jackson 2.13.4 -> 2.15.4 com.fasterxml.jackson.core:jackson-databind']
+                && reasonsOf(halfMovedRun, 'svc-a') == ['com.fasterxml.jackson.core:jackson-core: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically']
+                && halfMovedPr.contains('| `gradle/libs.versions.toml` | com.fasterxml.jackson.core:jackson-databind (property `jackson`) | 2.13.4 | **2.15.4** |')
+                && halfMovedPr.contains('- com.fasterxml.jackson.core:jackson-core 2.13.4 -> 2.15.4: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically')
+                && (halfMovedRun.written as Map).keySet() == ['gradle/libs.versions.toml'] as Set,
+        "${halfMovedRun.errors} ${gfOf(halfMovedRun, 'svc-a').changes} ${reasonsOf(halfMovedRun, 'svc-a')} ${(halfMovedRun.written as Map).keySet()}")
 Map getenvRun = catalogRun([
         'settings.gradle'                        : "rootProject.name = 'svc'\n",
         'build.gradle'                           : "def pass = \"\${System.getenv('NEXUS_PASS')}\"\njava { sourceCompatibility = \"\$JavaVersion.VERSION_17\" }\n" +
