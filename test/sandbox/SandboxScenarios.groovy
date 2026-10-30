@@ -873,6 +873,17 @@ check('GoldenFix pre-check: mvn -f builds a shared pom with another name only wh
         bomPlans.collect { (it as List).collect { "${it.subDir}: ${it.command}".toString() } } ==
                 [["platform: mvn -B -q -DskipTests compile -f 'bom.xml'"], ['platform: mvn -B -q -DskipTests compile']],
         bomPlans)
+List bomOverridePlans = verifierHarness.run {
+    def bomVerifier = verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript())
+    Map maven = [maven: 'mvn -B -q -DskipTests verify']
+    [bomVerifier.plan(['platform/bom.xml'], maven, ['platform/bom.xml': ['platform/bom.xml']]), bomVerifier.plan(['platform/bom.xml'], maven, ['platform/bom.xml': ['platform']]),
+     bomVerifier.plan(['parent/pom.xml'], maven, ['parent/pom.xml': ['parent/pom.xml']]), bomVerifier.plan(['svc-a/pom.xml'], maven)]
+} as List
+check('GoldenFix pre-check: a Maven command of goldenFix.verify.commands gets the mvn -f of a shared pom with another name built in its own folder, and runs as it is elsewhere',
+        bomOverridePlans.collect { (it as List).collect { "${it.subDir}: ${it.command}".toString() } } ==
+                [["platform: mvn -B -q -DskipTests verify -f 'bom.xml'"], ['platform: mvn -B -q -DskipTests verify'], ['parent: mvn -B -q -DskipTests verify'],
+                 ['svc-a: mvn -B -q -DskipTests verify']],
+        bomOverridePlans)
 
 String bigToml = '[versions]\n' + (1..300).collect { "v${it} = \"1.0.${it}\"\n" }.join('') + 'jackson = "2.13.4"\n\n[libraries]\n' +
         (1..300).collect { "lib-${it} = { module = \"com.example:lib-${it}\", version.ref = \"v${it}\" }\n" }.join('') +
