@@ -1,6 +1,7 @@
 package com.bbh.remediation
 
 import com.bbh.remediation.model.VersionCatalogs
+import com.bbh.utils.BuildUtils
 import com.cloudbees.groovy.cps.NonCPS
 
 class CatalogDiscovery implements Serializable {
@@ -8,7 +9,7 @@ class CatalogDiscovery implements Serializable {
     @NonCPS
     static List<String> listed(def value) {
         List raw = value instanceof List ? (value as List) : (value ? [value] : [])
-        return raw.collect { (it ?: '').toString().trim() }.findAll { it } as List<String>
+        return raw.collect { BuildUtils.relativePath((it ?: '').toString()) }.findAll { it }.unique() as List<String>
     }
 
     @NonCPS

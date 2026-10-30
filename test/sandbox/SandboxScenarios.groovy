@@ -894,6 +894,16 @@ check('GoldenFix catalogs: a range in a shared pom.xml gets the reason in the fo
                 'is dynamic or a range; svc-a/pom.xml: version is not declared here (managed by a parent POM or BOM)'],
         "${pomRangeRun.errors} ${reasonsOf(pomRangeRun, 'svc-a')}")
 
+Map listedSpellings = catalogRun([
+        'catalog/deps.toml' : '[libraries]\njackson = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.13.4" }\n',
+        'svc-a/build.gradle': 'dependencies { }\n'
+], [[name: 'svc-a', goldenFix: [versionCatalogs: ['./catalog/deps.toml', 'catalog//deps.toml/', 'catalog/./deps.toml']],
+     fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+check('GoldenFix catalogs: a listed catalog written with ./, // or a trailing / is the same file as its plain path',
+        listedSpellings.errors.isEmpty() && ((listedSpellings.written as Map)['catalog/deps.toml'] as String)?.contains('version = "2.13.5"')
+                && !gfOf(listedSpellings, 'svc-a').notes && gfOf(listedSpellings, 'svc-a').status == 'PR_CREATED',
+        "${listedSpellings.errors} ${gfOf(listedSpellings, 'svc-a').notes} ${listedSpellings.written}")
+
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
                                  '  "resolutions": {\n    "lodash": "4.17.15"\n  }\n}\n',

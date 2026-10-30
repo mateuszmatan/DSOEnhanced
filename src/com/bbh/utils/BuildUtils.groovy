@@ -66,6 +66,12 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String relativePath(String path) {
+        String trimmed = (path ?: '').trim()
+        return trimmed.startsWith('/') ? trimmed : trimmed.tokenize('/').findAll { it != '.' }.join('/')
+    }
+
+    @NonCPS
     static String escapeForSingleQuotes(String value) {
         return value.replace("'", "'\"'\"'")
     }
