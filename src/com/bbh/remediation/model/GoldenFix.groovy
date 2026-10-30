@@ -164,6 +164,7 @@ class GoldenFix implements Serializable {
 
     @NonCPS
     static String selectionLabel(Map fix) {
+        if (fix?.alignedTo) return "version of the shared catalog ${fix.alignedTo}".toString()
         String type = (fix?.remediationType ?: '') as String
         String scope = (fix?.nonBreaking == false)
                 ? 'changes more than the patch version, no patch-level upgrade is offered'

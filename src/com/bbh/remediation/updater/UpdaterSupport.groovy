@@ -60,7 +60,7 @@ class UpdaterSupport implements Serializable {
 
     @NonCPS
     static Map change(String path, Map fix, String from, String to) {
-        return [
+        Map row = [
                 file           : path,
                 ecosystem      : fix.ecosystem,
                 component      : fix.displayName,
@@ -71,6 +71,8 @@ class UpdaterSupport implements Serializable {
                 remediationType: fix.remediationType ?: '',
                 golden         : fix.golden ? true : false
         ]
+        if (fix.alignedTo) row.alignedTo = fix.alignedTo
+        return row
     }
 
     @NonCPS

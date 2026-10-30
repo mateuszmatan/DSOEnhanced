@@ -386,7 +386,7 @@ class GoldenFixService implements DependencyRemediation {
         List<Map> out = []
         for (Map fix : fixes) {
             Map known = versions[fix.key] as Map
-            out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String) ? fix + [targetVersion: known.version] : fix)
+            out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String) ? fix + [targetVersion: known.version, alignedTo: known.file] : fix)
         }
         return [fixes: out, versions: versions]
     }

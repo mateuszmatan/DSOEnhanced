@@ -1012,6 +1012,11 @@ check('GoldenFix pre-check: the build with the Nexus IQ version instead of the c
         retryBudget.errors.isEmpty() && gfOf(retryBudget, 'svc-a').status == 'PR_CREATED'
                 && ((retryBudget.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.4.1</version>'),
         "${retryBudget.errors} ${gfOf(retryBudget, 'svc-a').status} ${gfOf(retryBudget, 'svc-a').message}")
+Map alignedPom = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+check('GoldenFix catalogs: a declaration raised to the catalog version says so in the pull request instead of naming the choice of Nexus IQ',
+        ((alignedRun.prs as List)[0]?.description as String)?.contains('| `svc-b/build.gradle` | com.example:lib | 1.0 | **2.0** | version of the shared catalog gradle/libs.versions.toml |')
+                && ((alignedPom.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind | 2.13.4 | **2.17.0** | version of the shared catalog pom.xml |'),
+        "${(alignedRun.prs as List)[0]?.description} ${(alignedPom.prs as List)[0]?.description}")
 
 Map unrelatedRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",
