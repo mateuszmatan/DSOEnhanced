@@ -436,21 +436,25 @@ class GoldenFixService implements DependencyRemediation {
         }
         Map byName = [:]
         Map byKey = [:]
+        int order = 0
+        int count = 0
         for (def bucket : byFile) {
             for (def entry : (bucket as List)) {
                 Map r = entry as Map
                 Map catalog = r.catalog as Map
+                Map request = [order: order++, reference: r]
                 if (!catalog) {
                     String name = String.valueOf(r.name)
                     if (!byName.containsKey(name)) byName[name] = []
-                    (byName[name] as List) << r
+                    (byName[name] as List) << request
                 } else if (catalog.file) {
                     String key = "${catalog.file}#${VersionCatalogs.alias(r.name as String)}".toString()
                     if (!byKey.containsKey(key)) byKey[key] = [:]
                     Map groups = byKey[key] as Map
                     String name = String.valueOf(catalog.name)
-                    if (!groups.containsKey(name)) groups[name] = [keys: []]
+                    if (!groups.containsKey(name)) groups[name] = [id: count++, keys: [], requests: []]
                     GoldenFix.addAllUnique((groups[name] as Map).keys as List, r.componentKeys as List)
+                    ((groups[name] as Map).requests as List) << request
                 }
             }
         }
@@ -462,7 +466,16 @@ class GoldenFixService implements DependencyRemediation {
             List groups = catalogGroups(byKey["${c.file}#${VersionCatalogs.alias(name)}".toString()] as Map, c.componentKeys as List)
             boolean held = groups && (holders ?: [:])[name]
             List id = [name, to, held]
-            if (!labels.containsKey(id)) labels[id] = reachedBy(held ? [] : (byName[name] ?: []) as List, to)
+            for (def group : groups) id << (group as Map).id
+            if (!labels.containsKey(id)) {
+                List requests = held ? [] : (byName[name] ?: []) as List
+                if (groups) {
+                    requests = [] + requests
+                    for (def group : groups) requests.addAll((group as Map).requests as List)
+                    requests.sort { Map a, Map b -> (a.order as int) <=> (b.order as int) }
+                }
+                labels[id] = reachedBy(requests, to)
+            }
             List keys = [] + ((labels[id] as Map).keys as List)
             List names = [] + ((labels[id] as Map).names as List)
             GoldenFix.addAllUnique(keys, c.componentKeys as List)
@@ -487,12 +500,12 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    private static Map reachedBy(List references, String to) {
+    private static Map reachedBy(List requests, String to) {
         List keys = []
         List names = []
         Map below = [:]
-        for (def entry : references) {
-            Map r = entry as Map
+        for (def entry : requests) {
+            Map r = (entry as Map).reference as Map
             String target = r.targetVersion as String
             if (!below.containsKey(target)) below[target] = GoldenFix.isUpgrade(to, target)
             if (below[target]) continue

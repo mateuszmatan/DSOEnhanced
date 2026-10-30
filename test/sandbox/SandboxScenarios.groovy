@@ -789,6 +789,20 @@ check('GoldenFix catalogs: a catalog key and a buildSrc constant of the same nam
                 && halfMovedPr.contains('- com.fasterxml.jackson.core:jackson-core 2.13.4 -> 2.15.4: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically')
                 && (halfMovedRun.written as Map).keySet() == ['gradle/libs.versions.toml'] as Set,
         "${halfMovedRun.errors} ${gfOf(halfMovedRun, 'svc-a').changes} ${reasonsOf(halfMovedRun, 'svc-a')} ${(halfMovedRun.written as Map).keySet()}")
+Map keyReadRun = catalogRun([
+        'settings.gradle'          : "include 'svc-a'\n",
+        'gradle/libs.versions.toml': jacksonToml,
+        'svc-a/build.gradle'       : "dependencies {\n    implementation libs.jackson.databind\n    implementation \"com.fasterxml.jackson.core:jackson-core:\${libs.versions.jackson.get()}\"\n}\n"
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+String keyReadPr = ((keyReadRun.prs as List)[0]?.description ?: '') as String
+String keyReadComponents = 'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'
+check('GoldenFix catalogs: a build script that reads a catalog key the catalog raised, as libs.versions.jackson.get(), is named in the row of the key and not listed as not applied',
+        keyReadRun.errors.isEmpty() && (gfOf(keyReadRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
+                ["gradle/libs.versions.toml jackson 2.13.4 -> 2.15.4 ${keyReadComponents}".toString()]
+                && !gfOf(keyReadRun, 'svc-a').unresolved && !keyReadPr.contains('Not applied automatically')
+                && keyReadPr.contains("| `gradle/libs.versions.toml` | ${keyReadComponents} (property `jackson`) | 2.13.4 | **2.15.4** |".toString())
+                && (keyReadRun.written as Map)['gradle/libs.versions.toml'] == jacksonToml.replace('2.13.4', '2.15.4') && (keyReadRun.written as Map).size() == 1,
+        "${keyReadRun.errors} ${gfOf(keyReadRun, 'svc-a').changes} ${reasonsOf(keyReadRun, 'svc-a')}")
 Map getenvRun = catalogRun([
         'settings.gradle'                        : "rootProject.name = 'svc'\n",
         'build.gradle'                           : "def pass = \"\${System.getenv('NEXUS_PASS')}\"\njava { sourceCompatibility = \"\$JavaVersion.VERSION_17\" }\n" +
