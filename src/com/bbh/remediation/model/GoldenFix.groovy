@@ -221,9 +221,11 @@ class GoldenFix implements Serializable {
     static List mergePropertyRequests(List requests) {
         Map byName = [:]
         for (def request : (requests ?: [])) {
-            Map existing = byName[request.name] as Map
+            Map catalog = request.catalog as Map
+            String key = catalog ? "${VersionCatalogs.alias(request.name as String)}@${catalog.file}#${catalog.name}".toString() : request.name
+            Map existing = byName[key] as Map
             if (!existing) {
-                byName[request.name] = [
+                Map merged = [
                         name         : request.name,
                         ecosystem    : request.ecosystem,
                         targetVersion: request.targetVersion,
@@ -231,6 +233,8 @@ class GoldenFix implements Serializable {
                         components   : [] + (request.components as List),
                         referencedIn : [] + (request.referencedIn as List)
                 ]
+                if (catalog) merged.catalog = catalog
+                byName[key] = merged
             } else {
                 existing.targetVersion = max(existing.targetVersion as String, request.targetVersion as String)
                 addAllUnique(existing.componentKeys as List, request.componentKeys as List)

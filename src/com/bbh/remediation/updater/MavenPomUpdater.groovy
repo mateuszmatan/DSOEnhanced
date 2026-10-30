@@ -21,13 +21,17 @@ class MavenPomUpdater implements ManifestUpdater {
     @NonCPS
     private static String propertyRefRe() { return '^\\$\\{([^}]+)\\}$' }
 
+    private Map catalogs = [:]
+
     String ecosystem() { return 'maven' }
 
     List<String> filePatterns() { return ['pom.xml'] }
 
+    void useCatalogs(Map catalogs) { this.catalogs = catalogs ?: [:] }
+
     @NonCPS
     boolean supports(String relativePath) {
-        return UpdaterSupport.fileName(relativePath) == 'pom.xml'
+        return UpdaterSupport.fileName(relativePath) == 'pom.xml' || (catalogs[relativePath] as Map)?.kind == 'maven'
     }
 
     @NonCPS
@@ -36,11 +40,14 @@ class MavenPomUpdater implements ManifestUpdater {
         List changes = []
         List properties = []
         List notes = []
+        List found = []
+        List boms = []
 
         String updated = UpdaterSupport.replaceValue(content, dependencyRe()) { String block ->
             String header = block.replaceAll(exclusionsRe(), '')
             String groupId = tag(header, 'groupId')
             String artifactId = tag(header, 'artifactId')
+            if (tag(header, 'scope') == 'import') boms << [groupId, artifactId, tag(header, 'version')]
             Map fix = (groupId && artifactId) ? byKey[GoldenFix.key('maven', groupId, artifactId)] as Map : null
             if (!fix) return null
 
@@ -55,21 +62,28 @@ class MavenPomUpdater implements ManifestUpdater {
                 return null
             }
             if (!GoldenFix.isConcreteVersion(declared)) {
-                notes << UpdaterSupport.note(relativePath, fix, "declared version '${declared}' is a range or dynamic version".toString())
+                String why = "declared version '${declared}' is a range or dynamic version"
+                notes << (catalogs.containsKey(relativePath)
+                        ? UpdaterSupport.note('', fix, "managed by version catalog ${relativePath}: ${why}".toString())
+                        : UpdaterSupport.note(relativePath, fix, why.toString()))
                 return null
             }
             String target = fix.targetVersion as String
-            if (!GoldenFix.isUpgrade(declared, target)) return null
+            boolean upgrade = GoldenFix.isUpgrade(declared, target)
+            found << UpdaterSupport.found(relativePath, [fix.key], upgrade ? target : declared, '')
+            if (!upgrade) return null
 
             changes << UpdaterSupport.change(relativePath, fix, declared, target)
             return UpdaterSupport.replaceValue(block, versionRe()) { String value -> value == declared ? target : null }
         }
-        return [content: updated, changes: changes, properties: properties, notes: notes]
+        fixes.each { fix -> UpdaterSupport.bomNotes(relativePath, fix, boms, notes) }
+        return [content: updated, changes: changes, properties: properties, notes: notes, found: found]
     }
 
     @NonCPS
     Map updateProperties(String relativePath, String content, List<Map> properties) {
         List changes = []
+        List found = []
         String updated = UpdaterSupport.replaceValue(content, propertiesRe()) { String section ->
             String newSection = section
             properties.each { property ->
@@ -77,14 +91,17 @@ class MavenPomUpdater implements ManifestUpdater {
                 String target = property.targetVersion as String
                 String regex = '(<' + UpdaterSupport.quote(name) + '>\\s*)([^<]*?)(\\s*</' + UpdaterSupport.quote(name) + '>)'
                 newSection = UpdaterSupport.replaceValue(newSection, regex) { String value ->
-                    if (!GoldenFix.isConcreteVersion(value) || !GoldenFix.isUpgrade(value, target)) return null
+                    if (!GoldenFix.isConcreteVersion(value)) return null
+                    boolean upgrade = GoldenFix.isUpgrade(value, target)
+                    found << UpdaterSupport.found(relativePath, property.componentKeys as List, upgrade ? target : value, name)
+                    if (!upgrade) return null
                     changes << UpdaterSupport.propertyChange(relativePath, property, value)
                     return target
                 }
             }
             return newSection == section ? null : newSection
         }
-        return [content: updated, changes: changes]
+        return [content: updated, changes: changes, notes: [], found: found]
     }
 
     @NonCPS

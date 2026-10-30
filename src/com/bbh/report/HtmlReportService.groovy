@@ -588,6 +588,7 @@ class HtmlReportService implements Serializable {
             sb.append(goldenFixStatusBanner(gf))
             sb.append(goldenFixChangesTable((gf.get('changes') ?: []) as List))
             sb.append(goldenFixUnresolvedList((gf.get('unresolved') ?: []) as List))
+            sb.append(goldenFixNotes((gf.get('notes') ?: []) as List))
         }
         return card('Nexus IQ GoldenFix', sb.toString())
     }
@@ -627,6 +628,13 @@ class HtmlReportService implements Serializable {
             sb.append("<li><b>${esc(u.get('component') as String)}</b> ${esc(u.get('from') as String)} &rarr; ${esc(u.get('to') as String)}: ${esc(u.get('reason') as String)}</li>")
         }
         sb.append("</ul>")
+        return sb.toString()
+    }
+    @NonCPS protected String goldenFixNotes(List notes) {
+        if (!notes) return ''
+        def sb = new StringBuilder("<div style='margin-top:8px;font-size:0.74rem;color:#475569;'>")
+        notes.each { n -> sb.append("<div>${esc(n as String)}</div>") }
+        sb.append("</div>")
         return sb.toString()
     }
 

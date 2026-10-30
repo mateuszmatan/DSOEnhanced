@@ -47,6 +47,7 @@ class GoldenFixService implements DependencyRemediation {
                 fixes       : [],
                 changes     : [],
                 unresolved  : [],
+                notes       : [],
                 prUrl       : '',
                 prTitle     : '',
                 verified    : null,
@@ -110,17 +111,30 @@ class GoldenFixService implements DependencyRemediation {
         try {
             Map attempt = applyVerifiedFixes(dir, fixes, cfg)
             Map applied = attempt.applied as Map
+            List<String> refreshed = (attempt.refreshed ?: []) as List<String>
             result.changes    = applied.changes
             result.unresolved = (applied.unresolved as List) + (attempt.dropped as List)
+            result.notes      = (applied.notes as List) + refreshedNotes(refreshed)
             result.verified   = attempt.verified
             result.verifyLog  = attempt.log
             if (attempt.verified == false) {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
                 return
             }
+            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>) : []
+            String raised = alreadyRaised(covered, pr.url as String)
+            if (covered) {
+                result.unresolved = withoutCovered(result.unresolved as List<Map>, covered)
+                result.notes      = (result.notes as List) + [raised]
+            }
             String commitId = applied.files
-                    ? repository.commit(dir, applied.files as List<String>, commitMessage(title, applied.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
+                    ? repository.commit(dir, (applied.files as List<String>) + refreshed, commitMessage(title, applied.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
                     : ''
+            if (!commitId && covered && covered.size() == fixes.size()) {
+                result.prUrl = pr.url
+                finish(result, 'PR_UPDATED', raised)
+                return
+            }
             if (!commitId) {
                 finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip or pub manifest declares the vulnerable versions - nothing to change')
                 return
@@ -136,11 +150,13 @@ class GoldenFixService implements DependencyRemediation {
 
             if (pr.url) {
                 result.prUrl = pr.url
+                comment(scmCfg, pr, pullRequestComment(state.currentProjectName as String, applied.changes as List, result.unresolved as List, result.notes as List))
                 finish(result, 'PR_UPDATED', "GoldenFix pull request ${title} updated with ${applied.changes.size()} change(s): ${pr.url}")
             } else {
                 Map created = publisher.createPullRequest(scmCfg, [
                         title       : title,
-                        description : pullRequestDescription(title, applied.changes as List, applied.unresolved as List, scanRefs, buildContext()),
+                        description : pullRequestDescription(title, applied.changes as List, applied.unresolved as List, scanRefs, buildContext(),
+                                result.notes as List, !refreshed.isEmpty()),
                         sourceBranch: title,
                         targetBranch: targetBranch
                 ])
@@ -153,6 +169,15 @@ class GoldenFixService implements DependencyRemediation {
             }
         } finally {
             repository.cleanup(dir)
+        }
+    }
+
+    private void comment(Map scmCfg, Map pr, String text) {
+        try {
+            publisher.addComment(scmCfg, pr, text)
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[GOLDENFIX] The pull request comment could not be added: ${e.message ?: e.getClass().getSimpleName()}"
         }
     }
 
@@ -178,13 +203,14 @@ class GoldenFixService implements DependencyRemediation {
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
             script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(current)}"
-            Map verdict = verifier.verify(dir, applied.files as List<String>, verifyCfg)
+            Map verdict = verifier.verify(dir, applied.files as List<String>,
+                    verifyCfg + [catalogConsumers: applied.consumers, lockFiles: applied.locks, node: state.cfg?.build?.node])
             log = verdict.log as String
             if (verdict.ok) {
                 script.echo verdict.skipped
                         ? "[GOLDENFIX] Pre-check build skipped - ${log}"
                         : "[GOLDENFIX] Pre-check build passed (${log}) with ${describeVersions(current)}"
-                return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log]
+                return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log, refreshed: verdict.files ?: []]
             }
             reason = "the build failed with ${describeVersions(current)} (${log})".toString()
             script.echo "[GOLDENFIX] Pre-check build failed - lowering the proposed versions so they stay backward compatible"
@@ -245,14 +271,46 @@ class GoldenFixService implements DependencyRemediation {
                 patterns.addAll(updater.filePatterns())
             }
         }
-        List<String> files = active ? repository.findFiles(dir, patterns.unique(), excluded) : []
+        List<String> scanned = active ? repository.findFiles(dir, patterns.unique(), excluded) : []
+        Map texts = [:]
+        Map catalogs = fixesFor(fixes, 'maven') ? discover(dir, scanned, cfg, excluded, texts)
+                : [files: scanned, entries: [:], notes: [], externals: [:], holders: [:]]
+        List<String> files = catalogs.files as List<String>
+        Map entries = catalogs.entries as Map
         script.echo "[GOLDENFIX] Inspecting ${files.size()} dependency manifest file(s) in the source tree"
+        for (ManifestUpdater updater : active) updater.useCatalogs(entries)
 
-        List changes = []
-        List notes = []
-        List propertyRequests = []
-        List<String> changedFiles = []
+        Map run = [changes: [], notes: [], requests: [], found: [], files: []]
+        List<String> shared = []
+        List<String> others = []
+        for (String f : files) {
+            if (entries.containsKey(f)) shared << f else others << f
+        }
+        applyRound(dir, active, fixes, shared, files, texts, run)
+        Map aligned = alignToCatalogs(fixes, run.found as List, shared)
+        applyRound(dir, active, aligned.fixes as List<Map>, others, files, texts, run)
 
+        for (Map c : (run.changes as List<Map>)) {
+            String what = c.property ? "property ${c.property} (${c.component})" : c.component
+            script.echo "[GOLDENFIX]   ${c.file}: ${what} ${c.from} -> ${c.to}"
+        }
+        return [files     : run.files, changes: run.changes, found: run.found,
+                unresolved: unresolvedFixes(fixes, run.changes as List<Map>, run.notes as List<Map>, run.requests as List<Map>, catalogs),
+                notes     : (catalogs.notes as List) + outsideCatalogs(run.changes as List<Map>, aligned.versions as Map, shared),
+                consumers : CatalogDiscovery.consumers(entries), locks: lockFiles(scanned)]
+    }
+
+    private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
+        List<String> listed = CatalogDiscovery.listed(cfg.versionCatalogs)
+        for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
+        List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
+        List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
+        for (String f : CatalogDiscovery.toRead(extra)) read(dir, texts, f)
+        return CatalogDiscovery.discover(scanned, extra, texts, listed)
+    }
+
+    private void applyRound(String dir, List<ManifestUpdater> active, List<Map> fixes, List<String> roundFiles, List<String> files, Map texts, Map run) {
+        if (!roundFiles) return
         for (ManifestUpdater updater : active) {
             List<Map> ecosystemFixes = fixesFor(fixes, updater.ecosystem())
             List<String> ownFiles = []
@@ -262,37 +320,120 @@ class GoldenFixService implements DependencyRemediation {
 
             List properties = []
             for (String f : ownFiles) {
-                String text = repository.readText(dir, f)
+                if (!roundFiles.contains(f)) continue
+                String text = read(dir, texts, f)
                 Map r = updater.updateDeclarations(f, text, ecosystemFixes)
-                changes.addAll(r.changes as List)
-                notes.addAll(r.notes as List)
+                collect(run, r)
                 properties.addAll(r.properties as List)
-                if (r.content != text) {
-                    repository.writeText(dir, f, r.content as String)
-                    if (!changedFiles.contains(f)) changedFiles << f
-                }
+                write(dir, texts, f, text, r.content as String, run)
             }
 
             if (properties) {
                 List<Map> merged = GoldenFix.mergePropertyRequests(properties)
-                propertyRequests.addAll(merged)
+                (run.requests as List).addAll(merged)
                 for (String f : ownFiles) {
-                    String text = repository.readText(dir, f)
+                    String text = read(dir, texts, f)
                     Map r = updater.updateProperties(f, text, merged)
-                    changes.addAll(r.changes as List)
-                    if (r.content != text) {
-                        repository.writeText(dir, f, r.content as String)
-                        if (!changedFiles.contains(f)) changedFiles << f
-                    }
+                    collect(run, r)
+                    write(dir, texts, f, text, r.content as String, run)
                 }
             }
         }
+    }
 
-        for (Map c : (changes as List<Map>)) {
-            String what = c.property ? "property ${c.property} (${c.component})" : c.component
-            script.echo "[GOLDENFIX]   ${c.file}: ${what} ${c.from} -> ${c.to}"
+    private String read(String dir, Map texts, String file) {
+        if (!texts.containsKey(file)) texts[file] = repository.readText(dir, file)
+        return texts[file] as String
+    }
+
+    private void write(String dir, Map texts, String file, String before, String after, Map run) {
+        if (after == before) return
+        repository.writeText(dir, file, after)
+        texts[file] = after
+        if (!(run.files as List).contains(file)) (run.files as List) << file
+    }
+
+    @NonCPS
+    private static void collect(Map run, Map r) {
+        (run.changes as List).addAll((r.changes ?: []) as List)
+        (run.notes as List).addAll((r.notes ?: []) as List)
+        (run.found as List).addAll((r.found ?: []) as List)
+    }
+
+    @NonCPS
+    static Map alignToCatalogs(List<Map> fixes, List found, List<String> shared) {
+        Map versions = [:]
+        for (def f : found) {
+            Map entry = f as Map
+            if (!shared.contains(entry.file)) continue
+            for (def key : (entry.componentKeys as List)) {
+                Map known = versions[key] as Map
+                if (!known || GoldenFix.compare(entry.version as String, known.version as String) > 0) versions[key] = entry
+            }
         }
-        return [files: changedFiles, changes: changes, unresolved: unresolvedFixes(fixes, changes, notes, propertyRequests)]
+        List<Map> out = []
+        for (Map fix : fixes) {
+            Map known = versions[fix.key] as Map
+            out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String) ? fix + [targetVersion: known.version] : fix)
+        }
+        return [fixes: out, versions: versions]
+    }
+
+    @NonCPS
+    static List<String> outsideCatalogs(List<Map> changes, Map versions, List<String> shared) {
+        List<String> out = []
+        for (Map c : changes) {
+            if (shared.contains(c.file)) continue
+            for (def key : (c.componentKeys as List)) {
+                Map known = versions[key] as Map
+                if (!known) continue
+                String note = "${c.file}: ${c.component} declared outside the catalog ${known.file}${known.alias ? " (${known.alias})" : ''}".toString()
+                if (!out.contains(note)) out << note
+            }
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<Map> coveredFixes(List<Map> fixes, List found, List<Map> changes) {
+        List changed = []
+        for (Map c : changes) changed.addAll(c.componentKeys as List)
+        List<Map> out = []
+        for (Map fix : fixes) {
+            if (changed.contains(fix.key)) continue
+            String best = null
+            for (def f : found) {
+                if (((f as Map).componentKeys as List).contains(fix.key)) best = GoldenFix.max(best, (f as Map).version as String)
+            }
+            if (best && !GoldenFix.isUpgrade(best, fix.targetVersion as String)) out << [component: fix.displayName, version: best]
+        }
+        return out
+    }
+
+    @NonCPS
+    private static String alreadyRaised(List<Map> covered, String url) {
+        if (!covered) return ''
+        return "Already raised to ${covered.collect { "${it.component} ${it.version}" }.join(', ')} in the shared pull request ${url}".toString()
+    }
+
+    @NonCPS
+    private static List<Map> withoutCovered(List<Map> unresolved, List<Map> covered) {
+        List names = covered.collect { it.component }
+        return unresolved.findAll { !names.contains(it.component) }
+    }
+
+    @NonCPS
+    private static List<String> refreshedNotes(List<String> files) {
+        return files.collect { "${it} refreshed".toString() }
+    }
+
+    @NonCPS
+    private static List<String> lockFiles(List<String> files) {
+        List<String> out = []
+        for (String f : files) {
+            if (f == 'package-lock.json' || f.endsWith('/package-lock.json')) out << f
+        }
+        return out
     }
 
     private void finish(Map result, String status, String message) {
@@ -336,16 +477,18 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static List<Map> unresolvedFixes(List<Map> fixes, List<Map> changes, List<Map> notes, List<Map> propertyRequests) {
+    static List<Map> unresolvedFixes(List<Map> fixes, List<Map> changes, List<Map> notes, List<Map> propertyRequests, Map discovery = [:]) {
+        Map externals = (discovery?.externals ?: [:]) as Map
         List resolved = []
         for (Map c : changes) resolved.addAll(c.componentKeys as List)
         List<Map> out = []
         for (Map fix : fixes) {
             if (resolved.contains(fix.key)) continue
-            List<String> reasons = notes.findAll { it.componentKey == fix.key }.collect { "${it.file}: ${it.reason}".toString() }.unique()
+            List<String> reasons = notes.findAll { it.componentKey == fix.key }.collect { (it.file ? "${it.file}: ${it.reason}" : it.reason).toString() }.unique()
             List<Map> props = propertyRequests.findAll { (it.componentKeys as List).contains(fix.key) }
-            if (props && !reasons) {
-                reasons << "version property ${props.collect { it.name }.join(', ')} not found or already newer".toString()
+            if (props && !reasons) reasons.addAll(propertyReasons(props, externals, (discovery?.holders ?: [:]) as Map))
+            if (!props && !reasons && externals) {
+                reasons << "managed by the version catalog artifact ${(externals.values() as List).unique().join(', ')} outside this repository".toString()
             }
             out << [
                     component: fix.displayName,
@@ -356,6 +499,26 @@ class GoldenFixService implements DependencyRemediation {
             ]
         }
         return out
+    }
+
+    @NonCPS
+    static List<String> propertyReasons(List<Map> props, Map externals, Map holders) {
+        List<String> out = []
+        List<String> plain = []
+        for (Map p : props) {
+            Map catalog = p.catalog as Map
+            if (catalog && !catalog.file && externals[catalog.name]) {
+                out << "managed by the version catalog artifact ${externals[catalog.name]} outside this repository".toString()
+            } else if (catalog) {
+                out << "managed by version catalog ${catalog.file ?: catalog.name} (${p.name}): not found or already newer".toString()
+            } else if (holders[p.name]) {
+                out << "version ${p.name} is defined in ${holders[p.name]}: not updated automatically".toString()
+            } else {
+                plain << (p.name as String)
+            }
+        }
+        if (plain) out.add(0, "version property ${plain.join(', ')} not found or already newer".toString())
+        return out.unique()
     }
 
     String timestamp(String timeZone) {
@@ -378,7 +541,8 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    static String pullRequestDescription(String title, List<Map> changes, List<Map> unresolved, List<Map> scanRefs, Map ctx) {
+    static String pullRequestDescription(String title, List<Map> changes, List<Map> unresolved, List<Map> scanRefs, Map ctx,
+                                         List notes = [], boolean lockRefreshed = false) {
         StringBuilder sb = new StringBuilder()
         sb.append("## ${title} - Nexus IQ GoldenFix\n\n")
         sb.append("Raised automatically by the DevSecOps pipeline because the Nexus IQ policy was violated ")
@@ -387,7 +551,25 @@ class GoldenFixService implements DependencyRemediation {
         for (Map ref : scanRefs) {
             if (ref.reportUrl) sb.append("- Nexus IQ report (${ref.application}): ${ref.reportUrl}\n")
         }
-        sb.append("\n### Applied upgrades\n\n| File | Component | From | To | Version chosen by |\n|---|---|---|---|---|\n")
+        sb.append("\n### Applied upgrades\n\n")
+        appendDetails(sb, changes, unresolved, notes)
+        sb.append("\n> Lock files (${lockRefreshed ? '' : 'package-lock.json, '}yarn.lock, poetry.lock, pinned requirements) are not regenerated. ")
+        sb.append("Rebuild and run the tests before merging.\n")
+        return sb.toString()
+    }
+
+    @NonCPS
+    static String pullRequestComment(String project, List<Map> changes, List<Map> unresolved, List notes) {
+        StringBuilder sb = new StringBuilder()
+        sb.append("### GoldenFix for ${project}\n\n")
+        sb.append("The pipeline added ${changes.size()} upgrade(s) for ${project} to this pull request.\n\n")
+        appendDetails(sb, changes, unresolved, notes)
+        return sb.toString()
+    }
+
+    @NonCPS
+    private static void appendDetails(StringBuilder sb, List<Map> changes, List<Map> unresolved, List notes) {
+        sb.append("| File | Component | From | To | Version chosen by |\n|---|---|---|---|---|\n")
         for (Map c : changes) {
             String what = c.property ? "${c.component} (property `${c.property}`)" : c.component
             sb.append("| `${c.file}` | ${what} | ${c.from} | **${c.to}** | ${GoldenFix.selectionLabel(c) ?: '-'} |\n")
@@ -396,9 +578,10 @@ class GoldenFixService implements DependencyRemediation {
             sb.append("\n### Not applied automatically\n\n")
             for (Map u : unresolved) sb.append("- ${u.component} ${u.from} -> ${u.to}: ${u.reason}\n")
         }
-        sb.append("\n> Lock files (package-lock.json, yarn.lock, poetry.lock, pinned requirements) are not regenerated. ")
-        sb.append("Rebuild and run the tests before merging.\n")
-        return sb.toString()
+        if (notes) {
+            sb.append("\n### Notes\n\n")
+            for (def n : notes) sb.append("- ${n}\n")
+        }
     }
 
     @NonCPS

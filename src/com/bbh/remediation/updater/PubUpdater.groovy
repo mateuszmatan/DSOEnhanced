@@ -10,6 +10,8 @@ class PubUpdater implements ManifestUpdater {
 
     List<String> filePatterns() { return ['pubspec.yaml', 'pubspec.yml'] }
 
+    void useCatalogs(Map catalogs) { }
+
     @NonCPS
     boolean supports(String relativePath) {
         return UpdaterSupport.fileName(relativePath) ==~ /pubspec\.ya?ml/
