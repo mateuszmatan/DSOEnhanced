@@ -67,9 +67,9 @@ class PolicyEngine implements Serializable {
         script.echo "[POLICY] ${scannerLabel(scannerKey)}: policy satisfied."
     }
 
-    void missingCoverage(String reason) {
+    void missingCoverage(String reason, List reports = []) {
         int required = (state.coverage.minRequired ?: 60) as int
-        state.recordCoverage([enabled: false, minRequired: required])
+        state.recordCoverage([enabled: false, minRequired: required, reports: reports ?: []])
         state.policyStatus['coverage'] = 'WARN'
         warn('Unit tests', "${reason} - the required ${required}% line coverage cannot be verified.")
     }
@@ -83,13 +83,14 @@ class PolicyEngine implements Serializable {
             return
         }
         double line = (coverage.line ?: 0.0) as double
+        String mean = ((coverage.counted ?: 1) as int) > 1 ? " (mean of ${coverage.counted} reports)" : ''
         if (line < (required as double)) {
             state.policyStatus['coverage'] = 'WARN'
-            warn(stageName, "Line coverage ${line}% is below the required ${required}%.")
+            warn(stageName, "Line coverage ${line}%${mean} is below the required ${required}%.")
             return
         }
         if (state.policyStatus['coverage'] != 'WARN') state.policyStatus['coverage'] = 'PASS'
-        script.echo "[COVERAGE] ${projectScope()}Line coverage ${line}% meets the required ${required}%."
+        script.echo "[COVERAGE] ${projectScope()}Line coverage ${line}%${mean} meets the required ${required}%."
     }
 
     void warn(String stageName, String message) {
@@ -222,7 +223,8 @@ class PolicyEngine implements Serializable {
 
     private void logCoverage() {
         boolean ok = (state.coverage.line as double) >= (state.coverage.minRequired as double)
-        script.echo "[COV]    Line: ${state.coverage.line}%  required: ${state.coverage.minRequired}%  ${ok ? 'OK' : 'BELOW THRESHOLD'}"
+        String mean = ((state.coverage.counted ?: 0) as int) > 1 ? " (mean of ${state.coverage.counted} reports)" : ''
+        script.echo "[COV]    Line: ${state.coverage.line}%${mean}  required: ${state.coverage.minRequired}%  ${ok ? 'OK' : 'BELOW THRESHOLD'}"
         script.echo "[COV]    Covered: ${state.coverage.covered}  Missed: ${state.coverage.missed}  Total: ${state.coverage.total}"
     }
 }

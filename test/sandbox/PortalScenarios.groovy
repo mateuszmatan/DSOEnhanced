@@ -26,6 +26,8 @@ Map gui = new JsonSlurperClassic().parseText(new File(root, 'test/fixtures/porta
 Map backend = new JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-backend-api-full.json').text) as Map
 Yaml yaml = new Yaml()
 String securityJob = 'DevSecOps/CertScanner/security'
+String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
+String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
 
 Closure changed = { Map document, Map pipeline ->
     Map copy = PortalFixtures.copy(document)
@@ -36,6 +38,7 @@ Closure changed = { Map document, Map pipeline ->
 Closure jenkins = { Map env ->
     FakeScript j = new FakeScript()
     j.resourcesDir = new File(root, 'resources')
+    j.resources['com/bbh/devsecops/defaults.yaml'] = defaultsText
     j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_URL: PortalFixtures.PORTAL_URL])
     (env ?: [:]).each { k, v -> if (v == null) j.env.vars.remove(k) else j.env.vars.put(k as String, v as String) }
     return j
@@ -71,28 +74,37 @@ Closure initialize = { Map r ->
 
 Closure querySh = { FakeScript j -> j.calls.find { it.startsWith('sh [Read the configuration from the DevSecOps portal] ') } as String }
 
-Closure runWithoutKey = { String name ->
-    FakeScript s = jenkins([:])
+Closure runWithoutKey = { String name, Map jenkinsfile = [:], Map env = [:], boolean planted = false ->
+    FakeScript s = jenkins(env)
+    if (planted) s.files['config.yaml'] = configText
     FakeCpsScript entryPoint = new SandboxHarness(srcDir, stubDir).loadVars(varsDir, s)[name] as FakeCpsScript
     String crash = ''
     try {
-        new SandboxHarness(srcDir, stubDir).run { entryPoint.call([:]) }
+        new SandboxHarness(srcDir, stubDir).run { entryPoint.call(jenkinsfile) }
     } catch (Throwable t) {
         crash = failureOf(t)
     }
     boolean untouched = entryPoint.executedStages.isEmpty() && !s.files.containsKey('report/pipeline-report.html') && s.calls.isEmpty()
-    return [crash: crash, untouched: untouched, detail: "${crash} | stages ${entryPoint.executedStages} | calls ${s.calls}".toString()]
+    return [crash: crash, untouched: untouched, probes: s.probes, detail: "${crash} | stages ${entryPoint.executedStages} | calls ${s.calls} | probes ${s.probes}".toString()]
 }
 
+String withoutKey = "(projectNames: '<services of this repository>', agentNames: ['<agent label>']"
 Map noKey = runWithoutKey('devSecOpsPipeline')
-check('no key: the entry point fails before pipeline {} with the call to write and the portal',
-        noKey.crash.contains("devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')") && noKey.crash.contains('DevSecOps portal') && noKey.untouched,
+check('no key and no agentNames: the entry point fails before pipeline {} with both ways to configure it',
+        noKey.crash.contains("devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')") && noKey.crash.contains('DevSecOps portal') && noKey.untouched
+                && noKey.crash.contains("devSecOpsPipeline${withoutKey})") && noKey.crash.contains('devsecops_config.yaml or config.yaml'),
         noKey.detail)
 
 noKey = runWithoutKey('devSecOpsNexusIqGoldenFixPipeline')
-check('no key: the Nexus IQ GoldenFix entry point names its own call and its variant',
+check('no key and no agentNames: the Nexus IQ GoldenFix entry point names its own call and its variant, with and without a key',
         noKey.crash.contains("devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')")
-                && noKey.crash.contains("devSecOpsApi.configure('nexusiq', [pipelineKey: '<key from the DevSecOps portal>'])") && noKey.untouched,
+                && noKey.crash.contains("devSecOpsApi.configure('nexusiq', [pipelineKey: '<key from the DevSecOps portal>'])") && noKey.untouched
+                && noKey.crash.contains("devSecOpsNexusIqGoldenFixPipeline${withoutKey})"),
+        noKey.detail)
+
+noKey = runWithoutKey('devSecOpsExtendedPipeline')
+check('no key and no agentNames: the extended entry point also names the security job to copy from',
+        noKey.crash.contains("devSecOpsExtendedPipeline${withoutKey}, securityPipeline: '<security job>')") && noKey.untouched,
         noKey.detail)
 
 FakeScript j = jenkins([:])
@@ -200,8 +212,9 @@ try {
 } catch (Throwable t) {
     apiError = failureOf(t)
 }
-check('initialize() without configure() names configure() and the portal',
-        apiError.contains("devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>'])") && apiError.contains('before devSecOpsApi.initialize()'),
+check('initialize() without configure() and without a file names configure() and both file names',
+        apiError.contains("devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>'])") && apiError.contains('before devSecOpsApi.initialize()')
+                && apiError.contains('neither devsecops_config.yaml nor config.yaml'),
         apiError)
 
 j = jenkins([PROXY_HOST: 'agent-proxy.bbh.com'])
@@ -469,6 +482,187 @@ check('remote test jobs: tokenCredentialsId is bound from Jenkins credentials, a
         !buildError && triggered.size() == 2 && triggered[0].token == 'fake-REMOTE_JOB_TOKEN' && triggered[1].token == 'plain-token'
                 && j.calls.count('withCredentials [cert-scanner-remote-token]') == 1 && j.env.REMOTE_JOB_TOKEN == null,
         "${buildError} | ${triggered.collect { it.token }} | ${j.calls}")
+
+String portalNoKey = "[PORTAL] No pipeline key: the DevSecOps portal issues one per service on the product page. " +
+        "Write devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
+        "or call devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile"
+String notLoaded = "[INIT] No configuration from the DevSecOps portal is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize()"
+Closure readFrom = { String file -> "[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString() }
+Closure touchesFile = { FakeScript s -> s.probes.any { it.tokenize(' ').last() in ['devsecops_config.yaml', 'config.yaml'] } }
+Closure configWith = { Closure change ->
+    Map config = yaml.load(configText) as Map
+    change(config.projects as Map)
+    yaml.dump(config)
+}
+Closure fromFile = { String variant, Map jenkinsfile, Map files ->
+    FakeScript s = jenkins([DSO_PORTAL_URL: null])
+    s.files.putAll(files)
+    Map loaded = load(s, variant, jenkinsfile)
+    loaded + [j: s, initError: loaded.error ?: initialize(loaded)]
+}
+Closure apiRun = { FakeScript s, Closure body ->
+    SandboxHarness h = new SandboxHarness(srcDir, stubDir)
+    FakeCpsScript a = h.loadVars(varsDir, s)['devSecOpsApi'] as FakeCpsScript
+    String error = ''
+    try {
+        h.run { body(a) }
+    } catch (Throwable t) {
+        error = failureOf(t)
+    }
+    return [api: a, error: error, state: a.@_state]
+}
+Map agents = [agentNames: ['linux-agent']]
+
+[[pipelineKey: ''], [pipelineKey: null], [pipelineKeys: []]].each { Map key ->
+    Map empty = runWithoutKey('devSecOpsPipeline', key + agents, [DSO_PORTAL_URL: null], true)
+    check("a named but empty key ${key}: today's No pipeline key error, nothing runs and no file is looked at",
+            empty.crash == portalNoKey && empty.untouched && (empty.probes as List).isEmpty(), empty.detail)
+}
+
+Map required = runWithoutKey('devSecOpsPipeline', agents, [DSO_PORTAL_URL: null, DSO_REQUIRE_PIPELINE_KEY: ' TRUE '], true)
+check('DSO_REQUIRE_PIPELINE_KEY true: a Jenkinsfile without a key stops before pipeline {} with today\'s error',
+        required.crash == portalNoKey && required.untouched && (required.probes as List).isEmpty(), required.detail)
+Map requiredApi = apiRun(jenkins([DSO_PORTAL_URL: null, DSO_REQUIRE_PIPELINE_KEY: 'true'])) { fake -> fake.initialize() }
+check('DSO_REQUIRE_PIPELINE_KEY true: initialize() without configure() stops with today\'s error', requiredApi.error == notLoaded, requiredApi.error)
+j = jenkins([DSO_PORTAL_URL: null, DSO_REQUIRE_PIPELINE_KEY: 'false'])
+j.files['config.yaml'] = configText
+r = load(j, 'full', agents)
+check('DSO_REQUIRE_PIPELINE_KEY false: the same Jenkinsfile loads without a key',
+        !r.error && r.state.configFile == 'devsecops_config.yaml or config.yaml' && j.calls.isEmpty(), r.error)
+
+j = jenkins([DSO_PORTAL_URL: null])
+j.files['devsecops_config.yaml'] = configText
+Map configured = [:]
+List callsBefore = []
+List probesBefore = []
+String placeBefore = ''
+String placeAfter = ''
+Map run = apiRun(j) { fake ->
+    fake.configure('full', [projectNames: ['gui', 'backend-api'], agentNames: ['linux-agent'], securityPipeline: securityJob, appId: 'from-the-jenkinsfile'])
+    configured = fake.pipelineConfig() as Map
+    placeBefore = fake.settingsPlace()
+    callsBefore = new ArrayList(j.calls)
+    probesBefore = new ArrayList(j.probes)
+    j.onAgent('linux-agent') { fake.initialize() }
+    placeAfter = fake.settingsPlace()
+}
+check('configure() without a key keeps the Jenkinsfile values, takes no node, runs no step and looks at no file',
+        configured.agentNames == ['linux-agent'] && configured.securityPipeline == securityJob && configured.projectNames == 'gui,backend-api'
+                && configured.appId == 'from-the-jenkinsfile' && j.env.Security_Pipeline == securityJob && callsBefore.isEmpty() && probesBefore.isEmpty()
+                && !j.log.any { it.startsWith('[PORTAL]') } && placeBefore == 'devsecops_config.yaml or config.yaml',
+        "${configured} | ${callsBefore} | ${probesBefore} | ${placeBefore}")
+runState = j.files['pipeline-config.yaml'] ? yaml.load(j.files['pipeline-config.yaml']) as Map : [:]
+check('initialize() reads devsecops_config.yaml, names it and writes its services in file order to the run-state file',
+        !run.error && j.log.contains(readFrom('devsecops_config.yaml')) && placeAfter == 'devsecops_config.yaml'
+                && ((runState.projects ?: [:]) as Map).keySet().toList() == ['gui', 'backend-api'],
+        "${run.error} | ${placeAfter} | ${runState.projects?.keySet()}")
+
+String otherAppId = configWith { Map p -> (p.gui as Map).appId = 'from-the-repository-file' }
+j = jenkins([:])
+j.files['devsecops_config.yaml'] = otherAppId
+String guiKey = PortalFixtures.publish(j, gui)
+r = load(j, 'full', agents)
+r.harness.run { r.loader.load('full', [pipelineKey: guiKey]) }
+initError = initialize(r)
+check('configure() twice, without and then with a key: the key wins, the file is not looked at',
+        !initError && !j.log.any { it.startsWith('[INIT] No pipeline key in the Jenkinsfile') } && r.state.configFile == ''
+                && (r.state.projectsAllCfg as Map).keySet().toList() == ['gui'] && (r.state.projectsAllCfg.gui as Map).appId == '209f44ac-dd06-4ca0-884e-d944904f8020'
+                && j.log.contains('[POLICY] Global settings from the DevSecOps portal, projects cannot change them:')
+                && r.state.platform?.iosBuildAgent == 'mac002.bbh.com' && !touchesFile(j),
+        "${initError} | ${r.state.configFile} | ${j.probes}")
+j = jenkins([:])
+j.files['devsecops_config.yaml'] = otherAppId
+guiKey = PortalFixtures.publish(j, gui)
+r = load(j, 'full', [pipelineKey: guiKey])
+r.harness.run { r.loader.load('full', agents) }
+initError = initialize(r)
+check('configure() twice, with and then without a key: the file wins, the portal documents and platform values are dropped',
+        !initError && j.log.contains(readFrom('devsecops_config.yaml')) && r.state.portalDocuments == [] && r.state.platform == [:]
+                && (r.state.projectsAllCfg as Map).keySet().toList() == ['gui'] && (r.state.projectsAllCfg.gui as Map).appId == 'from-the-repository-file'
+                && j.log.contains('[POLICY] Library security policy (resources/com/bbh/devsecops/defaults.yaml), projects cannot change it:'),
+        "${initError} | ${r.state.portalDocuments} | ${r.state.platform}")
+
+j = jenkins([DSO_PORTAL_URL: null, PROJECT_NAME: 'gui'])
+j.files['config.yaml'] = configText
+String customPlace = ''
+run = apiRun(j) { fake ->
+    j.onAgent('linux-agent') { fake.initialize() }
+    customPlace = fake.settingsPlace()
+}
+runState = j.files['pipeline-config.yaml'] ? yaml.load(j.files['pipeline-config.yaml']) as Map : [:]
+check('a custom Jenkinsfile that calls initialize() without configure() reads config.yaml as before the portal',
+        !run.error && j.log.contains(readFrom('config.yaml')) && (run.state.projectsAllCfg as Map).keySet().toList() == ['gui'] && customPlace == 'config.yaml'
+                && ((runState.projects ?: [:]) as Map).keySet().toList() == ['gui'],
+        "${run.error} | ${customPlace} | ${runState.projects?.keySet()}")
+
+Map noKeyId = fromFile('full', agents, ['config.yaml': configWith { Map p -> ((p['backend-api'] as Map).asoc as Map).remove('keyId') }])
+check('without a key: a service without asoc.keyId names the file that was read', noKeyId.initError == '[INIT] asoc.keyId must be set for the service backend-api in config.yaml', noKeyId.initError)
+
+Map invalid = fromFile('full', agents, ['devsecops_config.yaml': 'projects: ['])
+check('without a key: a file that is not YAML names the file and the parser message', (invalid.initError as String).startsWith('[INIT] devsecops_config.yaml is not valid YAML: '), invalid.initError)
+
+['', '- gui', 'defaults: {}'].each { String text ->
+    Map empty = fromFile('full', agents, ['devsecops_config.yaml': text])
+    check("without a key: a file without projects (${text ?: 'empty'}) is refused", empty.initError == "[INIT] devsecops_config.yaml must contain a 'projects:' section.", empty.initError)
+}
+
+Map unknown = fromFile('full', agents + [projectNames: 'web'], ['devsecops_config.yaml': configText])
+check('without a key: a service the file does not have lists every service of the file',
+        unknown.initError == "[INIT] Project 'web' not found in devsecops_config.yaml. Available: gui, backend-api", unknown.initError)
+
+Map unscannedFile = fromFile('nexusiq', agents, ['devsecops_config.yaml': configWith { Map p ->
+    (((p.gui as Map).tools as Map).nexusIq as Map).remove('application')
+    (((p['backend-api'] as Map).tools as Map).nexusIq as Map).scanPatterns = []
+}])
+check('the Nexus IQ GoldenFix pipeline without a key names the file for a service it would not scan',
+        unscannedFile.initError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui, backend-api: set tools.nexusIq.application and its scanPatterns for the service in devsecops_config.yaml',
+        unscannedFile.initError)
+
+Map extendedFile = agents + [projectNames: 'gui,backend-api', securityPipeline: securityJob]
+Map handoff = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump(copied)])
+Map handoffRd = ((((handoff.state?.projectsAllCfg as Map)?.get('backend-api') as Map)?.deploy as Map)?.openshift as Map)?.rd as Map
+check('extended without a key: the run-time tags of the security run are laid over the services of the file',
+        !handoff.initError && handoffRd?.buildTag == '213-20261006-081500' && (handoff.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500',
+        "${handoff.initError} | ${handoffRd}")
+Map foreign = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump([projects: [gui: copied.projects.gui]])])
+check('extended without a key: a security run that lacks a service of this run is refused',
+        foreign.initError == "[INIT] Security pipeline ${securityJob} builds gui, this run builds backend-api".toString(), foreign.initError)
+String withWeb = configWith { Map p -> p.web = PortalFixtures.copy(p.gui as Map) }
+Map third = fromFile('extended', extendedFile, ['devsecops_config.yaml': withWeb, 'pipeline-config.yaml': yaml.dump(copied)])
+runState = (third.j as FakeScript).files['pipeline-config.yaml'] ? yaml.load((third.j as FakeScript).files['pipeline-config.yaml']) as Map : [:]
+check('extended without a key: a service of the file that this run does not build is neither checked nor written',
+        !third.initError && ((runState.projects ?: [:]) as Map).keySet().toList() == ['gui', 'backend-api'], "${third.initError} | ${runState.projects?.keySet()}")
+Map predates = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText])
+check('extended without a key: a security build from before the portal integration says what to run',
+        predates.initError == "[INIT] The last successful build of ${securityJob} has no pipeline-config.yaml: it predates the DevSecOps portal integration; run ${securityJob} once".toString(),
+        predates.initError)
+
+Map fullWithJob = fromFile('full', agents + [securityPipeline: securityJob], ['devsecops_config.yaml': configText])
+check('a full pipeline without a key that names a securityPipeline only sets Security_Pipeline, as before the portal',
+        !fullWithJob.initError && (fullWithJob.j as FakeScript).env.Security_Pipeline == securityJob
+                && !(fullWithJob.j as FakeScript).probes.contains('fileExists pipeline-config.yaml'),
+        fullWithJob.initError)
+
+j = jenkins([DSO_PORTAL_URL: null])
+j.params.RUN_EXTENDED_PIPELINE = true
+j.files['devsecops_config.yaml'] = configWith { Map p -> ((p.gui as Map).jenkins as Map).remove('pipeline') }
+run = apiRun(j) { fake ->
+    fake.configure('full', agents + [projectNames: 'gui'])
+    j.onAgent('linux-agent') { fake.initialize() }
+    fake.runExtendedPipeline()
+}
+FakeScript keyedJenkins = jenkins([:])
+keyedJenkins.params.RUN_EXTENDED_PIPELINE = true
+String keyedGui = PortalFixtures.publish(keyedJenkins, gui)
+Map keyedRun = apiRun(keyedJenkins) { fake ->
+    fake.configure('full', [pipelineKey: keyedGui])
+    keyedJenkins.onAgent('linux-agent') { fake.initialize() }
+    fake.runExtendedPipeline()
+}
+check('a service message names the file without a key and the portal with a key',
+        !run.error && j.log.contains('Skipping extended pipeline - jenkins.pipeline.extendedPipeline is not set for the service in devsecops_config.yaml')
+                && !keyedRun.error && keyedJenkins.log.contains('Skipping extended pipeline - jenkins.pipeline.extendedPipeline is not set for the service in the DevSecOps portal'),
+        "${run.error} | ${keyedRun.error} | ${(j.log + keyedJenkins.log).findAll { it.startsWith('Skipping') }}")
 
 println "\n${failures == 0 ? 'ALL PORTAL SCENARIOS PASSED' : failures + ' PORTAL SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

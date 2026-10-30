@@ -372,6 +372,14 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
     }
 
+    void removeStagedSources() {
+        if (os.isWindows()) {
+            script.powershell 'Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'
+        } else {
+            script.sh 'rm -rf "$WORKSPACE/appscan-source-staged"'
+        }
+    }
+
     void waitSast() {
         pollScan('sast', (state.cfgDefaults.sast?.pollTimeoutMin ?: 50) as int, (state.cfgDefaults.sast?.pollIntervalSec ?: 30) as int)
     }
@@ -443,8 +451,8 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         def targetUrl = state.cfg.dast?.targetUrl?.trim()
         def presenceId =  state.cfg.dast?.presenceId ? state.cfg.dast.presenceId.trim() : ''
 
-        if (!appId) script.error("[DAST] appId not configured for the service in the DevSecOps portal")
-        if (!targetUrl) script.error("[DAST] dast.targetUrl not configured for the service in the DevSecOps portal")
+        if (!appId) script.error("[DAST] appId not configured for the service in ${state.settingsPlace()}")
+        if (!targetUrl) script.error("[DAST] dast.targetUrl not configured for the service in ${state.settingsPlace()}")
 
         def payload = """{
             "ScanConfiguration": {
@@ -777,7 +785,7 @@ done
         if (!appId) {
             appId = config.appId?.trim()
         }
-        if (!appId) script.error "[APPSCAN] appId not configured for the service in the DevSecOps portal"
+        if (!appId) script.error "[APPSCAN] appId not configured for the service in ${state.settingsPlace()}"
         if (!script.fileExists(filePath)) script.error "[APPSCAN] File not found: ${filePath}"
         String output = ''
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {

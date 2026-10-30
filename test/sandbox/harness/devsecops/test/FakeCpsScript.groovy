@@ -13,6 +13,7 @@ abstract class FakeCpsScript extends Script {
     List<String> stageFailures = []
     List<String> postFailures = []
     List<String> postConditions = []
+    Map<String, Object> parameterDescriptions = [:]
 
     void attach(FakeScript fake, VarRegistry vars) {
         this.@jenkins = fake
@@ -76,10 +77,12 @@ abstract class FakeCpsScript extends Script {
     def buildDiscarder(Object value) { null }
 
     def booleanParam(Map args) {
+        parameterDescriptions[args.name as String] = args.description as String
         if (!jenkins.params.containsKey(args.name)) jenkins.params[args.name as String] = args.defaultValue
     }
 
     def choice(Map args) {
+        parameterDescriptions[args.name as String] = args.description as String
         List choices = args.choices instanceof List ? (List) args.choices : []
         if (!jenkins.params.containsKey(args.name)) jenkins.params[args.name as String] = choices ? choices[0] : args.choices
     }

@@ -54,25 +54,46 @@ def dependenciesScan(def api) {
     }
 }
 
+def staticAnalysis(def api) {
+    if (!api.parallelScans()) {
+        dependenciesScan(api)
+        sast(api)
+        sonarQube(api)
+        return
+    }
+    api.scanWhileSastRuns({ sastQueue(api) }, {
+        dependenciesScan(api)
+        sonarQube(api)
+    }, { sastResults(api) })
+}
+
 def sast(def api) {
     api.runStage('SAST - Static Application Security Tests - HCL AppScan') {
-        Map config = api.pipelineConfig()
-        api.appscanSetup()
-        api.eachProject {
-            api.appscanResolveSourceDir()
-        }
-        api.eachProject {
-            api.appscanLogin()
-            api.appscanGenerateIRX()
-            api.appscanQueue(config)
-        }
-        api.eachProject {
-            api.appscanLogin()
-            api.appscanWait()
-            api.appscanDownloadReports()
-            api.appscanRenameSastReport()
-            api.appscanEnforcePolicy()
-        }
+        sastQueue(api)
+        sastResults(api)
+    }
+}
+
+def sastQueue(def api) {
+    Map config = api.pipelineConfig()
+    api.appscanSetup()
+    api.eachProject {
+        api.appscanResolveSourceDir()
+    }
+    api.eachProject {
+        api.appscanLogin()
+        api.appscanGenerateIRX()
+        api.appscanQueue(config)
+    }
+}
+
+def sastResults(def api) {
+    api.eachProject {
+        api.appscanLogin()
+        api.appscanWait()
+        api.appscanDownloadReports()
+        api.appscanRenameSastReport()
+        api.appscanEnforcePolicy()
     }
 }
 

@@ -11,6 +11,7 @@ class PipelineState implements Serializable {
     String currentProjectName = 'unknown'
     List portalDocuments    = []
     Map  platform           = [:]
+    String configFile       = ''
 
     String currentStage = ''
     Map stageResults = [:]
@@ -35,7 +36,7 @@ class PipelineState implements Serializable {
 
     Map coverage = [
         enabled: false, tool: 'none', buildTool: 'none',
-        line: 0.0, covered: 0, missed: 0, total: 0, minRequired: 60
+        line: 0.0, covered: 0, missed: 0, total: 0, counted: 0, minRequired: 60
     ]
 
     Map projectsVulnCounts     = [:]
@@ -53,6 +54,11 @@ class PipelineState implements Serializable {
     Map projectsUnitTests         = [:]
     Map goldenFixPullRequest        = [:]
     Map goldenFixPullRequestsByRepo = [:]
+
+    @NonCPS
+    String settingsPlace() {
+        return configFile ?: 'the DevSecOps portal'
+    }
 
     void stagePass(String name) {
         List kept = ['NOT_REQUIRED', 'BLOCKED', 'WARN', 'FAIL']
@@ -157,5 +163,49 @@ class PipelineState implements Serializable {
     @NonCPS
     void recordGoldenFix(Map result) {
         projectsGoldenFix[currentProjectName] = new HashMap(result ?: [:])
+    }
+
+    @NonCPS
+    void settle(List stages, List scanners) {
+        List stageGroups = []
+        for (def name : stages) stageGroups << [name]
+        for (Map map : [stageResults, stageErrors, stageTimes]) reorder(map, ownedLast(map.keySet(), stageGroups))
+        for (Map map : [projectsVulnCounts, projectsScanResults]) {
+            for (def value : map.values()) {
+                if (value instanceof Map) reorder(value as Map, ownedLast((value as Map).keySet(), scanners))
+            }
+        }
+    }
+
+    @NonCPS
+    private static List ownedLast(Collection keys, List groups) {
+        List result = []
+        for (def k : keys) {
+            if (!owns(k, groups)) result << k
+        }
+        for (def group : groups) {
+            for (def k : keys) {
+                if (!result.contains(k) && owns(k, [group])) result << k
+            }
+        }
+        return result
+    }
+
+    @NonCPS
+    private static boolean owns(def key, List groups) {
+        for (def group : groups) {
+            for (def prefix : (group as List)) {
+                if (key == prefix || (key as String).startsWith("${prefix}_".toString())) return true
+            }
+        }
+        return false
+    }
+
+    @NonCPS
+    private static void reorder(Map map, List keys) {
+        Map copy = [:]
+        copy.putAll(map)
+        map.clear()
+        for (def k : keys) map.put(k, copy.get(k))
     }
 }

@@ -9,6 +9,16 @@ class BuildUtils implements Serializable {
         return 'pipeline-config.yaml'
     }
 
+    @NonCPS
+    static List<String> repositoryConfigFiles() {
+        return ['devsecops_config.yaml', 'config.yaml']
+    }
+
+    @NonCPS
+    static String defaultsResource() {
+        return 'com/bbh/devsecops/defaults.yaml'
+    }
+
     static def execSh(def steps, String cmd, String label, boolean returnStdout) {
         String script = """
             #!/usr/bin/env bash
@@ -87,6 +97,33 @@ class BuildUtils implements Serializable {
         }
 
         return value.toString().toBoolean()
+    }
+
+    @NonCPS
+    static boolean parallelStaticAnalysis(Map projectsAllCfg, def forced) {
+        if (!projectsAllCfg) return false
+        String wanted = ((forced ?: '') as String).trim()
+        if (wanted) return booleanValue(wanted, false)
+        for (def cfg : projectsAllCfg.values()) {
+            def analysis = ((cfg ?: [:]) as Map).staticAnalysis
+            if (!(analysis instanceof Map) || !booleanValue((analysis as Map).get('parallel'), false)) return false
+        }
+        return true
+    }
+
+    @NonCPS
+    static List sastCompileOverrides(Map projectsAllCfg) {
+        List names = []
+        for (def entry : (projectsAllCfg ?: [:]).entrySet()) {
+            Map cfg = (entry.value ?: [:]) as Map
+            Map asoc = (cfg.asoc ?: [:]) as Map
+            Map build = (cfg.build ?: [:]) as Map
+            if (!booleanValue(asoc.doCompile, true)) continue
+            for (String tool : ['gradle', 'maven']) {
+                if (asoc.get(tool) && asoc.get(tool) != build.get(tool) && !names.contains(entry.key)) names << (entry.key as String)
+            }
+        }
+        return names
     }
 
     @NonCPS

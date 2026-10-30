@@ -121,6 +121,7 @@ appHarness.run {
             ['renameDastReport', { appscan.renameDastReport() }],
             ['renameSastReport', { appscan.renameSastReport() }],
             ['queueSast', { appscan.queueSast([appId: 'APP-ID']) }],
+            ['removeStagedSources', { appscan.removeStagedSources() }],
             ['waitSast', { appscan.waitSast() }],
             ['downloadSastReports', { appscan.downloadSastReports() }]
     ].each { List step ->
@@ -1526,6 +1527,14 @@ Closure runScenario = { Map spec ->
         String text = String.valueOf(a.script ?: '')
         String project = state?.currentProjectName
         Map d = data[project] ?: data.gui
+        if (String.valueOf(a.label ?: '') == 'Coverage: find and read the reports') {
+            int c = d.coverage.covered as int
+            int m = d.coverage.missed as int
+            int cc = c.intdiv(3)
+            int cm = m.intdiv(3)
+            String path = state?.cfg?.buildTool == 'maven' ? 'target/site/jacoco/jacoco.xml' : 'build/reports/jacoco/test/jacocoTestReport.xml'
+            return "S\t0\nR\tjacoco\t${path}\t${c}\t${c + m}\t\t\nC\tPackage: com.bbh.certscanner, Class: CertificateService, Coverage: ${Math.round(cc * 1000.0 / Math.max(cc + cm, 1)) / 10.0}, Missed: ${cm}, Covered: ${cc}"
+        }
         if (text.contains("findall('package')")) {
             int c = (d.coverage.covered as int).intdiv(3)
             int m = (d.coverage.missed as int).intdiv(3)

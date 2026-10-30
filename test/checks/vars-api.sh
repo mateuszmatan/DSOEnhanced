@@ -40,7 +40,7 @@ if re.search(r'\bdevSecOpsApi\b', steps_code):
 
 monitor = 'Monitor source changes (download sources)'
 node = 'Node.js build'
-security = [monitor, node, 'Unit tests', 'Dependencies scan (Nexus IQ)',
+security = [monitor, node, 'Unit tests', 'Static analysis', 'Dependencies scan (Nexus IQ)',
             'SAST - Static Application Security Tests - HCL AppScan', 'SCA (SonarQube)',
             'Nexus delivery (Static analysis passed)']
 extended = [monitor, 'Lower test region deployment', 'Regression tests (>60% user stories coverage)',
