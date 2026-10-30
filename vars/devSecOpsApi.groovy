@@ -62,12 +62,10 @@ private void _setup() {
 def configure(String variant, Map config) {
     _setup()
     _variant = variant ?: 'full'
-    Map pipeline = _config.load(_variant, config ?: [:])
+    _config.load(_variant, config ?: [:])
     _pipelineConfig = [:]
     _pipelineConfig.putAll(config ?: [:])
-    _pipelineConfig.projectNames     = env.PROJECT_NAMES
-    _pipelineConfig.agentNames       = pipeline.agentNames
-    _pipelineConfig.securityPipeline = pipeline.securityPipeline
+    _pipelineConfig.projectNames = env.PROJECT_NAMES
 }
 
 def pipelineConfig() { _setup(); return _pipelineConfig }
@@ -79,14 +77,14 @@ private HtmlReportService reportService() {
 }
 
 private void applyToolEnvironment() {
-    Map portal = (_state.platform?.environment ?: [:]) as Map
-    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: (portal.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip') as String
-    env.SA_WIN_URL         = env.SA_WIN_URL         ?: (portal.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip') as String
-    env.PROXY_HOST         = env.PROXY_HOST         ?: (portal.PROXY_HOST         ?: 'tstproxy.bbh.com') as String
-    env.PROXY_PORT         = env.PROXY_PORT         ?: (portal.PROXY_PORT         ?: '9090') as String
-    env.PROXY_USER         = env.PROXY_USER         ?: (portal.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
-    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (portal.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
-    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (portal.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
+    Map platform = (_state.platform?.environment ?: [:]) as Map
+    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: (platform.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip') as String
+    env.SA_WIN_URL         = env.SA_WIN_URL         ?: (platform.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip') as String
+    env.PROXY_HOST         = env.PROXY_HOST         ?: (platform.PROXY_HOST         ?: 'tstproxy.bbh.com') as String
+    env.PROXY_PORT         = env.PROXY_PORT         ?: (platform.PROXY_PORT         ?: '9090') as String
+    env.PROXY_USER         = env.PROXY_USER         ?: (platform.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
+    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (platform.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
+    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (platform.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
     env.APPSCAN_TOOLS_DIR  = env.APPSCAN_TOOLS_DIR  ?: "${env.WORKSPACE}/.appscan-tools"
     env.APPSCAN_LOG_DIR    = env.APPSCAN_LOG_DIR    ?: "${env.WORKSPACE}/.appscan-logs"
     env.APPSCAN_HOME_DIR   = env.APPSCAN_HOME_DIR   ?: "${env.WORKSPACE}/.appscan-home"
@@ -95,11 +93,11 @@ private void applyToolEnvironment() {
 
 def initialize() {
     _setup()
-    applyToolEnvironment()
     _os.detect()
     env.OS_TYPE = _os.getType()
     _os.chmodX('gradlew')
     _config.initialize()
+    applyToolEnvironment()
 }
 
 def setupJavaVersion(String javaHome = '/usr/lib/jvm/java-17-openjdk-17.0.19.0.10-2.el9.x86_64') {
