@@ -987,13 +987,15 @@ check('GoldenFix catalogs: one row for a property raised in both rounds keeps ev
                 ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0 [maven:com.fasterxml.jackson.core:jackson-databind, maven:com.fasterxml.jackson.core:jackson-core] ' +
                  'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'] && !gfOf(keysRun, 'svc-a').unresolved,
         "${keysRun.errors} ${gfOf(keysRun, 'svc-a').changes} ${reasonsOf(keysRun, 'svc-a')}")
-Map alignedRetry = catalogRun([
+Map<String, String> alignedPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
                          '<version>2.17.0</version></dependency></dependencies></dependencyManagement></project>',
         'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId><dependencies>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.13.4</version></dependency></dependencies></project>'
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2']]]]], [verify: true, fails: { Map w -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
+]
+Map alignedRetry = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2']]]]],
+        [verify: true, fails: { Map w -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
 check('GoldenFix pre-check: when the build fails with the catalog version, it is tried again with the Nexus IQ version before a lower one, and the log names the versions built',
         alignedRetry.errors.isEmpty() && gfOf(alignedRetry, 'svc-a').status == 'PR_CREATED'
                 && ((alignedRetry.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.5</version>')
@@ -1001,9 +1003,15 @@ check('GoldenFix pre-check: when the build fails with the catalog version, it is
                 && (alignedRetry.log as List).findAll { it.contains('Pre-check build') } == [
                 '[GOLDENFIX] Pre-check build 1 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.17.0',
                 '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions',
-                '[GOLDENFIX] Pre-check build 2 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5',
+                '[GOLDENFIX] Pre-check build 2 of 4 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5',
                 '[GOLDENFIX] Pre-check build passed (maven) with com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5'],
         "${alignedRetry.errors} ${gfOf(alignedRetry, 'svc-a').status} ${gfOf(alignedRetry, 'svc-a').message} ${alignedRetry.log}")
+Map retryBudget = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2', '2.13.4.1']]]]],
+        [verify: true, fails: { Map w -> !(w['svc-a/pom.xml'] ?: '').contains('<version>2.13.4.1</version>') }])
+check('GoldenFix pre-check: the build with the Nexus IQ version instead of the catalog version does not use up an attempt at a lower version',
+        retryBudget.errors.isEmpty() && gfOf(retryBudget, 'svc-a').status == 'PR_CREATED'
+                && ((retryBudget.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.4.1</version>'),
+        "${retryBudget.errors} ${gfOf(retryBudget, 'svc-a').status} ${gfOf(retryBudget, 'svc-a').message}")
 
 Map unrelatedRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",

@@ -218,6 +218,7 @@ class GoldenFixService implements DependencyRemediation {
             if (align && applied.alignedUp) {
                 script.echo '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions'
                 align = false
+                maxAttempts++
                 repository.revert(dir)
                 applied = applyFixes(dir, current, cfg, false)
                 continue
