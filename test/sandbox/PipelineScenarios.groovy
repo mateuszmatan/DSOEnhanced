@@ -99,8 +99,11 @@ Closure runPipeline = { Map spec ->
         Map gate = [job: securityJob, build: '213', allowed: !spec.upstreamViolations, violations: spec.upstreamViolations ?: []]
         j.upstream[securityJob] = ['pipeline-config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
     }
-    List<String> keys = PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map,
-            spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:])
+    Map upstreamJob = spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:]
+    Map jenkinsfile = spec.keyless ?
+            [agentNames: ['linux-agent', 'windows-agent']] + (spec.autoDetect ? [:] : [projectNames: (projects.projects as Map).keySet().join(',')]) + upstreamJob :
+            [pipelineKeys: PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map, upstreamJob)]
+    if (spec.keyless) j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
     Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
     j.env.vars.putAll([
@@ -109,9 +112,8 @@ Closure runPipeline = { Map spec ->
             BUILD_NUMBER: String.valueOf(spec.buildNumber),
             BUILD_ID    : String.valueOf(spec.buildNumber),
             GIT_BRANCH  : 'origin/develop',
-            PATH        : '/usr/bin',
-            DSO_PORTAL_URL: PortalFixtures.PORTAL_URL
-    ])
+            PATH        : '/usr/bin'
+    ] + (spec.keyless ? [:] : [DSO_PORTAL_URL: PortalFixtures.PORTAL_URL]))
     j.params.putAll((spec.params ?: [:]) as Map)
     j.missingCredentials.addAll((spec.missingCredentials ?: []) as List)
     j.resourcesDir = new File(root, 'resources')
@@ -124,6 +126,7 @@ Closure runPipeline = { Map spec ->
     j.files['target/certscanner-api.jar'] = 'jar'
     j.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/bin/appscan.sh'
     j.files['.appscan-logs/proxy.pass'] = 'proxy-secret'
+    ((spec.files ?: [:]) as Map).each { name, text -> j.files[name as String] = text == null ? yaml.dump(projects) : text as String }
     j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
     List<String> goldenFixCalls = []
     Map<String, String> manifests = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG : GoldenFixResponder.MANIFESTS
@@ -199,7 +202,7 @@ Closure runPipeline = { Map spec ->
     FakeCpsScript pipelineVar = globals[spec.var as String] as FakeCpsScript
     String crash = ''
     try {
-        harness.run { pipelineVar.call([pipelineKeys: keys]) }
+        harness.run { pipelineVar.call(jenkinsfile) }
     } catch (Throwable t) {
         crash = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
@@ -241,10 +244,14 @@ List<Map> baseRules = [
         rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
                 /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF')
 ]
+Map bootstrapRule = rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
+        /(?ms)\A== calls\n.*?^(?=agent )/, '== calls\n')
+Map portalLogRule = rule('the portal read logs one [PORTAL] line per key (L2)', /(?m)^\[PORTAL\].*\n/, '')
+Map headerRule = rule('the report header names the portal keys with renderedAt and sha256 (accepted difference 1)',
+        /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: [^\n]*?<\/div>/, '')
 List<Map> portalRules = [
-        rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
-                /(?ms)\A== calls\n.*?^(?=agent )/, '== calls\n'),
-        rule('the portal read logs one [PORTAL] line per key (L2)', /(?m)^\[PORTAL\].*\n/, ''),
+        bootstrapRule,
+        portalLogRule,
         rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
                 /(?m)(^sh \[Read the commit under test\].*\n)writeYaml pipeline-config\.yaml\n/, '$1'),
         rule('the run-state file is pipeline-config.yaml instead of config.yaml (accepted difference 3)',
@@ -252,9 +259,16 @@ List<Map> portalRules = [
         rule('build_evidence is a new InfluxDB measurement (L10)', /(?m)^build_evidence,.*\n/, ''),
         rule('the unit test counts are a new test_execution point with suite=unit (L10)', /(?m)^test_execution,[^ ]*,suite=unit .*\n/, ''),
         rule('the logged number of InfluxDB lines counts those new points (L10)', /(?m)^\[INFLUX\] \d+ metric line/, '[INFLUX] <n> metric line'),
-        rule('the report header names the portal keys with renderedAt and sha256 (accepted difference 1)',
-                /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: [^\n]*?<\/div>/, '')
+        headerRule
 ]
+List<Map> keylessMarks = [
+        rule('a run without a key names its settings file in the report header (M25)',
+                /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: [^\n]*?<\/div>/, ''),
+        rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, '')
+]
+List<Map> keylessRules = [bootstrapRule, portalLogRule,
+                          rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
+                          headerRule] + keylessMarks
 
 Closure normalise = { String text, List<Map> rules ->
     String out = text
@@ -298,7 +312,8 @@ List<Map> specs = [
          upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'],
+         files: ['devsecops_config.yaml': 'projects: [', 'config.yaml': 'projects: [']],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
          params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [NODE, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
@@ -309,7 +324,8 @@ List<Map> specs = [
          result: 'FAILURE', post: ['always', 'failure'], failedStage: SAST]
 ]
 
-specs.each { Map spec ->
+List<String> repositoryFiles = ['devsecops_config.yaml', 'config.yaml']
+Closure verify = { Map spec ->
     Map r = runPipeline(spec)
     FakeScript j = r.j as FakeScript
     FakeCpsScript var = r.var as FakeCpsScript
@@ -364,6 +380,9 @@ specs.each { Map spec ->
                 'the report does not use the required coverage from the portal defaults')
     }
     if (spec.var == 'devSecOpsSecurityPipeline') {
+        String description = "Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in ${spec.keyless ? 'devsecops_config.yaml or config.yaml' : 'the DevSecOps portal'}"
+        check("${name}: the RUN_EXTENDED_PIPELINE parameter says where jenkins.pipeline.extendedPipeline is set",
+                var.parameterDescriptions.RUN_EXTENDED_PIPELINE == description, var.parameterDescriptions.RUN_EXTENDED_PIPELINE)
         boolean triggered = j.calls.contains('build DevSecOps/CertScanner-extended-pipeline (no wait)')
         if ((spec.params as Map).RUN_EXTENDED_PIPELINE) {
             check("${name}: the extended pipeline is started without waiting", triggered, j.calls.findAll { it.startsWith('build ') })
@@ -454,12 +473,32 @@ specs.each { Map spec ->
         check("${name}: failing unit tests keep the pipeline going with an orange stage", html.contains('Unit tests failed (script returned exit code 1)'),
                 'unit test failure not reported')
     }
+    Map files = (spec.files ?: [:]) as Map
+    List<String> probed = j.probes.findAll { it.tokenize(' ').last() in repositoryFiles }
+    if (files && !spec.keyless) {
+        check("${name}: a run with a key never looks at devsecops_config.yaml or config.yaml, even when both are in the workspace", !probed, probed)
+    }
+    if (spec.keyless) {
+        String file = files.containsKey(repositoryFiles[0]) ? repositoryFiles[0] : repositoryFiles[1]
+        List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
+        check("${name}: the portal is not read and the console says which file was read${files.size() > 1 ? ' and which was not' : ''}",
+                !j.calls.any { it.contains('/api/dso/config/') || it.contains('DSO_PORTAL_KEYS') }
+                        && log.contains("[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
+                        && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
+                        && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()]),
+                log.findAll { it.startsWith('[INIT] No pipeline key') || it.contains('are both in the repository') } + probed)
+        check("${name}: the report header and every build_evidence line name ${file}",
+                html.contains("<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${file} in the repository</div>".toString())
+                        && evidence && evidence.every { it.contains(",config_file=\"${file}\"".toString()) },
+                evidence)
+    }
     List unhandled = j.unhandled.unique()
     if (unhandled) println "      note: steps not emulated by the fake Jenkins: ${unhandled}"
-    String slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/, '-')
+    Closure slugOf = { String text -> text.toLowerCase().replaceAll(/[^a-z0-9]+/, '-') }
     Map baseline = baselines[spec.baseline ?: 'b815d55'] as Map
+    List<Map> rules = (spec.keyless ? (spec.baseline ? keylessRules : portalRules + keylessMarks) : baseline.rules) as List<Map>
     String actual = normalise(goldenView(r), baseRules)
-    File golden = new File(goldenDir, "${slug}.txt")
+    File golden = new File(goldenDir, "${slugOf((spec.golden ?: name) as String)}.txt")
     if (!golden.exists() && System.getenv('RECORD_GOLDEN') == '1') {
         golden.parentFile.mkdirs()
         golden.text = actual
@@ -469,12 +508,40 @@ specs.each { Map spec ->
         check("${name}: a golden output recorded ${baseline.recorded} exists", false, "${golden} is missing; ${baseline.record}")
         return
     }
-    boolean same = normalise(golden.text, baseline.rules as List<Map>) == normalise(actual, baseline.rules as List<Map>)
-    File diffFile = new File(goldenDir, "${slug}.actual.txt")
+    boolean same = normalise(golden.text, rules) == normalise(actual, rules)
+    File diffFile = new File(goldenDir, "${slugOf(name)}.actual.txt")
     if (same) diffFile.delete() else diffFile.text = actual
     check("${name}: the run matches the golden output recorded ${baseline.recorded}", same,
             "compare ${golden} with ${diffFile}")
 }
+specs.each(verify)
+
+String readByMistake = 'projects:\n  gui:\n    appId: read-config-yaml-by-mistake\n'
+[[from: 'full pipeline, orange', files: ['devsecops_config.yaml': null]],
+ [from: 'full pipeline, green', files: ['devsecops_config.yaml': null, 'config.yaml': readByMistake], autoDetect: true],
+ [from: 'security pipeline, orange', files: ['config.yaml': null]],
+ [from: 'extended pipeline, orange', files: ['devsecops_config.yaml': null]],
+ [from: 'SAST pipeline, green', files: ['config.yaml': null]],
+ [from: 'Nexus IQ GoldenFix pipeline, orange', files: ['devsecops_config.yaml': null]]
+].each { Map k ->
+    Map base = specs.find { it.name == k.from } as Map
+    verify(base + k + [keyless: true, golden: k.from, name: "${k.from}, without a key (${(k.files as Map).keySet().join(' and ')})".toString()])
+}
+
+Map noFile = runPipeline([name: 'full pipeline without a key and without a file', var: 'devSecOpsPipeline', keyless: true, fail: false,
+                          job: 'CertScanner-devsecops-pipeline', buildNumber: 345, params: [DEPLOY_HIGHER_ENV: true]])
+FakeCpsScript noFileVar = noFile.var as FakeCpsScript
+FakeScript noFileJenkins = noFile.j as FakeScript
+String noFileHtml = noFile.html as String
+String neitherFile = "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
+        "commit devsecops_config.yaml, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
+        "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())"
+check('full pipeline without a key and without a file: the Monitor stage fails with the message that names both files, the report and the release gate are still written, and the portal is not read',
+        !noFile.crash && noFileVar.stageFailures.size() == 1 && noFileVar.stageFailures[0].startsWith("${MONITOR}: ".toString()) && noFileVar.stageFailures[0].contains(neitherFile)
+                && noFileJenkins.currentBuild.currentResult == 'FAILURE' && noFileVar.postConditions.contains('always')
+                && noFileHtml.contains('<h2>Pipeline Stages</h2>') && noFileHtml.contains('No pipeline key: settings from devsecops_config.yaml or config.yaml in the repository</div>')
+                && noFileJenkins.jsonFiles.containsKey('release-gate.json') && !noFileJenkins.calls.any { it.contains('/api/dso/config/') },
+        [noFile.crash] + noFileVar.stageFailures + [noFileJenkins.currentBuild.currentResult])
 
 Closure focused = { Map spec ->
     Map r = runPipeline([var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec)

@@ -116,6 +116,7 @@ class FakeOpenShiftSelector implements Serializable {
 class FakeScript extends GroovyObjectSupport implements Serializable {
     FakeEnv env = new FakeEnv()
     List<String> calls = []
+    List<String> probes = []
     Map params = [:]
     FakeBuild currentBuild = new FakeBuild()
     Map scm = [:]
@@ -190,7 +191,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         return groovy.json.JsonOutput.toJson([type: 'about:blank', title: title, status: status, detail: detail, instance: "/api/dso/config/${key}".toString()])
     }
     boolean isUnix() { unix }
-    boolean fileExists(Object path) { files.containsKey(norm(path)) }
+    boolean fileExists(Object path) {
+        probes << "fileExists ${norm(path)}".toString()
+        return files.containsKey(norm(path))
+    }
     String readFile(Object arg) {
         String path = norm(arg instanceof Map ? ((Map) arg).file : arg)
         if (!files.containsKey(path)) {
@@ -214,6 +218,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     Object readYaml(Map args) {
         if (args.text != null) return new org.yaml.snakeyaml.Yaml().load(String.valueOf(args.text))
+        probes << "readYaml ${args.file}".toString()
         String path = norm(args.file)
         if (!files.containsKey(path)) throw new FileNotFoundException(path)
         return new org.yaml.snakeyaml.Yaml().load(files.get(path))
