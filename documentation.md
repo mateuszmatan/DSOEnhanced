@@ -70,6 +70,8 @@ The library executes the following pipeline automatically when you call `devSecO
 
 The Node.js build runs after stage 1 and before stage 2. The report numbers it 0, so every other stage keeps its number whether a run has a Node.js build or not.
 
+The full and security pipelines declare one more Jenkins stage, **Static analysis**. When the Global Settings checkbox **Run Nexus IQ and SonarQube while AppScan scans** (`staticAnalysis.parallel`) is ticked, it runs stages 3, 4 and 5: SAST sends every service to AppScan first, Nexus IQ and SonarQube run while AppScan scans, and SAST reads the results last. Jenkins then shows the three stages as skipped; otherwise it shows **Static analysis** as skipped. The report, the metrics and the release gate always show stages 3, 4 and 5 with their numbers.
+
 ### Which pipeline to use
 
 The library ships five entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in `vars/devSecOpsSteps.groovy`. Each stage method takes the `devSecOpsApi` instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build](#20-programmatic-api-reference).
@@ -198,6 +200,8 @@ Every stage runs on every build. A stage that breaks the policy is marked **oran
 | Code quality | SonarQube | Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report |
 
 The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
+
+- When the Global Settings say so, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 
 ### Code quality and coverage
 
@@ -361,7 +365,7 @@ devSecOpsPipeline(
 3. `projectNames` names the services to build, the primary project first. Without it the library builds the services of the `PROJECT_NAMES` or `PROJECT_NAME` environment variable or, without those, every service of the file in the order of the file. The product download holds every service of the product, so a repository with fewer services must name them.
 4. `securityPipeline` names the security job whose `pipeline-config.yaml` and `release-gate.json` an extended pipeline copies. As before the portal, it also hides the Nexus IQ and SonarQube summary rows of the report.
 5. In the Monitor stage, after the checkout, the library reads `devsecops_config.yaml` at the root of the workspace or, when there is none, `config.yaml`, the name the file had before the portal. When both are there it reads `devsecops_config.yaml` and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds `Config.yaml`, a Linux agent does not.
-6. Only the `projects:` part of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the library (`resources/com/bbh/devsecops/defaults.yaml`), which the DevSecOps team keeps equal to the Global Settings of the portal; a change there reaches a Jenkinsfile without a key with the next library version. A `defaults:`, `platform:` or `pipeline:` part of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses and the iOS build agent are the values of the agent environment or the library's own.
+6. Only the `projects:` part of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the library (`resources/com/bbh/devsecops/defaults.yaml`), which the DevSecOps team keeps equal to the Global Settings of the portal; a change there reaches a Jenkinsfile without a key with the next library version. A Jenkinsfile without a key therefore keeps Nexus IQ, SAST and SonarQube one after another unless the bundled defaults set `staticAnalysis.parallel: true`, every service of the file sets it, or `DSO_STATIC_ANALYSIS_PARALLEL` is `true` ([the stage reference](#16-pipeline-stage-reference)). A `defaults:`, `platform:` or `pipeline:` part of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses and the iOS build agent are the values of the agent environment or the library's own.
 7. The services of the run are merged with the global defaults exactly as before the portal and written to `pipeline-config.yaml`, as with a key. Every message that says where a setting lives names the file that was read.
 8. The portal is not involved: no `DSO_PORTAL_URL`, no read before `pipeline {}`. The report header says "No pipeline key: settings from devsecops_config.yaml in the repository", and `build_evidence` carries `config_file` instead of the key's `config_rendered_at` and `config_sha256`. The settings follow the branch and the commit.
 9. The product page downloads the file: "Settings sent to Jenkins (devsecops_config.yaml)", then Download. It holds every service of the product with the BBH defaults filled in, in the layout of the former `config.yaml`. A second download in the same browser may be saved as `devsecops_config (1).yaml`: rename it to exactly `devsecops_config.yaml`. A security job that should start its extended job needs `jenkins.pipeline.extendedPipeline` under its service, which the product download leaves out because the portal keeps it with the security pipeline.
@@ -720,7 +724,7 @@ Select **Build Now**. The first run registers the build parameters and may stop 
 
 On the build page choose **Pipeline Report** in the left menu.
 
-1. **Read the colours.** Green means the stage met the policy. **Orange** means it ran but broke a rule — the build is unstable and the release is blocked, but the pipeline carried on so you can see every problem at once. Red means the stage failed and the pipeline stopped there.
+1. **Read the colours.** Green means the stage met the policy. **Orange** means it ran but broke a rule — the build is unstable and the release is blocked, but the pipeline carried on so you can see every problem at once. Red means the stage failed and the pipeline stopped there. In the **Static analysis** stage, the report shows which of stages 3 to 5 failed; Nexus IQ and SonarQube have already run when the SAST results fail.
 2. **Read the reasons.** Each orange or red stage carries its reason underneath, naming the counts and the consequence.
 3. **Check the Release policy card.** It lists every reason the release and the higher environment deployment are blocked. When it is empty, your application is releasable.
 
@@ -734,7 +738,7 @@ On the build page choose **Pipeline Report** in the left menu.
 
 A single Jenkins job executing the complete delivery flow: build, unit testing, all three security controls, code quality analysis, artifact publication, deployment to two environments, functional and performance testing, and dynamic security testing. Select this entry point where a single job covering the entire flow is acceptable and the resulting execution time is acceptable to the team.
 
-**Thirteen stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment.
+**Thirteen stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares one more, **Static analysis**, which runs stages 3 to 5 together when the Global Settings say so ([the stage reference](#16-pipeline-stage-reference)).
 
 ### Jenkinsfile
 
@@ -852,7 +856,7 @@ The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend`
 
 The first half of the delivery flow, intended for execution on **every commit**. It requires no deployed environment and returns a security verdict within a short execution time. It is operated together with the entry point described in the following chapter, which executes the remaining stages on demand.
 
-**Six stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with `build.node.enabled: true` adds the Node.js build before the unit tests, as in the full pipeline.
+**Six stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with `build.node.enabled: true` adds the Node.js build before the unit tests, as in the full pipeline. Jenkins declares one more, **Static analysis**, which runs stages 3 to 5 together when the Global Settings say so ([the stage reference](#16-pipeline-stage-reference)).
 
 It also archives `pipeline-config.yaml`, which holds the build tags of its snapshot stage, and the release decision so the extended pipeline can pick them up, and can start the extended job automatically.
 
@@ -1423,6 +1427,15 @@ The Global Settings of the portal may hold three Library defaults of the Node.js
 
 `goldenFix.versionCatalogs` is a setting of the service only. It is not a Global Settings value and it does not depend on whether the service inherits or overrides the GoldenFix rules of the Global Settings.
 
+### Nexus IQ and SonarQube while AppScan scans
+
+The Global Settings checkbox **Run Nexus IQ and SonarQube while AppScan scans** is rendered as `defaults.staticAnalysis.parallel` and merged under every service. With `true` the full and security pipelines run their three static scans in the **Static analysis** stage: SAST queues the scan of every service first, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last ([the stage reference](#16-pipeline-stage-reference)). The SAST, Nexus IQ GoldenFix and extended pipelines are not affected.
+
+- An absent key means one after another, as before, so nothing changes until the portal, a service or the environment turns it on.
+- A service may set `staticAnalysis.parallel: false` for itself. One service with `false` or without the key keeps the whole run one after another.
+- The environment variable `DSO_STATIC_ANALYSIS_PARALLEL` of a Jenkins folder, job or agent decides first: `true` or `false`, whatever the settings say.
+- On a Linux or macOS agent, a service whose SAST compile is not its build command (`asoc.gradle` or `asoc.maven` differs from `build.gradle` or `build.maven`, and `asoc.doCompile` is not `false`) keeps the run one after another, also when the environment variable is `true`, because Nexus IQ must evaluate only files the build command built. The whole block is compared, so other flags, environment variables or folders count too. The console names those services: "\[STATIC\] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another". On Windows the IRX step compiles nothing, so the rule does not apply there.
+
 ### Which fields are required
 
 | Field | Required | Notes |
@@ -1537,6 +1550,38 @@ A compilation error of the artifact build is a real failure and stops the pipeli
 The Nexus IQ GoldenFix pipeline runs a **Build artifact** stage in place of the unit tests: it builds every project with the command of the `build` section, so that Nexus IQ evaluates what was built, and runs no unit test command and no coverage check. A build command that runs the tests, such as Gradle `build` or Maven `verify`, still runs them, and a build error or a failing test stops that pipeline in the same way.
 
 Both stages run after the Node.js build, in the same workspace, so the Gradle or Maven build can package the output of the frontend.
+
+### Stages 3 to 5 in one stage: Static analysis
+
+When `staticAnalysis.parallel` is on ([the configuration reference](#15-configuration-reference-the-devsecops-portal)), the full and security pipelines run stages 3, 4 and 5 in the Jenkins stage **Static analysis** and show the three stages as skipped; otherwise they run the three stages and show **Static analysis** as skipped. The stage runs these steps one after another:
+
+1. The SAST preparation of stage 4: the AppScan client, then for every service the login, the compile, the IRX archive, the upload and the queued scan.
+2. The removal of the SAST staging copy.
+3. Stage 3, Nexus IQ, with GoldenFix.
+4. Stage 5, SonarQube.
+5. The SAST results of stage 4: for every service the wait for the scan, the download of the report and the policy.
+
+AppScan scans in its cloud while Nexus IQ and SonarQube run, so the three scans take the SAST preparation plus the longer of the AppScan scan and Nexus IQ with SonarQube, instead of the sum of all four. Each scanner runs the same steps as one after another, and the console starts the stage with "\[STATIC\] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last". The report, the InfluxDB lines and `release-gate.json` list the stages, the services and the findings in the order of stages 3, 4 and 5, with the same results as one after another.
+
+| Where it fails | What happens |
+|---|---|
+| SAST before every scan is queued: the client, the login, the compile, the IRX archive, the upload, the queue or the removal | SAST is red and the console says "\[STATIC\] SAST stopped while it prepared its scans: Nexus IQ and SonarQube do not run in this build". Nexus IQ and GoldenFix do not run, because the workspace may be half built: the report shows Nexus IQ as SKIP and SonarQube as blocked, and the release gate lists the SAST failure as one after another |
+| Nexus IQ or SonarQube stops with an error | That stage is red, as one after another; the steps after it do not run and SAST has no result |
+| The SAST results: a failed or timed-out scan, the download or the policy | SAST is red; Nexus IQ and SonarQube keep their results, where one after another SonarQube would be blocked |
+| An abort | The running step stops, as one after another |
+
+In every case **Static analysis** is red, the later stages are skipped, and the report and the release gate are still written.
+
+The new order changes what the scanners see in the workspace:
+
+- The SAST staging copy `appscan-source-staged` (Windows: `sast_directory`) is removed once every scan is queued, so Nexus IQ does not count the jars in it a second time and SonarQube does not see it.
+- The AppScan client is unpacked in `appscan-tools` under `WORKSPACE_TMP` (else `<workspace>@tmp`), where GoldenFix keeps its worktrees, unless the job sets `APPSCAN_TOOLS_DIR`. It stays there between builds, and the next build replaces it.
+- The IRX archives, `.appscan-logs`, `.appscan-home`, `.appscan-bin` and `DevSecOpsJenkinsLibrary/` are in the workspace while Nexus IQ and SonarQube run; only broad scan patterns such as `**/*` match them.
+- The SAST reports `appscan-report-*.html` are written after SonarQube.
+- Nexus IQ evaluates the jars that the SAST compile built with the build command of the service.
+- The SAST status poll starts after SonarQube and reuses the AppScan login of the preparation; its timeout counts from then.
+
+Restart from Stage at **Static analysis** fails as a restart at stage 3, 4 or 5 does: the Monitor stage is skipped, so no service is loaded.
 
 ### Stage 3: Dependencies scan (Nexus IQ)
 
@@ -1658,6 +1703,8 @@ After a Node.js build in the same run, the folders that an IRX archive leaves ou
 - With `asoc.useAppScanConfig: true` the `appscan-config.xml` of the repository decides what is scanned, and the excluded folders do not apply.
 - The output of the frontend build, such as the minified bundles in `dist`, is scanned like any other file.
 
+In the **Static analysis** stage the staging copy `appscan-source-staged` (Windows: `sast_directory`) is removed once every scan is queued, and the AppScan client is unpacked under `WORKSPACE_TMP`, so Nexus IQ and SonarQube do not see them.
+
 ### Stage 5: SCA (SonarQube)
 
 Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the Global Settings in the DevSecOps portal (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
@@ -1727,6 +1774,7 @@ All thresholds are Global Settings of the DevSecOps portal, which only the DevSe
 | SAST IRX generation | prepareTimeoutMin | 120 min | no |
 | SAST result polling | pollTimeoutMin / pollIntervalSec | 50 min / 30 s | no |
 | DAST result polling | pollTimeoutMin / pollIntervalSec | 60 min / 60 s | no |
+| Static scan order | staticAnalysis.parallel | one after another; the portal default runs Nexus IQ and SonarQube while AppScan scans | yes: false in any project of the run keeps one after another |
 
 The required coverage is shown in the report exactly as configured in the Global Settings, so raising or lowering it there immediately changes the value the report checks against and displays.
 
@@ -1842,7 +1890,7 @@ That is why the stage methods take the instance as an argument instead of readin
 
 The rule to follow when adding a stage or an entry point: the entry point resolves `devSecOpsApi` once and hands it to `devSecOpsSteps`, and nothing under `vars/` other than the entry points reads the global. `test/checks/vars-api.sh` fails the build when that rule is broken, and the pipeline scenarios in `test/sandbox/PipelineScenarios.groovy` resolve globals the way Jenkins does, so a second instance shows up there as a report full of grey boxes.
 
-If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use `devSecOpsApi`, the global variable that holds the services and every helper method. The five entry points are thin declarative skeletons built on top of it and on `devSecOpsSteps`, which carries one method per stage. `devSecOpsSteps` holds no state of its own: every one of its methods takes the `devSecOpsApi` instance to work with, so a custom pipeline calls `devSecOpsSteps.sast(devSecOpsApi)`, never `devSecOpsSteps.sast()`.
+If the standard pipeline does not fit your project structure, you can call individual library methods from a custom Jenkinsfile. Import the library and use `devSecOpsApi`, the global variable that holds the services and every helper method. The five entry points are thin declarative skeletons built on top of it and on `devSecOpsSteps`, which carries one method per stage. `devSecOpsSteps` holds no state of its own: every one of its methods takes the `devSecOpsApi` instance to work with, so a custom pipeline calls `devSecOpsSteps.sast(devSecOpsApi)`, never `devSecOpsSteps.sast()`. A custom Jenkinsfile can call `devSecOpsSteps.staticAnalysis(devSecOpsApi)` in one stage instead of the three scan calls; it follows the same switch.
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
@@ -1859,7 +1907,6 @@ pipeline {
         PROXY_USER         = 'PROXY_ASOCJenk'
         APPSCAN_HOST       = 'bbh.cloud.appscan.com'
         APPSCAN_SERVER_URL = 'https://bbh.cloud.appscan.com'
-        APPSCAN_TOOLS_DIR  = "${WORKSPACE}/.appscan-tools"
         APPSCAN_LOG_DIR    = "${WORKSPACE}/.appscan-logs"
         APPSCAN_HOME_DIR   = "${WORKSPACE}/.appscan-home"
         APPSCAN_BIN_DIR    = "${WORKSPACE}/.appscan-bin"
@@ -1995,7 +2042,7 @@ Every run writes one batch of InfluxDB line protocol from `post { always }`, so 
 
 The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working. The `line_pct` of `test_coverage` and `code_coverage` is the mean of the reports of the run and of the module, which is the value written before when there is one report; their `covered`, `missed` and `total` are the sums over the same reports.
 
-A run with a Node.js build writes its stage as `stage=Node.js build` in `stage_event` and `stage_metric` and counts it in `pipeline_run`; a run without one writes exactly what it wrote before. In the `goldenfix` point a later service of a shared pull request has `status=PR_UPDATED` and `pr_raised` 1, and a service whose upgrades the shared pull request already carried has `applied` 0. The notes of a GoldenFix run are not written to InfluxDB.
+A run with a Node.js build writes its stage as `stage=Node.js build` in `stage_event` and `stage_metric` and counts it in `pipeline_run`; a run without one writes exactly what it wrote before. When Nexus IQ and SonarQube run while AppScan scans, the SAST duration covers the whole **Static analysis** stage, so the durations of stages 3 to 5 add up to more than the stage took. The stage order and the names do not change. In the `goldenfix` point a later service of a shared pull request has `status=PR_UPDATED` and `pr_raised` 1, and a service whose upgrades the shared pull request already carried has `applied` 0. The notes of a GoldenFix run are not written to InfluxDB.
 
 ### DORA
 
@@ -2679,6 +2726,19 @@ The Jenkins sandbox rejected a signature. The library is tested against the real
 
 - Default `sast.pollTimeoutMin` is 50 minutes. This is a library default that only the library team can change.
 - The IRX generation step (compile via Gradle + AppScan prepare) can take 10–20 minutes on large projects.
+- In the **Static analysis** stage the status poll starts after Nexus IQ and SonarQube; its timeout counts from then.
+
+### "\[STATIC\] &lt;services&gt;: the SAST compile runs other Gradle tasks or Maven goals than the build command"
+
+Nexus IQ and SonarQube run while AppScan scans only when the SAST compile builds the same files as the build command. The named services set `asoc.gradle` or `asoc.maven` to other tasks, goals, flags or settings than `build.gradle` or `build.maven`, so the run keeps Nexus IQ, SAST and SonarQube one after another. To use the new order, make the compile command of the service equal to its build command, leave it empty (the SAST compile then runs the build command), or set `asoc.doCompile: false`.
+
+### "\[STATIC\] SAST stopped while it prepared its scans: Nexus IQ and SonarQube do not run in this build"
+
+SAST failed before every scan was queued, in the AppScan client, the login, the compile, the IRX archive, the upload or the queue, so the workspace may be half built and Nexus IQ and SonarQube do not run on it. The report shows Nexus IQ as SKIP and SonarQube as blocked, and the release gate lists the SAST failure. Fix the SAST failure the console shows above the message; Nexus IQ and SonarQube run again in the next build.
+
+### How to switch the order off for one folder, job or agent
+
+Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` on the Jenkins folder, the job or the agent: the full and security pipelines then run Nexus IQ, SAST and SonarQube one after another, whatever the Global Settings say. `true` turns the order on without the setting. A single service keeps the run one after another with `staticAnalysis.parallel: false`.
 
 ### "IRX not found after prepare"
 
@@ -2881,7 +2941,8 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | compilation | `src` and `vars` compile with the sandbox compiler configuration |
 | `test/portal/query-scenarios.sh` | The query script of `PortalConfigReader`, run with the real `curl` against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key |
 | `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml`; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a `resolutions` block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a `strictly` or `require` range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores `./` in listed paths, reads a listed pom with another name and builds it with `mvn -f`, also with a Maven command of `goldenFix.verify.commands`, resolves `from files(..)` and `$rootDir` imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in `buildSrc` only for a holder it can declare and records an escaping `Error` as `ERROR`; it refreshes a `package-lock.json` (not in front of an npm command of `goldenFix.verify.commands`), raises npm `overrides` and `resolutions`, tells a branch that exists from a push a hook declines and names pub components; the `package-lock.json` pattern of a Node.js build names its folder without `./`; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the `goldenfix` point carries `pr_url` and `pr_title` only when a pull request was raised; eight service level pipelines produce the demo reports |
-| `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over `devsecops_config.yaml` or `config.yaml` against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines |
+| `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over `devsecops_config.yaml` or `config.yaml` against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service |
+| `test/sandbox/StaticAnalysisScenarios.groovy` | The switch of the static scan order (the environment variable first, then `staticAnalysis.parallel` of every service), the services whose SAST compile differs from their build command, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
 | `test/sandbox/PortalScenarios.groovy` | Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key; and the runs without a key |
 | `test/sandbox/CompatibilityScenarios.groovy` | The loader of the `config.yaml` library, the portal loader and the loader of a run without a key produce the same configuration: exactly for documents with the same values, exactly for `devsecops_config.yaml` and `config.yaml` over the same defaults (`devsecops_config.yaml` first when both exist), and after declared rules for the documents the portal renders; the bundled defaults can be applied |
 
