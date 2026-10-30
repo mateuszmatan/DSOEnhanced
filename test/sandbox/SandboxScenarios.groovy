@@ -971,6 +971,22 @@ check('GoldenFix catalogs: a property raised in both rounds is one row from the 
         chainedRun.errors.isEmpty() && (gfOf(chainedRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to}".toString() } ==
                 ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0'] && ((chainedRun.written as Map)['svc-a/pom.xml'] as String)?.contains('<jackson.version>2.17.0</jackson.version>'),
         "${chainedRun.errors} ${gfOf(chainedRun, 'svc-a').changes}")
+Map keysRun = catalogRun([
+        'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
+                         '<properties><jackson.version>2.17.0</jackson.version></properties><dependencyManagement><dependencies>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency>' +
+                         '</dependencies></dependencyManagement></project>',
+        'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId>' +
+                         '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId></dependency></dependencies></project>'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+check('GoldenFix catalogs: one row for a property raised in both rounds keeps every component of both rounds',
+        keysRun.errors.isEmpty() && (gfOf(keysRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.componentKeys} ${it.component}".toString() } ==
+                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0 [maven:com.fasterxml.jackson.core:jackson-databind, maven:com.fasterxml.jackson.core:jackson-core] ' +
+                 'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'] && !gfOf(keysRun, 'svc-a').unresolved,
+        "${keysRun.errors} ${gfOf(keysRun, 'svc-a').changes} ${reasonsOf(keysRun, 'svc-a')}")
 Map alignedRetry = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +

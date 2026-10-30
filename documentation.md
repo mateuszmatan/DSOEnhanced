@@ -1561,7 +1561,7 @@ Each command is replaceable per ecosystem under `goldenFix.verify.commands`, for
 
 #### Step 4: the commit and the pull request
 
-GoldenFix commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes the branch `GoldenFix-YYYYMMDDHHMM` and raises a Bitbucket pull request of the same name into `scm.bitbucket.targetBranch`, or into the branch that triggered the build. The description and the commit message list every upgrade with its file, the property, the catalog alias or the catalog key it changed, the version before and after, and the rule that chose it; a property that both rounds raise in one file is one row, from the version before the run to the version after it. The description then lists the fixes not applied automatically and the notes of the run.
+GoldenFix commits the changes in a separate git worktree (the pipeline workspace is not modified), pushes the branch `GoldenFix-YYYYMMDDHHMM` and raises a Bitbucket pull request of the same name into `scm.bitbucket.targetBranch`, or into the branch that triggered the build. The description and the commit message list every upgrade with its file, the property, the catalog alias or the catalog key it changed, the version before and after, and the rule that chose it; a property that both rounds raise in one file is one row, from the version before the run to the version after it, that names the components of both rounds. The description then lists the fixes not applied automatically and the notes of the run.
 
 The services of one build that share a repository share one branch and one pull request:
 

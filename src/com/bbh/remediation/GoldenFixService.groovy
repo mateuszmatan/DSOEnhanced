@@ -395,7 +395,15 @@ class GoldenFixService implements DependencyRemediation {
         List<Map> out = []
         for (Map c : changes) {
             Map earlier = c.property ? out.find { it.file == c.file && it.property == c.property && it.to == c.from } as Map : null
-            if (earlier) earlier.putAll(c + [from: earlier.from]) else out << c
+            if (!earlier) {
+                out << c
+                continue
+            }
+            List keys = [] + (earlier.componentKeys as List)
+            GoldenFix.addAllUnique(keys, c.componentKeys as List)
+            List names = [] + ((earlier.component as String).split(', ') as List)
+            GoldenFix.addAllUnique(names, (c.component as String).split(', ') as List)
+            earlier.putAll(c + [from: earlier.from, componentKeys: keys, component: names.join(', ')])
         }
         return out
     }
