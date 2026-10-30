@@ -1068,7 +1068,7 @@ devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: [
 
 *Nothing to list for the usual catalogs.* GoldenFix finds by itself every {{*.versions.toml}}, the catalogs that a {{settings.gradle}} or {{settings.gradle.kts}} imports or declares, the files that a build names in {{apply from}}, {{java-platform}} modules, and the poms that another pom of the repository names as {{<parent>}} or imports with {{<scope>import</scope>}}.
 
-*List the others.* A shared file that GoldenFix cannot recognise goes into *Shared version catalogs* in the GoldenFix section of the service, one repository-relative path or glob per line ({{*}} within a folder name, {{**}} across folders). Listing a file makes it the place where its versions are raised; it is verified only in a build that uses it. The portal renders it as:
+*List the others.* A shared file that GoldenFix cannot recognise goes into *Shared version catalogs* in the GoldenFix section of the service, one repository-relative path or glob per line ({{*}} within a folder name, {{**}} across folders). A listed {{.toml}} file is read as a Gradle catalog whatever its name, an {{.xml}} file as a Maven pom and any other file as a Gradle build file. Listing a file makes it the place where its versions are raised. A listed Gradle file is verified only in a build that uses it; a listed pom in the aggregator that builds it with the poms that use it, otherwise in its own folder, as the [Pipeline Stage Reference|#ch16] describes. The portal renders it as:
 
 {code:yaml}
     goldenFix:
@@ -1571,7 +1571,7 @@ A *catalog* is a file of the repository that holds versions other builds use. Go
 * a file that a Gradle build applies with {{apply from: '...'}} or {{apply(from = "...")}}, relative to the build, to {{$rootDir}} or to {{rootProject.file(...)}};
 * a Gradle build file that applies the {{java-platform}} plugin;
 * a {{pom.xml}} that another pom of the repository names as its {{<parent>}} (through {{relativePath}}, by default {{../pom.xml}}) or imports with {{<scope>import</scope>}};
-* every file listed in {{goldenFix.versionCatalogs}} of the service: a {{.toml}} file is read as a Gradle catalog whatever its name, a {{pom.xml}} as Maven and any other file as a Gradle build file.
+* every file listed in {{goldenFix.versionCatalogs}} of the service: a {{.toml}} file is read as a Gradle catalog whatever its name, an {{.xml}} file as a Maven pom, such as {{platform/bom.xml}}, and any other file as a Gradle build file.
 
 GoldenFix changes the catalogs first and then the other manifests. A dependency that a catalog defines is raised in the catalog. A declaration of the same dependency elsewhere that is raised as well takes at least the version of the catalog, and the notes name it as {{<file>: <component> declared outside the catalog <catalog file> (<alias>)}}, so that a reviewer can move it into the catalog. When the catalog version is the higher one, its row in the pull request says {{version of the shared catalog <catalog file>}} where the other rows name the rule of Nexus IQ that chose the version.
 
