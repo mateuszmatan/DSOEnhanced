@@ -865,6 +865,14 @@ check('GoldenFix catalogs: a listed parent pom with another file name is read, a
         bomFileRun.errors.isEmpty() && gfOf(bomFileRun, 'svc-a').status == 'PR_CREATED' && !reasonsOf(bomFileRun, 'svc-a')
                 && ((bomFileRun.written as Map)['platform/bom.xml'] as String)?.contains('<jackson.version>2.13.5</jackson.version>') && bomFileRun.builds == [cdTo('platform')],
         "${bomFileRun.errors} ${gfOf(bomFileRun, 'svc-a').status} ${gfOf(bomFileRun, 'svc-a').message} ${bomFileRun.builds}")
+List bomPlans = verifierHarness.run {
+    def bomVerifier = verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript())
+    [bomVerifier.plan(['platform/bom.xml'], [:], ['platform/bom.xml': ['platform/bom.xml']]), bomVerifier.plan(['platform/bom.xml'], [:], ['platform/bom.xml': ['platform']])]
+} as List
+check('GoldenFix pre-check: mvn -f builds a shared pom with another name only where no aggregator builds it, and the aggregator in its folder is built as it is',
+        bomPlans.collect { (it as List).collect { "${it.subDir}: ${it.command}".toString() } } ==
+                [["platform: mvn -B -q -DskipTests compile -f 'bom.xml'"], ['platform: mvn -B -q -DskipTests compile']],
+        bomPlans)
 
 String bigToml = '[versions]\n' + (1..300).collect { "v${it} = \"1.0.${it}\"\n" }.join('') + 'jackson = "2.13.4"\n\n[libraries]\n' +
         (1..300).collect { "lib-${it} = { module = \"com.example:lib-${it}\", version.ref = \"v${it}\" }\n" }.join('') +

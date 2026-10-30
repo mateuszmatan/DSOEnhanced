@@ -174,7 +174,7 @@ class CatalogDiscovery implements Serializable {
             if (!folder) break
             folder = parentOf(folder)
         }
-        return rootPom ? '' : parentOf(shared)
+        return rootPom ? '' : (isPom(shared) ? parentOf(shared) : shared)
     }
 
     @NonCPS

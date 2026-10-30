@@ -72,13 +72,13 @@ ${check.command}
             boolean shared = consumers?.containsKey(path)
             String kind = kindOf(name) ?: (shared ? (name.endsWith('.xml') ? 'maven' : 'gradle') : '')
             if (!kind) continue
-            for (def folder : (shared ? (consumers[path] as List) : [BuildUtils.parentOf(path)])) {
-                String subDir = folder as String
-                String key = kind + '@' + subDir
+            for (def root : (shared ? (consumers[path] as List) : [BuildUtils.parentOf(path)])) {
+                String subDir = root == path ? BuildUtils.parentOf(path) : root as String
+                String key = kind + '@' + root
                 if (seen.contains(key)) continue
                 seen << key
                 String override = overrides?.get(kind) as String
-                String command = (override ?: defaultCommand(kind, subDir == BuildUtils.parentOf(path) ? name : '')) as String
+                String command = (override ?: defaultCommand(kind, shared && root != path ? '' : name)) as String
                 if (!command) continue
                 String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
                 if (kind == 'npm' && !override && lockFiles?.contains(lock)) {
