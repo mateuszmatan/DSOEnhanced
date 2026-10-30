@@ -980,6 +980,17 @@ check('GoldenFix npm: without the pre-check the lock file is not touched and the
         npmUnverified.errors.isEmpty() && (npmUnverified.commits as List)[0]?.files == ['web/package.json']
                 && ((npmUnverified.prs as List)[0]?.description as String)?.contains('> Lock files (package-lock.json, yarn.lock'),
         "${npmUnverified.errors} ${(npmUnverified.commits as List)[0]?.files}")
+String bigPackage = '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "resolutions": {\n' + (1..300).collect { "    \"@bbh/package-${it}\": \"1.0.${it}\",\n" }.join('') +
+        '    "lodash": "4.17.15"\n  }\n}\n'
+Map bigNpm = [:]
+Thread npmThread = new Thread(null, {
+    bigNpm = catalogRun(['web/package.json': bigPackage], [[name: 'web', fixes: [['npm', '', 'lodash', '4.17.15', '4.17.21']]]])
+} as Runnable, 'cps-vm', 1024L * 1024L)
+npmThread.start()
+npmThread.join()
+check('GoldenFix npm: a resolutions block of 300 entries is raised on a 1 MB thread stack, the size of a Jenkins CPS thread',
+        bigNpm.errors == [] && gfOf(bigNpm, 'web').status == 'PR_CREATED' && (bigNpm.written as Map)['web/package.json'] == bigPackage.replace('4.17.15', '4.17.21'),
+        "${bigNpm.errors} ${gfOf(bigNpm, 'web').status} ${gfOf(bigNpm, 'web').message}")
 
 List planned = verifierHarness.run {
     verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript()).plan(

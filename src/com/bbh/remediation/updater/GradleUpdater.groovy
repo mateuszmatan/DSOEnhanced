@@ -25,7 +25,7 @@ class GradleUpdater implements ManifestUpdater {
     private static String tomlTableRe() { return '(?ms)(^\\[libraries\\.("?)([\\w.-]+)\\2\\][ \\t]*(?:#[^\\r\\n]*)?$)(.*?)(?=^\\[|\\z)' }
 
     @NonCPS
-    private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{(?:[^{}\\r\\n]|\\{[^{}\\r\\n]*\\})*\\}|"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')' }
+    private static String tomlEntryRe() { return '(?m)(^[ \\t]*"?([\\w.-]+)"?[ \\t]*=[ \\t]*)(\\{[^{}\\r\\n]*(?:\\{[^{}\\r\\n]*\\}[^{}\\r\\n]*)*\\}|"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')' }
 
     @NonCPS
     private static String inlineRe(String group, String artifact) {

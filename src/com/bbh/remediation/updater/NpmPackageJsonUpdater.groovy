@@ -13,7 +13,7 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
 
     @NonCPS
     private static String overridesRe() {
-        return '(?s)("(overrides|resolutions)"\\s*:\\s*\\{)((?:[^{}]|\\{[^{}]*\\})*)(\\})'
+        return '(?s)("(overrides|resolutions)"\\s*:\\s*\\{)([^{}]*(?:\\{[^{}]*\\}[^{}]*)*)(\\})'
     }
 
     String ecosystem() { return 'npm' }
