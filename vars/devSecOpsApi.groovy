@@ -87,6 +87,7 @@ private void applyToolEnvironment() {
     env.PROXY_USER         = env.PROXY_USER         ?: (portal.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
     env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (portal.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
     env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (portal.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
+    env.APPSCAN_TOOLS_DIR  = env.APPSCAN_TOOLS_DIR  ?: "${env.WORKSPACE}/.appscan-tools"
     env.APPSCAN_LOG_DIR    = env.APPSCAN_LOG_DIR    ?: "${env.WORKSPACE}/.appscan-logs"
     env.APPSCAN_HOME_DIR   = env.APPSCAN_HOME_DIR   ?: "${env.WORKSPACE}/.appscan-home"
     env.APPSCAN_BIN_DIR    = env.APPSCAN_BIN_DIR    ?: "${env.WORKSPACE}/.appscan-bin"
@@ -143,8 +144,6 @@ def parallelScans() {
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
     _setup()
     String sast = PolicyEngine.stageNameFor('sast')
-    String tmp = (env.WORKSPACE_TMP ?: "${env.WORKSPACE}@tmp") as String
-    env.APPSCAN_TOOLS_DIR = env.APPSCAN_TOOLS_DIR ?: "${tmp}/appscan-tools"
     echo '[STATIC] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
     String part = 'queue'
     _state.stageStart(sast)

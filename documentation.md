@@ -1575,8 +1575,7 @@ In every case **Static analysis** is red, the later stages are skipped, and the 
 The new order changes what the scanners see in the workspace:
 
 - The SAST staging copy `appscan-source-staged` (Windows: `sast_directory`) is removed once every scan is queued, so Nexus IQ does not count the jars in it a second time and SonarQube does not see it.
-- The AppScan client is unpacked in `appscan-tools` under `WORKSPACE_TMP` (else `<workspace>@tmp`), where GoldenFix keeps its worktrees, unless the job sets `APPSCAN_TOOLS_DIR`. It stays there between builds, and the next build replaces it.
-- The IRX archives, `.appscan-logs`, `.appscan-home`, `.appscan-bin` and `DevSecOpsJenkinsLibrary/` are in the workspace while Nexus IQ and SonarQube run; only broad scan patterns such as `**/*` match them.
+- The AppScan client in `.appscan-tools`, the IRX archives, `.appscan-logs`, `.appscan-home`, `.appscan-bin` and `DevSecOpsJenkinsLibrary/` are in the workspace while Nexus IQ and SonarQube run. Only broad scan patterns match them: `**/*` matches them all, and `**/*.jar` also matches the jars of the AppScan client. The client is unpacked where a run one after another unpacks it, so the `appscanPath` of a Windows service still finds it, and the workspace cleanup at the end of every build removes it.
 - The SAST reports `appscan-report-*.html` are written after SonarQube.
 - Nexus IQ evaluates the jars that the SAST compile built with the build command of the service.
 - The SAST status poll starts after SonarQube and reuses the AppScan login of the preparation; its timeout counts from then.
@@ -1703,7 +1702,7 @@ After a Node.js build in the same run, the folders that an IRX archive leaves ou
 - With `asoc.useAppScanConfig: true` the `appscan-config.xml` of the repository decides what is scanned, and the excluded folders do not apply.
 - The output of the frontend build, such as the minified bundles in `dist`, is scanned like any other file.
 
-In the **Static analysis** stage the staging copy `appscan-source-staged` (Windows: `sast_directory`) is removed once every scan is queued, and the AppScan client is unpacked under `WORKSPACE_TMP`, so Nexus IQ and SonarQube do not see them.
+In the **Static analysis** stage the staging copy `appscan-source-staged` (Windows: `sast_directory`) is removed once every scan is queued, so Nexus IQ and SonarQube do not see it. The AppScan client stays in `.appscan-tools` of the workspace, as one after another.
 
 ### Stage 5: SCA (SonarQube)
 
@@ -1907,6 +1906,7 @@ pipeline {
         PROXY_USER         = 'PROXY_ASOCJenk'
         APPSCAN_HOST       = 'bbh.cloud.appscan.com'
         APPSCAN_SERVER_URL = 'https://bbh.cloud.appscan.com'
+        APPSCAN_TOOLS_DIR  = "${WORKSPACE}/.appscan-tools"
         APPSCAN_LOG_DIR    = "${WORKSPACE}/.appscan-logs"
         APPSCAN_HOME_DIR   = "${WORKSPACE}/.appscan-home"
         APPSCAN_BIN_DIR    = "${WORKSPACE}/.appscan-bin"

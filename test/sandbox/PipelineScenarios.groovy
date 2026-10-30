@@ -498,8 +498,7 @@ Closure verify = { Map spec ->
     }
     if (spec.var in ['devSecOpsPipeline', 'devSecOpsSecurityPipeline']) {
         String tools = j.env.vars.APPSCAN_TOOLS_DIR
-        check("${name}: the AppScan client is unpacked ${spec.executed.contains(STATIC) ? 'under WORKSPACE_TMP' : 'in the workspace'}",
-                tools == (spec.executed.contains(STATIC) ? '/ws@tmp/appscan-tools' : '/ws/.appscan-tools'), tools)
+        check("${name}: the AppScan client is unpacked in the workspace", tools == '/ws/.appscan-tools', tools)
     }
     if (spec.executed.contains(STATIC)) {
         List<String> calls = j.calls
