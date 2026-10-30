@@ -11,6 +11,7 @@ class PipelineState implements Serializable {
     String currentProjectName = 'unknown'
     List portalDocuments    = []
     Map  platform           = [:]
+    String configFile       = ''
 
     String currentStage = ''
     Map stageResults = [:]
@@ -53,6 +54,11 @@ class PipelineState implements Serializable {
     Map projectsUnitTests         = [:]
     Map goldenFixPullRequest        = [:]
     Map goldenFixPullRequestsByRepo = [:]
+
+    @NonCPS
+    String settingsPlace() {
+        return configFile ?: 'the DevSecOps portal'
+    }
 
     void stagePass(String name) {
         List kept = ['NOT_REQUIRED', 'BLOCKED', 'WARN', 'FAIL']

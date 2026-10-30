@@ -71,6 +71,8 @@ def configure(String variant, Map config) {
 
 def pipelineConfig() { _setup(); return _pipelineConfig }
 
+def settingsPlace() { _setup(); return _state.settingsPlace() }
+
 private HtmlReportService reportService() {
     return new HtmlReportService(this, _state, _os, _policy, _variant)
 }

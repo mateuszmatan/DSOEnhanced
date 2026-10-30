@@ -300,7 +300,8 @@ class PipelineMetrics implements Serializable {
                     nexusiq_report_url: optional(niq.url),
                     sonar_report_url  : optional(sonar.url),
                     config_rendered_at: optional(document.renderedAt),
-                    config_sha256     : optional(document.sha256)
+                    config_sha256     : optional(document.sha256),
+                    config_file       : optional(state.configFile)
             ], now)
         }
         return out

@@ -541,9 +541,10 @@ class HtmlReportService implements Serializable {
         String status = (gf?.get('status') ?: '') as String
         int available = ((gf?.get('fixes') ?: []) as List).size()
         if (status == 'NOT_CONFIGURED') {
+            String who = state.configFile ? "Someone who can change ${state.configFile} in the repository" : 'Someone with access to the DevSecOps portal'
             return [headline   : 'No upgrade request was opened - the repository address is missing.',
                     explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
-                            'Bitbucket repository is, so it had nowhere to propose them. Someone with access to the DevSecOps portal has to fill in ' +
+                            "Bitbucket repository is, so it had nowhere to propose them. ${who} has to fill in " +
                             'scm.bitbucket.url with the repository link and scm.bitbucket.credentialsId with the Jenkins credentials that may ' +
                             'write to it. The upgrades are then proposed automatically on the next run.']
         }
@@ -1152,7 +1153,8 @@ class HtmlReportService implements Serializable {
             Map document = (item ?: [:]) as Map
             parts << "key ${esc(document.hint as String)}, rendered ${esc(document.renderedAt as String)}, sha256 ${esc(document.sha256 as String)}".toString()
         }
-        return parts ? "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>" : ''
+        if (parts) return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>"
+        return state.configFile ? "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${esc(state.configFile)} in the repository</div>" : ''
     }
 
     @NonCPS protected String headerBackground(String buildResult) {

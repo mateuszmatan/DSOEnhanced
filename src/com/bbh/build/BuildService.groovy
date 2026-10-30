@@ -145,7 +145,7 @@ class BuildService implements Serializable {
             return legacyCoverage(tool)
         }
         List log = steps.subList(0, (found.step as int) + 1).collect { it.line }
-        if (!found.reports) return [reports: [], log: log, missing: CoverageReports.noReport(steps[steps.size() - 1].search as Map, 'the DevSecOps portal')]
+        if (!found.reports) return [reports: [], log: log, missing: CoverageReports.noReport(steps[steps.size() - 1].search as Map, state.settingsPlace())]
         return found + [log: log]
     }
 
@@ -182,7 +182,7 @@ class BuildService implements Serializable {
             paths = findCoverageReports()
         }
         if (!paths) {
-            return [reports: [], missing: "JaCoCo report not found (tried ${listed ? listed[0] : candidates[0]}), set coverage.reportPath for the service in the DevSecOps portal to point at it".toString()]
+            return [reports: [], missing: "JaCoCo report not found (tried ${listed ? listed[0] : candidates[0]}), set coverage.reportPath for the service in ${state.settingsPlace()} to point at it".toString()]
         }
         List reports = []
         List classes = []
@@ -328,7 +328,7 @@ class BuildService implements Serializable {
         List<Map> jobs = normalizeTestJobs(testCfg)
         if (!jobs) {
             state.recordTestJobs(stageName, [])
-            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in the DevSecOps portal.")
+            policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in ${state.settingsPlace()}.")
             return
         }
 

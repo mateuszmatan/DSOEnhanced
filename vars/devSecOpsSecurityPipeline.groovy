@@ -13,7 +13,7 @@ def call(Map config = [:]) {
             booleanParam(
                 name:         'RUN_EXTENDED_PIPELINE',
                 defaultValue: false,
-                description:  'Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in the DevSecOps portal'
+                description:  "Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in ${devSecOpsApi.settingsPlace()}"
             )
 
             choice(

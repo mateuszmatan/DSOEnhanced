@@ -9,6 +9,16 @@ class BuildUtils implements Serializable {
         return 'pipeline-config.yaml'
     }
 
+    @NonCPS
+    static List<String> repositoryConfigFiles() {
+        return ['devsecops_config.yaml', 'config.yaml']
+    }
+
+    @NonCPS
+    static String defaultsResource() {
+        return 'com/bbh/devsecops/defaults.yaml'
+    }
+
     static def execSh(def steps, String cmd, String label, boolean returnStdout) {
         String script = """
             #!/usr/bin/env bash
