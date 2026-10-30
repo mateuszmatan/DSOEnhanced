@@ -141,9 +141,11 @@ class NexusIqService implements Serializable {
     private def scanPatternsOf(Map params) {
         def patterns = params.scanPatterns
         Map node = (state.cfg.build?.node ?: [:]) as Map
-        if (!patterns || !(patterns instanceof List) || !BuildUtils.nodeBuildEnabled(state.cfg) || !BuildUtils.booleanValue(node.nexusIqScan, true)) return patterns
-        String lock = "${node.dir ? node.dir + '/' : ''}package-lock.json".toString()
-        return patterns.contains(lock) ? patterns : patterns + [lock]
+        if (!patterns || !BuildUtils.nodeBuildEnabled(state.cfg) || !BuildUtils.booleanValue(node.nexusIqScan, true)) return patterns
+        List list = patterns instanceof List ? patterns as List : [patterns]
+        String dir = BuildUtils.relativePath(((node.dir ?: '') as String).replace('\\', '/'))
+        String lock = "${dir ? dir + '/' : ''}package-lock.json".toString()
+        return list.contains(lock) ? list : list + [lock]
     }
 
     @NonCPS

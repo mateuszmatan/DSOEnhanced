@@ -1031,6 +1031,18 @@ List pubCandidates = parserHarness.run {
 } as List
 check('GoldenFix: pub components of an assumed Nexus IQ payload are named by packageId or name',
         pubCandidates.collect { "${it.name}@${it.version}".toString() } == ['http@0.13.4', 'intl@0.17.0'], pubCandidates)
+List lockPatterns = parserHarness.run {
+    def state = parserHarness.type('com.bbh.core.PipelineState').newInstance()
+    def nexusIq = parserHarness.type('com.bbh.scanner.NexusIqService').newInstance(new FakeScript(), state, null)
+    [[['**/*.jar'], '.'], [['**/*.jar'], './'], [['**/*.jar'], './frontend'], [['**/*.jar'], 'frontend/'], [['**/*.jar'], 'web//frontend'], ['**/*.jar', null]].collect { List c ->
+        state.cfg = [build: [node: [enabled: true, dir: c[1]]]]
+        nexusIq.scanPatternsOf([scanPatterns: c[0]])
+    }
+} as List
+check('Nexus IQ, Node.js build: the lock pattern names the folder without ./ or a trailing /, and a single scan pattern also gets it',
+        lockPatterns == [['**/*.jar', 'package-lock.json'], ['**/*.jar', 'package-lock.json'], ['**/*.jar', 'frontend/package-lock.json'],
+                         ['**/*.jar', 'frontend/package-lock.json'], ['**/*.jar', 'web/frontend/package-lock.json'], ['**/*.jar', 'package-lock.json']],
+        lockPatterns)
 SandboxHarness nodeHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
 Closure nodeRunnerFor = { FakeScript sc ->
     def os = nodeHarness.type('com.bbh.core.OsHelper').newInstance(sc)
