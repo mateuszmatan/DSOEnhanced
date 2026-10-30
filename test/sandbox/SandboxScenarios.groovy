@@ -904,6 +904,18 @@ check('GoldenFix catalogs: a listed catalog written with ./, // or a trailing / 
                 && !gfOf(listedSpellings, 'svc-a').notes && gfOf(listedSpellings, 'svc-a').status == 'PR_CREATED',
         "${listedSpellings.errors} ${gfOf(listedSpellings, 'svc-a').notes} ${listedSpellings.written}")
 
+Map importForms = catalogRun([
+        'platform/deps.versions.toml': jacksonToml,
+        'svc-a/settings.gradle'      : "dependencyResolutionManagement {\n    versionCatalogs {\n        create('deps') { from files('../platform/deps.versions.toml') }\n    }\n}\n",
+        'svc-b/settings.gradle.kts'  : 'dependencyResolutionManagement {\n    versionCatalogs {\n        create("deps") { from(files("$rootDir/../platform/deps.versions.toml")) }\n    }\n}\n',
+        'svc-a/build.gradle'         : 'dependencies { implementation deps.jackson.databind }\n',
+        'svc-b/build.gradle.kts'     : 'dependencies { implementation(deps.jackson.databind) }\n'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]], [verify: true])
+check('GoldenFix catalogs: a settings import written as from files(..) or with a $rootDir path is verified in the build that imports it',
+        importForms.errors.isEmpty() && ((importForms.written as Map)['platform/deps.versions.toml'] as String)?.contains('jackson = "2.13.5"')
+                && (importForms.written as Map).keySet() == ['platform/deps.versions.toml'] as Set && importForms.builds == [cdTo('svc-a'), cdTo('svc-b')],
+        "${importForms.errors} ${importForms.written} ${importForms.builds}")
+
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
                                  '  "resolutions": {\n    "lodash": "4.17.15"\n  }\n}\n',

@@ -53,8 +53,8 @@ class VersionCatalogs implements Serializable {
                 next = closing(body, header.end())
                 String inner = body.substring(header.end(), next)
                 out << [name     : header.group(1) ?: header.group(2), start: open + header.end(), end: open + next,
-                        files    : groups(inner, /from\s*\(\s*files?\s*\(\s*['"]([^'"]+)['"]/),
-                        artifacts: groups(inner, /from\s*\(\s*['"]([^'":]+:[^'":]+:[^'"]+)['"]\s*\)/)]
+                        files    : groups(inner, /\bfrom\s*\(?\s*files?\s*\(\s*['"]([^'"]+)['"]/),
+                        artifacts: groups(inner, /\bfrom\s*\(?\s*['"]([^'":]+:[^'":]+:[^'"]+)['"]/)]
             }
         }
         return out

@@ -110,7 +110,7 @@ class CatalogDiscovery implements Serializable {
             if (isSettings(f)) {
                 for (Map block : VersionCatalogs.settingsBlocks(text)) {
                     for (String file : (block.files as List<String>)) {
-                        String path = VersionCatalogs.resolve(folder, file)
+                        String path = VersionCatalogs.resolve(folder, file.replaceFirst(/^\$\{?(?:rootDir|settingsDir|rootProject\.projectDir)\}?\//, ''))
                         if (path != null) (out.imports as List) << [path: path, name: block.name, root: folder]
                     }
                     for (String artifact : (block.artifacts as List<String>)) (out.externals as Map)[block.name] = artifact
