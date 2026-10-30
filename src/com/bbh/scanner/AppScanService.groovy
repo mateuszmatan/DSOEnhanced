@@ -372,6 +372,14 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
     }
 
+    void removeStagedSources() {
+        if (os.isWindows()) {
+            script.powershell 'Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'
+        } else {
+            script.sh 'rm -rf "$WORKSPACE/appscan-source-staged"'
+        }
+    }
+
     void waitSast() {
         pollScan('sast', (state.cfgDefaults.sast?.pollTimeoutMin ?: 50) as int, (state.cfgDefaults.sast?.pollIntervalSec ?: 30) as int)
     }

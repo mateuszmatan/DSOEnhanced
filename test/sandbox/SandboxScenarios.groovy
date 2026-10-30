@@ -121,6 +121,7 @@ appHarness.run {
             ['renameDastReport', { appscan.renameDastReport() }],
             ['renameSastReport', { appscan.renameSastReport() }],
             ['queueSast', { appscan.queueSast([appId: 'APP-ID']) }],
+            ['removeStagedSources', { appscan.removeStagedSources() }],
             ['waitSast', { appscan.waitSast() }],
             ['downloadSastReports', { appscan.downloadSastReports() }]
     ].each { List step ->

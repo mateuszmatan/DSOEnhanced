@@ -85,6 +85,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== coverage reports through checkCoverage, the report and the metrics ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/CoverageScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== the static analysis switch, the restored order and the staging removal ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/StaticAnalysisScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
