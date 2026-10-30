@@ -156,7 +156,7 @@ class GradleUpdater implements ManifestUpdater {
         String target = property.targetVersion as String
         if (!GoldenFix.isConcreteVersion(value)) {
             if (property.catalog) {
-                r.notes.addAll(UpdaterSupport.propertyNotes(property, "managed by version catalog ${path} (${key}): declared version '${value}' is dynamic or a range".toString()))
+                r.notes.addAll(UpdaterSupport.propertyNotes(property, UpdaterSupport.catalogReason(path, key, "declared version '${value}' is dynamic or a range")))
             }
             return null
         }
@@ -294,7 +294,7 @@ class GradleUpdater implements ManifestUpdater {
     @NonCPS
     private Map note(String path, Map fix, String alias, String why) {
         if (!catalogs.containsKey(path)) return UpdaterSupport.note(path, fix, why)
-        return UpdaterSupport.note('', fix, "managed by version catalog ${path}${alias ? " (${alias})" : ''}: ${why}".toString())
+        return UpdaterSupport.note('', fix, UpdaterSupport.catalogReason(path, alias, why))
     }
 
     @NonCPS

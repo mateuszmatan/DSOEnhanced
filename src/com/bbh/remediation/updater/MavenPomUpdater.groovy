@@ -62,10 +62,9 @@ class MavenPomUpdater implements ManifestUpdater {
                 return null
             }
             if (!GoldenFix.isConcreteVersion(declared)) {
-                String why = "declared version '${declared}' is a range or dynamic version"
                 notes << (catalogs.containsKey(relativePath)
-                        ? UpdaterSupport.note('', fix, "managed by version catalog ${relativePath}: ${why}".toString())
-                        : UpdaterSupport.note(relativePath, fix, why.toString()))
+                        ? UpdaterSupport.note('', fix, UpdaterSupport.catalogReason(relativePath, '', "declared version '${declared}' is dynamic or a range"))
+                        : UpdaterSupport.note(relativePath, fix, "declared version '${declared}' is a range or dynamic version".toString()))
                 return null
             }
             String target = fix.targetVersion as String

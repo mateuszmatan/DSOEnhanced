@@ -868,6 +868,18 @@ check('GoldenFix catalogs: section headers with a trailing comment and TOML lite
                 && !gfOf(literalRun, 'gui').unresolved,
         "${literalRun.errors} ${literalToml} ${reasonsOf(literalRun, 'gui')}")
 
+Map pomRangeRun = catalogRun([
+        'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
+                         '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
+                         '<version>[2.13,2.14)</version></dependency></dependencies></dependencyManagement></project>',
+        'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId><dependencies>' +
+                         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency></dependencies></project>'
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+check('GoldenFix catalogs: a range in a shared pom.xml gets the reason in the form of the Gradle catalogs',
+        pomRangeRun.errors.isEmpty() && reasonsOf(pomRangeRun, 'svc-a') == ["com.fasterxml.jackson.core:jackson-databind: managed by version catalog pom.xml: declared version '[2.13,2.14)' " +
+                'is dynamic or a range; svc-a/pom.xml: version is not declared here (managed by a parent POM or BOM)'],
+        "${pomRangeRun.errors} ${reasonsOf(pomRangeRun, 'svc-a')}")
+
 Map<String, String> npmFiles = [
         'web/package.json'     : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  },\n  "overrides": {\n    "lodash": "4.17.15",\n    "foo": {\n      "lodash": "4.17.10"\n    }\n  },\n' +
                                  '  "resolutions": {\n    "lodash": "4.17.15"\n  }\n}\n',

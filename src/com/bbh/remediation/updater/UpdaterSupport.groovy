@@ -100,6 +100,11 @@ class UpdaterSupport implements Serializable {
     }
 
     @NonCPS
+    static String catalogReason(String path, String alias, String why) {
+        return "managed by version catalog ${path}${alias ? " (${alias})" : ''}: ${why}".toString()
+    }
+
+    @NonCPS
     static List propertyNotes(Map property, String reason) {
         List out = []
         for (def key : (property.componentKeys as List)) out << [file: '', componentKey: key, reason: reason]
