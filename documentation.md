@@ -1158,7 +1158,7 @@ Step by step onboarding instructions are in [Detailed Description Guide for Appl
 
 The global settings are the library resource `resources/com/bbh/devsecops/defaults.yaml`, which the DevSecOps team owns and changes with a library release. Its `defaults:` section is merged under every service, and its optional `platform:` section holds the platform values (see **The bundled defaults** below). The thresholds, the required coverage, the scan timeouts and the release gate are read from the bundled defaults only, so a project cannot change them, also not by setting the same keys for a service; the other keys of the defaults are starting values that a service may set for itself.
 
-Below is the `projects:` section of `devsecops_config.yaml` with every key the library reads and its default. `devsecops_config.yaml.template` at the root of the library holds the same keys as a commented service to copy.
+Below is the `projects:` section of `devsecops_config.yaml` with every key the library reads and its default; a key shown as a comment has no default and is set only when the service needs it. `devsecops_config.yaml.template` at the root of the library holds the same keys as a commented service to copy.
 
 ```yaml
 projects:
@@ -1170,6 +1170,7 @@ projects:
     deployTarget: vm                 # vm | openshift            [default: vm]
     sourceDir:    "."                # source root for IRX generation [default: .]
     javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME)
+    appscanPath:  ""                 # Windows agents only (required there): path of appscan.bat below the workspace, e.g. /.appscan-tools/<SAClientUtil folder>/bin/appscan.bat
     buildToolAutoSetup: false        # true: detect the required Java version from pom.xml / build.gradle instead
     includedDirs: ""                 # optional: comma separated folders to scan (SAST)
     excludedDirs: ""                 # optional: comma separated folders to skip (SAST)
@@ -1187,16 +1188,15 @@ projects:
       doCompile:   true              # compile the project before the IRX is generated
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
       useAppScanConfig: false        # true: use appscan-config.xml from the repository
-      gradle:                        # optional compile command for the IRX; the build section is used when absent
-        tasks: ['classes', 'testClasses']
-      maven:
-        goals: ['clean', 'compile']
+      # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another on Linux/macOS
+      # maven:  {goals: ['compile']}                   # optional SAST compile instead of build.maven; never 'clean', which deletes target/ before the Nexus delivery
 
     sast:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
 
     staticAnalysis:
       parallel:    false             # true in every service of the run: Nexus IQ and SonarQube run while AppScan scans [default: the bundled defaults]
+                                     # (on Linux/macOS only when asoc.gradle/asoc.maven is absent or equal to build)
 
     influx:                          # InfluxDB DORA metrics (optional)
       enabled:   false
@@ -1222,6 +1222,19 @@ projects:
         badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
         addBadges:        false      # add the badges to the build description
         fullBadges:       false      # all badges instead of the quality gate badge only
+        gradle:                      # the analysis command of a Gradle service (tasks, flags, dir, env as in build.gradle)
+          tasks: ['sonarqube']
+        maven:                       # the analysis command of a Maven service (goals, flags, mvnPath, env as in build.maven)
+          goals: ['sonar:sonar']
+        sonarScannerVersion: ""      # Flutter: the sonar-scanner-cli-<version> tool of Jenkins [default: sonar-scanner on the PATH]
+        sonarQubeEnv:
+          installationName: ""       # Flutter: SonarQube installation [default: installationName]
+        flutterPlugin:    false      # Flutter: true passes the reports of the sonar-flutter plugin instead of the generic formats
+        sources:          "lib"      # Flutter: sonar.sources
+        tests:            "test"     # Flutter: sonar.tests
+        dartAnalyzeCommand: "dart analyze --format=machine"   # Flutter: the findings imported into SonarQube
+      # flutter:                     # Flutter only
+      #   flutterModules: []         # folders under modules/ that get flutter pub get and build_runner before the build
       nexusIq:
         application:        ""       # application public ID in Nexus IQ
         serverUrl:          "https://tools.bbh.com/IQ"
@@ -1237,6 +1250,7 @@ projects:
 
     build:                           # how the artifact is built (stage 2)
       buildPath: ""                  # artifact path or glob, e.g. "build/libs/*.jar" or "target/*.jar"
+      # credentialsId: ['<certificate password>', '<prod licence>', '<test licence>']   # Flutter only: three Jenkins Secret text IDs
       gradle:
         tasks:  ['clean', 'build']
         flags:  ['--refresh-dependencies']
@@ -1265,6 +1279,9 @@ projects:
         goals: ['deploy:deploy-file']
         flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
                 '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+      # group:    ""                 # Flutter only: groupId of the APK and IPA upload
+      # artifact: ""                 # Flutter only: artifactId, -android or -ios is appended
+      # plugin:   "deploy:deploy-file"   # Flutter only: the Maven goal of the upload
 
     scm:
       bitbucket:                     # required to raise GoldenFix pull requests
@@ -1275,6 +1292,10 @@ projects:
         targetBranch:  ""            # PR target branch  [default: branch that triggered the build]
         cloneUrl:      ""            # push URL override  [default: derived from url]
         reviewers:     []            # Bitbucket user names (server) / account UUIDs (cloud)
+        projectKey:    ""            # server: project key  [default: from url]
+        repoSlug:      ""            # repository slug  [default: from url]
+        workspace:     ""            # cloud: workspace  [default: from url]
+        apiUrl:        ""            # server: base URL  [default: from url]; cloud: REST API  [default: https://api.bitbucket.org/2.0]
 
     goldenFix:                       # the bundled defaults shown, project values override them
       enabled:                true
@@ -1313,9 +1334,17 @@ projects:
         rootDir:           "."       # Maven: root of the module scan for surefire reports
         reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
         allowEmptyResults: false     # Maven: accept a module without test results
+      # modules:    ['<module>', '<module>']   # Flutter only: two module names, named in the log of the unit tests
+      # subplugins: []               # Flutter only: folders under plugins/ tested with coverage
+      # submodules: []               # Flutter only: folders under modules/ tested with coverage
       smoke:
+        required:    true            # false: the stage records 'Test not required' and runs no job (also for regression and performance)
         maxParallel: 20              # optional per-stage override
-        defaults: {}                 # optional: fields merged into every job entry
+        pollIntervalSec: 15          # seconds between two status polls of a job (also for regression and performance)
+        defaults:                    # optional: fields merged into every job entry
+          type:          remote
+          timeoutMin:    15
+          credentialsId: "remote-jenkins-api-token"
         urls: []                     # optional shorthand: list of remote job URLs
         jobs:
           - name:       ""           # display name (derived from the URL when empty)
@@ -1328,8 +1357,18 @@ projects:
             remoteJenkinsUrl: ""     # optional remote Jenkins base URL override
             credentialsId: ""        # optional: credentials (user + API token) for the remote Jenkins
             tokenCredentialsId: ""   # optional: Secret text credential with the build token of the remote job
+            token:      ""           # the build token itself, read only without tokenCredentialsId; prefer tokenCredentialsId
+            # pollIntervalSec: 15    # optional: seconds between two status polls  [default: pollIntervalSec of the stage]
+            # auth: {}               # optional: the auth of the remote trigger, wins over credentialsId
+            abortTriggeredJob:            false   # remote: options of the Parameterized Remote Trigger plugin
+            trustAllCertificates:         false
+            overrideTrustAllCertificates: false
+            preventRemoteBuildQueue:      false
+            useCrumbCache:                false
+            useJobInfoCache:              false
           - "https://jenkins.example.com/job/smoke/job/login"   # an entry may also be the job URL alone
       regression:
+        maxParallel: 20              # optional per-stage override
         jobs:
           - name:       ""
             type:       local
@@ -1354,11 +1393,14 @@ projects:
           deployOnlyChanged:   false
           deployDescription:   ""
           requestProperties:   ""
+          # applicationName: ""                  # a single application without applications: (its snapshotName and components sit here)
           applications:                          # one entry per UrbanCode application
             - applicationName: ""
               order:        1                    # optional deployment order
-              environments: ['DV', 'RD', 'QC']   # optional filter, empty means every environment
+              environments: ['DV', 'RD', 'QC']   # optional filter; leave the key out for every environment (an empty list deploys to none)
               snapshotName: ""                   # [default: <applicationName>_snapshot]
+              # siteName, deployProcess, skipWait, deployWithSnapshot, updateSnapshotComp, includeOnlyDeployVersions,
+              # deployOnlyChanged, deployDescription (or description) and requestProperties of dod: may be set here for this application
               components:
                 - componentName:       ""
                   baseDir:             "build/libs"
@@ -1367,6 +1409,11 @@ projects:
                   versionPrefix:       ""        # [default: fileIncludePatterns]
                   version:             ""        # [default: <versionPrefix>_<BUILD_ID>]
                   incrementalVersion:  true
+                  pushDescription:     ""        # optional fields of the UrbanCode component push
+                  extensions:          ""
+                  charset:             ""
+                  versionProperties:   ""
+                  versionDescription:  ""
         rd:                          # lower test environment over SSH (devSecOpsExtendedPipeline)
           nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus
           host:         ""
@@ -1388,7 +1435,7 @@ projects:
           buildConfigPath:    ""     # BuildConfig template in the repository
           dockerFilePath:     ""     # Dockerfile in the repository
           buildContext:       ""     # directory prepared for the binary build
-          addFile:            ""     # optional extra file copied into the build context
+          # addFile: ""              # optional extra file copied into the build context; leave the key out when there is none
           qcDockerRepoPush:   ""     # Nexus docker repository the image is pushed to
           qcDockerRepoPull:   ""     # docker repository the deployment pulls from
           openshiftCertDir:   ""     # certificate directory for skopeo
@@ -1448,17 +1495,17 @@ defaults:                            # merged under every service of the run
     maxCritical:       0
     maxHigh:           0
     maxMedium:         0
-    prepareTimeoutMin: 120           # IRX generation
+    prepareTimeoutMin: 120           # not read: the IRX generation waits at most 120 minutes
     pollTimeoutMin:    50            # wait for the SAST scan
     pollIntervalSec:   30
 
   sca:                               # SonarQube thresholds, read from here only
-    enabled:         true
+    enabled:         true            # not read by the library
     maxCritical:     0
     maxHigh:         0
     maxMedium:       0
-    pollTimeoutMin:  40
-    pollIntervalSec: 30
+    pollTimeoutMin:  40              # not read by the library
+    pollIntervalSec: 30              # not read by the library
 
   dast:                              # read from here only
     maxCritical:       0
@@ -1527,7 +1574,7 @@ platform:                            # optional; without it the values below app
 | Keys | File | Who changes them |
 |---|---|---|
 | `projects.<service>.*` | `devsecops_config.yaml`, else `config.yaml`, at the root of the repository | The project team, per branch |
-| `coverage.minLine`; `maxCritical`, `maxHigh` and `maxMedium` of `sast`, `sca`, `dast` and `tools.nexusIq`; the timeouts of `sast` and `dast`; `tools.sonar.qualityGate`; `releaseGate` | `defaults:` of `resources/com/bbh/devsecops/defaults.yaml` in the library | The DevSecOps team only. The library reads them from there only, so the same keys under a service change nothing |
+| `coverage.minLine`; `maxCritical`, `maxHigh` and `maxMedium` of `sast`, `sca`, `dast` and `tools.nexusIq`; the polling and report timeouts of `sast` and `dast`; `tools.sonar.qualityGate`; `releaseGate` | `defaults:` of `resources/com/bbh/devsecops/defaults.yaml` in the library | The DevSecOps team only. The library reads them from there only, so the same keys under a service change nothing |
 | Every other key of `defaults:`, such as `goldenFix`, `tests.maxParallel`, `buildTool` and, when the team adds them, `staticAnalysis.parallel` and `build.node` | `defaults:` of the same file, merged under every service | The DevSecOps team; a service of `devsecops_config.yaml` may set its own value |
 | `platform.*` | The optional `platform:` section of the same file | The DevSecOps team; a value of the agent or Jenkins environment wins for `platform.environment` |
 | `projectNames`, `agentNames`, `securityPipeline` | The `Jenkinsfile` | The project team |
@@ -3045,7 +3092,7 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | `test/sandbox/CoverageScenarios.groovy` | `checkCoverage`, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of `coverage.reportPath`, a copy of the report of another service, the fallbacks without `python3` or after a failed scan, Windows, and one real `sh` run of the scan step |
 | `test/sandbox/StaticAnalysisScenarios.groovy` | The switch of the static scan order (the environment variable first, then `staticAnalysis.parallel` of every service), the services whose SAST compile differs from their build command, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
 | `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs. Every run reads a repository file: it plants `devsecops_config.yaml` or `config.yaml` in the workspace, takes the defaults of the run as the bundled resource and gives the entry point `projectNames`, `agentNames` and, for the extended pipeline, `securityPipeline`; the runs cover both file names, both files at once, a Jenkinsfile without `projectNames` and another `appId` in a `config.yaml` that is not read. The eleven golden runs of the first four entry points, recorded at release b815d55, are unchanged byte for byte and are compared after declared rules for what this release adds: the run-state file `pipeline-config.yaml`, the `build_evidence` and unit `test_execution` points, the InfluxDB line count, the settings line of the report header and `config_file`. The golden runs of the Nexus IQ GoldenFix pipeline (green, orange, build failure, the shared catalog run of two services) and `full-pipeline-orange-parallel-scans.txt` were recorded again for this branch; before they were committed, a one-off comparison proved that each new file equals the file recorded on `main` with the steps and lines of the key read removed and the lines that name the settings file added. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service |
-| `test/sandbox/ConfigScenarios.groovy` | The configuration of a run: `projectNames` as a string or a list, `securityPipeline`, a Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also empty, which stops with its message and runs nothing, a Jenkinsfile without `agentNames`, `DSO_REQUIRE_PIPELINE_KEY=true`, which changes nothing, `configure()` twice and `initialize()` without `configure()`, the two file names and their order, the file errors and their messages; the `platform:` section of the bundled defaults, which changes the iOS build agent, the OIS host, the Flutter snapshot repository and the tool environment, with an environment variable that wins over `platform.environment`; the extended handoff; and the Nexus IQ GoldenFix entry point, which names its own call and stops at the start for a service it would not scan |
+| `test/sandbox/ConfigScenarios.groovy` | The configuration of a run: `projectNames` as a string or a list, `securityPipeline`, a Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also empty, which stops with its message and runs nothing, a Jenkinsfile without `agentNames`, `DSO_REQUIRE_PIPELINE_KEY=true`, which changes nothing, `configure()` twice and `initialize()` without `configure()`, each of the two file names, the file errors and their messages; the `platform:` section of the bundled defaults, which changes the iOS build agent, the OIS host, the Flutter snapshot repository and the tool environment, with an environment variable that wins over `platform.environment`; the InfluxDB settings of the primary service and the upload on Linux and Windows; the build token of remote test jobs (`tokenCredentialsId`); the extended handoff; and the Nexus IQ GoldenFix entry point, which names its own call and stops at the start for a service it would not scan |
 | `test/sandbox/CompatibilityScenarios.groovy` | The loader of release b815d55 and the loader of this release produce the same configuration, exactly, from `devsecops_config.yaml` and from `config.yaml` over the same defaults (`devsecops_config.yaml` first when both exist); the production bundled defaults have the structure the library reads, with an optional `platform:` map, and can be applied; `examples/CertScanner/devsecops_config.yaml` loads |
 
 The sandbox tests execute the library inside `GroovySandbox.runInSandbox` with the real `script-security` whitelists and a fake Jenkins (`test/sandbox/harness`), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.
