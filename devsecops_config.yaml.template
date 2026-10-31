@@ -11,7 +11,7 @@ projects:
   my-app:                            # the service name given in projectNames
 
     appId:        ""                 # HCL AppScan application ID (UUID)
-    buildTool:    gradle             # gradle | maven | flutter  [default: gradle]
+    buildTool:    gradle             # gradle | maven | flutter | liquibase  [default: gradle]
     deployTarget: vm                 # vm | openshift            [default: vm]
     sourceDir:    "."                # source root for IRX generation [default: .]
     javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME)
@@ -107,6 +107,11 @@ projects:
         mvnPath:  ""                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn
         env:
           MAVEN_OPTS: "-Xms512m -Xmx1g"
+      # liquibase:                   # Liquibase (SQL / PL/SQL) build command
+      #   commands: ['updateSQL']
+      #   flags:    ['--changelog-file=src/main/resources/changelog.xml']
+      #   dir:      ""               # optional subdirectory to run liquibase in
+      #   env: {}                    # optional environment variables
       node:                          # optional Node.js build, stage 0, before the Gradle or Maven build
         enabled:          false      # true: build this service with Node.js first [default: false]
         dir:              ""         # folder with package.json, relative to the workspace [default: the workspace]
@@ -174,6 +179,9 @@ projects:
           tasks: ['test', 'jacocoTestReport']
         maven:
           goals: ['test', 'jacoco:report']
+        # liquibase:
+        #   commands: ['validate']
+        #   flags:    ['--changelog-file=src/main/resources/changelog.xml']
         unitTestResult:    ""        # JUnit results pattern [default: **/build/test-results/test/*.xml]
         rootDir:           "."       # Maven: root of the module scan for surefire reports
         reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
@@ -311,3 +319,20 @@ projects:
 
     flutter:                         # Flutter-specific settings (only when buildTool: flutter)
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
+
+  # my-db-service:                   # example Liquibase (SQL / PL/SQL) database migration service
+  #   appId:        ""
+  #   buildTool:    liquibase
+  #   deployTarget: vm
+  #   asoc:
+  #     keyId: ""
+  #   build:
+  #     liquibase:
+  #       commands: ['updateSQL']
+  #       flags:    ['--changelog-file=src/main/resources/changelog.xml']
+  #   tests:
+  #     unitTests:
+  #       liquibase:
+  #         commands: ['validate']
+  #         flags:    ['--changelog-file=src/main/resources/changelog.xml']
+

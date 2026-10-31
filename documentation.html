@@ -688,7 +688,7 @@ devSecOpsNexusIqGoldenFixPipeline(
   &lt;project-name&gt;:                    <span class="c"># the service name, as projectNames of the Jenkinsfile gives it</span>
 
     <span class="k">appId</span>:        <span class="s">&quot;&quot;</span>                 <span class="c"># HCL AppScan application ID (UUID)</span>
-    <span class="k">buildTool</span>:    gradle             <span class="c"># gradle | maven | flutter  [default: gradle]</span>
+    <span class="k">buildTool</span>:    gradle             <span class="c"># gradle | maven | flutter | liquibase  [default: gradle]</span>
     <span class="k">deployTarget</span>: vm                 <span class="c"># vm | openshift            [default: vm]</span>
     <span class="k">sourceDir</span>:    <span class="s">&quot;.&quot;</span>                <span class="c"># source root for IRX generation [default: .]</span>
     <span class="k">javaPath</span>:     <span class="s">&quot;&quot;</span>                 <span class="c"># JDK used for the build and the tests (exported as JAVA_HOME)</span>
@@ -784,6 +784,11 @@ devSecOpsNexusIqGoldenFixPipeline(
         <span class="k">mvnPath</span>:  <span class="s">&quot;&quot;</span>                 <span class="c"># Maven installation directory; empty uses ./mvnw when present, otherwise mvn</span>
         <span class="k">env</span>:
           <span class="k">MAVEN_OPTS</span>: <span class="s">&quot;-Xms512m -Xmx1g&quot;</span>
+      <span class="k">liquibase</span>:
+        <span class="k">commands</span>: [&<span class="c">#x27;updateSQL&#x27;]</span>
+        <span class="k">flags</span>:    [&<span class="c">#x27;--changelog-file=src/main/resources/changelog.xml&#x27;]</span>
+        <span class="k">dir</span>:      <span class="s">&quot;&quot;</span>                 <span class="c"># optional subdirectory to run liquibase in</span>
+        <span class="k">env</span>: {}                      <span class="c"># optional environment variables</span>
       <span class="k">node</span>:                          <span class="c"># optional Node.js build, stage 0, before the Gradle or Maven build</span>
         <span class="k">enabled</span>:          false      <span class="c"># true: build this service with Node.js first [default: false]</span>
         <span class="k">dir</span>:              <span class="s">&quot;&quot;</span>         <span class="c"># folder with package.json, relative to the workspace [default: the workspace]</span>
@@ -852,6 +857,9 @@ devSecOpsNexusIqGoldenFixPipeline(
           <span class="k">tasks</span>: [&<span class="c">#x27;test<span class="s">&#x27;, &#x27;</span>jacocoTestReport&#x27;]</span>
         <span class="k">maven</span>:
           <span class="k">goals</span>: [&<span class="c">#x27;test<span class="s">&#x27;, &#x27;</span>jacoco:report&#x27;]</span>
+        <span class="k">liquibase</span>:
+          <span class="k">commands</span>: [&<span class="c">#x27;validate&#x27;]</span>
+          <span class="k">flags</span>:    [&<span class="c">#x27;--changelog-file=src/main/resources/changelog.xml&#x27;]</span>
         <span class="k">unitTestResult</span>:    <span class="s">&quot;&quot;</span>        <span class="c"># JUnit results pattern [default: **/build/test-results/test/*.xml]</span>
         <span class="k">rootDir</span>:           <span class="s">&quot;.&quot;</span>       <span class="c"># Maven: root of the module scan for surefire reports</span>
         <span class="k">reportOutDir</span>:      <span class="s">&quot;surefire-reports&quot;</span>   <span class="c"># Maven: collected surefire reports</span>
@@ -1213,8 +1221,8 @@ devSecOpsNexusIqGoldenFixPipeline(
 
 <div class="section" id="ch18">
 <h2><span class="num">18</span> Supported Build Tools</h2>
-<table><thead><tr><th>Tool</th><th>Build</th><th>Unit tests</th><th>Coverage</th><th>Release publish</th></tr></thead><tbody><tr><td>Gradle</td><td><code>./gradlew</code> + <code>build.gradle.tasks</code> and <code>flags</code></td><td><code>./gradlew</code> + <code>tests.unitTests.gradle.tasks</code></td><td>JaCoCo XML and LCOV</td><td><code>./gradlew publish</code></td></tr><tr><td>Maven</td><td><code>mvn</code> + <code>build.maven.goals</code> and <code>flags</code></td><td><code>mvn</code> + <code>tests.unitTests.maven.goals</code></td><td>JaCoCo XML and LCOV</td><td><code>mvn deploy</code></td></tr><tr><td>Flutter</td><td><code>flutter build &lt;platform&gt;</code></td><td><code>flutter test --coverage --concurrency=32 --reporter expanded</code> in the main package and in each of <code>tests.subplugins</code> and <code>tests.submodules</code></td><td>LCOV of each package</td><td>Nexus upload of the APK/IPA</td></tr><tr><td>Node.js (stage 0, optional)</td><td><code>build.node.commands</code>, by default <code>npm ci</code> and <code>npm run build</code></td><td>–</td><td>–</td><td>– (the Gradle or Maven build packages the output)</td></tr></tbody></table>
-<p>Every command comes from the settings of the service; the table shows where the library reads it. The build tool is <code>buildTool</code> of the service in <code>devsecops_config.yaml</code>; when it is empty, the library detects it by file existence (<code>pubspec.yaml</code> → Flutter, <code>pom.xml</code> → Maven, <code>build.gradle</code> → Gradle).</p>
+<table><thead><tr><th>Tool</th><th>Build</th><th>Unit tests</th><th>Coverage</th><th>Release publish</th></tr></thead><tbody><tr><td>Gradle</td><td><code>./gradlew</code> + <code>build.gradle.tasks</code> and <code>flags</code></td><td><code>./gradlew</code> + <code>tests.unitTests.gradle.tasks</code></td><td>JaCoCo XML and LCOV</td><td><code>./gradlew publish</code></td></tr><tr><td>Maven</td><td><code>mvn</code> + <code>build.maven.goals</code> and <code>flags</code></td><td><code>mvn</code> + <code>tests.unitTests.maven.goals</code></td><td>JaCoCo XML and LCOV</td><td><code>mvn deploy</code></td></tr><tr><td>Flutter</td><td><code>flutter build &lt;platform&gt;</code></td><td><code>flutter test --coverage --concurrency=32 --reporter expanded</code> in the main package and in each of <code>tests.subplugins</code> and <code>tests.submodules</code></td><td>LCOV of each package</td><td>Nexus upload of the APK/IPA</td></tr><tr><td>Liquibase (SQL / PL/SQL)</td><td><code>liquibase</code> + <code>build.liquibase.commands</code> and <code>flags</code></td><td><code>liquibase</code> + <code>tests.unitTests.liquibase.commands</code> (or changelog validation)</td><td>– (database migrations skipped from coverage gate)</td><td>– (or delivery via Nexus)</td></tr><tr><td>Node.js (stage 0, optional)</td><td><code>build.node.commands</code>, by default <code>npm ci</code> and <code>npm run build</code></td><td>–</td><td>–</td><td>– (the Gradle or Maven build packages the output)</td></tr></tbody></table>
+<p>Every command comes from the settings of the service; the table shows where the library reads it. The build tool is <code>buildTool</code> of the service in <code>devsecops_config.yaml</code>; when it is empty, the library detects it by file existence (<code>pubspec.yaml</code> → Flutter, <code>pom.xml</code> → Maven, <code>build.gradle</code> → Gradle, <code>liquibase.properties</code> / <code>changelog.xml</code> / <code>changelog.yaml</code> / <code>changelog.sql</code> → Liquibase).</p>
 <p>Gradle always runs through the <code>./gradlew</code> wrapper, which the library makes executable. Maven uses the installation of <code>build.maven.mvnPath</code> when it is set, otherwise <code>./mvnw</code> when the wrapper is committed, otherwise the <code>mvn</code> on the agent <code>PATH</code>.</p>
 <p>The JDK comes from <code>javaPath</code> of the project, which the library exports as <code>JAVA_HOME</code> and prepends to <code>PATH</code>. With <code>buildToolAutoSetup: true</code> the library instead reads the required Java version from <code>pom.xml</code> or <code>build.gradle</code> and searches the agent for a matching JDK.</p>
 <p>A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.</p>
