@@ -42,6 +42,8 @@ class SonarService implements Serializable {
         try {
             if (tool == 'flutter') {
                 scanFlutter(sonarCfg, sonarArgs, installationName)
+            } else if (tool == 'liquibase') {
+                scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, projectKey, fullBadges)
             } else {
                 if (credentialsId) {
                     script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
@@ -208,5 +210,26 @@ rm -f "\${_TMP}"
                 }
             }
         } catch (e) { script.echo "[SONAR] Could not fetch issue counts: ${e.message}" }
+    }
+
+    private void scanLiquibase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
+        def args = [] + sonarArgs
+        String sources = (sonarCfg.sources ?: '.') as String
+        args.add("-Dsonar.sources=${sources}")
+        if (credentialsId) {
+            script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
+                runScanner(sonarCfg, args)
+                if (addBadges) {
+                    script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+                }
+            }
+        } else {
+            script.withSonarQubeEnv("${installationName}") {
+                runScanner(sonarCfg, args)
+                if (addBadges) {
+                    script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+                }
+            }
+        }
     }
 }

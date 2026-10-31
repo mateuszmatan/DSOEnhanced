@@ -1237,7 +1237,7 @@ projects:
   <project-name>:                    # the service name in the DevSecOps portal
 
     appId:        ""                 # HCL AppScan application ID (UUID)
-    buildTool:    gradle             # gradle | maven | flutter  [default: gradle]
+    buildTool:    gradle             # gradle | maven | flutter | liquibase  [default: gradle]
     deployTarget: vm                 # vm | openshift            [default: vm]
     sourceDir:    "."                # source root for IRX generation [default: .]
     javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME)
@@ -1314,6 +1314,11 @@ projects:
         mvnPath:  ""                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn
         env:
           MAVEN_OPTS: "-Xms512m -Xmx1g"
+      liquibase:
+        commands: ['updateSQL']
+        flags:    ['--changelog-file=src/main/resources/changelog.xml']
+        dir:      ""                 # optional subdirectory to run liquibase in
+        env: {}                      # optional environment variables
       node:                          # optional Node.js build, stage 0, before the Gradle or Maven build
         enabled:          false      # true: build this service with Node.js first [default: false]
         dir:              ""         # folder with package.json, relative to the workspace [default: the workspace]
@@ -1375,6 +1380,9 @@ projects:
           tasks: ['test', 'jacocoTestReport']
         maven:
           goals: ['test', 'jacoco:report']
+        liquibase:
+          commands: ['validate']
+          flags:    ['--changelog-file=src/main/resources/changelog.xml']
         unitTestResult:    ""        # JUnit results pattern [default: **/build/test-results/test/*.xml]
         rootDir:           "."       # Maven: root of the module scan for surefire reports
         reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
@@ -1845,9 +1853,10 @@ h1. 18. Supported Build Tools
 |Gradle|{{./gradlew}} + {{build.gradle.tasks}} and {{flags}}|{{./gradlew}} + {{tests.unitTests.gradle.tasks}}|JaCoCo XML and LCOV|{{./gradlew publish}}|
 |Maven|{{mvn}} + {{build.maven.goals}} and {{flags}}|{{mvn}} + {{tests.unitTests.maven.goals}}|JaCoCo XML and LCOV|{{mvn deploy}}|
 |Flutter|{{flutter build <platform>}}|{{flutter test --coverage --concurrency=32 --reporter expanded}} in the main package and in each of {{tests.subplugins}} and {{tests.submodules}}|LCOV of each package|Nexus upload of the APK/IPA|
+|Liquibase (SQL / PL/SQL)|{{liquibase}} + {{build.liquibase.commands}} and {{flags}}|{{liquibase}} + {{tests.unitTests.liquibase.commands}} (or changelog validation)|– (database migrations skipped from coverage gate)|– (or delivery via Nexus)|
 |Node.js (stage 0, optional)|{{build.node.commands}}, by default {{npm ci}} and {{npm run build}}|–|–|– (the Gradle or Maven build packages the output)|
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle, {{liquibase.properties}} / {{changelog.xml}} / {{changelog.yaml}} / {{changelog.sql}} → Liquibase).
 
 Gradle always runs through the {{./gradlew}} wrapper, which the library makes executable. Maven uses the installation of {{build.maven.mvnPath}} when it is set, otherwise {{./mvnw}} when the wrapper is committed, otherwise the {{mvn}} on the agent {{PATH}}.
 

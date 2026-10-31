@@ -58,6 +58,9 @@ class BuildService implements Serializable {
                     script.sh("flutter build apk --flavor ${flavour} -t lib/main_${flavour}.dart --obfuscate --split-debug-info=build/app/outputs/flutter-apk/debug-info --no-tree-shake-icons --dart-define=CERTIFICATE_PASSWORD=${script.password} --dart-define=MISNAP_LICENSE=${flavorLicense}")
                 }
                 break
+            case 'liquibase':
+                runLiquibaseBuild()
+                break
             default:
                 script.error "[BUILD] Unknown build tool: ${tool}"
         }
@@ -89,6 +92,10 @@ class BuildService implements Serializable {
                 FlutterUtils.unitTestsFlutter(state.cfg, script)
                 break
 
+            case 'liquibase':
+                runLiquibaseTests()
+                break
+
             default:
                 script.error "[TEST] Unknown build tool: ${tool}"
         }
@@ -106,11 +113,19 @@ class BuildService implements Serializable {
         String classes = CoverageReports.classText(reports, (found.classes ?: []) as List)
         if (classes) script.echo classes
         if (found.missing) {
+            if (tool == 'liquibase') {
+                script.echo "[COVERAGE] Liquibase: skipping coverage requirement (${found.missing})"
+                return
+            }
             policy.missingCoverage(found.missing as String, reports)
             return
         }
         Map own = CoverageReports.summary(reports)
         if (!own.counted) {
+            if (tool == 'liquibase') {
+                script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
+                return
+            }
             policy.missingCoverage(CoverageReports.noLines(reports), reports)
             return
         }
@@ -249,6 +264,9 @@ class BuildService implements Serializable {
             return
         } else if (tool == 'maven') {
             reportSurefireTests()
+            return
+        } else if (tool == 'liquibase') {
+            state.recordUnitTests([total: 0, failed: 0, skipped: 0])
             return
         }
 
@@ -600,7 +618,7 @@ class BuildService implements Serializable {
         def cfgTool = state.cfg.buildTool?.trim()
         if (cfgTool) {
             script.echo "Detected tool from config file is ${cfgTool}"
-            return cfgTool
+            return cfgTool.equalsIgnoreCase('liquibase') ? 'liquibase' : cfgTool
         }
         if (script.fileExists('pubspec.yaml'))  {
             script.echo "Detected tool is Flutter"
@@ -614,11 +632,23 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Gradle"
             return 'gradle'
         }
+        if (script.fileExists('liquibase.properties') || script.fileExists('changelog.xml') || script.fileExists('changelog.yaml') || script.fileExists('changelog.sql')) {
+            script.echo "Detected tool is Liquibase"
+            return 'liquibase'
+        }
         return 'gradle'
     }
 
     String setupBuildTool() {
         String buildTool = detectTool()
+        if (buildTool == 'liquibase') {
+            String javaPath = state.cfg?.javaPath
+            if (javaPath) {
+                script.env.JAVA_HOME = javaPath
+                script.env.PATH = "${javaPath}/bin:${script.env.PATH}"
+            }
+            return buildTool
+        }
         boolean hasInstalled = BuildUtils.booleanValue(script.env.HAS_BUILD_TOOL_INSTALLED, false)
         if (hasInstalled) {
             return buildTool
@@ -1018,5 +1048,68 @@ PYEOF
         int covered = parts.size() > 1 ? (parts[1] as int) : 0
         int missed = parts.size() > 2 ? (parts[2] as int) : 0
         return [line: pct, covered: covered, missed: missed, total: covered + missed]
+    }
+
+    void runLiquibaseBuild() {
+        Map cfg = ((state.cfg.build?.liquibase) ?: state.cfg.build ?: [:]) as Map
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: ['validate'])
+        List flags = BuildUtils.normalizeTokens(cfg.flags)
+        String cmd = (['liquibase'] + flags + commands).collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
+        String label = (cfg.label ?: "Liquibase: ${commands.join(' ')}") as String
+        boolean returnStdout = (cfg.returnStdout ?: false) as boolean
+        script.echo "Execute Liquibase Command: ${cmd}"
+        Closure body = {
+            List<String> env = []
+            if (cfg.env instanceof Map && !cfg.env.isEmpty()) {
+                env.addAll(cfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
+            }
+            if (!env) return BuildUtils.execSh(script, cmd, label, returnStdout)
+            return script.withEnv(env) {
+                BuildUtils.execSh(script, cmd, label, returnStdout)
+            }
+        }
+        if (cfg.dir) {
+            script.dir(cfg.dir as String) {
+                body()
+            }
+        } else {
+            body()
+        }
+    }
+
+    void runLiquibaseTests() {
+        Map cfg = ((state.cfg.tests?.unitTests?.liquibase) ?: state.cfg.tests?.unitTests ?: [:]) as Map
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks)
+        if (!commands) {
+            script.echo "[TEST] Liquibase: No unit tests or changelog checks configured, skipping"
+            return
+        }
+        List flags = BuildUtils.normalizeTokens(cfg.flags)
+        String cmd = (['liquibase'] + flags + commands).collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
+        String label = (cfg.label ?: "Liquibase test: ${commands.join(' ')}") as String
+        boolean returnStdout = (cfg.returnStdout ?: false) as boolean
+        script.echo "Execute Liquibase Command: ${cmd}"
+        Closure body = {
+            List<String> env = []
+            if (cfg.env instanceof Map && !cfg.env.isEmpty()) {
+                env.addAll(cfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
+            }
+            if (!env) return BuildUtils.execSh(script, cmd, label, returnStdout)
+            return script.withEnv(env) {
+                BuildUtils.execSh(script, cmd, label, returnStdout)
+            }
+        }
+        try {
+            if (cfg.dir) {
+                script.dir(cfg.dir as String) {
+                    body()
+                }
+            } else {
+                body()
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Liquibase test step failed (${e.message ?: e.getClass().getSimpleName()})")
+        }
     }
 }

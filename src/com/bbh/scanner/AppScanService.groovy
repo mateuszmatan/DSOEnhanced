@@ -144,12 +144,14 @@ Set-Location -Path "\$env:WORKSPACE"
                 } else {
                     if (doCompile) {
                         def tool = build.detectTool()
-                        Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
-                        BuildRunner runner = new BuildRunner(script, compileCfg, tool)
-                        if (!runner.ifExist()) {
-                            script.error "[SAST] Build tool is NOT installed on an agent"
+                        if (tool != 'liquibase') {
+                            Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
+                            BuildRunner runner = new BuildRunner(script, compileCfg, tool)
+                            if (!runner.ifExist()) {
+                                script.error "[SAST] Build tool is NOT installed on an agent"
+                            }
+                            runner.run()
                         }
-                        runner.run()
                     }
                     script.sh """#!/usr/bin/env bash
 set -euo pipefail; set +x
