@@ -1,5 +1,6 @@
 import groovy.transform.Field
 import com.bbh.build.BuildService
+import com.bbh.build.DatabaseBuild
 import com.bbh.build.ManifestBuildVerifier
 import com.bbh.build.NodeBuildRunner
 import com.bbh.config.ConfigLoader
@@ -7,6 +8,7 @@ import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
 import com.bbh.core.ReleaseGate
+import com.bbh.deploy.DatabaseDeployService
 import com.bbh.deploy.OpenshiftService
 import com.bbh.deploy.VmDeployService
 import com.bbh.metrics.InfluxDbService
@@ -37,6 +39,8 @@ import com.bbh.utils.BuildUtils
 @Field VmDeployService  _vmDeploy
 @Field OpenshiftService _openshift
 @Field InfluxDbService  _influx
+@Field DatabaseBuild    _database
+@Field DatabaseDeployService _databaseDeploy
 @Field Map              _pipelineConfig = [:]
 @Field String           _variant = 'full'
 @Field Boolean          _parallelScans = null
@@ -57,6 +61,8 @@ private void _setup() {
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
+    _database       = new DatabaseBuild(this, _state, _os, _policy, _build)
+    _databaseDeploy = new DatabaseDeployService(this, _state, _policy, _database)
 }
 
 def configure(String variant, Map config) {
@@ -100,6 +106,7 @@ def initialize() {
     env.OS_TYPE = _os.getType()
     _os.chmodX('gradlew')
     _config.initialize()
+    _database.validateServices(_variant)
 }
 
 def setupJavaVersion(String javaHome = '/usr/lib/jvm/java-17-openjdk-17.0.19.0.10-2.el9.x86_64') {
@@ -293,6 +300,10 @@ def getCFG()                          { _setup(); return _state.cfg }
 def switchProject(String projectName) { _setup(); _config.switchProject(projectName) }
 def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
 def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
+def databaseService()                 { _setup(); return BuildUtils.databaseService(_state.cfg) }
+def databaseBuild()                   { _setup(); _database.build() }
+def databaseDelivery(String kind)     { _setup(); _databaseDeploy.deliver(kind) }
+def databaseDeploy(String envName)    { _setup(); _databaseDeploy.deploy(envName) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
 def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
 def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
