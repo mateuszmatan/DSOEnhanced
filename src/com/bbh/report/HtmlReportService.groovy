@@ -129,8 +129,7 @@ class HtmlReportService implements Serializable {
                 new com.bbh.core.ReleaseGate(script, state).evaluate(),
                 new HashMap(state.projectsRemoteTestResults ?: [:]),
                 new HashMap(state.projectsGoldenFix ?: [:]),
-                new HashMap(state.projectsCoverage ?: [:]),
-                (state.portalDocuments ?: []) as List
+                new HashMap(state.projectsCoverage ?: [:])
         )
         script.sh "mkdir -p ${script.env.WORKSPACE}/report"
         script.writeFile file: "${script.env.WORKSPACE}/report/pipeline-report.html", text: html
@@ -541,10 +540,9 @@ class HtmlReportService implements Serializable {
         String status = (gf?.get('status') ?: '') as String
         int available = ((gf?.get('fixes') ?: []) as List).size()
         if (status == 'NOT_CONFIGURED') {
-            String who = state.configFile ? "Someone who can change ${state.configFile} in the repository" : 'Someone with access to the DevSecOps portal'
             return [headline   : 'No upgrade request was opened - the repository address is missing.',
                     explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
-                            "Bitbucket repository is, so it had nowhere to propose them. ${who} has to fill in " +
+                            "Bitbucket repository is, so it had nowhere to propose them. Someone who can change ${state.settingsPlace()} in the repository has to fill in " +
                             'scm.bitbucket.url with the repository link and scm.bitbucket.credentialsId with the Jenkins credentials that may ' +
                             'write to it. The upgrades are then proposed automatically on the next run.']
         }
@@ -1147,14 +1145,8 @@ class HtmlReportService implements Serializable {
         }
         return "<div style='margin-top:6px;background:rgba(0,0,0,0.25);border-radius:3px;padding:5px 10px;font-size:0.8rem;font-weight:600;letter-spacing:0.1px;'>Failed at stage: ${esc(firstFailed)}</div>"
     }
-    @NonCPS protected String portalHtml(List documents) {
-        List parts = []
-        for (def item : (documents ?: [])) {
-            Map document = (item ?: [:]) as Map
-            parts << "key ${esc(document.hint as String)}, rendered ${esc(document.renderedAt as String)}, sha256 ${esc(document.sha256 as String)}".toString()
-        }
-        if (parts) return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>"
-        return state.configFile ? "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${esc(state.configFile)} in the repository</div>" : ''
+    @NonCPS protected String settingsHtml() {
+        return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from ${esc(state.settingsPlace())} in the repository</div>"
     }
 
     @NonCPS protected String headerBackground(String buildResult) {
@@ -1171,7 +1163,7 @@ class HtmlReportService implements Serializable {
                      String sonarProjectKey = '', String sonarBadgeToken = '',
                      Map projectsVulnCounts = [:], Map projectsNexusIQ = [:], Map projectsScanResults = [:],
                      Map projectsSonarResults = [:], List projectKeys = [], Map projectsAllCfg = [:], Map releaseGate = [:],
-                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], List portalDocuments = []) {
+                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:]) {
 
         String firstFailed = ''
         int firstFailedIdx = -1
@@ -1232,7 +1224,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:${headerBackground(buildResult)};border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>${buildResult ?: 'IN_PROGRESS'}</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>${esc(jobName)} &nbsp;&bull;&nbsp; Build #${esc(buildNumber)}</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>${now}</div>${portalHtml(portalDocuments)}
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>${now}</div>${settingsHtml()}
 ${failureReasonHtml(firstFailed)}
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

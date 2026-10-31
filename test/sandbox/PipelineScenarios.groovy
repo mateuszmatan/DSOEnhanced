@@ -7,7 +7,6 @@ import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
 import devsecops.test.GoldenFixResponder
-import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
 
@@ -17,9 +16,6 @@ File stubDir = new File(root, 'test/sandbox/stub')
 File varsDir = new File(root, 'vars')
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
-Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
-Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast',
-                devSecOpsNexusIqGoldenFixPipeline: 'nexusiq']
 String securityJob = 'DevSecOps/CertScanner-security-pipeline'
 
 String MONITOR = 'Monitor source changes (download sources)'
@@ -73,6 +69,8 @@ Closure dataFor = { boolean fail ->
 List<String> secretResources = ['a2a-certs/a2a.sh', 'a2a-certs/get-a2a-password.sh', 'a2a-certs/loginfile.sh',
                                  'a2a-certs/PROXY_ASOCJenk.cert.pem', 'a2a-certs/PROXY_ASOCJenk.key.pem', 'a2a-certs/PROXY_ASOCJenk.keypsw']
 
+Closure filesOf = { Map spec -> (spec.containsKey('files') ? spec.files : ['devsecops_config.yaml': null]) as Map }
+
 Closure runPipeline = { Map spec ->
     SandboxHarness harness = new SandboxHarness(srcDir, stubDir)
     FakeScript j = new FakeScript()
@@ -102,10 +100,8 @@ Closure runPipeline = { Map spec ->
         j.upstream[securityJob] = ['pipeline-config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
     }
     Map upstreamJob = spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:]
-    Map jenkinsfile = spec.keyless ?
-            [agentNames: ['linux-agent', 'windows-agent']] + (spec.autoDetect ? [:] : [projectNames: (projects.projects as Map).keySet().join(',')]) + upstreamJob :
-            [pipelineKeys: PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map, upstreamJob)]
-    if (spec.keyless) j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
+    Map jenkinsfile = [agentNames: ['linux-agent', 'windows-agent']] + (spec.autoDetect ? [:] : [projectNames: (projects.projects as Map).keySet().join(',')]) + upstreamJob
+    j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
     Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
     j.env.vars.putAll([
@@ -115,7 +111,7 @@ Closure runPipeline = { Map spec ->
             BUILD_ID    : String.valueOf(spec.buildNumber),
             GIT_BRANCH  : 'origin/develop',
             PATH        : '/usr/bin'
-    ] + (spec.keyless ? [:] : [DSO_PORTAL_URL: PortalFixtures.PORTAL_URL]))
+    ])
     j.env.vars.putAll((spec.env ?: [:]) as Map)
     j.params.putAll((spec.params ?: [:]) as Map)
     j.missingCredentials.addAll((spec.missingCredentials ?: []) as List)
@@ -129,7 +125,7 @@ Closure runPipeline = { Map spec ->
     j.files['target/certscanner-api.jar'] = 'jar'
     j.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/bin/appscan.sh'
     j.files['.appscan-logs/proxy.pass'] = 'proxy-secret'
-    ((spec.files ?: [:]) as Map).each { name, text -> j.files[name as String] = text == null ? yaml.dump(projects) : text as String }
+    filesOf(spec).each { name, text -> j.files[name as String] = text == null ? yaml.dump(projects) : text as String }
     j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
     List<String> goldenFixCalls = []
     Map<String, String> manifests = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG : GoldenFixResponder.MANIFESTS
@@ -262,35 +258,20 @@ List<Map> baseRules = [
         rule('stage and job timings are measured on the wall clock', /\b(start_time|end_time|duration_ms|duration_s|lead_time_s)=\d+i/, '$1=<n>i'),
         rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
         rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
-        rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
         rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
                 /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF')
 ]
-Map bootstrapRule = rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
-        /(?ms)\A== calls\n.*?^(?=agent )/, '== calls\n')
-Map portalLogRule = rule('the portal read logs one [PORTAL] line per key (L2)', /(?m)^\[PORTAL\].*\n/, '')
-Map headerRule = rule('the report header names the portal keys with renderedAt and sha256 (accepted difference 1)',
-        /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: [^\n]*?<\/div>/, '')
-List<Map> portalRules = [
-        bootstrapRule,
-        portalLogRule,
-        rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
+List<Map> b815d55Rules = [
+        rule('ConfigLoader.initialize() writes the run-state file right after reading the commit',
                 /(?m)(^sh \[Read the commit under test\].*\n)writeYaml pipeline-config\.yaml\n/, '$1'),
-        rule('the run-state file is pipeline-config.yaml instead of config.yaml (accepted difference 3)',
+        rule('the run-state file is pipeline-config.yaml instead of config.yaml',
                 /(?<![-\w])config\.yaml/, 'pipeline-config.yaml'),
-        rule('build_evidence is a new InfluxDB measurement (L10)', /(?m)^build_evidence,.*\n/, ''),
-        rule('the unit test counts are a new test_execution point with suite=unit (L10)', /(?m)^test_execution,[^ ]*,suite=unit .*\n/, ''),
-        rule('the logged number of InfluxDB lines counts those new points (L10)', /(?m)^\[INFLUX\] \d+ metric line/, '[INFLUX] <n> metric line'),
-        headerRule
+        rule('build_evidence is a new InfluxDB measurement', /(?m)^build_evidence,.*\n/, ''),
+        rule('the unit test counts are a new test_execution point with suite=unit', /(?m)^test_execution,[^ ]*,suite=unit .*\n/, ''),
+        rule('the logged number of InfluxDB lines counts those new points', /(?m)^\[INFLUX\] \d+ metric line/, '[INFLUX] <n> metric line'),
+        rule('the report header names the settings file of the run',
+                /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from [^\n]*? in the repository<\/div>/, '')
 ]
-List<Map> keylessMarks = [
-        rule('a run without a key names its settings file in the report header (M25)',
-                /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: [^\n]*?<\/div>/, ''),
-        rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, '')
-]
-List<Map> keylessRules = [bootstrapRule, portalLogRule,
-                          rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
-                          headerRule] + keylessMarks
 
 Closure normalise = { String text, List<Map> rules ->
     String out = text
@@ -299,10 +280,10 @@ Closure normalise = { String text, List<Map> rules ->
 }
 
 Map baselines = [
-        b815d55: [recorded: 'on the library before the portal integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: portalRules],
-        nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
-        catalog: [recorded: 'when shared version catalogs were added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
-        parallel: [recorded: 'when Nexus IQ and SonarQube were moved into the AppScan wait', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
+        b815d55: [recorded: 'on the b815d55 release of the library', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: b815d55Rules],
+        nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added, again for this release', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
+        catalog: [recorded: 'when shared version catalogs were added, again for this release', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
+        parallel: [recorded: 'when Nexus IQ and SonarQube were moved into the AppScan wait, again for this release', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
 ]
 
 List<Map> specs = [
@@ -310,12 +291,13 @@ List<Map> specs = [
          params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE, STATIC], result: 'SUCCESS', post: ['always', 'success'],
          coverageMinLine: 75],
         [name: 'security pipeline, orange', var: 'devSecOpsSecurityPipeline', fail: true, job: 'CertScanner-security-pipeline', buildNumber: 213,
-         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE, STATIC], result: 'UNSTABLE', post: ['always', 'unstable']],
+         params: [RUN_EXTENDED_PIPELINE: true], executed: staticStages, skipped: [NODE, STATIC], result: 'UNSTABLE', post: ['always', 'unstable'],
+         files: ['config.yaml': null]],
         [name: 'security pipeline, Maven artifact to Nexus', var: 'devSecOpsSecurityPipeline', fail: false, job: 'CertScanner-security-pipeline',
          buildNumber: 214, params: [RUN_EXTENDED_PIPELINE: false], executed: staticStages, skipped: [NODE, STATIC], result: 'SUCCESS',
          post: ['always', 'success'], mavenVmDelivery: true],
         [name: 'SAST pipeline, green', var: 'devSecOpsSASTScanningPipeline', fail: false, job: 'CertScanner-sast-pipeline', buildNumber: 87,
-         params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'SUCCESS', post: ['always', 'success']],
+         params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'SUCCESS', post: ['always', 'success'], files: ['config.yaml': null]],
         [name: 'SAST pipeline, orange', var: 'devSecOpsSASTScanningPipeline', fail: true, job: 'CertScanner-sast-pipeline', buildNumber: 88,
          params: [:], executed: [MONITOR, SAST], skipped: [NODE], result: 'UNSTABLE', post: ['always', 'unstable']],
         [name: 'Nexus IQ GoldenFix pipeline, green', var: 'devSecOpsNexusIqGoldenFixPipeline', fail: false, job: 'CertScanner-nexusiq-pipeline', buildNumber: 61,
@@ -336,7 +318,7 @@ List<Map> specs = [
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
          params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [NODE, STATIC], result: 'SUCCESS', post: ['always', 'success'],
-         files: ['devsecops_config.yaml': 'projects: [', 'config.yaml': 'projects: [']],
+         files: ['devsecops_config.yaml': null, 'config.yaml': 'projects:\n  gui:\n    appId: read-config-yaml-by-mistake\n'], autoDetect: true],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
          params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [NODE, STATIC, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
@@ -398,12 +380,12 @@ Closure verify = { Map spec ->
                 j.calls.findAll { it.contains('Coverage: ') })
     }
     if (spec.coverageMinLine) {
-        check("${name}: the report shows and checks the coverage required by the portal's global settings (${spec.coverageMinLine}%)",
+        check("${name}: the report shows and checks the coverage required by the library defaults (${spec.coverageMinLine}%)",
                 html.contains("required&nbsp;<b>${spec.coverageMinLine}%</b>".toString()) && !html.contains('required&nbsp;<b>60%</b>'),
-                'the report does not use the required coverage from the portal defaults')
+                'the report does not use the required coverage from the library defaults')
     }
     if (spec.var == 'devSecOpsSecurityPipeline') {
-        String description = "Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in ${spec.keyless ? 'devsecops_config.yaml or config.yaml' : 'the DevSecOps portal'}"
+        String description = 'Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in devsecops_config.yaml or config.yaml'
         check("${name}: the RUN_EXTENDED_PIPELINE parameter says where jenkins.pipeline.extendedPipeline is set",
                 var.parameterDescriptions.RUN_EXTENDED_PIPELINE == description, var.parameterDescriptions.RUN_EXTENDED_PIPELINE)
         boolean triggered = j.calls.contains('build DevSecOps/CertScanner-extended-pipeline (no wait)')
@@ -516,37 +498,32 @@ Closure verify = { Map spec ->
         List<String> staticLines = log.findAll { it.startsWith('[STATIC] ') }
         check("${name}: the log names the new order once, without a fallback or a SAST stop", staticLines == [orderLine], staticLines)
     }
-    Map files = (spec.files ?: [:]) as Map
+    Map files = filesOf(spec)
     List<String> probed = j.probes.findAll { it.tokenize(' ').last() in repositoryFiles }
-    if (files && !spec.keyless) {
-        check("${name}: a run with a key never looks at devsecops_config.yaml or config.yaml, even when both are in the workspace", !probed, probed)
-    }
-    if (spec.keyless) {
-        String file = files.containsKey(repositoryFiles[0]) ? repositoryFiles[0] : repositoryFiles[1]
-        List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
-        check("${name}: the portal is not read and the console says which file was read${files.size() > 1 ? ' and which was not' : ''}",
-                !j.calls.any { it.contains('/api/dso/config/') || it.contains('DSO_PORTAL_KEYS') }
-                        && log.contains("[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
-                        && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
-                        && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()]),
-                log.findAll { it.startsWith('[INIT] No pipeline key') || it.contains('are both in the repository') } + probed)
-        check("${name}: the report header and every build_evidence line name ${file}",
-                html.contains("<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${file} in the repository</div>".toString())
-                        && evidence && evidence.every { it.contains(",config_file=\"${file}\"".toString()) },
-                evidence)
-    }
+    String file = files.containsKey(repositoryFiles[0]) ? repositoryFiles[0] : repositoryFiles[1]
+    List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
+    check("${name}: the console says that the services come from ${file}${files.size() > 1 ? ' and that ' + repositoryFiles[1] + ' is not read' : ''}",
+            log.contains("[INIT] The services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
+                    && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
+                    && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()])
+                    && (files.size() < 2 || !probed.contains("readYaml ${repositoryFiles[1]}".toString())),
+            log.findAll { it.startsWith('[INIT] The services come from') || it.contains('are both in the repository') } + probed)
+    check("${name}: the report header and every build_evidence line name ${file}",
+            html.contains("<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from ${file} in the repository</div>".toString())
+                    && evidence && evidence.every { it.contains(",config_file=\"${file}\"".toString()) },
+            evidence)
     List unhandled = j.unhandled.unique()
     if (unhandled) println "      note: steps not emulated by the fake Jenkins: ${unhandled}"
     Closure slugOf = { String text -> text.toLowerCase().replaceAll(/[^a-z0-9]+/, '-') }
     Map baseline = baselines[spec.baseline ?: 'b815d55'] as Map
-    List<Map> rules = (spec.keyless ? (spec.baseline ? keylessRules : portalRules + keylessMarks) : baseline.rules) as List<Map>
+    List<Map> rules = baseline.rules as List<Map>
     String actual = normalise(goldenView(r), baseRules)
     File diffFile = new File(goldenDir, "${slugOf(name)}.actual.txt")
     boolean sectionsDiffer = false
     if (spec.compare == 'sections') {
         File sequential = new File(goldenDir, "${slugOf(spec.golden as String)}.txt")
-        Map expected = sectionsOf(normalise(sequential.text, portalRules))
-        Map got = sectionsOf(normalise(actual, portalRules))
+        Map expected = sectionsOf(normalise(sequential.text, b815d55Rules))
+        Map got = sectionsOf(normalise(actual, b815d55Rules))
         boolean sameOutputs = ['release-gate.json', 'influx', 'report'].every { expected[it] == got[it] }
         boolean sameSteps = ['calls', 'log'].every { reordered(expected[it] as List<String>) == reordered(got[it] as List<String>) }
         sectionsDiffer = !(sameOutputs && sameSteps)
@@ -573,18 +550,6 @@ Closure verify = { Map spec ->
 }
 specs.each(verify)
 
-String readByMistake = 'projects:\n  gui:\n    appId: read-config-yaml-by-mistake\n'
-[[from: 'full pipeline, orange', files: ['devsecops_config.yaml': null]],
- [from: 'full pipeline, green', files: ['devsecops_config.yaml': null, 'config.yaml': readByMistake], autoDetect: true],
- [from: 'security pipeline, orange', files: ['config.yaml': null]],
- [from: 'extended pipeline, orange', files: ['devsecops_config.yaml': null]],
- [from: 'SAST pipeline, green', files: ['config.yaml': null]],
- [from: 'Nexus IQ GoldenFix pipeline, orange', files: ['devsecops_config.yaml': null]]
-].each { Map k ->
-    Map base = specs.find { it.name == k.from } as Map
-    verify(base + k + [keyless: true, golden: k.from, name: "${k.from}, without a key (${(k.files as Map).keySet().join(' and ')})".toString()])
-}
-
 ['security pipeline, green', 'security pipeline, orange', 'full pipeline, green', 'full pipeline, orange'].each { String from ->
     Map base = specs.find { it.name == from } as Map
     verify(base + [name: "${from}, parallel scans".toString(), parallel: true, golden: from, compare: 'sections',
@@ -594,19 +559,18 @@ String readByMistake = 'projects:\n  gui:\n    appId: read-config-yaml-by-mistak
 verify((specs.find { it.name == 'full pipeline, green' } as Map) + [name: 'full pipeline, green, parallel scans switched off by the environment',
                                                                      golden: 'full pipeline, green', parallel: true, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'false']])
 
-Map noFile = runPipeline([name: 'full pipeline without a key and without a file', var: 'devSecOpsPipeline', keyless: true, fail: false,
+Map noFile = runPipeline([name: 'full pipeline without a file', var: 'devSecOpsPipeline', fail: false, files: [:],
                           job: 'CertScanner-devsecops-pipeline', buildNumber: 345, params: [DEPLOY_HIGHER_ENV: true]])
 FakeCpsScript noFileVar = noFile.var as FakeCpsScript
 FakeScript noFileJenkins = noFile.j as FakeScript
 String noFileHtml = noFile.html as String
-String neitherFile = "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
-        "commit devsecops_config.yaml, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
-        "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())"
-check('full pipeline without a key and without a file: the Monitor stage fails with the message that names both files, the report and the release gate are still written, and the portal is not read',
+String neitherFile = "[INIT] Neither devsecops_config.yaml nor config.yaml is at the root of the repository: commit devsecops_config.yaml with a projects: section " +
+        "for the services of this repository (examples/CertScanner/devsecops_config.yaml shows one)"
+check('full pipeline without a file: the Monitor stage fails with the message that names both files, and the report, whose header names both, and the release gate are still written',
         !noFile.crash && noFileVar.stageFailures.size() == 1 && noFileVar.stageFailures[0].startsWith("${MONITOR}: ".toString()) && noFileVar.stageFailures[0].contains(neitherFile)
                 && noFileJenkins.currentBuild.currentResult == 'FAILURE' && noFileVar.postConditions.contains('always')
-                && noFileHtml.contains('<h2>Pipeline Stages</h2>') && noFileHtml.contains('No pipeline key: settings from devsecops_config.yaml or config.yaml in the repository</div>')
-                && noFileJenkins.jsonFiles.containsKey('release-gate.json') && !noFileJenkins.calls.any { it.contains('/api/dso/config/') },
+                && noFileHtml.contains('<h2>Pipeline Stages</h2>') && noFileHtml.contains('>Settings from devsecops_config.yaml or config.yaml in the repository</div>')
+                && noFileJenkins.jsonFiles.containsKey('release-gate.json'),
         [noFile.crash] + noFileVar.stageFailures + [noFileJenkins.currentBuild.currentResult])
 
 Closure focused = { Map spec ->
@@ -864,17 +828,17 @@ check('full pipeline, parallel scans, SAST compile with other Gradle tasks: the 
                 && !otherTasksJenkins.calls.contains(stagedCopy),
         staticLog(otherTasks) + stagesOf(otherTasks))
 Map equalCompile = focused([name: 'full pipeline, parallel scans, SAST compile equal to the build command', buildNumber: 362, parallel: true,
-                            configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = PortalFixtures.copy((((p.gui as Map).build as Map).gradle) as Map) }])
+                            configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = new Yaml().load(new Yaml().dump(((p.gui as Map).build as Map).gradle)) }])
 Map envOn = focused([name: 'full pipeline, parallel scans switched on by the environment', buildNumber: 363, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'true']])
 Map optOut = focused([name: 'full pipeline, parallel scans, one service opts out', buildNumber: 364, parallel: true,
                       configure: { Map p -> (p['backend-api'] as Map).staticAnalysis = [parallel: false] }])
-check('full pipeline, parallel scans: a SAST compile equal to the build command and DSO_STATIC_ANALYSIS_PARALLEL=true without the key run the Static analysis stage, ' +
+check('full pipeline, parallel scans: a SAST compile equal to the build command and DSO_STATIC_ANALYSIS_PARALLEL=true without staticAnalysis.parallel run the Static analysis stage, ' +
         'and one service with staticAnalysis.parallel false keeps the three stages without a [STATIC] line',
         [equalCompile, envOn].every { stagesOf(it)[0].contains(STATIC) && staticLog(it) == [orderLine] } && stagesOf(optOut) == [fullStages, [NODE, STATIC]] && !staticLog(optOut),
         [equalCompile, envOn, optOut].collect { stagesOf(it)[0] + staticLog(it) })
 
 Closure parallelRun = { Map spec -> runPipeline([var: 'devSecOpsPipeline', fail: false, parallel: true, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec) }
-Closure viewOf = { Map r -> sectionsOf(normalise(normalise(goldenView(r), baseRules), portalRules)) }
+Closure viewOf = { Map r -> sectionsOf(normalise(normalise(goldenView(r), baseRules), b815d55Rules)) }
 Map stopped = parallelRun([name: 'full pipeline, stage failure, parallel scans', breakSast: true, buildNumber: 344])
 FakeScript stoppedJenkins = stopped.j as FakeScript
 List<String> stoppedFailures = (stopped.var as FakeCpsScript).stageFailures
@@ -884,7 +848,7 @@ check('full pipeline, stage failure, parallel scans: a SAST failure before the s
                 && (stopped.evaluatedAt as List).isEmpty() && !stoppedJenkins.calls.any { it.startsWith('sh [Gradle: sonarqube]') } && stoppedJenkins.log.contains(stopLine)
                 && boxOf(stoppedHtml, "${NIQ} - gui").contains('>SKIP<') && boxOf(stoppedHtml, "${SONAR} - gui").contains('pipeline blocked by previous failure'),
         [stopped.crash, stoppedFailures, stagesOf(stopped), staticLog(stopped)])
-Map failureGolden = sectionsOf(normalise(new File(goldenDir, 'full-pipeline-stage-failure.txt').text, portalRules))
+Map failureGolden = sectionsOf(normalise(new File(goldenDir, 'full-pipeline-stage-failure.txt').text, b815d55Rules))
 check('full pipeline, stage failure, parallel scans: release-gate.json and the steps equal those of the run one scan after another, and pipeline_run counts three stages',
         viewOf(stopped)['release-gate.json'] == failureGolden['release-gate.json'] && viewOf(stopped).calls == failureGolden.calls
                 && influxOf(stoppedJenkins).readLines().any { it.startsWith('pipeline_run,') && it.contains(',stages_total=3i,passed=2i,warned=0i,failed=1i,') },

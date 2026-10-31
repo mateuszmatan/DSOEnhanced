@@ -8,7 +8,6 @@ class ConfigLoader implements Serializable {
 
     private final def                    script
     private final PipelineState          state
-    private final PortalConfigReader     reader
     private final RepositoryConfigReader repositoryReader
     private String                       variant = ''
     private Map                          repository = [:]
@@ -16,86 +15,28 @@ class ConfigLoader implements Serializable {
     ConfigLoader(def script, PipelineState state) {
         this.script           = script
         this.state            = state
-        this.reader           = new PortalConfigReader(script)
         this.repositoryReader = new RepositoryConfigReader(script)
     }
 
-    Map load(String variant, Map jenkinsfile) {
+    void load(String variant, Map jenkinsfile) {
         this.variant = variant
         repository = [:]
-        state.configFile = ''
-        state.portalDocuments = []
-        state.platform = [:]
         Map entryPoints = [full: 'devSecOpsPipeline', security: 'devSecOpsSecurityPipeline', extended: 'devSecOpsExtendedPipeline',
                            sast: 'devSecOpsSASTScanningPipeline', nexusiq: 'devSecOpsNexusIqGoldenFixPipeline']
-        def given = jenkinsfile.pipelineKeys ?: jenkinsfile.pipelineKey
-        List keys = given instanceof List ? (given as List) : (given ? [given] : [])
-        if (!keys && !jenkinsfile.containsKey('pipelineKey') && !jenkinsfile.containsKey('pipelineKeys') && !keyRequired()) {
-            return loadRepository(jenkinsfile, (entryPoints[variant] ?: 'devSecOpsPipeline') as String)
+        String security = variant == 'extended' ? ", securityPipeline: '<security job>'" : ''
+        String call = "${entryPoints[variant] ?: 'devSecOpsPipeline'}(projectNames: '<services of this repository>', agentNames: ['<agent label>']${security})"
+        List<String> files = BuildUtils.repositoryConfigFiles()
+        if (jenkinsfile.containsKey('pipelineKey') || jenkinsfile.containsKey('pipelineKeys')) {
+            script.error "[INIT] pipelineKey and pipelineKeys are settings of the DevSecOps portal, which this release of the library does not read: " +
+                    "write ${call} and commit ${files[0]} at the root of the repository"
         }
-        if (!keys) {
-            script.error "[PORTAL] No pipeline key: the DevSecOps portal issues one per service on the product page. " +
-                    "Write ${entryPoints[variant] ?: 'devSecOpsPipeline'}(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
-                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile"
-        }
-        List ignored = []
-        for (String name : ['projectNames', 'agentNames', 'securityPipeline']) {
-            if (jenkinsfile.containsKey(name)) ignored << name
-        }
-        if (ignored) script.echo "[PORTAL] The Jenkinsfile sets ${ignored.join(', ')}; the values from the DevSecOps portal are used instead"
-
-        List<Map> documents = reader.read(keys)
-        Map first    = documents[0]
-        Map pipeline = (((first.config as Map).pipeline) ?: [:]) as Map
-        Map services = [:]
-        for (Map document : documents) {
-            Map config = document.config as Map
-            Map own    = (config.pipeline ?: [:]) as Map
-            if (own.type != variant) {
-                script.error "[PORTAL] Key ${document.hint} configures a ${own.type} pipeline, ${entryPoints[variant] ?: variant} runs the ${variant} pipeline: use the key of the ${variant} pipeline of the service"
-            }
-            if (own.product != pipeline.product) {
-                script.error "[PORTAL] Key ${document.hint} belongs to product ${own.product}, key ${first.hint} to product ${pipeline.product}: the keys of one run must belong to one product"
-            }
-            List names = ((config.projects ?: [:]) as Map).keySet().toList()
-            for (def name : names) {
-                if (services.containsKey(name)) script.error "[PORTAL] Keys ${services[name]} and ${document.hint} both configure service ${name}: give each service once"
-                services[name] = document.hint
-            }
-        }
-        state.portalDocuments = documents
-        state.platform = (((first.config as Map).platform) ?: [:]) as Map
-        script.env.PROJECT_NAMES = services.keySet().join(',')
-        if (pipeline.securityPipeline) script.env.Security_Pipeline = pipeline.securityPipeline as String
-        return pipeline
-    }
-
-    private boolean keyRequired() {
-        return ((script.env.DSO_REQUIRE_PIPELINE_KEY ?: '') as String).trim().toLowerCase() == 'true'
-    }
-
-    private Map loadRepository(Map jenkinsfile, String call) {
         if (!jenkinsfile.agentNames) {
-            String security = variant == 'extended' ? ", securityPipeline: '<security job>'" : ''
-            script.error "[PORTAL] No pipeline key and no agentNames: the DevSecOps portal issues one key per service on the product page. " +
-                    "Write ${call}(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
-                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile. " +
-                    "Without a key, write ${call}(projectNames: '<services of this repository>', agentNames: ['<agent label>']${security}) " +
-                    "and commit ${repositoryReader.names()} at the root of the repository"
+            script.error "[INIT] No agentNames in the Jenkinsfile: write ${call} and commit ${files.join(' or ')} at the root of the repository"
         }
         def names = jenkinsfile.projectNames
         if (names) script.env.PROJECT_NAMES = (names instanceof List ? (names as List).join(',') : names) as String
         if (jenkinsfile.securityPipeline) script.env.Security_Pipeline = jenkinsfile.securityPipeline as String
         repository.securityPipeline = variant == 'extended' ? (jenkinsfile.securityPipeline ?: '') as String : ''
-        state.configFile = repositoryReader.names()
-        return [agentNames: jenkinsfile.agentNames, securityPipeline: jenkinsfile.securityPipeline]
-    }
-
-    private Map repositoryConfig() {
-        Map read = repositoryReader.read(variant)
-        state.configFile = read.file as String
-        repository.projects = read.projects
-        return [defaults: read.defaults, pipeline: [securityPipeline: (repository.securityPipeline ?: '') as String]]
     }
 
     private List<String> requestedProjectNames() {
@@ -104,21 +45,16 @@ class ConfigLoader implements Serializable {
     }
 
     void initialize() {
-        if (!state.portalDocuments && !state.configFile) {
-            if (keyRequired()) script.error "[INIT] No configuration from the DevSecOps portal is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize()"
-            state.configFile = repositoryReader.names()
-        }
         readCommitMetadata()
 
-        Map primary = state.configFile ? repositoryConfig() : (state.portalDocuments[0] as Map).config as Map
-        state.cfgDefaults = (primary.defaults ?: [:]) as Map
-        if (!state.cfgDefaults && !state.configFile) {
-            script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
-        }
+        Map read = repositoryReader.read()
+        state.configFile    = read.file as String
+        state.platform      = read.platform as Map
+        state.cfgDefaults   = read.defaults as Map
+        repository.projects = read.projects
         Map projects = loadedProjects()
-        String securityJob = ((primary.pipeline as Map)?.securityPipeline ?: '') as String
-        Map own = state.configFile ? subset(projects, requestedProjectNames()) : projects
-        if (securityJob) overlayRunState(own, securityJob)
+        Map own = subset(projects, requestedProjectNames())
+        if (repository.securityPipeline) overlayRunState(own, repository.securityPipeline as String)
         script.writeYaml(file: BuildUtils.runStateFile(), data: [projects: own], overwrite: true)
 
         def projectNames = resolveProjectNames()
@@ -129,8 +65,7 @@ class ConfigLoader implements Serializable {
             for (int i = 0; i < projectNames.size(); i++) {
                 def pName = projectNames[i]
                 if (!projects.containsKey(pName)) {
-                    script.error(state.configFile ? "[INIT] Project '${pName}' not found in ${state.configFile}. Available: ${projects.keySet().join(', ')}"
-                            : "[INIT] Project '${pName}' is not configured by the pipeline keys of this run. Available: ${projects.keySet().join(', ')}")
+                    script.error "[INIT] Project '${pName}' not found in ${state.configFile}. Available: ${projects.keySet().join(', ')}"
                 }
                 state.projectsAllCfg[pName] = deepMerge(state.cfgDefaults, projects[pName] as Map)
                 appScanKeyId(pName)
@@ -155,7 +90,7 @@ class ConfigLoader implements Serializable {
     private void overlayRunState(Map projects, String job) {
         String file = BuildUtils.runStateFile()
         if (!script.fileExists(file)) {
-            script.error "[INIT] The last successful build of ${job} has no ${file}: it predates the DevSecOps portal integration; run ${job} once"
+            script.error "[INIT] The last successful build of ${job} has no ${file}: it was built by a library release that archived config.yaml instead; run ${job} once with this release"
         }
         def copied = script.readYaml(file: file)
         String problem = overlay(projects, ((copied instanceof Map ? copied.projects : null) ?: [:]) as Map, job)
@@ -168,7 +103,7 @@ class ConfigLoader implements Serializable {
                       ['delivery'], ['delivery', 'buildTagAndroid'], ['delivery', 'buildTagIOS']]
         for (def name : projects.keySet()) {
             if (!(copied[name] instanceof Map)) {
-                return "Security pipeline ${job} builds ${copied.keySet().join(', ')}, ${state.configFile ? 'this run' : 'this key'} builds ${name}".toString()
+                return "Security pipeline ${job} builds ${copied.keySet().join(', ')}, this run builds ${name}".toString()
             }
             for (def p : paths) {
                 List path = p as List
@@ -208,9 +143,6 @@ class ConfigLoader implements Serializable {
     private Map loadedProjects() {
         Map projects = [:]
         projects.putAll((repository.projects ?: [:]) as Map)
-        for (def document : state.portalDocuments) {
-            projects.putAll((((document as Map).config as Map).projects ?: [:]) as Map)
-        }
         return projects
     }
 
@@ -238,7 +170,7 @@ class ConfigLoader implements Serializable {
         List<String> requested = requestedProjectNames()
         if (requested) return requested
         List keys = loadedProjects().keySet().toList()
-        if (keys) script.echo(state.configFile ? "[INIT] PROJECT_NAMES not set - auto-detected from ${state.configFile}: ${keys.join(', ')}" : "[INIT] PROJECT_NAMES not set - taken from the pipeline keys of this run: ${keys.join(', ')}")
+        if (keys) script.echo "[INIT] PROJECT_NAMES not set - auto-detected from ${state.configFile}: ${keys.join(', ')}"
         return keys
     }
 
@@ -271,7 +203,7 @@ class ConfigLoader implements Serializable {
     }
 
     private void logPolicy() {
-        script.echo(state.configFile ? "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:" : '[POLICY] Global settings from the DevSecOps portal, projects cannot change them:')
+        script.echo "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:"
         ['sast', 'sca', 'niq', 'dast'].each { key ->
             def limit = state.policyLimits[key] ?: [:]
             script.echo "[POLICY]   ${key.toUpperCase()}: critical<=${limit.maxCritical} high<=${limit.maxHigh} medium<=${limit.maxMedium}"

@@ -72,9 +72,6 @@ else
   grep -v WARNING "$BUILD/vars.log"; status=1
 fi
 
-echo "=== the portal query script with curl against a local HTTP portal ==="
-bash "$ROOT/test/portal/query-scenarios.sh" || status=1
-
 echo "=== the coverage scan script on report trees ==="
 bash "$ROOT/test/coverage/scan-scenarios.sh" || status=1
 
@@ -91,8 +88,8 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
-  echo "=== DevSecOps portal read, failures and extended handoff ==="
-  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PortalScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  echo "=== devsecops_config.yaml read, Jenkinsfile checks, platform values and extended handoff ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/ConfigScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== compatibility with the b815d55 config.yaml loader ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/CompatibilityScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"

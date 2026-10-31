@@ -1,6 +1,6 @@
 import devsecops.test.FakeScript
-import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurperClassic
 import org.yaml.snakeyaml.Yaml
 
@@ -14,25 +14,10 @@ static List differences(Object a, Object b, String path) {
     return a == b ? [] : ["${path}: ${a} <> ${b}".toString()]
 }
 
-static int dropPath(Map map, List path, Closure when) {
-    String head = path[0]
-    if (map == null || !map.containsKey(head)) return 0
-    if (path.size() == 1) {
-        if (!when(map[head])) return 0
-        map.remove(head)
-        return 1
-    }
-    if (!(map[head] instanceof Map)) return 0
-    int removed = dropPath(map[head], path.drop(1), when)
-    if (removed && map[head].isEmpty()) map.remove(head)
-    return removed
-}
-
 File root = new File(args.length > 0 ? args[0] : '.').canonicalFile
 File srcDir = new File(root, 'src')
 File stubDir = new File(root, 'test/sandbox/stub')
 File oldDir = new File(root, 'test/fixtures/b815d55')
-File renderedDir = new File(root, 'test/fixtures/portal/rendered')
 
 int failures = 0
 Closure check = { String name, boolean ok, Object detail ->
@@ -49,23 +34,22 @@ Yaml yaml = new Yaml()
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').getText('UTF-8')
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').getText('UTF-8')
 Map defaults = (yaml.load(defaultsText) as Map).defaults as Map
-Map projects = (yaml.load(configText) as Map).projects as Map
-Map platform = (new JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').getText('UTF-8')) as Map).platform as Map
 
 Closure jenkins = {
     FakeScript j = new FakeScript()
     j.resourcesDir = new File(root, 'resources')
-    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_URL: PortalFixtures.PORTAL_URL])
+    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner'])
     return j
 }
 
+Closure copy = { Map value -> new JsonSlurperClassic().parseText(JsonOutput.toJson(value)) as Map }
 Closure observed = { FakeScript j, def state, Map runState ->
-    PortalFixtures.copy([order         : (state.projectsAllCfg as Map).keySet().toList(),
-                         projectsAllCfg: state.projectsAllCfg, cfgDefaults: state.cfgDefaults, cfg: state.cfg,
-                         policyLimits  : state.policyLimits, minRequired: state.coverage.minRequired,
-                         primary       : state.currentProjectName, runState: runState,
-                         env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME', 'APPSCAN_KEY_ID'].collectEntries { [(it): j.env.vars.get(it)] },
-                         log           : j.log.findAll { it.startsWith('[INIT]') || it.startsWith('[POLICY]') }])
+    copy([order         : (state.projectsAllCfg as Map).keySet().toList(),
+          projectsAllCfg: state.projectsAllCfg, cfgDefaults: state.cfgDefaults, cfg: state.cfg,
+          policyLimits  : state.policyLimits, minRequired: state.coverage.minRequired,
+          primary       : state.currentProjectName, runState: runState,
+          env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME', 'APPSCAN_KEY_ID'].collectEntries { [(it): j.env.vars.get(it)] },
+          log           : j.log.findAll { it.startsWith('[INIT]') || it.startsWith('[POLICY]') }])
 }
 
 Closure traced = { FakeScript j, Map run -> run + [trace: [calls: j.calls, probes: j.probes]] }
@@ -85,25 +69,9 @@ Closure runOld = { List names ->
     return observed(j, state, (yaml.load(j.files['config.yaml']) as Map).projects as Map)
 }
 
-Closure runNew = { String variant, List<Map> documents, Map files = [:] ->
-    FakeScript j = jenkins()
-    j.files.putAll(files)
-    List<String> keys = documents.collect { PortalFixtures.publish(j, it) }
-    SandboxHarness harness = new SandboxHarness(srcDir, stubDir)
-    def state = null
-    harness.run {
-        state = harness.type('com.bbh.core.PipelineState').newInstance()
-        def loader = harness.type('com.bbh.config.ConfigLoader').newInstance(j, state)
-        loader.load(variant, [pipelineKeys: keys])
-        loader.initialize()
-    }
-    return traced(j, observed(j, state, (yaml.load(j.files['pipeline-config.yaml']) as Map).projects as Map))
-}
-
 String bundledName = 'com/bbh/devsecops/defaults.yaml'
 Closure runRepo = { String variant, Map jenkinsfile, Map files, boolean bundled = false, File resourcesDir = new File(root, 'resources') ->
     FakeScript j = jenkins()
-    j.env.vars.remove('DSO_PORTAL_URL')
     j.resourcesDir = resourcesDir
     j.files.putAll(files)
     if (!bundled) j.resources[bundledName] = defaultsText
@@ -123,162 +91,42 @@ Closure runRepo = { String variant, Map jenkinsfile, Map files, boolean bundled 
 }
 
 Map logRules = [
-        'the reader logs one [PORTAL] line per key (L2)'                       : { List log -> log.findAll { !(it as String).startsWith('[PORTAL]') } },
-        'the [POLICY] header names the DevSecOps portal (L9, ConfigLoader.logPolicy)': { List log ->
-            log.collect { (it as String).replace('Library security policy (resources/defaults.yaml), projects cannot change it:', 'Global settings from the DevSecOps portal, projects cannot change them:') }
-        }
-]
-Closure normaliseLog = { Map run -> logRules.values().inject(run.log as List) { List log, Closure rule -> rule(log) } }
-
-Closure always = { true }
-Closure empty = { it == '' || it == [] || it == false }
-SandboxHarness jobsHarness = new SandboxHarness(srcDir, stubDir)
-def buildService = jobsHarness.type('com.bbh.build.BuildService')
-
-List<Map> configRules = [
-        [id    : 'R1',
-         reason: 'DEAD keys no code reads: asoc.keySecret (AppScanService.groovy:88 binds asoc.token or APPSCAN_KEY_ID), ' +
-                 'sca/dast.scanName (the scan name comes from tools.sonar.projectName, ConfigLoader.groovy:97 and :200), ' +
-                 'build.maven.javaPath (BuildService.groovy:590 reads javaPath of the service)',
-         apply : { Map cfg, String variant ->
-             [['asoc', 'keySecret'], ['sca', 'scanName'], ['dast', 'scanName'], ['build', 'maven', 'javaPath']].sum { dropPath(cfg, it, always) }
-         }],
-        [id    : 'R2',
-         reason: 'for these keys only, "", [] and false read like a missing key: dast.presenceId (AppScanService.groovy:444), ' +
-                 'scm.bitbucket.targetBranch (GoldenFixService.groovy:99), scm.bitbucket.reviewers (BitbucketPullRequestPublisher.groovy:28), ' +
-                 'asoc.insecureTls (AppScanService.groovy:660), tools.nexusIq.failOnNetworkError (NexusIqService.groovy:41), ' +
-                 'goldenFix.timeZone (GoldenFixService.groovy:357), goldenFix.verify.commands.<kind> (ManifestBuildVerifier.groovy:68)',
-         apply : { Map cfg, String variant ->
-             List paths = [['dast', 'presenceId'], ['scm', 'bitbucket', 'targetBranch'], ['scm', 'bitbucket', 'reviewers'], ['asoc', 'insecureTls'],
-                           ['tools', 'nexusIq', 'failOnNetworkError'], ['goldenFix', 'timeZone']]
-             paths += (((cfg.goldenFix as Map)?.verify as Map)?.commands as Map ?: [:]).keySet().collect { ['goldenFix', 'verify', 'commands', it] }
-             paths.sum { dropPath(cfg, it as List, empty) }
-         }],
-        [id    : 'R3',
-         reason: 'tests.<suite> compared as BuildService.normalizeTestJobs (BuildService.groovy:428, called at :288 for the suites ' +
-                 'devSecOpsApi.groovy:215-217 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
-         apply : { Map cfg, String variant ->
-             Map tests = (cfg.tests ?: [:]) as Map
-             List suites = tests.keySet().findAll { it != 'unitTests' && tests[it] instanceof Map }.toList()
-             suites.each { suite ->
-                 Map suiteCfg = tests[suite] as Map
-                 tests[suite] = suiteCfg.findAll { k, v -> !(k in ['defaults', 'urls', 'jobs']) } + [jobs: jobsHarness.run { buildService.normalizeTestJobs(suiteCfg) }]
-             }
-             suites.size()
-         }],
-        [id    : 'R4',
-         reason: 'jenkins.pipeline.extendedPipeline is read only by OpenshiftService.groovy:324-327, which only devSecOpsSecurityPipeline.groovy:65 and :74 run; ' +
-                 'the portal renders it into security documents only; a custom Jenkinsfile that calls devSecOpsApi.runExtendedPipeline() uses the security key (accepted difference 5)',
-         apply : { Map cfg, String variant -> variant == 'security' ? 0 : dropPath(cfg, ['jenkins', 'pipeline', 'extendedPipeline'], always) }],
-        [id    : 'R5',
-         reason: 'SAME+: incrementalVersion true equals the code default of VmDeployService.groovy:254 and :327 (BuildUtils.booleanValue(..., true))',
-         apply : { Map cfg, String variant ->
-             List applications = ((((cfg.deploy as Map)?.vm as Map)?.dod as Map)?.applications ?: []) as List
-             applications.sum(0) { application -> ((application as Map).components ?: []).sum(0) { dropPath(it as Map, ['incrementalVersion'], { it == true }) } }
-         }],
-        [id    : 'R6',
-         reason: 'a literal influx.token counts as influx.credentialsId influxdb-token, the Secret text credentials the portal names instead ' +
-                 '(InfluxDbService.groovy:26-27 accepts either, :40-45 binds the credentials)',
-         apply : { Map cfg, String variant ->
-             Map influx = cfg.influx as Map
-             if (!influx?.token) return 0
-             influx.remove('token')
-             if (!influx.credentialsId) influx.credentialsId = 'influxdb-token'
-             1
-         }],
-        [id    : 'R7',
-         reason: 'SAME+: deploy.vm.dod skipWait false, deployWithSnapshot true, updateSnapshotComp false, includeOnlyDeployVersions true and ' +
-                 'deployOnlyChanged false equal the code defaults of VmDeployService.groovy:168-172 (BuildUtils.booleanValue(..., <default>))',
-         apply : { Map cfg, String variant ->
-             Map dod = (((cfg.deploy as Map)?.vm as Map)?.dod ?: [:]) as Map
-             [skipWait: false, deployWithSnapshot: true, updateSnapshotComp: false, includeOnlyDeployVersions: true, deployOnlyChanged: false]
-                     .collect { key, value -> dropPath(dod, [key], { it == value }) }.sum(0)
-         }],
-        [id    : 'R8',
-         reason: 'NEW: staticAnalysis.parallel is absent at b815d55; only devSecOpsApi.parallelScans() reads it (parallel-scans)',
-         apply : { Map cfg, String variant -> dropPath(cfg, ['staticAnalysis', 'parallel'], { it == true }) }]
-]
-Map hits = configRules.collectEntries { [(it.id): 0] }
-Closure normalise = { Map run, String variant ->
-    Map copy = PortalFixtures.copy(run)
-    List<Map> configs = [copy.cfgDefaults as Map, copy.cfg as Map] + ((copy.projectsAllCfg as Map).values() as List) + ((copy.runState as Map).values() as List)
-    configRules.each { Map rule ->
-        configs.each { Map cfg ->
-            int changed = (rule.apply as Closure).call(cfg, variant) as int
-            hits[rule.id] = (hits[rule.id] as int) + changed
-        }
-    }
-    copy.remove('log')
-    copy.remove('trace')
-    return copy
-}
-
-[[variant: 'full', names: ['gui', 'backend-api']], [variant: 'security', names: ['backend-api', 'gui']]].each { Map spec ->
-    String variant = spec.variant
-    List names = spec.names as List
-    Map before = runOld(names)
-    Map after = runNew(variant, names.collect { PortalFixtures.document(variant, defaults, platform, it as String, projects[it] as Map) })
-    List diff = differences(loaded(before), loaded(after), '')
-    check("A ${variant} ${names.join(',')}: the b815d55 loader over config.yaml + defaults.yaml and the portal loader over documents of the same values load the same configuration",
-            !diff && (before.log as List).any { (it as String).contains('resources/defaults.yaml') }, diff.take(10))
-    List logDiff = differences(normaliseLog(before), normaliseLog(after), 'log')
-    check("A ${variant} ${names.join(',')}: the [INIT] and [POLICY] lines match after the rules: ${logRules.keySet().join('; ')}", !logDiff, logDiff.take(10))
-}
-
-Closure rendered = { String name -> new JsonSlurperClassic().parseText(new File(renderedDir, "${name}.json").getText('UTF-8')) as Map }
-List names = ['gui', 'backend-api']
-Map before = normalise(runOld(names), 'full')
-Map after = normalise(runNew('full', names.collect { rendered(it as String) }), 'full')
-List diff = differences(before, after, '')
-check('B full gui,backend-api: the b815d55 loader and the portal loader over the documents the portal renders from that config.yaml match after the declared rules',
-        !diff, diff.take(20))
-configRules.each { Map rule -> println "      ${rule.id}: ${rule.reason}" }
-check('B: every declared rule changes something in these fixtures, so none is dead', hits.every { it.value > 0 }, hits)
-
-Map mutated = rendered('gui')
-((((mutated.projects as Map).gui as Map).scm as Map).bitbucket as Map).remove('authType')
-(((mutated.projects as Map).gui as Map).asoc as Map).insecureTls = true
-List caught = differences(before, normalise(runNew('full', [mutated, rendered('backend-api')]), 'full'), '')
-check('B: the rules hide neither a key the portal dropped nor a non-empty value of a listed key',
-        caught.any { (it as String).contains('authType') } && caught.any { (it as String).contains('insecureTls') }, caught)
-
-Map keylessLogRules = [
-        'KL1 the keyless loader names the file it read, a second file and the parts it ignores': { List log ->
+        'L1 the loader names the file it read, a second file and the parts it ignores': { List log ->
             log.findAll { String line ->
-                !(line.startsWith('[INIT] No pipeline key in the Jenkinsfile: ') || line.contains(' are both in the repository: ')
-                        || line.endsWith(': without a pipeline key only its projects: section is read'))
+                !(line.startsWith('[INIT] The services come from ') || line.contains(' are both in the repository: ')
+                        || line.endsWith(': only its projects: section is read'))
             }
         },
-        'KL2 the auto-detect line names the file read'                  : { List log -> log.collect { (it as String).replace('devsecops_config.yaml', 'config.yaml') } },
-        'KL3 the bundled defaults moved to a namespaced resource path'  : { List log ->
+        'L2 the auto-detect line names the file read'                  : { List log -> log.collect { (it as String).replace('devsecops_config.yaml', 'config.yaml') } },
+        'L3 the bundled defaults moved to a namespaced resource path'  : { List log ->
             log.collect { (it as String).replace("resources/${bundledName}", 'resources/defaults.yaml') }
         }
 ]
-Closure keylessLog = { Map run -> keylessLogRules.values().inject((run.log ?: []) as List) { List log, Closure rule -> rule(log) } }
-Closure sameAsOld = { Map old, Map keyless ->
-    keyless.error ? [keyless.error] : differences(loaded(old), loaded(keyless), '') + differences(old.log, keylessLog(keyless), 'log')
+Closure normaliseLog = { Map run -> logRules.values().inject((run.log ?: []) as List) { List log, Closure rule -> rule(log) } }
+Closure sameAsOld = { Map old, Map run ->
+    run.error ? [run.error] : differences(loaded(old), loaded(run), '') + differences(old.log, normaliseLog(run), 'log')
 }
-keylessLogRules.keySet().each { println "      ${it}" }
+logRules.keySet().each { println "      ${it}" }
 List<String> fileNames = ['devsecops_config.yaml', 'config.yaml']
 String bothFiles = "[INIT] devsecops_config.yaml and config.yaml are both in the repository: devsecops_config.yaml is read, config.yaml is not"
 
 [[variant: 'full', names: ['gui', 'backend-api']], [variant: 'security', names: ['backend-api', 'gui']]].each { Map spec ->
     Map old = runOld(spec.names as List)
     fileNames.each { String file ->
-        Map keyless = runRepo(spec.variant as String, [projectNames: (spec.names as List).join(','), agentNames: ['linux-agent']], [(file): configText])
-        List found = sameAsOld(old, keyless)
-        check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: the keyless loader over ${file} and the bundled defaults loads what the b815d55 loader loaded over config.yaml and defaults.yaml, with no rule",
+        Map run = runRepo(spec.variant as String, [projectNames: (spec.names as List).join(','), agentNames: ['linux-agent']], [(file): configText])
+        List found = sameAsOld(old, run)
+        check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: the loader over ${file} and the bundled defaults loads what the b815d55 loader loaded over config.yaml and defaults.yaml, with no rule",
                 !found, found.take(10))
     }
 }
 
 Map autoDetected = runOld([])
 fileNames.each { String file ->
-    Map keyless = runRepo('full', [agentNames: ['linux-agent']], [(file): configText])
-    List found = sameAsOld(autoDetected, keyless)
+    Map run = runRepo('full', [agentNames: ['linux-agent']], [(file): configText])
+    List found = sameAsOld(autoDetected, run)
     String autoLine = "[INIT] PROJECT_NAMES not set - auto-detected from ${file}: gui, backend-api".toString()
     check("A' full without projectNames over ${file}: the services and their order are auto-detected from the file as the b815d55 loader did, logged once",
-            !found && (keyless.log as List).count(autoLine) == 1 && (autoDetected.order as List) == ['gui', 'backend-api'], found.take(10) + [keyless.log])
+            !found && (run.log as List).count(autoLine) == 1 && (autoDetected.order as List) == ['gui', 'backend-api'], found.take(10) + [run.log])
 }
 
 Map changedAppId = yaml.load(configText) as Map
@@ -297,46 +145,52 @@ check('A\' both files: devsecops_config.yaml is read and config.yaml is not, the
 Map bundledFile = yaml.load(new File(root, "resources/${bundledName}").getText('UTF-8')) as Map
 Map bundledDefaults = (bundledFile?.defaults ?: [:]) as Map
 Closure limitsOf = { def cfg -> ['maxCritical', 'maxHigh', 'maxMedium'].every { (cfg instanceof Map) && (cfg as Map)[it] instanceof Integer } }
-boolean wellFormed = (bundledFile.keySet().toList() == ['defaults'] && bundledDefaults.keySet().containsAll(defaults.keySet())
+boolean wellFormed = (bundledFile.containsKey('defaults') && (bundledFile.keySet() - ['defaults', 'platform']).isEmpty()
+        && (bundledFile.platform == null || bundledFile.platform instanceof Map) && bundledDefaults.keySet().containsAll(defaults.keySet())
         && [bundledDefaults.sast, bundledDefaults.sca, bundledDefaults.dast, (bundledDefaults.tools as Map)?.nexusIq].every { limitsOf(it) }
         && (bundledDefaults.coverage as Map)?.minLine instanceof Integer)
 Map applied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true)
 Closure limit = { def cfg -> [maxCritical: cfg.maxCritical, maxHigh: cfg.maxHigh, maxMedium: cfg.maxMedium] }
-check('the library bundles global defaults that a run without a key can apply',
+check('the library bundles global defaults (and an optional platform: map) that every run applies',
         wellFormed && !applied.error && applied.minRequired == (bundledDefaults.coverage as Map).minLine
                 && applied.policyLimits == [sast: limit(bundledDefaults.sast), sca: limit(bundledDefaults.sca), dast: limit(bundledDefaults.dast),
                                             niq : limit((bundledDefaults.tools as Map).nexusIq)],
         [wellFormed, applied.error, applied.policyLimits, applied.minRequired])
 
+String exampleJenkinsfile = new File(root, 'examples/CertScanner/Jenkinsfile').getText('UTF-8')
+String exampleNames = (exampleJenkinsfile =~ /projectNames:\s*'([^']+)'/)[0][1]
+String exampleText = new File(root, 'examples/CertScanner/devsecops_config.yaml').getText('UTF-8')
+Map example = runRepo('full', [projectNames: exampleNames, agentNames: ['linux-agent']], ['devsecops_config.yaml': exampleText], true)
+check("the example examples/CertScanner/devsecops_config.yaml loads with the services of the example Jenkinsfile (${exampleNames}) and the bundled defaults",
+        !example.error && (example.order as List) == exampleNames.tokenize(',') && (example.runState as Map).keySet() == exampleNames.tokenize(',') as Set
+                && (example.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && !(example.log as List).any { (it as String).endsWith(': only its projects: section is read') },
+        [example.error, example.order, (example.runState as Map)?.keySet(), example.log])
+
+Closure keyPaths
+keyPaths = { Map map, String prefix -> map.collectMany { k, v -> ["${prefix}${k}".toString()] + (v instanceof Map ? keyPaths(v as Map, "${prefix}${k}.") : []) } }
+Map template = yaml.load(new File(root, 'devsecops_config.yaml.template').getText('UTF-8')) as Map
+List templateKeys = keyPaths(((template.projects as Map).values() as List)[0] as Map, '')
+List missing = ((yaml.load(exampleText) as Map).projects as Map).values().collectMany { keyPaths(it as Map, '') }.unique() - templateKeys
+check('devsecops_config.yaml.template names every key the example sets', !missing && (template.projects as Map).keySet().toList() == ['my-app'], missing)
+
 Map neither = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], [:])
-check('A\' neither file: the Monitor stage stops with a message that names both files and both ways to configure the run',
-        neither.error == "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
-                "commit devsecops_config.yaml, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
-                "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())",
+check('A\' neither file: the Monitor stage stops with a message that names both files and the example to start from',
+        neither.error == "[INIT] Neither devsecops_config.yaml nor config.yaml is at the root of the repository: commit devsecops_config.yaml with a projects: section " +
+                "for the services of this repository (examples/CertScanner/devsecops_config.yaml shows one)",
         neither.error)
 
 String otherParts = configText + 'defaults: {sast: {maxCritical: 99}, coverage: {minLine: 1}}\nplatform: {oisHost: x}\npipeline: {type: sast}\n'
 Map ignoring = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': otherParts])
 List ignoringDiff = sameAsOld(oldBoth, ignoring)
 check('A\' other parts of the file: defaults, platform and pipeline are ignored and named, the thresholds and the coverage minimum stay those of the library',
-        !ignoringDiff && (ignoring.log as List).contains('[INIT] devsecops_config.yaml also sets defaults, platform, pipeline: without a pipeline key only its projects: section is read')
+        !ignoringDiff && (ignoring.log as List).contains('[INIT] devsecops_config.yaml also sets defaults, platform, pipeline: only its projects: section is read')
                 && (ignoring.policyLimits as Map)?.sast == [maxCritical: 0, maxHigh: 0, maxMedium: 0] && ignoring.minRequired == 60,
         ignoringDiff.take(10) + [ignoring.log])
 
-List<Map> keyedDocuments = ['gui', 'backend-api'].collect { PortalFixtures.document('full', defaults, platform, it as String, projects[it] as Map) }
-Map keyed = runNew('full', keyedDocuments)
-Map keyedWithFiles = runNew('full', keyedDocuments, ['devsecops_config.yaml': mistaken, 'config.yaml': mistaken])
-List keyedDiff = differences(keyed.findAll { it.key != 'trace' }, keyedWithFiles.findAll { it.key != 'trace' }, '')
-List keyedProbes = ((keyedWithFiles.trace as Map).probes ?: []) as List
-check('A\' a key wins over a file: with both files in the workspace the portal run loads the same configuration, reads the portal and never looks at either file',
-        !keyedDiff && !(keyedWithFiles.log as List).any { (it as String).startsWith('[INIT] No pipeline key in the Jenkinsfile') }
-                && ((keyedWithFiles.trace as Map).calls as List).any { (it as String).startsWith('sh [Read the configuration from the DevSecOps portal] ') }
-                && !keyedProbes.any { (it as String).tokenize(' ').last() in fileNames },
-        keyedDiff.take(10) + [keyedProbes])
-
 Map unbundled = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true, null)
 check('A\' the bundled defaults are missing: the run stops with the resource it could not read and whom to ask',
-        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): a run without a pipeline key takes its global settings from it; ask the DevSecOps team".toString(),
+        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): the global settings come from it; ask the DevSecOps team".toString(),
         unbundled.error)
 
 println "\n${failures == 0 ? 'ALL COMPATIBILITY SCENARIOS PASSED' : failures + ' COMPATIBILITY SCENARIO CHECK(S) FAILED'}"

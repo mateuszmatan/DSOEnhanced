@@ -102,7 +102,7 @@ rm -f '${q(messageFile)}'
     static String pushFailure(String branch, String url, int status, String output) {
         List<String> lines = (output ?: '').readLines().collect { it.trim() }
         if (lines.any { it ==~ /.*\[rejected\].*\((fetch first|non-fast-forward|already exists)\).*/ }) {
-            return "[GOLDENFIX] The branch ${branch} already exists in ${url} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (pipelineKeys)".toString()
+            return "[GOLDENFIX] The branch ${branch} already exists in ${url} - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (projectNames)".toString()
         }
         List<String> reasons = lines.findAll { it.startsWith('remote:') || it.startsWith('! [') } as List<String>
         return "[GOLDENFIX] git push of ${branch} to ${url} failed (exit code ${status})${reasons ? ': ' + reasons.join(' ') : ''}".toString()

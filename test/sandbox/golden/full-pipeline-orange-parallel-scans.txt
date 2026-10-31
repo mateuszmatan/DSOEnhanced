@@ -1,21 +1,4 @@
 == calls
-node linux-agent
-withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-342, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
-sh [Read the configuration from the DevSecOps portal] #!/bin/sh
-set +x
-umask 077
-mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
-i=0
-for key in $DSO_PORTAL_KEYS; do
-  : > "body-$i"
-  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
-    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
-  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
-  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
-  i=$((i + 1))
-done
-
-deleteDir /ws@tmp/dso-portal-342
 agent linux-agent
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
@@ -798,8 +781,6 @@ archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-r
 publishHTML pipeline-report.html
 cleanWs
 == log
-[PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -1143,8 +1124,8 @@ test_job,project=CertScanner,env=test,module=backend-api,suite=Performance\ test
 test_execution,project=CertScanner,env=test,module=backend-api,suite=Performance\ tests total=1i,passed=1i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
 test_execution,project=CertScanner,env=test,module=gui,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
 test_execution,project=CertScanner,env=test,module=backend-api,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
-build_evidence,project=CertScanner,env=test,module=gui artifact_version="342",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-report-certscanner-gui.html",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-dast-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
-build_evidence,project=CertScanner,env=test,module=backend-api artifact_version="342-<stamp>",sonar_quality_gate="ERROR",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-report-certscanner-backend.html",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-dast-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
+build_evidence,project=CertScanner,env=test,module=gui artifact_version="342",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-report-certscanner-gui.html",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-dast-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_file="devsecops_config.yaml" <s>
+build_evidence,project=CertScanner,env=test,module=backend-api artifact_version="342-<stamp>",sonar_quality_gate="ERROR",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-report-certscanner-backend.html",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-devsecops-pipeline/342/artifact/appscan-dast-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_file="devsecops_config.yaml" <s>
 release_gate,project=CertScanner,env=test,allowed=no allowed=0i,blocked=1i,violations=38i,reason="Nexus release and QC deployment blocked: stage 'Unit tests' is WARN (previous pipeline) | stage 'Dependencies scan (Nexus IQ)' is WARN (previous pipeline) | stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN (previous pi" <s>
 goldenfix,project=CertScanner,env=test,module=gui,status=NO_FIXES offered=0i,applied=0i,unresolved=0i,pr_raised=0i,build_check=0i,build_failed=0i <s>
 == report
@@ -1171,7 +1152,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-devsecops-pipeline &nbsp;&bull;&nbsp; Build #342</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from devsecops_config.yaml in the repository</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
