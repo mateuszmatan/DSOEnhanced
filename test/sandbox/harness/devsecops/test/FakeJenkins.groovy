@@ -245,6 +245,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         }
         return out as FakeFile[]
     }
+    def zip(Map args) {
+        calls << "zip ${args.zipFile}".toString()
+        files.put(norm(args.zipFile), 'PK-fake')
+    }
     def withCredentials(List credentials, Closure body) {
         List ids = credentials.collect { it instanceof Map ? ((Map) it).credentialsId : it }
         calls << "withCredentials ${ids}".toString()
@@ -324,7 +328,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def sshagent(Object credentials, Closure body) { body.call() }
     def checkout(Object args) { calls << 'checkout' }
     def git(Map args) { calls << "git ${args.url}".toString() }
-    def junit(Object args) { calls << "junit ${args instanceof Map ? ((Map) args).testResults : args}".toString(); new FakeTestSummary(totalCount: 214, failCount: 0, skipCount: 3, passCount: 211) }
+    def junit(Object args) {
+        calls << "junit ${args instanceof Map ? ((Map) args).testResults : args}".toString()
+        return steps.containsKey('junit') ? step('junit', args) : new FakeTestSummary(totalCount: 214, failCount: 0, skipCount: 3, passCount: 211)
+    }
     def archiveArtifacts(Object args) { calls << "archiveArtifacts ${args instanceof Map ? ((Map) args).artifacts : args}".toString() }
     def publishHTML(Object args) { calls << "publishHTML ${args instanceof Map ? ((Map) args).reportFiles : args}".toString() }
     def cleanWs(Object args) { calls << 'cleanWs' }
