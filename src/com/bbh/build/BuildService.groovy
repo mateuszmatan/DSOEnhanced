@@ -206,6 +206,10 @@ class BuildService implements Serializable {
     }
 
     void reportArtifactBuild() {
+        if (BuildUtils.databaseService(state.cfg)) {
+            reportDatabasePackage()
+            return
+        }
         def tool     = detectTool()
         def platform = (state.cfg.flutter?.platform ?: 'apk') as String
         def artifact = ''
@@ -235,7 +239,26 @@ class BuildService implements Serializable {
         )
     }
 
+    private void reportDatabasePackage() {
+        Map pkg = ((state.projectsDatabase[state.currentProjectName] ?: [:]) as Map).package as Map
+        if (!pkg?.path) {
+            script.echo "[BUILD] ${state.currentProjectName}: no SQL and PL/SQL package in this run - the build is not reported"
+            return
+        }
+        script.reportBuild(
+            applicationName:       state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+            applicationVersion:    script.env.BUILD_NUMBER,
+            applicationComponent:  'core',
+            artifactFileName:      pkg.path,
+            artifactFileSizeLimit: 0
+        )
+    }
+
     void reportUnitTests() {
+        if (BuildUtils.databaseService(state.cfg)) {
+            reportDatabaseTests()
+            return
+        }
         def tool = detectTool()
 
         if (tool == 'flutter') {
@@ -266,6 +289,25 @@ class BuildService implements Serializable {
             testsPassed:          result.totalCount - result.skipCount - result.failCount,
             testsFailed:          result.failCount,
             testsIgnored:         result.skipCount
+        )
+    }
+
+    private void reportDatabaseTests() {
+        Map tests = (state.projectsUnitTests[state.currentProjectName] ?: [:]) as Map
+        if (tests.total == null) {
+            script.echo "[TEST] ${state.currentProjectName}: no utPLSQL results in this run - the unit tests are not reported"
+            return
+        }
+        int total = tests.total as int
+        int failed = (tests.failed ?: 0) as int
+        int skipped = (tests.skipped ?: 0) as int
+        script.reportUnitTest(
+            applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+            applicationVersion:   script.env.BUILD_NUMBER,
+            applicationComponent: 'core',
+            testsPassed:          total - failed - skipped,
+            testsFailed:          failed,
+            testsIgnored:         skipped
         )
     }
 
@@ -331,6 +373,12 @@ class BuildService implements Serializable {
 
         List<Map> jobs = normalizeTestJobs(testCfg)
         if (!jobs) {
+            if (BuildUtils.databaseService(state.cfg) && testCfg?.required == null) {
+                script.echo "[TEST] ${state.currentProjectName}: no ${label} jobs for a SQL and PL/SQL service - not required"
+                state.recordTestJobs(stageName, [[index: 1, name: 'Test not required', type: 'unknown', status: 'ALREADY IMPLEMENTED', url: '', durationMs: 0L, message: '']])
+                state.projectNotRequired()
+                return
+            }
             state.recordTestJobs(stageName, [])
             policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in ${state.settingsPlace()}.")
             return

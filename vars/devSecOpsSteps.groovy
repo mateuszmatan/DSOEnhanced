@@ -31,17 +31,25 @@ def nodeBuild(def api) {
 def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
-            api.buildArtifact()
-            api.unitTests()
-            api.checkCoverage()
+            if (api.databaseService()) {
+                api.databaseBuild()
+            } else {
+                api.buildArtifact()
+                api.unitTests()
+                api.checkCoverage()
+            }
         }
     }
 }
 
 def buildArtifacts(def api) {
     api.runStage('Build artifact') {
-        api.eachProject {
-            api.buildArtifact()
+        api.eachProject { String projectName ->
+            if (api.databaseService()) {
+                api.notRequired("[BUILD] ${projectName}: a SQL and PL/SQL service has no build artifact for Nexus IQ - not required")
+            } else {
+                api.buildArtifact()
+            }
         }
     }
 }
@@ -79,8 +87,6 @@ def sastQueue(def api) {
     api.appscanSetup()
     api.eachProject {
         api.appscanResolveSourceDir()
-    }
-    api.eachProject {
         api.appscanLogin()
         api.appscanGenerateIRX()
         api.appscanQueue(config)
@@ -111,7 +117,9 @@ def nexusSnapshotDelivery(def api) {
         api.eachProject { String projectName ->
             api.reportArtifactBuild()
             api.reportUnitTests()
-            if (!api.nexusDeliveryEnabled()) {
+            if (api.databaseService()) {
+                api.databaseDelivery('snapshot')
+            } else if (!api.nexusDeliveryEnabled()) {
                 api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
             } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
@@ -126,7 +134,9 @@ def nexusSnapshotDelivery(def api) {
 def lowerRegionDeployment(def api, String vmMode = 'ssh') {
     api.runStage('Lower test region deployment') {
         api.eachProject {
-            if (api.deployTarget() == 'openshift') {
+            if (api.databaseService()) {
+                api.databaseDeploy('rd')
+            } else if (api.deployTarget() == 'openshift') {
                 api.checkDeploymentRepo()
                 api.deployOpenshift('rd')
             } else if (vmMode == 'dod') {
@@ -176,10 +186,14 @@ def dast(def api, Map options = [:]) {
 def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
-            if (options.nodeBuild && api.nodeBuildEnabled()) {
-                api.nodeBuild()
+            if (api.databaseService()) {
+                api.databaseDelivery('release')
+            } else {
+                if (options.nodeBuild && api.nodeBuildEnabled()) {
+                    api.nodeBuild()
+                }
+                api.publishArtifactQC()
             }
-            api.publishArtifactQC()
         }
     }
 }
@@ -187,7 +201,9 @@ def nexusReleaseDelivery(def api, Map options = [:]) {
 def higherEnvironmentDeployment(def api) {
     api.runStage('Higher test environment deployment') {
         api.eachProject {
-            if (api.deployTarget() == 'openshift') {
+            if (api.databaseService()) {
+                api.databaseDeploy('qc')
+            } else if (api.deployTarget() == 'openshift') {
                 api.deployOpenshift('qc')
             } else {
                 api.deployQC()

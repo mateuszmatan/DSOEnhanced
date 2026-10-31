@@ -20,6 +20,12 @@ class NexusIqService implements Serializable {
     }
 
     void scan() {
+        if (BuildUtils.databaseService(state.cfg) && !ownScanPatterns()) {
+            script.echo "[DEP-SCAN] ${state.currentProjectName}: SQL and PL/SQL have no dependency components - Nexus IQ is not required"
+            state.recordScan('niq', 'NOT_REQUIRED')
+            state.projectNotRequired()
+            return
+        }
         String niqStage  = policy.scannerStageName('niq')
         state.nexusIqResults = [:]
         def niqCfg       = state.cfg.tools?.nexusIq ?: [:]
@@ -126,6 +132,15 @@ class NexusIqService implements Serializable {
             state.recordScan('niq', 'WARN')
             policy.warn(niqStage, "Nexus IQ scan could not be completed: ${reason}.")
         }
+    }
+
+    private boolean ownScanPatterns() {
+        Map inherited = (normalize(state.cfgDefaults.tools?.nexusIq ?: [:]) ?: [:]) as Map
+        for (def entry : ((normalize(state.cfg.tools?.nexusIq ?: [:]) ?: [:]) as Map).entrySet()) {
+            def patterns = (entry.value as Map)?.scanPatterns
+            if (patterns && patterns != ((inherited[entry.key] ?: [:]) as Map).scanPatterns) return true
+        }
+        return false
     }
 
     private Map<String, Object> normalize(def niqCfg) {

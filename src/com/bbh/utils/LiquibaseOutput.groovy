@@ -508,6 +508,32 @@ function dso_end() { print "E\\t" f "\\t" last "\\t" lastText }
     }
 
     @NonCPS
+    static String unscannedScript(String sourceDir) {
+        List names = plsqlExtensions() + ['sql', 'vw']
+        return ['#!/usr/bin/env bash', 'set -euo pipefail; set +x',
+                "find ${DatabaseSettings.quote(sourceDir)} -type f \\( ${names.collect { "-name '*.${it}'" }.join(' -o ')} \\) -not -path '*/.dso-db/*' | sed 's|^\\./||' | LC_ALL=C sort |",
+                "  awk '/\\.(prc|fnc|trg|vw|tps|tpb|typ|bdy)\$/ { k++; if (k <= 10) p[k] = \$0 } END { print k + 0, NR; for (i = 1; i <= k && i <= 10; i++) print p[i] }'"].join('\n') + '\n'
+    }
+
+    @NonCPS
+    static String unscanned(String name, String output) {
+        List lines = (output ?: '').readLines()
+        List counts = lines ? (lines[0] as String).tokenize(' ') : []
+        if (counts.size() != 2 || !(counts[0] ==~ /[1-9]\d{0,8}/)) return ''
+        return "[SAST] ${name}: ${counts[0]} of ${counts[1]} SQL and PL/SQL files have extensions AppScan does not scan (.prc .fnc .trg .vw .tps .tpb .typ .bdy): ${lines.subList(1, lines.size()).join(', ')}".toString()
+    }
+
+    @NonCPS
+    static String sonarLanguagesScript(String serverUrl, String dbTmp) {
+        String request = "\"\$DSO_URL/api/languages/list?ps=0\" -o ${DatabaseSettings.quote("${dbTmp}/sonar-languages.txt")}"
+        return ['#!/usr/bin/env bash', 'set -euo pipefail; set +x', "mkdir -p ${DatabaseSettings.quote(dbTmp)}",
+                "DSO_URL=\"\${SONAR_HOST_URL:-}\"; [ -n \"\$DSO_URL\" ] || DSO_URL=${DatabaseSettings.quote(serverUrl)}",
+                'if [ -n "${SONAR_AUTH_TOKEN:-}" ]; then',
+                "  printf 'header = \"Authorization: Bearer %s\"\\n' \"\$SONAR_AUTH_TOKEN\" | curl -fsS --connect-timeout 10 --max-time 30 -K - ${request}",
+                'else', "  curl -fsS --connect-timeout 10 --max-time 30 ${request}", 'fi'].join('\n') + '\n'
+    }
+
+    @NonCPS
     static String sharedPrelude() {
         return '''#!/usr/bin/env bash
 set -euo pipefail; set +x

@@ -139,6 +139,10 @@ class PolicyEngine implements Serializable {
     }
 
     private void enforceQualityGate() {
+        if (state.sonarResults['status'] == 'NOT_REQUIRED') {
+            script.echo "[POLICY] SonarQube: not required for ${state.currentProjectName}."
+            return
+        }
         String stageName = scannerStageName('sca')
         String reportFile = reportFileName('sca')
         Map counts = (state.vulnCounts.sca ?: [critical: 0, high: 0, medium: 0, low: 0]) as Map

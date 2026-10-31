@@ -8,6 +8,7 @@ import com.bbh.core.PolicyEngine
 import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.RestClient
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.LiquibaseOutput
 
 class AppScanService implements Serializable {
     private final def script
@@ -100,11 +101,13 @@ echo "[INFO] AppScan CLI login succeeded."
 
     void generateIrx(int timeoutMin = 120) {
         if (!script.env.APPSCAN_SOURCE_DIR_RESOLVED?.trim()) script.error "APPSCAN_SOURCE_DIR_RESOLVED not set"
-        boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true)
-        boolean sourceCodeOnly = BuildUtils.booleanValue(state.cfg.asoc?.sourceCodeOnly, false)
+        boolean database = BuildUtils.databaseService(state.cfg)
+        boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true) && !database
+        boolean sourceCodeOnly = BuildUtils.booleanValue(state.cfg.asoc?.sourceCodeOnly, false) || database
         boolean useAppScanConfig = BuildUtils.booleanValue(state.cfg.asoc?.useAppScanConfig, false)
         String scoOption = sourceCodeOnly ? '-sco' : ''
         def tm = timeoutMin ?: (state.cfgDefaults.sast?.prepareTimeoutMin ?: 120) as int
+        if (database) databaseSources()
         script.timeout(time: tm, unit: 'MINUTES') {
             script.withEnv([
                     "APPSCAN_CMD_RUNTIME=${appscanCmd()}",
@@ -372,6 +375,15 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
     }
 
+    private void databaseSources() {
+        String name = state.currentProjectName
+        script.echo "[SAST] ${name}: SQL and PL/SQL sources - the scan has no compile step"
+        String listed = script.sh(returnStdout: true, label: "DB: list the files AppScan does not scan for ${name}",
+                script: LiquibaseOutput.unscannedScript((state.cfg.sourceDir ?: '.') as String)) as String
+        String text = LiquibaseOutput.unscanned(name, listed)
+        if (text) script.echo text
+    }
+
     void removeStagedSources() {
         if (os.isWindows()) {
             script.powershell 'Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'
@@ -392,6 +404,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             state.vulnCounts.sast = counts
             state.recordVulns('sast', counts)
         } else {
+            if (BuildUtils.databaseService(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
         }
     }
@@ -404,6 +417,14 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void dastScan() {
         def cfgDast = state.cfg.dast ?: [:]
+        if (BuildUtils.databaseService(state.cfg) && !(cfgDast.enabled as boolean)) {
+            script.echo "[DAST] ${state.currentProjectName}: a SQL and PL/SQL service has no web application to scan - DAST is not required"
+            state.recordScan('dast', 'NOT_REQUIRED')
+            state.recordVulns('dast', [critical: 0, high: 0, medium: 0, low: 0])
+            state.projectNotRequired()
+            if (state.policyStatus['dast'] == 'SKIP') state.policyStatus['dast'] = 'NOT_REQUIRED'
+            return
+        }
         if (!(cfgDast.enabled as boolean)) {
             script.echo "[DAST] Disabled in config - not required for this project."
             state.stageResults['DAST - Dynamic Application Security Tests - HCL AppScan'] = 'NOT_REQUIRED'
@@ -1107,9 +1128,12 @@ ${zipBase64}
 
     private String excludedFolders() {
         String excluded = (script.env.APPSCAN_EXCLUDED_FOLDERS ?: '') as String
-        boolean nodeBuilt = state.stageResults.containsKey('Node.js build')
-        if (!nodeBuilt || script.env.APPSCAN_SOURCE_FOLDERS || excluded.tokenize(',').collect { it.trim() }.contains('node_modules')) return excluded
-        return excluded ? "${excluded},node_modules".toString() : 'node_modules'
+        List tokens = excluded.tokenize(',').collect { it.trim() }
+        List extra = []
+        boolean free = !script.env.APPSCAN_SOURCE_FOLDERS
+        if (free && state.stageResults.containsKey('Node.js build') && !tokens.contains('node_modules')) extra << 'node_modules'
+        if (free && state.projectsDatabase && !tokens.contains('.dso-db')) extra << '.dso-db'
+        return ([excluded] + extra).findAll { it }.join(',')
     }
 
     private String appscanCmd() {
