@@ -1261,6 +1261,9 @@ projects:
         tasks: ['classes', 'testClasses']
       maven:
         goals: ['clean', 'compile']
+      liquibase:                     # optional Liquibase command run before IRX generation (no command runs when absent)
+        commands: ['validate']
+        flags: ['--changelog-file=src/main/resources/changelog.xml']
 
     sast:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
@@ -1288,6 +1291,10 @@ projects:
         badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
         addBadges:        false      # add the badges to the build description
         fullBadges:       false      # all badges instead of the quality gate badge only
+        liquibase:                   # optional sonar-scanner flags, folder and environment when buildTool: liquibase
+          flags: ['-Dsonar.plsql.file.suffixes=.sql,.pks,.pkb']
+          dir:   ""
+          env:   {}
       nexusIq:
         application:        ""       # application public ID in Nexus IQ
         serverUrl:          "https://tools.bbh.com/IQ"
@@ -1516,7 +1523,7 @@ h3. Which fields are required
 |{{tools.sonar.projectKey}}|Recommended|Without it the analysis still runs, but the report has no SonarQube link, issue counts or badges|
 |{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
 |{{dast.targetUrl}}|Only if {{dast.enabled: true}}|Pipeline fails at DAST stage without it|
-|{{javaPath}} or {{buildToolAutoSetup: true}}|YES|Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified*|
+|{{javaPath}} or {{buildToolAutoSetup: true}}|YES for Gradle/Maven/Flutter; optional for Liquibase|Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified* for Java builds; for {{buildTool: liquibase}} an explicit {{javaPath}} is exported as {{JAVA_HOME}} when set, and omitted otherwise|
 |{{deploy.vm.dod}}|Only if {{deployTarget: vm}} and you use {{devSecOpsPipeline}}|The lower test region deployment of the full pipeline uses UrbanCode Deploy|
 |{{deploy.vm.rd}}, {{deploy.vm.qc}}|Only if {{deployTarget: vm}}|SSH deployment of the extended pipeline and of the QC stage|
 |{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|{{appName}} and {{artifactName}} are required as well|
@@ -1856,7 +1863,7 @@ h1. 18. Supported Build Tools
 |Liquibase (SQL / PL/SQL)|{{liquibase}} + {{build.liquibase.commands}} and {{flags}}|{{liquibase}} + {{tests.unitTests.liquibase.commands}} (or changelog validation)|– (database migrations skipped from coverage gate)|– (or delivery via Nexus)|
 |Node.js (stage 0, optional)|{{build.node.commands}}, by default {{npm ci}} and {{npm run build}}|–|–|– (the Gradle or Maven build packages the output)|
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle, {{liquibase.properties}} / {{changelog.xml}} / {{changelog.yaml}} / {{changelog.sql}} → Liquibase).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is {{buildTool}} of the service in the DevSecOps portal; when it is empty, the library detects it by file existence ({{pubspec.yaml}} → Flutter, {{pom.xml}} → Maven, {{build.gradle}} → Gradle, {{liquibase.properties}} / {{changelog.xml}} / {{changelog.yaml}} / {{changelog.yml}} / {{changelog.sql}} / {{db/changelog/db.changelog-master.xml}} / {{db/changelog/db.changelog-master.yaml}} → Liquibase).
 
 Gradle always runs through the {{./gradlew}} wrapper, which the library makes executable. Maven uses the installation of {{build.maven.mvnPath}} when it is set, otherwise {{./mvnw}} when the wrapper is committed, otherwise the {{mvn}} on the agent {{PATH}}.
 
@@ -1874,6 +1881,70 @@ Node.js is not a build tool of its own: {{buildTool}} stays {{gradle}} or {{mave
 * *Output:* outside {{build/}} and {{target/}}, and copied into the artifact by the Gradle or Maven build, see [Troubleshooting|#ch23], *The frontend is missing from the jar*.
 
 The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: the portal does not render one for it.
+
+h3. SQL and PL/SQL with Liquibase (single-module and multi-module)
+
+Services whose database schema, stored procedures, packages, triggers or migrations are managed with Liquibase (Oracle PL/SQL, PostgreSQL PL/pgSQL, T-SQL or standard SQL) use {{buildTool: liquibase}}. Both pure single-module database repositories and multi-module polyglot repositories that combine SQL / PL/SQL with Java, Kotlin, Gradle, Maven, Node.js / Angular or Python are supported.
+
+*Single-module SQL / PL/SQL service:*
+* *Auto-detection:* When {{buildTool}} is omitted in {{devsecops_config.yaml}} or {{config.yaml}}, the library detects {{liquibase}} from {{liquibase.properties}}, {{changelog.xml}}, {{changelog.yaml}}, {{changelog.yml}}, {{changelog.sql}}, {{db/changelog/db.changelog-master.xml}} or {{db/changelog/db.changelog-master.yaml}}.
+* *Optional JDK:* {{javaPath}} and {{buildToolAutoSetup}} are optional for {{buildTool: liquibase}}. When {{javaPath}} is set, the library exports it as {{JAVA_HOME}} so Liquibase runs on that JDK; when it is omitted, Liquibase uses the agent's default Java runtime without stopping at stage 2.
+* *Build and validation (stage 2):* The build step runs {{liquibase}} with {{build.liquibase.commands}} (default {{validate}}) and {{build.liquibase.flags}} (for example {{--changelog-file=db/changelog/changelog-master.xml}}) in {{build.liquibase.dir}} (or the workspace root). The unit test step runs {{tests.unitTests.liquibase.commands}} and {{flags}}, or skips cleanly when no test commands are configured. Because SQL / PL/SQL changelogs do not produce JaCoCo or LCOV coverage reports, the 60 % line coverage gate is automatically bypassed for Liquibase services unless coverage reports are explicitly produced.
+* *SAST – HCL AppScan (stage 4):* SQL and PL/SQL require no Java bytecode compilation, so the SAST stage skips the Java compile step by default and packages the SQL / PL/SQL source tree ({{sourceDir}}, {{includedDirs}}, {{excludedDirs}}) into the IRX archive. If a pre-IRX Liquibase command is needed (for example {{updateSQL}} to render SQL files before scanning), configure {{asoc.liquibase.commands}} and {{asoc.liquibase.flags}}.
+* *SCA – SonarQube (stage 5):* Runs {{sonar-scanner}} directly on the SQL / PL/SQL sources ({{-Dsonar.sources}} defaults to {{tools.sonar.liquibase.dir}}, {{build.liquibase.dir}} or {{sourceDir}}) so SonarQube's PL/SQL and T-SQL analyzers inspect {{.sql}}, {{.pks}}, {{.pkb}}, {{.pls}} and {{.plb}} files without invoking Gradle or Maven. Custom scanner flags (such as {{-Dsonar.plsql.file.suffixes=.sql,.pks,.pkb}}) can be passed under {{tools.sonar.liquibase.flags}}.
+
+*Multi-module / polyglot repositories (SQL / PL/SQL + Java / Gradle / Maven / Node.js / Python):*
+In a multi-module repository, register the database module as a Liquibase service alongside the application services (or run them together in one pipeline via {{pipelineKeys}} / {{projectNames}}):
+{code:yaml}
+projects:
+  db-migrations:
+    appId:     "<AppScan application ID>"
+    buildTool: liquibase
+    sourceDir: "db"
+    asoc:
+      keyId: "<AppScan key ID>"
+      token: "<AppScan token credential ID>"
+    build:
+      liquibase:
+        dir:      "db"
+        commands: ['updateSQL']
+        flags:    ['--changelog-file=changelog/db.changelog-master.xml']
+    tests:
+      unitTests:
+        liquibase:
+          dir:      "db"
+          commands: ['validate']
+          flags:    ['--changelog-file=changelog/db.changelog-master.xml']
+    tools:
+      sonar:
+        projectKey:  "myproduct-db"
+        projectName: "MyProduct DB (PL/SQL)"
+        liquibase:
+          dir:   "db"
+          flags: ['-Dsonar.plsql.file.suffixes=.sql,.pks,.pkb']
+
+  backend-api:
+    appId:     "<AppScan application ID>"
+    buildTool: gradle
+    sourceDir: "backend"
+    javaPath:  /usr/lib/jvm/java-21-openjdk
+    asoc:
+      keyId: "<AppScan key ID>"
+      token: "<AppScan token credential ID>"
+    build:
+      gradle:
+        dir:   "backend"
+        tasks: ['clean', 'build']
+      node:
+        enabled:  true
+        dir:      "frontend"
+        commands: ['npm ci', 'npm run build']
+{code}
+When both services run in one pipeline:
+# *Stage 0 (Node.js):* builds the frontend in {{frontend/}} for {{backend-api}} and marks {{db-migrations}} as not required.
+# *Stage 2 (Unit tests & coverage):* runs {{liquibase updateSQL}} and {{liquibase validate}} in {{db/}} for {{db-migrations}} (bypassing the coverage gate for the database service) and runs Gradle tests in {{backend/}} for {{backend-api}}, aggregating JaCoCo XML reports from the Java modules and LCOV reports from the frontend while scoping each service's search to its own folders.
+# *Stage 3 (Nexus IQ & GoldenFix):* scans the backend JARs, {{frontend/package-lock.json}}, Python {{requirements.txt}} / {{pyproject.toml}} and any JDBC drivers or Liquibase extensions matching {{scanPatterns}}, and raises one shared GoldenFix pull request across Maven, Gradle, version catalogs, npm and pip manifests.
+# *Stage 4 (SAST) & Stage 5 (SonarQube):* scans {{db/}} as SQL / PL/SQL via {{sonar-scanner}} and AppScan IRX, and scans {{backend/}} as compiled Java + frontend bundles,either sequentially or in parallel when {{staticAnalysis.parallel}} is enabled.
 
 h3. Coverage report detection
 

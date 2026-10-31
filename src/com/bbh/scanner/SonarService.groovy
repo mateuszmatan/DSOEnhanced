@@ -4,6 +4,7 @@ import com.bbh.build.BuildRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.build.BuildService
+import com.bbh.utils.BuildUtils
 import com.bbh.utils.FlutterSonarReports
 
 class SonarService implements Serializable {
@@ -213,22 +214,39 @@ rm -f "\${_TMP}"
     }
 
     private void scanLiquibase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
-        def args = [] + sonarArgs
-        String sources = (sonarCfg.sources ?: '.') as String
-        args.add("-Dsonar.sources=${sources}")
+        Map liqCfg = (sonarCfg.liquibase ?: [:]) as Map
+        List extra = BuildUtils.normalizeTokens(liqCfg.commands ?: liqCfg.tasks).findAll { !(it in ['sonar', 'sonarqube', 'sonar:sonar']) } + BuildUtils.normalizeTokens(liqCfg.flags)
+        List args = [] + sonarArgs + extra
+        if (!args.any { (it as String).startsWith('-Dsonar.sources=') }) {
+            String sources = (sonarCfg.sources ?: liqCfg.dir ?: state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.') as String
+            args.add("-Dsonar.sources=${sources}".toString())
+        }
+        Closure invoke = {
+            runScanner(sonarCfg, args)
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+            }
+        }
+        Closure runBody = {
+            List<String> env = []
+            if (liqCfg.env instanceof Map && !liqCfg.env.isEmpty()) {
+                env.addAll(liqCfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
+            }
+            if (liqCfg.dir) {
+                script.dir(liqCfg.dir as String) {
+                    if (env) script.withEnv(env) { invoke() } else invoke()
+                }
+            } else {
+                if (env) script.withEnv(env) { invoke() } else invoke()
+            }
+        }
         if (credentialsId) {
             script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
-                runScanner(sonarCfg, args)
-                if (addBadges) {
-                    script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
-                }
+                runBody()
             }
         } else {
             script.withSonarQubeEnv("${installationName}") {
-                runScanner(sonarCfg, args)
-                if (addBadges) {
-                    script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
-                }
+                runBody()
             }
         }
     }

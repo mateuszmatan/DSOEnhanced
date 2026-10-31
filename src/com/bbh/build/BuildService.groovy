@@ -632,7 +632,7 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Gradle"
             return 'gradle'
         }
-        if (script.fileExists('liquibase.properties') || script.fileExists('changelog.xml') || script.fileExists('changelog.yaml') || script.fileExists('changelog.sql')) {
+        if (script.fileExists('liquibase.properties') || script.fileExists('changelog.xml') || script.fileExists('changelog.yaml') || script.fileExists('changelog.yml') || script.fileExists('changelog.sql') || script.fileExists('db/changelog/db.changelog-master.xml') || script.fileExists('db/changelog/db.changelog-master.yaml')) {
             script.echo "Detected tool is Liquibase"
             return 'liquibase'
         }
@@ -1052,29 +1052,7 @@ PYEOF
 
     void runLiquibaseBuild() {
         Map cfg = ((state.cfg.build?.liquibase) ?: state.cfg.build ?: [:]) as Map
-        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: ['validate'])
-        List flags = BuildUtils.normalizeTokens(cfg.flags)
-        String cmd = (['liquibase'] + flags + commands).collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
-        String label = (cfg.label ?: "Liquibase: ${commands.join(' ')}") as String
-        boolean returnStdout = (cfg.returnStdout ?: false) as boolean
-        script.echo "Execute Liquibase Command: ${cmd}"
-        Closure body = {
-            List<String> env = []
-            if (cfg.env instanceof Map && !cfg.env.isEmpty()) {
-                env.addAll(cfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
-            }
-            if (!env) return BuildUtils.execSh(script, cmd, label, returnStdout)
-            return script.withEnv(env) {
-                BuildUtils.execSh(script, cmd, label, returnStdout)
-            }
-        }
-        if (cfg.dir) {
-            script.dir(cfg.dir as String) {
-                body()
-            }
-        } else {
-            body()
-        }
+        runLiquibaseCommand(cfg, ['validate'], 'Liquibase')
     }
 
     void runLiquibaseTests() {
@@ -1084,32 +1062,48 @@ PYEOF
             script.echo "[TEST] Liquibase: No unit tests or changelog checks configured, skipping"
             return
         }
+        try {
+            runLiquibaseCommand(cfg, [], 'Liquibase test')
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Liquibase test step failed (${e.message ?: e.getClass().getSimpleName()})")
+        }
+    }
+
+    def runLiquibaseCommand(Map cfg, List defaultCommands, String defaultLabelPrefix) {
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: defaultCommands)
+        if (!commands) return null
         List flags = BuildUtils.normalizeTokens(cfg.flags)
-        String cmd = (['liquibase'] + flags + commands).collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
-        String label = (cfg.label ?: "Liquibase test: ${commands.join(' ')}") as String
+        List tokens = ['liquibase'] + flags + commands
+        String cmd = os.isWindows()
+                ? tokens.join(' ')
+                : tokens.collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
+        String label = (cfg.label ?: "${defaultLabelPrefix}: ${commands.join(' ')}") as String
         boolean returnStdout = (cfg.returnStdout ?: false) as boolean
         script.echo "Execute Liquibase Command: ${cmd}"
+        Closure execStep = {
+            if (os.isWindows()) {
+                if (returnStdout) return script.bat(label: label, script: cmd, returnStdout: true).trim()
+                script.bat(label: label, script: cmd)
+                return null
+            }
+            return BuildUtils.execSh(script, cmd, label, returnStdout)
+        }
         Closure body = {
             List<String> env = []
             if (cfg.env instanceof Map && !cfg.env.isEmpty()) {
                 env.addAll(cfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
             }
-            if (!env) return BuildUtils.execSh(script, cmd, label, returnStdout)
+            if (!env) return execStep()
             return script.withEnv(env) {
-                BuildUtils.execSh(script, cmd, label, returnStdout)
+                execStep()
             }
         }
-        try {
-            if (cfg.dir) {
-                script.dir(cfg.dir as String) {
-                    body()
-                }
-            } else {
+        if (cfg.dir) {
+            return script.dir(cfg.dir as String) {
                 body()
             }
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            policy.warn('Unit tests', "Liquibase test step failed (${e.message ?: e.getClass().getSimpleName()})")
         }
+        return body()
     }
 }

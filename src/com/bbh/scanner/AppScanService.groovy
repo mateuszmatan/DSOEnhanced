@@ -144,7 +144,12 @@ Set-Location -Path "\$env:WORKSPACE"
                 } else {
                     if (doCompile) {
                         def tool = build.detectTool()
-                        if (tool != 'liquibase') {
+                        if (tool == 'liquibase') {
+                            Map liqCompileCfg = (state.cfg.asoc?.liquibase ?: [:]) as Map
+                            if (liqCompileCfg.commands || liqCompileCfg.tasks) {
+                                build.runLiquibaseCommand(liqCompileCfg, [], 'Liquibase SAST')
+                            }
+                        } else {
                             Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
                             BuildRunner runner = new BuildRunner(script, compileCfg, tool)
                             if (!runner.ifExist()) {
