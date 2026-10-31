@@ -97,6 +97,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== compatibility with the b815d55 config.yaml loader ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/CompatibilityScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== SQL and PL/SQL services: settings, parsers, static checks and scripts ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/DatabaseUnitScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
 else
   grep -v WARNING "$BUILD/harness.log"; status=1
 fi

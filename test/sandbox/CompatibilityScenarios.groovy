@@ -308,6 +308,18 @@ check('the library bundles global defaults that a run without a key can apply',
                                             niq : limit((bundledDefaults.tools as Map).nexusIq)],
         [wellFormed, applied.error, applied.policyLimits, applied.minRequired])
 
+Map fixtureApplied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText])
+List bundledDiff = ['cfg', 'projectsAllCfg'].collectMany { String k -> differences(fixtureApplied[k], applied[k], k) }
+List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database)[.:].*/) }
+Map bundledTools = (bundledDefaults.tools ?: [:]) as Map
+check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults',
+        bundledTools.liquibase == [home: '', url: '', sha256: '', javaVersion: 17] && bundledTools.oracleJdbc == [path: '', url: '', sha256: '']
+                && bundledTools.utplsql == [home: '', url: '', sha256: '']
+                && bundledDefaults.database == [allowedTargets: [], package: [snapshotRepository: [id: '', url: ''], releaseRepository: [id: '', url: '']]]
+                && !fixtureApplied.error && !otherDiff
+                && ['cfg.tools.liquibase', 'cfg.tools.oracleJdbc', 'cfg.tools.utplsql', 'cfg.database'].every { String p -> bundledDiff.any { it.startsWith(p) } },
+        [bundledTools.subMap(['liquibase', 'oracleJdbc', 'utplsql']), bundledDefaults.database, fixtureApplied.error, otherDiff.take(10), bundledDiff.take(4)])
+
 Map neither = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], [:])
 check('A\' neither file: the Monitor stage stops with a message that names both files and both ways to configure the run',
         neither.error == "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
