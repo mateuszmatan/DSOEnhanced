@@ -1484,7 +1484,7 @@ try {
                 build    : [liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml', '--url=offline:oracle'], dir: 'db', env: [NLS_LANG: 'AMERICAN_AMERICA.AL32UTF8']]],
                 tests    : [unitTests: [liquibase: [commands: ['validate'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']]],
                 tools    : [sonar: [projectKey: 'CERT-PLSQL', projectName: 'Cert PL/SQL', installationName: 'SonarBBH',
-                                    liquibase : [commands: ['sonar'], flags: ['-Dsonar.plsql.file.suffixes=sql,pks,pkb'], dir: 'db']]],
+                                    liquibase : [commands: ['sonar'], sources: ['db/changelog', 'db/plsql'], inclusions: '**/*.sql,**/*.pkb', exclusions: '**/testdata/**', flags: ['-Dsonar.plsql.file.suffixes=sql,pks,pkb'], dir: 'db']]],
                 asoc     : [doCompile: true, liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']]
         ]
         state.projectsAllCfg = [
@@ -1513,9 +1513,11 @@ try {
         FakeScript ms = new FakeScript()
         ms.env.vars.putAll([WORKSPACE: '/ws', PATH: '/usr/bin', HAS_BUILD_TOOL_INSTALLED: 'true'])
         List<String> multiSteps = []
+        List<String> multiSh = []
         ms.shHandler = { Map a ->
             String lbl = String.valueOf(a.label ?: '')
             multiSteps << lbl
+            multiSh << "${lbl}|${(a.script ?: '').toString().trim()}".toString()
             if (lbl == 'Coverage: find and read the reports') {
                 String p = state.currentProjectName
                 if (p == 'oracle-plsql') {
@@ -1530,9 +1532,14 @@ try {
                 'java-api'    : [
                         buildTool: 'gradle',
                         javaPath : '/opt/jdk-21',
-                        build    : [node  : [enabled: true, dir: 'web', commands: ['npm ci', 'npm run build']],
-                                    gradle: [tasks: ['clean', 'build'], dir: 'api']],
-                        tests    : [unitTests: [gradle: [tasks: ['test', 'jacocoTestReport'], dir: 'api']]]
+                        build    : [node     : [enabled: true, dir: 'web', commands: ['npm ci', 'npm run build']],
+                                    gradle   : [tasks: ['clean', 'build'], dir: 'api'],
+                                    liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']],
+                        tests    : [unitTests: [gradle   : [tasks: ['test', 'jacocoTestReport'], dir: 'api'],
+                                                liquibase: [commands: ['validate'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']]],
+                        tools    : [sonar: [projectKey: 'CERT-API', installationName: 'SonarBBH',
+                                            gradle    : [tasks: ['sonarqube'], dir: 'api'],
+                                            liquibase : [sources: 'api/src/main/java,db/sql', inclusions: '**/*.java,**/*.sql,**/*.pkb']]]
                 ],
                 'oracle-plsql': [
                         buildTool: 'liquibase',
@@ -1547,6 +1554,7 @@ try {
         mos.detect()
         def mpol = liqHarness.type('com.bbh.core.PolicyEngine').newInstance(ms, state, mos)
         def mbuild = liqHarness.type('com.bbh.build.BuildService').newInstance(ms, state, mos, mpol)
+        def msonar = liqHarness.type('com.bbh.scanner.SonarService').newInstance(ms, state, mos, mbuild)
         for (String proj : ['java-api', 'oracle-plsql']) {
             state.currentProjectName = proj
             state.cfg = multiProjects[proj] as Map
@@ -1554,8 +1562,10 @@ try {
             mbuild.buildArtifact()
             mbuild.unitTests()
             mbuild.checkCoverage()
+            if (proj == 'java-api') msonar.scan()
         }
         liqResult.multiSteps = multiSteps
+        liqResult.multiSh = multiSh
         liqResult.multiCoverage = state.projectsCoverage
         liqResult.runLine = state.coverage.line
         liqResult.runCounted = state.coverage.counted
@@ -1573,19 +1583,20 @@ check('Liquibase: unit tests run validate and skip coverage requirement when no 
         liqErrors.isEmpty() && (liqResult.shCmds as List).any { String s -> s.startsWith('Liquibase test: validate|') }
                 && (liqResult.echos as List).any { String s -> s.contains('[COVERAGE] Liquibase: skipping coverage requirement') },
         liqResult.echos)
-check('Liquibase: SonarQube scan runs sonar-scanner with -Dsonar.sources and tools.sonar.liquibase flags while stripping default sonar token',
+check('Liquibase: SonarQube scan runs sonar-scanner with -Dsonar.sources, -Dsonar.inclusions, -Dsonar.exclusions and tools.sonar.liquibase flags while stripping default sonar token',
         liqErrors.isEmpty() && liqResult.sonarStatus == 'PASS'
-                && (liqResult.shCmds as List).any { String s -> s.contains("'sonar-scanner'") && s.contains('-Dsonar.projectKey=CERT-PLSQL') && s.contains('-Dsonar.plsql.file.suffixes=sql,pks,pkb') && s.contains('-Dsonar.sources=db') && !s.contains(' sonar ') },
+                && (liqResult.shCmds as List).any { String s -> s.contains("'sonar-scanner'") && s.contains('-Dsonar.projectKey=CERT-PLSQL') && s.contains('-Dsonar.plsql.file.suffixes=sql,pks,pkb') && s.contains('-Dsonar.sources=db/changelog,db/plsql') && s.contains('-Dsonar.inclusions=**/*.sql,**/*.pkb') && s.contains('-Dsonar.exclusions=**/testdata/**') && !s.contains(' sonar ') },
         liqResult.shCmds)
 check('Liquibase: AppScan SAST runs optional asoc.liquibase command before IRX preparation and BuildUtils.sastCompileOverrides detects asoc.liquibase override',
         liqErrors.isEmpty() && liqResult.overrides == ['oracle-plsql']
                 && (liqResult.shCmds as List).any { String s -> s.startsWith('Liquibase SAST: updateSQL|') },
         "overrides=${liqResult.overrides} cmds=${liqResult.shCmds}")
-check('Liquibase: multi-module repository combining Liquibase SQL/PL-SQL, Gradle Java backend, and Node.js Stage 0 frontend builds and aggregates coverage across all 3 reports',
+check('Liquibase: multi-module repository combining Liquibase SQL/PL-SQL, Gradle Java backend, and Node.js Stage 0 frontend builds, runs combined Gradle + Liquibase steps, and aggregates coverage across all 3 reports',
         liqErrors.isEmpty() && liqResult.runCounted == 3 && Math.abs((liqResult.runLine as double) - 85.0d) < 0.1d
                 && ((liqResult.multiCoverage as Map)['oracle-plsql'] as Map)?.line == 85.0d
-                && ((liqResult.multiCoverage as Map)['java-api'] as Map)?.line == 85.0d,
-        "errors=${liqErrors} runLine=${liqResult.runLine} counted=${liqResult.runCounted} cov=${liqResult.multiCoverage}")
+                && ((liqResult.multiCoverage as Map)['java-api'] as Map)?.line == 85.0d
+                && (liqResult.multiSh as List).any { String s -> s.contains('-Dsonar.sources=api/src/main/java,db/sql') && s.contains('-Dsonar.inclusions=**/*.java,**/*.sql,**/*.pkb') },
+        "errors=${liqErrors} runLine=${liqResult.runLine} counted=${liqResult.runCounted} cov=${liqResult.multiCoverage} sh=${liqResult.multiSh}")
 
 Closure rnd = { Random r, int lo, int hi -> lo + r.nextInt(hi - lo + 1) }
 Closure hex32 = { Random r -> (1..32).collect { Integer.toHexString(r.nextInt(16)) }.join('') }

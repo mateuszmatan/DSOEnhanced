@@ -34,6 +34,10 @@ class BuildService implements Serializable {
                     script.error "[BUILD] Build tool is NOT installed on an agent"
                 }
                 runner.run()
+                if (hasLiquibaseStep(state.cfg.build?.liquibase)) {
+                    script.echo "[BUILD] Running additional Liquibase step for multi-module project"
+                    runLiquibaseBuild()
+                }
                 break
             case 'flutter':
                 script.withCredentials([
@@ -85,6 +89,10 @@ class BuildService implements Serializable {
                     }
                 } else {
                     script.echo "[TEST] Skipping the step because it is not configured"
+                }
+                if (hasLiquibaseStep(state.cfg.tests?.unitTests?.liquibase)) {
+                    script.echo "[TEST] Running additional Liquibase validation/test step for multi-module project"
+                    runLiquibaseTests()
                 }
                 break
 
@@ -632,7 +640,11 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Gradle"
             return 'gradle'
         }
-        if (script.fileExists('liquibase.properties') || script.fileExists('changelog.xml') || script.fileExists('changelog.yaml') || script.fileExists('changelog.yml') || script.fileExists('changelog.sql') || script.fileExists('db/changelog/db.changelog-master.xml') || script.fileExists('db/changelog/db.changelog-master.yaml')) {
+        if (['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.json', 'changelog.sql',
+             'db/changelog.xml', 'db/changelog.yaml', 'db/changelog.sql', 'db/changelog/db.changelog-master.xml',
+             'db/changelog/db.changelog-master.yaml', 'sql/changelog.xml', 'sql/changelog.sql', 'liquibase/changelog.xml',
+             'src/main/resources/db/changelog/db.changelog-master.xml', 'src/main/resources/db/changelog/db.changelog-master.yaml',
+             'src/main/resources/changelog.xml'].any { String f -> script.fileExists(f) }) {
             script.echo "Detected tool is Liquibase"
             return 'liquibase'
         }
@@ -1050,6 +1062,13 @@ PYEOF
         return [line: pct, covered: covered, missed: missed, total: covered + missed]
     }
 
+    @NonCPS
+    boolean hasLiquibaseStep(def rawCfg) {
+        if (!(rawCfg instanceof Map)) return false
+        Map cfg = rawCfg as Map
+        return (cfg.commands || cfg.tasks || cfg.flags) as boolean
+    }
+
     void runLiquibaseBuild() {
         Map cfg = ((state.cfg.build?.liquibase) ?: state.cfg.build ?: [:]) as Map
         runLiquibaseCommand(cfg, ['validate'], 'Liquibase')
@@ -1057,13 +1076,14 @@ PYEOF
 
     void runLiquibaseTests() {
         Map cfg = ((state.cfg.tests?.unitTests?.liquibase) ?: state.cfg.tests?.unitTests ?: [:]) as Map
-        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks)
+        List defaultCmds = cfg.flags ? ['validate'] : []
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: defaultCmds)
         if (!commands) {
             script.echo "[TEST] Liquibase: No unit tests or changelog checks configured, skipping"
             return
         }
         try {
-            runLiquibaseCommand(cfg, [], 'Liquibase test')
+            runLiquibaseCommand(cfg, defaultCmds, 'Liquibase test')
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             policy.warn('Unit tests', "Liquibase test step failed (${e.message ?: e.getClass().getSimpleName()})")

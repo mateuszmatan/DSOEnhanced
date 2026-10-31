@@ -145,9 +145,9 @@ Set-Location -Path "\$env:WORKSPACE"
                     if (doCompile) {
                         def tool = build.detectTool()
                         if (tool == 'liquibase') {
-                            Map liqCompileCfg = (state.cfg.asoc?.liquibase ?: [:]) as Map
-                            if (liqCompileCfg.commands || liqCompileCfg.tasks) {
-                                build.runLiquibaseCommand(liqCompileCfg, [], 'Liquibase SAST')
+                            Map liqCompileCfg = (state.cfg.asoc?.liquibase ?: state.cfg.build?.liquibase ?: [:]) as Map
+                            if (build.hasLiquibaseStep(liqCompileCfg)) {
+                                build.runLiquibaseCommand(liqCompileCfg, ['validate'], 'Liquibase SAST')
                             }
                         } else {
                             Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
@@ -156,6 +156,10 @@ Set-Location -Path "\$env:WORKSPACE"
                                 script.error "[SAST] Build tool is NOT installed on an agent"
                             }
                             runner.run()
+                            Map liqCompileCfg = (state.cfg.asoc?.liquibase ?: state.cfg.build?.liquibase ?: [:]) as Map
+                            if (build.hasLiquibaseStep(liqCompileCfg)) {
+                                build.runLiquibaseCommand(liqCompileCfg, ['validate'], 'Liquibase SAST')
+                            }
                         }
                     }
                     script.sh """#!/usr/bin/env bash
