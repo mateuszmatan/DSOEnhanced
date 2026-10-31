@@ -103,6 +103,8 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== SQL and PL/SQL services with Liquibase ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/DatabaseScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== the real Liquibase and utPLSQL CLIs (optional) ==="
+  CP="$CP" BUILD="$BUILD" bash "$ROOT/test/database/cli-scenarios.sh" || status=1
 else
   grep -v WARNING "$BUILD/harness.log"; status=1
 fi
