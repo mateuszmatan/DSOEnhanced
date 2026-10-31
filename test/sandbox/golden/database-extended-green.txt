@@ -1,0 +1,481 @@
+== calls
+node linux-agent
+withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-118, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001]
+sh [Read the configuration from the DevSecOps portal] #!/bin/sh
+set +x
+umask 077
+mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
+i=0
+for key in $DSO_PORTAL_KEYS; do
+  : > "body-$i"
+  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
+    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
+  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
+  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
+  i=$((i + 1))
+done
+
+deleteDir /ws@tmp/dso-portal-118
+agent linux-agent
+copyArtifacts DevSecOps/orders-db-security-pipeline filter=pipeline-config.yaml,release-gate.json
+sh uname -s 2>/dev/null || echo Linux
+sh chmod +x 'gradlew' 2>/dev/null || true
+sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
+sh mvn -v
+sh mvn -version
+sh [DB: fetch the delivered package orders-db-213-<stamp>-SNAPSHOT.zip] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'dependency:get' '-Dartifact=com.bbh.orders:orders-db:213-<stamp>-SNAPSHOT:zip' '-Dtransitive=false' '-DremoteRepositories=bbh-db-snapshots::default::https://tools.bbh.com/nexus/repository/db-snapshots'
+        
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
+sh mvn -v
+sh mvn -version
+sh [DB: fetch the delivered package orders-db-213-<stamp>-SNAPSHOT.zip] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'dependency:copy' '-o' '-Dartifact=com.bbh.orders:orders-db:213-<stamp>-SNAPSHOT:zip' '-Dmdep.useBaseVersion=true' '-DoutputDirectory=/ws/.dso-db/orders-db'
+        
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
+sh [DB: Liquibase validate the package (offline)] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+rm -f '<tmp>/dso-db/orders-db/package.csv'
+'/opt/liquibase/4.33.0/liquibase' '--defaults-file=<tmp>/dso-db/orders-db/offline.properties' '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'validate' '--changelog-file=db/changelog-master.xml' '--url=offline:oracle?version=19.0&changeLogFile=<tmp>/dso-db/orders-db/package.csv' 2>&1 | tee '<tmp>/dso-db/orders-db/package.out'
+
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
+sh [DB: Liquibase update-sql of all changesets (offline)] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+rm -f '<tmp>/dso-db/orders-db/all.csv'
+'/opt/liquibase/4.33.0/liquibase' '--defaults-file=<tmp>/dso-db/orders-db/offline.properties' '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'update-sql' '--changelog-file=db/changelog-master.xml' '--output-file=<tmp>/dso-db/orders-db/all.sql' '--url=offline:oracle?version=19.0&changeLogFile=<tmp>/dso-db/orders-db/all.csv' 2>&1 | tee '<tmp>/dso-db/orders-db/all.out'
+
+archiveArtifacts .dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: Liquibase status on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'status' '--verbose=true' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/rd-status.out'
+
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: invalid objects before the update on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'execute-sql' '--delimiter=/' '--sql-file=<tmp>/dso-db/orders-db/rd-invalid-before.sql' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/rd-invalid-before.out'
+
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: Liquibase update on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'update' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' '--show-summary=summary' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/rd-update.out'
+
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: compile check on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'execute-sql' '--delimiter=/' '--sql-file=<tmp>/dso-db/orders-db/rd-compile-check.sql' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/rd-compile.out'
+
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: Liquibase status after the update on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'status' '--verbose=true' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/rd-status-after.out'
+
+withCredentials [orders-db-rd]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=rd.properties]
+sh [DB: Liquibase tag on rd] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'tag' '--tag=orders-db-213-<stamp>' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/rd-tag.out'
+
+archiveArtifacts .dso-db/orders-db/orders-db-213-<stamp>-rd-changes.txt
+deleteDir <tmp>/dso-db/orders-db
+sh mkdir -p DevSecOpsJenkinsLibrary
+sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
+sh chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh
+sh chmod +x DevSecOpsJenkinsLibrary/loginfile.sh
+sh chmod 600 DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.cert.pem
+sh chmod 600 DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.key.pem
+sh #!/usr/bin/env bash
+set -euo pipefail; set -x
+mkdir -p "$APPSCAN_LOG_DIR"
+chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh 2>/dev/null || true
+PROXY_PASS="$(cat DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.keypsw | DevSecOpsJenkinsLibrary/get-a2a-password.sh     -a oisapi.bbh.com     -c DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.cert.pem     -k DevSecOpsJenkinsLibrary/PROXY_ASOCJenk.key.pem     -A "9hV0qzEV9kou36xWP+TtBA6OWUKFuaq6J1jNgQ05Bjw="     -p)"
+if [[ "$PROXY_PASS" == *"error"* ]]; then echo "[ERROR] Failed to retrieve proxy password."; exit 1; fi
+printf '%s' "$PROXY_PASS" > "$APPSCAN_LOG_DIR/proxy.pass"
+chmod 600 "$APPSCAN_LOG_DIR/proxy.pass"
+
+sh #!/usr/bin/env bash
+set -euo pipefail; set -x
+mkdir -p "$APPSCAN_TOOLS_DIR" "$APPSCAN_LOG_DIR" "$APPSCAN_HOME_DIR" "$APPSCAN_BIN_DIR"
+rm -f "$APPSCAN_TOOLS_DIR/sa.zip" || true
+curl -fsSL "$SA_LINUX_URL" -o "$APPSCAN_TOOLS_DIR/sa.zip"
+if [ ! -s "$APPSCAN_TOOLS_DIR/sa.zip" ]; then echo "[ERROR] SAClientUtil archive missing or empty"; exit 1; fi
+unzip -oq "$APPSCAN_TOOLS_DIR/sa.zip" -d "$APPSCAN_TOOLS_DIR"
+APPSCAN_CMD="$(find "$APPSCAN_TOOLS_DIR" -type f -name appscan.sh | head -n 1)"
+if [ -z "$APPSCAN_CMD" ]; then echo "[ERROR] appscan.sh not found after extraction"; exit 1; fi
+chmod +x "$APPSCAN_CMD"
+printf '%s' "$APPSCAN_CMD" > "$APPSCAN_LOG_DIR/appscan.cmd"
+
+sh chmod +x "$APPSCAN_BIN_DIR/gradle"
+sh mkdir -p '/ws/.appscan-home/.appscan'
+sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
+deleteDir <tmp>/dso-db/orders-db
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
+sh mvn -v
+sh mvn -version
+sh [DB: publish orders-db-213-<stamp>-SNAPSHOT.zip to Nexus] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-releases' '-Durl=https://tools.bbh.com/nexus/repository/db-releases' '-DgroupId=com.bbh.orders' '-DartifactId=orders-db' '-Dversion=213-<stamp>' '-Dpackaging=zip' '-Dfile=/ws/.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '-DgeneratePom=true'
+        
+deleteDir <tmp>/dso-db/orders-db
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: Liquibase status on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'status' '--verbose=true' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/qc-status.out'
+
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: invalid objects before the update on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'execute-sql' '--delimiter=/' '--sql-file=<tmp>/dso-db/orders-db/qc-invalid-before.sql' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/qc-invalid-before.out'
+
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: Liquibase update on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'update' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' '--show-summary=summary' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/qc-update.out'
+
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: compile check on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'execute-sql' '--delimiter=/' '--sql-file=<tmp>/dso-db/orders-db/qc-compile-check.sql' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/qc-compile.out'
+
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: Liquibase status after the update on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'status' '--verbose=true' '--changelog-file=db/changelog-master.xml' '--context-filter=!test' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/qc-status-after.out'
+
+withCredentials [orders-db-qc]
+withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-extended-pipeline-118, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
+sh [DB: Liquibase tag on qc] #!/usr/bin/env bash
+set -euo pipefail; set +x
+umask 077
+DSO_U="${DSO_DB_USER:-}"; DSO_P="${DSO_DB_PASSWORD:-}"; unset DSO_DB_USER DSO_DB_PASSWORD
+for DSO_V in $(compgen -e); do case "$DSO_V" in LIQUIBASE_*) unset "$DSO_V" ;; esac; done
+export LIQUIBASE_ANALYTICS_ENABLED=false
+dso_bad() { case "$1" in ''|' '*|*' ') return 0 ;; esac; ( LC_ALL=C; [[ $1 == *[![:print:]]* ]] ); }
+if dso_bad "$DSO_U" || dso_bad "$DSO_P"; then echo '[DB] the user or password of the Jenkins credentials cannot be passed to Liquibase' >&2; exit 64; fi
+dso_esc() { printf '%s' "${1//\\/\\\\}"; }
+DSO_UU="$(printf '%s' "$DSO_U" | tr '[:lower:]' '[:upper:]')"
+dso_mask() { local l; while IFS= read -r l || [ -n "$l" ]; do l="${l//"$DSO_P"/****}"; l="${l//"$DSO_U@"/****@}"; l="${l//"$DSO_UU@"/****@}"; printf '%s\n' "$l"; done; }
+DSO_STEP="$(mktemp "$DSO_TMP/step.XXXXXX")"
+trap 'rm -f "$DSO_STEP"' EXIT
+cat "$DSO_TMP/$DSO_PROPS" > "$DSO_STEP"
+printf 'liquibase.command.username=%s\nliquibase.command.password=%s\n' "$(dso_esc "$DSO_U")" "$(dso_esc "$DSO_P")" >> "$DSO_STEP"
+export -n DSO_TMP DSO_PROPS
+export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
+'/opt/liquibase/4.33.0/liquibase' "--defaults-file=$DSO_STEP" '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '--classpath=/opt/oracle/ojdbc11.jar' '--changelog-lock-wait-time-in-minutes=5' 'tag' '--tag=orders-db-213-<stamp>' 2>&1 | dso_mask > '<tmp>/dso-db/orders-db/qc-tag.out'
+
+archiveArtifacts .dso-db/orders-db/orders-db-213-<stamp>-qc-changes.txt
+deleteDir <tmp>/dso-db/orders-db
+sh mkdir -p /ws/report
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
+publishHTML pipeline-report.html
+cleanWs
+== log
+[PORTAL] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
+[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
+------------------------------------------------------------
+[STAGE]  Monitor source changes (download sources)
+[RESULT] PASS
+------------------------------------------------------------
+[DB] orders-db: deploying the delivered package com.bbh.orders:orders-db:213-<stamp>-SNAPSHOT
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'dependency:get' '-Dartifact=com.bbh.orders:orders-db:213-<stamp>-SNAPSHOT:zip' '-Dtransitive=false' '-DremoteRepositories=bbh-db-snapshots::default::https://tools.bbh.com/nexus/repository/db-snapshots'
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'dependency:copy' '-o' '-Dartifact=com.bbh.orders:orders-db:213-<stamp>-SNAPSHOT:zip' '-Dmdep.useBaseVersion=true' '-DoutputDirectory=/ws/.dso-db/orders-db'
+[DB] orders-db: Liquibase 4.33.0, licence Apache-2.0 (core; bundle includes third-party and commercial components), JDK /usr/lib/jvm/java-17-openjdk
+[DB] orders-db rd: 8 changesets pending before the update
+[DB] orders-db rd: update for contexts !test: run 8, previously run 0, filtered out 2
+[DB] orders-db rd: compile check: 0 invalid objects, 0 compile errors
+[DB] orders-db rd: up to date after the update
+[DB] orders-db rd: tagged orders-db-213-<stamp>
+------------------------------------------------------------
+[STAGE]  Lower test region deployment
+[RESULT] PASS
+------------------------------------------------------------
+[TEST] orders-db: no Regression Tests jobs for a SQL and PL/SQL service - not required
+------------------------------------------------------------
+[STAGE]  Regression tests (>60% user stories coverage)
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
+[TEST] orders-db: no Smoke Tests jobs for a SQL and PL/SQL service - not required
+------------------------------------------------------------
+[STAGE]  Smoke tests
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
+[TEST] orders-db: no Performance Tests jobs for a SQL and PL/SQL service - not required
+------------------------------------------------------------
+[STAGE]  Performance tests
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
+[DAST] orders-db: a SQL and PL/SQL service has no web application to scan - DAST is not required
+------------------------------------------------------------
+[STAGE]  DAST - Dynamic Application Security Tests - HCL AppScan
+[RESULT] NOT_REQUIRED
+[DAST]   Found:  Critical=0  High=0  Medium=0  Low=0
+[DAST]   Limits: Critical<=0  High<=0  Medium<=0
+------------------------------------------------------------
+[RELEASE-GATE] Every stage is green - Nexus release and QC deployment allowed
+[NEXUS] orders-db: publishing orders-db-213-<stamp>-SNAPSHOT.zip as com.bbh.orders:orders-db:213-<stamp> to bbh-db-releases
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-releases' '-Durl=https://tools.bbh.com/nexus/repository/db-releases' '-DgroupId=com.bbh.orders' '-DartifactId=orders-db' '-Dversion=213-<stamp>' '-Dpackaging=zip' '-Dfile=/ws/.dso-db/orders-db/orders-db-213-<stamp>-SNAPSHOT.zip' '-DgeneratePom=true'
+------------------------------------------------------------
+[STAGE]  Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities
+[RESULT] PASS
+------------------------------------------------------------
+[RELEASE-GATE] Every stage is green - Nexus release and QC deployment allowed
+[DB] orders-db qc: 8 changesets pending before the update
+[DB] orders-db qc: update for contexts !test: run 8, previously run 0, filtered out 2
+[DB] orders-db qc: compile check: 0 invalid objects, 0 compile errors
+[DB] orders-db qc: up to date after the update
+[DB] orders-db qc: tagged orders-db-213-<stamp>
+------------------------------------------------------------
+[STAGE]  Higher test environment deployment
+[RESULT] PASS
+------------------------------------------------------------
+[REPORT] Pipeline report written to pipeline-report.html
+[RELEASE-GATE] State written to release-gate.json (allowed=true)
+[INFLUX] InfluxDB disabled or not configured.
+Vulnerabilities above the policy severity: SAST=0, DAST=0
+-----------------------------------------------------------------
+--- Pipeline finished ---
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+--- Pipeline completed successfully! ---
+-----------------------------------------------------------------
+== release-gate.json
+{"job":"DevSecOps/orders-db-extended-pipeline","build":"118","allowed":true,"violations":[]}
+== influx
+
+== report
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Pipeline Report - DevSecOps/orders-db-extended-pipeline #118</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; color: #1f2937; min-height: 100vh; }
+.container { margin: 0 auto; padding: 16px; }
+h2 { font-size: 0.95rem; margin-bottom: 12px; color: #111827; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.card { background: #fff; border-radius: 4px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+td { border-bottom: 1px solid #f1f5f9; }
+tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class='container' style='max-width:1250px;width:100%;box-sizing:border-box;'>
+<div style='background:linear-gradient(135deg,#15803d,#22c55e);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
+<div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>SUCCESS</div>
+<div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/orders-db-extended-pipeline &nbsp;&bull;&nbsp; Build #118</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901</div>
+
+</div>
+<div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
+<div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
+<h2>Pipeline Stages</h2>
+<div style='display:flex;flex-direction:column;gap:0;'><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#3b82f6;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Dev</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>1</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Monitor source changes (download sources)</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#1d4ed8;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Delivery</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>2</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Lower test region deployment</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#1e40af;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Tests</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>3</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Regression tests (&gt;60% user stories coverage)</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:5px;padding-left:25px;display:flex;flex-direction:column;gap:2px;'><div style='display:flex;align-items:center;flex-wrap:wrap;'><span style='color:#16a34a;font-size:0.8rem;font-weight:900;margin-right:5px;'>&#10007;</span><span style='font-size:0.73rem;font-weight:600;color:#1e293b;'>Test not required</span><span style='font-size:0.6rem;color:#fff;background:#0369a1;padding:1px 4px;border-radius:2px;margin-left:4px;'>unknown</span><span style='font-size:0.68rem;color:#64748b;margin-left:6px;'><d></span><span style='font-size:0.6rem;font-weight:700;color:#16a34a;margin-left:4px;'>ALREADY IMPLEMENTED</span></div></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>NOT REQUIRED</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>4</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Smoke tests</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:5px;padding-left:25px;display:flex;flex-direction:column;gap:2px;'><div style='display:flex;align-items:center;flex-wrap:wrap;'><span style='color:#16a34a;font-size:0.8rem;font-weight:900;margin-right:5px;'>&#10007;</span><span style='font-size:0.73rem;font-weight:600;color:#1e293b;'>Test not required</span><span style='font-size:0.6rem;color:#fff;background:#0369a1;padding:1px 4px;border-radius:2px;margin-left:4px;'>unknown</span><span style='font-size:0.68rem;color:#64748b;margin-left:6px;'><d></span><span style='font-size:0.6rem;font-weight:700;color:#16a34a;margin-left:4px;'>ALREADY IMPLEMENTED</span></div></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>NOT REQUIRED</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>5</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Performance tests</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:5px;padding-left:25px;display:flex;flex-direction:column;gap:2px;'><div style='display:flex;align-items:center;flex-wrap:wrap;'><span style='color:#16a34a;font-size:0.8rem;font-weight:900;margin-right:5px;'>&#10007;</span><span style='font-size:0.73rem;font-weight:600;color:#1e293b;'>Test not required</span><span style='font-size:0.6rem;color:#fff;background:#0369a1;padding:1px 4px;border-radius:2px;margin-left:4px;'>unknown</span><span style='font-size:0.68rem;color:#64748b;margin-left:6px;'><d></span><span style='font-size:0.6rem;font-weight:700;color:#16a34a;margin-left:4px;'>ALREADY IMPLEMENTED</span></div></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>NOT REQUIRED</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#1e3a8a;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Security</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>6</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>DAST - Dynamic Application Security Tests - HCL AppScan</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div><div style='margin-top:3px;font-size:0.74rem;padding-left:25px;'>C:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span>&nbsp;&nbsp;H:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span>&nbsp;&nbsp;M:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span>&nbsp;&nbsp;L:&nbsp;<span style='color:#94a3b8;font-size:0.7rem;'>0</span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>NOT REQUIRED</span></div></div></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='display:flex;border:2px solid #94a3b8;background:#fff;'><div style='writing-mode:vertical-rl;transform:rotate(180deg);background:#172554;color:#fff;padding:12px 8px;font-size:0.79rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:center;min-width:32px;white-space:nowrap;'>Delivery</div><div style='flex:1;padding:8px 8px;border-left:1px solid #e2e8f0;'><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>7</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div><div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div><div style='border:1px solid #86efac;border-left:3px solid #16a34a;background:#f0fdf4;padding:7px 10px;'><div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'><div style='min-width:0;flex:1;'><div style='font-weight:600;color:#0f172a;font-size:0.79rem;display:flex;align-items:center;flex-wrap:wrap;gap:0;'><span style='display:inline-flex;align-items:center;justify-content:center;padding:0 5px;height:18px;min-width:18px;background:#1e293b;color:#f8fafc;font-size:0.65rem;font-weight:700;margin-right:7px;flex-shrink:0;border-radius:2px;'>8</span><span style='overflow-wrap:anywhere;word-break:break-word;min-width:0;'>Higher test environment deployment</span><span style='font-size:0.67rem;color:#94a3b8;margin-left:6px;font-weight:400;'>&#9201;&nbsp;<d></span></div></div><div style='flex:0 0 auto;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></div></div></div></div></div></div>
+</div>
+<div style='flex:1.4;min-width:620px;'>
+<div class='card' style='margin-top:0;'>
+<h2>Security Gates</h2><div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Project / Scanner</th><th style='text-align:center;'>Critical</th><th style='text-align:center;'>High</th><th style='text-align:center;'>Medium</th><th style='text-align:center;'>Low</th><th style='text-align:center;'>Policy</th><th style='text-align:center;white-space:nowrap;'>Report / Dashboard</th></tr></thead><tbody><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='7' style='padding:6px 14px;font-size:0.82rem;font-weight:700;color:#1d4ed8;letter-spacing:0.3px;'>orders-db</td></tr><tr><td style='padding:8px 14px 8px 26px;font-weight:600;color:#374151;font-size:0.8rem;'>DAST (AppScan)</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;background:#f0fdf4;color:#166534;font-weight:700;padding:6px 10px;'>0 / 0</td><td style='text-align:center;padding:6px 10px;font-weight:600;'>0</td><td style='text-align:center;padding:6px 10px;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>NOT REQUIRED</span></td><td style='text-align:center;padding:6px 10px;white-space:nowrap;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/orders-db-extended-pipeline/118/artifact/appscan-dast-report.html' target='_blank' style='font-size:0.78rem;color:#0369a1;font-weight:600;'>Report</a></td></tr></tbody></table></div>
+</div>
+<div class='card' style='margin-top:16px;'><h2>Release policy</h2><div style='background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:#166534;'>The library security policy is met - the artifact is released to Nexus and the QC deployment is allowed.</div></div>
+
+
+
+<div class='card' style='margin-top:16px;'><h2>Smoke tests</h2><div style='overflow:auto;max-height:560px;'><table style='min-width:560px;'><thead><tr><th style='text-align:center;width:44px;'>#</th><th style='text-align:left;'>Job</th><th style='text-align:center;'>Type</th><th style='text-align:center;'>Status</th><th style='text-align:center;'>Duration</th><th style='text-align:center;'>Build</th></tr></thead><tbody><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='6' style='padding:6px 14px;font-size:0.8rem;font-weight:700;color:#1d4ed8;'>orders-db &nbsp;&bull;&nbsp; 1 job(s): 1 passed, 0 failed, 0 not configured</td></tr><tr><td style='text-align:center;padding:5px 8px;color:#64748b;'>1</td><td style='padding:5px 10px;font-weight:600;overflow-wrap:anywhere;'>Test not required</td><td style='text-align:center;padding:5px 8px;'>unknown</td><td style='text-align:center;padding:5px 8px;background:#f0fdf4;color:#166534;font-weight:700;'>ALREADY IMPLEMENTED</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'><d></td><td style='text-align:center;padding:5px 8px;'><d></td></tr></tbody></table></div></div>
+</div>
+</div>
+</div>
+</body>
+</html>

@@ -190,7 +190,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     static String problem(String key, int status, String title, String detail) {
         return groovy.json.JsonOutput.toJson([type: 'about:blank', title: title, status: status, detail: detail, instance: "/api/dso/config/${key}".toString()])
     }
-    boolean isUnix() { unix }
+    boolean isUnix() { steps.containsKey('isUnix') ? step('isUnix', [:]) as boolean : unix }
     boolean fileExists(Object path) {
         probes << "fileExists ${norm(path)}".toString()
         return files.containsKey(norm(path))

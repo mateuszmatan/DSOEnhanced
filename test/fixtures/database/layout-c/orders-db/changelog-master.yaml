@@ -1,0 +1,72 @@
+databaseChangeLog:
+  - includeAll:
+      path: tables/
+      relativeToChangelogFile: true
+      errorIfMissingOrEmpty: true
+  - changeSet:
+      id: pkg_orders.pks
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/pkg_orders.pks
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: pkg_orders.pkb
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/pkg_orders.pkb
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: v_order_totals.vw
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/v_order_totals.vw
+            relativeToChangelogFile: true
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: trg_orders_bi.trg
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/trg_orders_bi.trg
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: ut_pkg_orders.pks
+      author: orders-team
+      runOnChange: true
+      context: test
+      changes:
+        - sqlFile:
+            path: test/ut_pkg_orders.pks
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: ut_pkg_orders.pkb
+      author: orders-team
+      runOnChange: true
+      context: test
+      changes:
+        - sqlFile:
+            path: test/ut_pkg_orders.pkb
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []

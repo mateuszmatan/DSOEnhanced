@@ -1,0 +1,9 @@
+{
+  "name": "orders-web",
+  "version": "1.4.0",
+  "private": true,
+  "scripts": {
+    "build": "node src/build.js",
+    "test": "node --test"
+  }
+}

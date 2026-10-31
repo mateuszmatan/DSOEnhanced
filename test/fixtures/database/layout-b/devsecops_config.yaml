@@ -1,0 +1,167 @@
+projects:
+  orders-db:
+    appId:     "6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+    buildTool: liquibase
+    sourceDir: orders-db
+    buildToolAutoSetup: true
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+      keyId: "bbh_6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+      token: "appscan-orders-key-secret"
+    database:
+      searchPath:    src/main/resources
+      changelogFile: db/changelog/db.changelog-master.xml
+      package:
+        groupId: com.bbh.orders
+        snapshotRepository: {id: bbh-db-snapshots, url: "https://tools.bbh.com/nexus/repository/db-snapshots"}
+        releaseRepository:  {id: bbh-db-releases,  url: "https://tools.bbh.com/nexus/repository/db-releases"}
+      test:
+        url:           "jdbc:oracle:thin:@//dev-db.bbh.com:1521/ORDERS_CI"
+        credentialsId: orders-db-test
+        utplsql:
+          enabled:    true
+          sourcePath: db/changelog/code
+          testPath:   db/changelog/test
+      rd:
+        url:           "jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD"
+        credentialsId: orders-db-rd
+      qc:
+        url:           "jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_QC"
+        credentialsId: orders-db-qc
+
+  orders-app:
+    appId:        "209f44ac-dd06-4ca0-884e-d944904f8020"
+    buildTool:    gradle
+    deployTarget: vm
+    sourceDir:    "."
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+    excludedDirs: orders-db
+
+    jenkins:
+      pipeline:
+        extendedPipeline: "DevSecOps/CertScanner-extended-pipeline"
+
+    asoc:
+      url:         "https://bbh.cloud.appscan.com"
+      keyId:       "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
+      insecureTls: false
+
+    tools:
+      sonar:
+        projectName:      "CertScanner-GUI"
+        projectKey:       "cert-scanner-gui"
+        serverUrl:        "https://tools.bbh.com/sonar"
+        credentialsId:    "sonarqube-token"
+        installationName: "SonarQube"
+        authToken:        "sonarqube-token"
+        badgeToken:       "sqb_95b6b9cfb2fe8f3fa0e45261ece1856d3fb1ebc"
+        addBadges:        true
+        fullBadges:       true
+        gradle:
+          tasks: ['sonarqube']
+      nexusIq:
+        application:        "CertValidityMonitoring-GUI"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/app/build/libs/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "CertScanner-GUI-SAST"
+
+    sca:
+      scanName: "CertScanner-GUI-SCA"
+
+    dast:
+      enabled:    true
+      scanName:   "CertScanner-GUI-DAST"
+      targetUrl:  "http://rdltaapps1.testbbh.com"
+      presenceId: ""
+
+    build:
+      node: {enabled: true, dir: frontend}
+      gradle:
+        tasks: ['clean','build','bootJar']
+        flags: ['--refresh-dependencies']
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/TA/repos/cert-scanner"
+        credentialsId: "bitbucket-http-credentials"
+        authType:      basic
+        targetBranch:  ""
+        reviewers:     []
+
+    goldenFix:
+      enabled: true
+
+    tests:
+      unitTests:
+        gradle:
+          tasks: ['test','jacocoTestReport','jacocoTestCoverageVerification']
+        unitTestResult: 'build/test-results/test/*.xml'
+      regression:
+        maxParallel: 5
+        jobs:
+          - name:       "CertScanner-GUI - regression"
+            type:       local
+            job:        "cert-scanner/regression-tests"
+            timeoutMin: 60
+          - name:       "CertScanner-GUI - regression (certificates)"
+            type:       local
+            job:        "cert-scanner/regression-certificates"
+            parameters: "ENV=rd"
+            timeoutMin: 60
+      smoke:
+        maxParallel: 20
+        defaults:
+          type:          remote
+          timeoutMin:    15
+          credentialsId: "remote-jenkins-api-token"
+        jobs:
+          - name: "CertScanner-GUI - login smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-login"
+          - name: "CertScanner-GUI - certificate list smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-list"
+          - name:          "CertScanner-GUI - notification smoke"
+            job:           "smoke/cert-scanner-notifications"
+            remoteJenkins: "jenkins-b"
+            parameters:    "ENV=rd"
+          - name:       "CertScanner-GUI - local smoke"
+            type:       local
+            job:        "cert-scanner/smoke-tests"
+            timeoutMin: 15
+          - "https://jenkins-c.bbh.com/job/smoke/job/cert-scanner-dashboard"
+        urls:
+          - "https://jenkins-b.bbh.com/job/smoke/job/cert-scanner-expiry"
+      performance:
+        jobs:
+          - name:       "CertScanner-GUI - performance"
+            type:       local
+            job:        "cert-scanner/performance-tests"
+            timeoutMin: 120
+
+    deploy:
+      vm:
+        dod:
+          siteName:      "deploy.bbh.com"
+          deployProcess: "tomcat-app-process"
+          applications:
+            - applicationName: "CertScanner-GUI"
+              components:
+                - componentName:       "CertScanner-GUI-app"
+                  baseDir:             "gui/build/libs"
+                  fileIncludePatterns: "*.jar"
+        rd:
+          host:         "rdltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/CertScanner/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+        qc:
+          host:         "qcltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/CertScanner/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"

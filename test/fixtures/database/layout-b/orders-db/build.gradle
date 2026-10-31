@@ -1,0 +1,2 @@
+plugins { id 'org.liquibase.gradle' version '3.0.2' }
+liquibase { activities { main { changelogFile 'db/changelog/db.changelog-master.xml' } } }

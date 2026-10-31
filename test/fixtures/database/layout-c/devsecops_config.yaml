@@ -1,0 +1,141 @@
+projects:
+  orders-db:
+    appId:     "6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+    buildTool: liquibase
+    sourceDir: orders-db
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+      keyId: "bbh_6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+      token: "appscan-orders-key-secret"
+    database:
+      changelogFile: changelog-master.yaml
+      package:
+        groupId: com.bbh.orders
+        snapshotRepository: {id: bbh-db-snapshots, url: "https://tools.bbh.com/nexus/repository/db-snapshots"}
+        releaseRepository:  {id: bbh-db-releases,  url: "https://tools.bbh.com/nexus/repository/db-releases"}
+      rd:
+        url:           "jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD"
+        credentialsId: orders-db-rd
+      qc:
+        url:           "jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_QC"
+        credentialsId: orders-db-qc
+
+  orders-api:
+    appId:        "209f44ac-dd06-4ca0-884e-d944904f8021"
+    buildTool:    maven
+    deployTarget: openshift
+    sourceDir:    "."
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+    excludedDirs: orders-db
+    appName:      "certscanner-api"
+    artifactName: "certscanner-api.jar"
+
+    asoc:
+      url:       "https://bbh.cloud.appscan.com"
+      keyId:     "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
+
+    tools:
+      sonar:
+        projectName:      "CertScanner-Backend"
+        projectKey:       "cert-scanner-backend"
+        serverUrl:        "https://tools.bbh.com/sonar"
+        installationName: "SonarQube"
+        authToken:        "sonarqube-token"
+        badgeToken:       "sqb_95b6b9cfb2fe8f3fa0e45261ece1856d3fb1ebc"
+        addBadges:        true
+        maven:
+          dir:   api
+          goals: ['sonar:sonar']
+      nexusIq:
+        application:        "CertValidityMonitoring-Backend"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/api/target/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "CertScanner-Backend-SAST"
+
+    sca:
+      scanName: "CertScanner-Backend-SCA"
+
+    dast:
+      enabled:    true
+      scanName:   "CertScanner-Backend-DAST"
+      targetUrl:  "http://rdltaapps1.testbbh.com:8080/api"
+      presenceId: ""
+
+    build:
+      node: {enabled: true, dir: web}
+      buildPath: "target/*.jar"
+      maven:
+        dir: api
+        javaPath: /usr/lib/jvm/java-17-openjdk
+        goals:    ['clean','verify']
+        flags:    ['-B','-U']
+        env:
+          MAVEN_OPTS: "-Xms512m -Xmx1g"
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/TA/repos/cert-scanner"
+        credentialsId: "bitbucket-http-credentials"
+        authType:      basic
+
+    goldenFix:
+      enabled: true
+
+    tests:
+      unitTests:
+        maven:
+          dir:   api
+          goals: ['test','jacoco:report']
+        unitTestResult: 'api/target/surefire-reports/*.xml'
+      regression:
+        jobs:
+          - name:       "CertScanner-Backend - regression"
+            type:       local
+            job:        "cert-scanner/api-regression-tests"
+            timeoutMin: 60
+      smoke:
+        jobs:
+          - name:       "CertScanner-Backend - smoke"
+            type:       local
+            job:        "cert-scanner/api-smoke-tests"
+            timeoutMin: 15
+          - name: "CertScanner-Backend - contract smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-api-contract"
+            credentialsId: "remote-jenkins-api-token"
+      performance:
+        jobs:
+          - name:       "CertScanner-Backend - performance"
+            type:       local
+            job:        "cert-scanner/api-performance-tests"
+            timeoutMin: 120
+
+    deploy:
+      openshift:
+        rd:
+          projectBuildR:      "ta-certscanner-build"
+          buildConfigPath:    "openshift/buildconfig.yaml"
+          dockerFilePath:     "openshift/Dockerfile"
+          buildContext:       "target/docker"
+          qcDockerRepoPush:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          openshiftCertDir:   "/etc/pki/openshift"
+          nexus:
+            authfile:         "/home/jenkins/.docker/nexus-auth.json"
+          projectDeploymentR: "ta-certscanner-rd"
+          qcDockerRepoPull:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          deployConfigPath:   "openshift/deployment.yaml"
+          configPathR:        "openshift/config-rd.yaml"
+          healthCheckUrl:     "/actuator/health"
+          routeHostnameR:     "certscanner-api-rd.apps.ocp-rd.testbbh.com"
+        qc:
+          projectDeploymentR: "ta-certscanner-qc"
+          qcDockerRepoPull:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          deployConfigPath:   "openshift/deployment.yaml"
+          configPathR:        "openshift/config-qc.yaml"
+          healthCheckUrl:     "/actuator/health"
+          routeHostnameR:     "certscanner-api-qc.apps.ocp-qc.testbbh.com"
