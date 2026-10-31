@@ -54,6 +54,8 @@ class PipelineState implements Serializable {
     Map projectsUnitTests         = [:]
     Map goldenFixPullRequest        = [:]
     Map goldenFixPullRequestsByRepo = [:]
+    Map projectsDatabase = [:]
+    Map databaseTools    = [:]
 
     @NonCPS
     String settingsPlace() {
@@ -158,6 +160,21 @@ class PipelineState implements Serializable {
     void recordUnitTests(Map values) {
         Map current = (projectsUnitTests[currentProjectName] ?: [:]) as Map
         projectsUnitTests[currentProjectName] = current + (values ?: [:])
+    }
+
+    @NonCPS
+    void recordDatabase(Map values) {
+        Map current = (projectsDatabase[currentProjectName] ?: [:]) as Map
+        projectsDatabase[currentProjectName] = current + (values ?: [:])
+    }
+
+    @NonCPS
+    void recordDatabaseTarget(String target, Map values) {
+        Map current = (projectsDatabase[currentProjectName] ?: [:]) as Map
+        Map targets = [:]
+        targets.putAll((current.targets ?: [:]) as Map)
+        targets[target] = ((targets[target] ?: [:]) as Map) + (values ?: [:])
+        projectsDatabase[currentProjectName] = current + [targets: targets]
     }
 
     @NonCPS

@@ -132,8 +132,13 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static boolean databaseService(Map cfg) {
+        return ((cfg?.buildTool ?: '') as String).trim() == 'liquibase'
+    }
+
+    @NonCPS
     static boolean nodeBuildEnabled(Map cfg) {
-        return booleanValue(cfg.build?.node?.enabled, false)
+        return !databaseService(cfg) && booleanValue(cfg.build?.node?.enabled, false)
     }
 
     @NonCPS

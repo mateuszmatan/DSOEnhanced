@@ -109,6 +109,10 @@ class BuildService implements Serializable {
             policy.missingCoverage(found.missing as String, reports)
             return
         }
+        applyCoverage(tool, reports, minLine)
+    }
+
+    void applyCoverage(String tool, List reports, int minLine) {
         Map own = CoverageReports.summary(reports)
         if (!own.counted) {
             policy.missingCoverage(CoverageReports.noLines(reports), reports)
@@ -639,8 +643,29 @@ class BuildService implements Serializable {
             script.env.HAS_BUILD_TOOL_INSTALLED = 'true'
             return buildTool
         } else {
-            script.withEnv(["BUILD_SYSTEM=${buildTool}"]) {
-                javaPath = script.sh(returnStdout: true, script: '''#!/usr/bin/env bash
+            javaPath = autoSetupJavaHome(buildTool, [:])
+            script.env.JAVA_HOME = javaPath
+            script.env.PATH = "${javaPath}/bin:${script.env.PATH}"
+            script.env.HAS_BUILD_TOOL_INSTALLED = 'true'
+            return buildTool
+        }
+    }
+
+    String autoSetupJavaHome(String buildTool, Map extraEnv) {
+        String text = buildTool == 'liquibase'
+                ? autoSetupScript().replace(autoSetupElseAnchor(), autoSetupLiquibaseBranch() + autoSetupElseAnchor())
+                : autoSetupScript()
+        List env = ["BUILD_SYSTEM=${buildTool}"] + (extraEnv ?: [:]).collect { k, v -> "${k}=${v}".toString() }
+        String javaPath = ''
+        script.withEnv(env) {
+            javaPath = script.sh(returnStdout: true, script: text).trim()
+        }
+        return javaPath
+    }
+
+    @NonCPS
+    private static String autoSetupScript() {
+        return '''#!/usr/bin/env bash
                     set -euo pipefail
                      
                     echo "[INFO] Installing $BUILD_SYSTEM..." >&2
@@ -812,13 +837,17 @@ class BuildService implements Serializable {
                     fi
                      
                     echo "$JAVA_HOME_SELECTED"
-                ''').trim()
-            }
-            script.env.JAVA_HOME = javaPath
-            script.env.PATH = "${javaPath}/bin:${script.env.PATH}"
-            script.env.HAS_BUILD_TOOL_INSTALLED = 'true'
-            return buildTool
-        }
+                '''
+    }
+
+    @NonCPS
+    private static String autoSetupElseAnchor() {
+        return '                    else\n                        echo "[ERROR] No pom.xml, build.gradle, or build.gradle.kts was found." >&2\n'
+    }
+
+    @NonCPS
+    private static String autoSetupLiquibaseBranch() {
+        return '                    elif [[ $BUILD_SYSTEM == \'liquibase\' ]]; then\n                        JAVA_VERSION="${DSO_JAVA_VERSION:-17}"\n'
     }
 
     private def findCoverageReports() {
