@@ -385,6 +385,35 @@ check('a full pipeline that names a securityPipeline only sets Security_Pipeline
         !fullWithJob.initError && fullWithJob.j.env.Security_Pipeline == securityJob && !fullWithJob.j.probes.contains('fileExists pipeline-config.yaml'),
         fullWithJob.initError)
 
+FakeScript twice = jenkins([:])
+twice.files['devsecops_config.yaml'] = configText
+twice.files['pipeline-config.yaml'] = yaml.dump(copied)
+Map secondCfg = [:]
+String placeTwice = ''
+Map twiceRun = apiRun(twice) { fake ->
+    fake.configure('full', agents + [projectNames: 'gui'])
+    fake.configure('extended', [projectNames: ['gui', 'backend-api'], agentNames: ['l2'], securityPipeline: securityJob])
+    secondCfg = fake.pipelineConfig() as Map
+    placeTwice = fake.settingsPlace()
+    twice.onAgent('l2') { fake.initialize() }
+}
+FakeScript back = jenkins([:])
+back.files['devsecops_config.yaml'] = configText
+back.files['pipeline-config.yaml'] = yaml.dump(copied)
+Map backCfg = [:]
+Map backRun = apiRun(back) { fake ->
+    fake.configure('extended', [projectNames: ['gui', 'backend-api'], agentNames: ['l2'], securityPipeline: securityJob])
+    fake.configure('full', agents + [projectNames: 'gui'])
+    backCfg = fake.pipelineConfig() as Map
+    back.onAgent('linux-agent') { fake.initialize() }
+}
+check('configure() twice: the second call wins for pipelineConfig(), PROJECT_NAMES and the extended handoff, and nothing is read before initialize()',
+        !twiceRun.error && secondCfg.agentNames == ['l2'] && secondCfg.projectNames == 'gui,backend-api' && placeTwice == 'devsecops_config.yaml or config.yaml'
+                && (twiceRun.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500'
+                && !backRun.error && backCfg.securityPipeline == null && back.env.PROJECT_NAMES == 'gui' && (backRun.state.projectsAllCfg as Map).keySet().toList() == ['gui']
+                && !(backRun.state.projectsAllCfg.gui as Map).delivery && !back.probes.contains('fileExists pipeline-config.yaml'),
+        "${twiceRun.error} | ${secondCfg} | ${placeTwice} | ${backRun.error} | ${backCfg} | ${back.probes}")
+
 j = jenkins([:])
 SandboxHarness buildHarness = new SandboxHarness(srcDir, stubDir)
 List<Map> triggered = []
