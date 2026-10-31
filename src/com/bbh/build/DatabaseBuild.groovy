@@ -111,7 +111,7 @@ class DatabaseBuild implements Serializable {
                 Map unexpected = found.status == 0 ? LiquibaseOutput.unexpected(found.text as String) : [count: 0]
                 state.recordDatabaseTarget('test', [unexpected: unexpected.count])
                 if ((unexpected.count as int) > 0) {
-                    script.echo "[DB] ${c.name} test: ${DatabaseSettings.changesetsText(unexpected.count as int)} in the test database are not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema"
+                    script.echo "[DB] ${c.name} test: ${DatabaseSettings.changesetsText(unexpected.count as int)} in the test database ${unexpected.count == 1 ? 'is' : 'are'} not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema"
                 }
                 if ((test.utplsql as Map).enabled) {
                     runUtplsql(c, test, startMs)
@@ -459,7 +459,7 @@ class DatabaseBuild implements Serializable {
         if (!after.parsed) fail(c, t, startMs, counts, "${scope}: the status output has a format the library does not know (Liquibase ${version})")
         List left = LiquibaseOutput.pendingAfter(after.ids as List, ran)
         if (left) {
-            fail(c, t, startMs, counts + [pendingAfter: left.size()], "${scope}: ${DatabaseSettings.changesetsText(left.size())} are still pending after the update: ${left.take(10).join(', ')} - check their contexts, labels and preconditions")
+            fail(c, t, startMs, counts + [pendingAfter: left.size()], "${scope}: ${DatabaseSettings.changesetsText(left.size())} ${left.size() == 1 ? 'is' : 'are'} still pending after the update: ${left.take(10).join(', ')} - check their contexts, labels and preconditions")
         }
         int again = (after.ids as List).size()
         script.echo "${scope}: up to date after the update${again ? " (${again} runAlways changesets ran again and are always listed by status)" : ''}"
