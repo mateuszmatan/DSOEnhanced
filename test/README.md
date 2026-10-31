@@ -144,13 +144,13 @@ The production file `resources/com/bbh/devsecops/defaults.yaml` is checked for i
 
 The fake behaves like Jenkins where the library depends on it:
 
-- `node` and the declarative `agent` set `NODE_NAME`, `WORKSPACE` and `WORKSPACE_TMP` only for their body, and `pwd()` fails outside a node; `pwd(tmp: true)` returns the workspace plus `@tmp`;
+- `node` and the declarative `agent` set `NODE_NAME`, `WORKSPACE` and `WORKSPACE_TMP` only for their body, and `pwd()` fails outside a node;
 - `writeYaml` writes YAML into the in-memory workspace (and refuses to overwrite without `overwrite: true`), `readYaml(file:)` parses it and `fileExists` sees it; every `fileExists` and `readYaml(file:)` is recorded in `probes`, which is not part of the golden view;
 - `copyArtifacts` copies the files that match the filter from the scenario's `upstream` map, records the filter and fails when nothing matches;
 - `libraryResource` loads the real files under `resources/` and fails for a missing one; a scenario provides only the secret files that are not in the repository;
 - `withEnv` and `withCredentials` set their variables only for their body (`string`, `usernamePassword` and `file` credentials), and `withCredentials` fails like Jenkins for a credentials ID listed in `missingCredentials`;
 - `isUnix()` is switchable (`unix`), and `readJSON` returns json-lib objects (JSONObject, JSONArray, JSONNull) like the real step; set `jsonLib = false` for plain Groovy maps;
-- `dir` and `deleteDir` remove the files below a directory.
+- `dir` sets the current directory (`cwd`) for its body.
 
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario. `InMemorySourceRepository` matches a pattern with a `/` against the whole path, skips the `excludeDirs` folders like `find` and records the pattern list of every search (`searches`); `RecordingPullRequestPublisher` records the pull request comments (`comments`) and fails them when `commentFailure` is set.
 

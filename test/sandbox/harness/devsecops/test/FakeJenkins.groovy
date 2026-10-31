@@ -273,16 +273,11 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
             cwd = saved
         }
     }
-    def deleteDir() {
-        calls << "deleteDir ${cwd}".toString()
-        files.keySet().removeAll { it.startsWith(cwd + '/') }
-    }
     def pwd() {
         String ws = env.vars.get('WORKSPACE')
         if (!ws) throw new FakeAbort('pwd needs a node: no workspace outside node')
         return ws
     }
-    def pwd(Map args) { args.tmp ? pwd() + '@tmp' : pwd() }
     def node(Object label, Closure body) {
         calls << "node ${label}".toString()
         return onAgent(label, body)
