@@ -22,7 +22,7 @@ def nodeBuild(def api) {
             } else if (api.nodeBuildEnabled()) {
                 api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
             } else {
-                api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+                api.notRequired(api.databaseService() ? '' : "[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
             }
         }
     }

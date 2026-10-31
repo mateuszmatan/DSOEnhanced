@@ -306,7 +306,7 @@ def databaseDelivery(String kind)     { _setup(); _databaseDeploy.deliver(kind) 
 def databaseDeploy(String envName)    { _setup(); _databaseDeploy.deploy(envName) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
 def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
-def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
+def notRequired(String reason)        { _setup(); if (reason) echo reason; _state.projectNotRequired() }
 
 def stagePass(String name)                 { _setup(); _state.stagePass(name) }
 def stageFail(String name)                 { _setup(); _state.stageFail(name) }
