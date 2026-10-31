@@ -48,7 +48,7 @@ class LiquibaseOutput implements Serializable {
 
     @NonCPS
     static String lastLine(String text, int max) {
-        String line = ((text ?: '').readLines().reverse().find { it.trim() } ?: '').trim()
+        String line = ((text ?: '').readLines().reverse().find { it.trim() && !it.startsWith('https://docs.oracle.com/error-help/') } ?: '').trim()
         return line.length() > max ? line.substring(0, max) : line
     }
 

@@ -456,9 +456,12 @@ Liquibase command 'validate' was executed successfully.
             ['no error line', "Liquibase Version: 5.0.4\nERROR: something else\n", '']
     ]
     List reasonWrong = mismatches(reasonCases) { List c -> harness.run { lo().errorReason(c[1]) } }
-    List fallback = harness.run { [lo().reason("first\nlast line   \n\n"), lo().lastLine('x' * 400, 300).length(), lo().reason(failed(lock))] } as List
-    check('LiquibaseOutput.errorReason and reason: E1-E5, checksum, lock and connect texts; without the error line the last non-blank line',
-            reasonWrong.isEmpty() && fallback == ['last line', 300, lock], reasonWrong + [fallback])
+    List fallback = harness.run {
+        [lo().reason("first\nlast line   \n\n"), lo().lastLine('x' * 400, 300).length(), lo().reason(failed(lock)),
+         lo().lastLine('Could not establish connection to database.\nhttps://docs.oracle.com/error-help/db/ora-12541/\n', 200)]
+    } as List
+    check('LiquibaseOutput.errorReason and reason: E1-E5, checksum, lock and connect texts; without the error line the last non-blank line that is not an Oracle help link',
+            reasonWrong.isEmpty() && fallback == ['last line', 300, lock, 'Could not establish connection to database.'], reasonWrong + [fallback])
 
     List hintCases = [
             ['H1', 'Validation Failed: 1 changesets check sum', 'an applied changeset was edited: undo the edit and add a new changeset, or mark the changeset runOnChange="true" when it holds a CREATE OR REPLACE object'],

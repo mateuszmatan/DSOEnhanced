@@ -243,7 +243,8 @@ class DatabaseResponder {
         String out = quoted(text, /tee '([^']+utplsql\.out)'/)
         if (spec.utNoConnect) {
             put(j, out, 'jdbc:oracle:thin:****/****@//dev-db.bbh.com:1521/ORDERS_CI: ORA-12541: Cannot connect. No listener at host dev-db.bbh.com port 1521.\n' +
-                    'https://docs.oracle.com/error-help/db/ora-12541/\nCould not establish connection to database. Reason: ORA-12541: Cannot connect. No listener at host dev-db.bbh.com port 1521.\n')
+                    'https://docs.oracle.com/error-help/db/ora-12541/\nCould not establish connection to database. Reason: ORA-12541: Cannot connect. No listener at host dev-db.bbh.com port 1521.\n' +
+                    'https://docs.oracle.com/error-help/db/ora-12541/\n')
             return 1
         }
         String dir = quoted(text, /mkdir -p '([^']+)'/)
