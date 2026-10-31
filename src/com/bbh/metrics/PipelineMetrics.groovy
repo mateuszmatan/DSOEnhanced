@@ -22,6 +22,7 @@ class PipelineMetrics implements Serializable {
         out.addAll(evidence(state, base, context, now))
         out.addAll(gate(state, base, context, now))
         out.addAll(goldenFix(state, base, now))
+        out.addAll(database(state, base, now))
         return out.findAll { it }
     }
 
@@ -184,7 +185,7 @@ class PipelineMetrics implements Serializable {
             double line = ((value.line ?: 0.0) as Number).doubleValue()
             double required = ((value.minRequired ?: 60) as Number).doubleValue()
             boolean enabled = value.enabled ? true : false
-            out << MetricLine.of('code_coverage', base + [module: (entry.key as String) ?: '', measured: enabled ? 'yes' : 'no'], [
+            out << MetricLine.of('code_coverage', base + [module: (entry.key as String) ?: '', measured: enabled ? 'yes' : (value.notRequired ? 'not_required' : 'no')], [
                     line_pct: MetricLine.number(line),
                     covered : MetricLine.integer(value.covered),
                     missed  : MetricLine.integer(value.missed),
@@ -343,6 +344,36 @@ class PipelineMetrics implements Serializable {
                     pr_url     : optional(raised ? value.prUrl : null),
                     pr_title   : optional(raised ? value.prTitle : null)
             ], now)
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<String> database(PipelineState state, Map base, long now) {
+        List<String> out = []
+        for (def entry : ((state.projectsDatabase ?: [:]) as Map).entrySet()) {
+            Map db = (entry.value ?: [:]) as Map
+            Map pkg = (db.package ?: [:]) as Map
+            for (def t : ((db.targets ?: [:]) as Map).entrySet()) {
+                Map row = (t.value ?: [:]) as Map
+                String status = (row.status ?: 'UNKNOWN') as String
+                out << MetricLine.of('database_deployment', base + [module: entry.key as String, target: t.key as String, status: status], [
+                        pending_before : MetricLine.integer(row.pendingBefore),
+                        applied        : MetricLine.integer(row.applied),
+                        previously_run : MetricLine.integer(row.previouslyRun),
+                        filtered_out   : MetricLine.integer(row.filteredOut),
+                        pending_after  : MetricLine.integer(row.pendingAfter),
+                        invalid_objects: MetricLine.integer(row.invalidObjects),
+                        invalid_before : MetricLine.integer(row.invalidBefore),
+                        compile_errors : MetricLine.integer(row.compileErrors),
+                        changesets     : MetricLine.integer(pkg.changesets),
+                        tagged         : MetricLine.flag(row.tag ? true : false),
+                        ok             : MetricLine.flag(status == 'PASS'),
+                        duration_ms    : MetricLine.integer(row.durationMs),
+                        version        : MetricLine.text((db.version ?: '') as String),
+                        liquibase      : MetricLine.text((db.liquibase ?: '') as String)
+                ], now)
+            }
         }
         return out
     }

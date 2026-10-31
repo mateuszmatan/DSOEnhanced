@@ -819,6 +819,14 @@ export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
 archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>-qc-changes.txt
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p /ws/report
+withCredentials [orders-influx-token]
+withEnv [INFLUX_URL=https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt]
+sh set +x
+code=$(curl -sS -o "$INFLUX_RESPONSE" -w '%{http_code}' -X POST "$INFLUX_URL" -H "Authorization: Token $INFLUX_TOKEN" --data-binary "@$INFLUX_FILE") || exit $?
+echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
+[ "$code" -lt 300 ]
+
+sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
 cleanWs
@@ -934,7 +942,8 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-release
 ------------------------------------------------------------
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
-[INFLUX] InfluxDB disabled or not configured.
+[INFLUX] 59 metric line(s) for orders (dev), build 341, result SUCCESS
+[INFLUX] Sending metrics to https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---
@@ -945,7 +954,65 @@ Vulnerabilities above the policy severity: SAST=0, DAST=0
 == release-gate.json
 {"job":"DevSecOps/orders-db-devsecops-pipeline","build":"341","allowed":true,"violations":[]}
 == influx
-
+deployments,project=orders,env=dev count=1 <s>
+change_failure,project=orders,env=dev value=0i <s>
+build_duration,project=orders,env=dev value=0i <s>
+stage_metric,project=orders,env=dev,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Unit\ tests result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Dependencies\ scan\ (Nexus\ IQ) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=SCA\ (SonarQube) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Nexus\ delivery\ (Static\ analysis\ passed) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Lower\ test\ region\ deployment result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Regression\ tests\ (>60%\ user\ stories\ coverage) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Smoke\ tests result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Performance\ tests result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Higher\ test\ environment\ deployment result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+vulnerabilities,project=orders,env=dev,scanner=sast critical=0i,high=0i,medium=0i,low=1i <s>
+vulnerabilities,project=orders,env=dev,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
+vulnerabilities,project=orders,env=dev,scanner=sonar critical=0i,high=0i,medium=0i,low=0i <s>
+test_coverage,project=orders,env=dev line_pct=88.2,covered=150i,total=170i <s>
+pipeline_run,project=orders,env=dev,variant=full,result=SUCCESS,branch=origin/develop build=341i,duration_s=<n>i,success=1i,unstable=0i,stages_total=13i,passed=7i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=6i,modules=1i,commit="",job="DevSecOps/orders-db-devsecops-pipeline" <s>
+dora,project=orders,env=dev,variant=full deployment=1i,change_failure=0i,lead_time_s=<n>i,duration_s=<n>i,released=1i <s>
+stage_event,project=orders,env=dev,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Unit\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Dependencies\ scan\ (Nexus\ IQ),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
+stage_event,project=orders,env=dev,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=4i,reason="" <s>
+stage_event,project=orders,env=dev,stage=SCA\ (SonarQube),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=5i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Lower\ test\ region\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Regression\ tests\ (>60%\ user\ stories\ coverage),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=8i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Smoke\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=9i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Performance\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=10i,reason="" <s>
+stage_event,project=orders,env=dev,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=11i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=12i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Higher\ test\ environment\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=13i,reason="" <s>
+security_findings,project=orders,env=dev,module=orders-db,scanner=niq,status=NOT_REQUIRED critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=orders,env=dev,module=orders-db,scanner=sast,status=PASS critical=0i,high=0i,medium=0i,low=1i,total=1i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=orders,env=dev,module=orders-db,scanner=sonar,status=NOT_REQUIRED critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=orders,env=dev,module=orders-db,scanner=dast,status=NOT_REQUIRED critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+policy_status,project=orders,env=dev,scanner=sast,status=PASS ok=1i,measured=1i <s>
+policy_status,project=orders,env=dev,scanner=sca,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=orders,env=dev,scanner=dast,status=NOT_REQUIRED ok=1i,measured=1i <s>
+policy_status,project=orders,env=dev,scanner=iast,status=SKIP ok=0i,measured=0i <s>
+policy_status,project=orders,env=dev,scanner=coverage,status=PASS ok=1i,measured=1i <s>
+policy_status,project=orders,env=dev,scanner=sonar,status=NOT_REQUIRED ok=1i,measured=1i <s>
+code_coverage,project=orders,env=dev,module=orders-db,measured=yes line_pct=88.2,covered=150i,missed=20i,total=170i,required=60.0,met=1i,gap=0.0 <s>
+coverage_report,project=orders,env=dev,module=orders-db,report=.dso-db/orders-db/utplsql-cobertura.xml,tool=utplsql,counted=yes line_pct=88.2,covered=150i,missed=20i,total=170i <s>
+test_job,project=orders,env=dev,module=orders-db,suite=Regression\ tests\ (>60%\ user\ stories\ coverage),status=ALREADY\ IMPLEMENTED,type=unknown duration_ms=<n>i,name="Test not required",ok=1i <s>
+test_execution,project=orders,env=dev,module=orders-db,suite=Regression\ tests\ (>60%\ user\ stories\ coverage) total=1i,passed=1i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
+test_job,project=orders,env=dev,module=orders-db,suite=Smoke\ tests,status=ALREADY\ IMPLEMENTED,type=unknown duration_ms=<n>i,name="Test not required",ok=1i <s>
+test_execution,project=orders,env=dev,module=orders-db,suite=Smoke\ tests total=1i,passed=1i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
+test_job,project=orders,env=dev,module=orders-db,suite=Performance\ tests,status=ALREADY\ IMPLEMENTED,type=unknown duration_ms=<n>i,name="Test not required",ok=1i <s>
+test_execution,project=orders,env=dev,module=orders-db,suite=Performance\ tests total=1i,passed=1i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
+test_execution,project=orders,env=dev,module=orders-db,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
+build_evidence,project=orders,env=dev,module=orders-db artifact_version="341-<stamp>",sonar_quality_gate="NONE",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/orders-db-devsecops-pipeline/341/artifact/appscan-report-orders-db.html",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
+release_gate,project=orders,env=dev,allowed=yes allowed=1i,blocked=0i,violations=0i,reason="" <s>
+database_deployment,project=orders,env=dev,module=orders-db,target=test,status=PASS pending_before=10i,applied=10i,previously_run=0i,filtered_out=0i,pending_after=0i,invalid_objects=0i,invalid_before=0i,compile_errors=0i,changesets=10i,tagged=0i,ok=1i,duration_ms=<n>i,version="341-<stamp>",liquibase="5.0.4" <s>
+database_deployment,project=orders,env=dev,module=orders-db,target=rd,status=PASS pending_before=8i,applied=8i,previously_run=0i,filtered_out=2i,pending_after=0i,invalid_objects=0i,invalid_before=0i,compile_errors=0i,changesets=10i,tagged=1i,ok=1i,duration_ms=<n>i,version="341-<stamp>",liquibase="5.0.4" <s>
+database_deployment,project=orders,env=dev,module=orders-db,target=qc,status=PASS pending_before=8i,applied=8i,previously_run=0i,filtered_out=2i,pending_after=0i,invalid_objects=0i,invalid_before=0i,compile_errors=0i,changesets=10i,tagged=1i,ok=1i,duration_ms=<n>i,version="341-<stamp>",liquibase="5.0.4" <s>
 == report
 <!DOCTYPE html>
 <html lang='en'>
@@ -985,7 +1052,7 @@ tr:last-child td { border-bottom: none; }
 <div class='card' style='margin-top:16px;'><h2>Release policy</h2><div style='background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:#166534;'>The library security policy is met - the artifact is released to Nexus and the QC deployment is allowed.</div></div>
 
 
-<div class='card' style='margin-top:16px;'><h2>Code Coverage</h2><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>88.2%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:88.2%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>150 covered / 170 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;overflow-wrap:anywhere;'><span style='font-family:monospace;font-size:0.74rem;'>.dso-db/orders-db/utplsql-cobertura.xml</span></td><td style='padding:5px 10px;'>utPLSQL</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>88.2%</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>150 of 170</td></tr></tbody></table></div></div>
+<div class='card' style='margin-top:16px;'><h2>Code Coverage</h2><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:#22c55e;min-width:70px;'>88.2%</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:88.2%;height:100%;background:#22c55e;border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>150 covered / 170 total &nbsp;&bull;&nbsp; required: 60%</div></div></div><div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;overflow-wrap:anywhere;'><span style='font-family:monospace;font-size:0.74rem;'>.dso-db/orders-db/utplsql-cobertura.xml</span></td><td style='padding:5px 10px;'>utPLSQL</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>88.2%</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>150 of 170</td></tr></tbody></table></div></div><div class='card' style='margin-top:16px;'><h2>Database changes</h2><div style='overflow-x:auto;'><table style='min-width:620px;'><thead><tr><th>Service</th><th>Package</th><th style='text-align:center;'>Changesets / for RD and QC</th><th>Review</th><th style='text-align:center;'>Static checks</th><th style='text-align:center;'>utPLSQL</th><th>Liquibase</th></tr></thead><tbody><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;overflow-wrap:anywhere;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/orders-db-devsecops-pipeline/341/artifact/.dso-db/orders-db/orders-db-341-<stamp>.zip' target='_blank' style='color:#0369a1;font-family:monospace;font-size:0.74rem;'>orders-db-341-<stamp>.zip</a></td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>10 / 8</td><td style='padding:5px 10px;'><a href='https://jenkins.bbh.com/job/DevSecOps/job/orders-db-devsecops-pipeline/341/artifact/.dso-db/orders-db/orders-db-341-<stamp>-update.sql' target='_blank' style='color:#0369a1;'>review SQL</a></td><td style='text-align:center;padding:5px 8px;'>0</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>214 / 0 failed</td><td style='padding:5px 10px;white-space:nowrap;'>5.0.4</td></tr></tbody></table></div><div style='overflow-x:auto;margin-top:8px;'><table style='min-width:620px;'><thead><tr><th>Service</th><th>Database</th><th style='text-align:center;'>Status</th><th>Contexts</th><th style='text-align:center;'>Pending / applied / left</th><th style='text-align:center;'>New invalid / errors</th><th>Tag</th></tr></thead><tbody><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;'>TEST</td><td style='text-align:center;padding:5px 8px;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;'>test</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>10 / 10 / 0</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>0 / 0</td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;overflow-wrap:anywhere;'><d></td></tr><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;'>RD</td><td style='text-align:center;padding:5px 8px;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;'>!test</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>8 / 8 / 0</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>0 / 0</td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;overflow-wrap:anywhere;'>orders-db-341-<stamp></td></tr><tr><td style='padding:5px 10px;font-weight:600;'>orders-db</td><td style='padding:5px 10px;'>QC</td><td style='text-align:center;padding:5px 8px;'><span style='background:#16a34a;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>PASS</span></td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;'>!test</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'>8 / 8 / 0</td><td style='text-align:center;padding:5px 8px;font-weight:700;color:#334155;'>0 / 0</td><td style='padding:5px 10px;font-family:monospace;font-size:0.74rem;overflow-wrap:anywhere;'>orders-db-341-<stamp></td></tr></tbody></table></div><div style='margin-top:6px;font-size:0.68rem;color:#9ca3af;'>The package is the zip delivered to Nexus; RD and QC are deployed from it. The library never rolls back.</div></div>
 <div class='card' style='margin-top:16px;'><h2>Smoke tests</h2><div style='overflow:auto;max-height:560px;'><table style='min-width:560px;'><thead><tr><th style='text-align:center;width:44px;'>#</th><th style='text-align:left;'>Job</th><th style='text-align:center;'>Type</th><th style='text-align:center;'>Status</th><th style='text-align:center;'>Duration</th><th style='text-align:center;'>Build</th></tr></thead><tbody><tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='6' style='padding:6px 14px;font-size:0.8rem;font-weight:700;color:#1d4ed8;'>orders-db &nbsp;&bull;&nbsp; 1 job(s): 1 passed, 0 failed, 0 not configured</td></tr><tr><td style='text-align:center;padding:5px 8px;color:#64748b;'>1</td><td style='padding:5px 10px;font-weight:600;overflow-wrap:anywhere;'>Test not required</td><td style='text-align:center;padding:5px 8px;'>unknown</td><td style='text-align:center;padding:5px 8px;background:#f0fdf4;color:#166534;font-weight:700;'>ALREADY IMPLEMENTED</td><td style='text-align:center;padding:5px 8px;white-space:nowrap;'><d></td><td style='text-align:center;padding:5px 8px;'><d></td></tr></tbody></table></div></div>
 </div>
 </div>

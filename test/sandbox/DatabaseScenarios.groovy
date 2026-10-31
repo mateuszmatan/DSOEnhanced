@@ -210,6 +210,7 @@ Closure verify = { Map spec ->
     Map r = runDatabase(spec)
     basics(spec, r)
     if (spec.golden) golden(spec.golden as String, spec.name as String, r)
+    if (spec.demo) new File(root, "examples/reports/${spec.demo}.html").text = r.html as String
     if (spec.checks) (spec.checks as Closure).call(r)
     return r
 }
@@ -261,6 +262,11 @@ List<String> fullSteps = ['DB: check the files of orders-db', 'DB: Liquibase val
         }
 Closure labels = { Map r -> callsOf(r).findAll { it.startsWith('sh [DB: ') }.collect { it.substring(4, it.indexOf(']')).replaceAll(/\d{8}-\d{6}/, '<stamp>') } }
 Closure stageOf = { Map r, String stage -> stageResults(r.j as FakeScript)[stage] }
+Closure dbCard = { Map r ->
+    String html = r.html as String
+    int start = html.indexOf('<h2>Database changes</h2>')
+    start < 0 ? '' : html.substring(start, html.indexOf('The library never rolls back.', start))
+}
 
 Map d3Alone = null
 List<Map> goldenSpecs = [
@@ -275,9 +281,14 @@ List<Map> goldenSpecs = [
             check('D1: no database credentials are bound, the zip is archived once, and the bundled driver of a full 4.33.0 is not named when it is not there',
                     !callsOf(r).any { it.startsWith('withCredentials ') && it.contains('orders-db-') } && zips.size() == 1 && !logOf(r).any { it.contains('bundled Oracle driver') },
                     zips)
+            String card = dbCard(r)
+            check('D1: the Database changes card has one package row, with the review SQL and utPLSQL not run, and no deployments table',
+                    card.count('<tr><td') == 1 && card.contains('>review SQL</a>') && card.contains('>not run<') && !card.contains('<th>Database</th>'), card)
         }],
         full + [name: 'D2 full, PL/SQL only, Liquibase 5.0.4, green', layout: 'a', executed: fullStages, skipped: [NODE, STATIC], result: 'SUCCESS',
-                golden: 'full-plsql-only-green', defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4'] }, checks: { Map r ->
+                golden: 'full-plsql-only-green', demo: 'database-plsql-green', defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4'] },
+                configure: { Map p -> (p['orders-db'] as Map).influx = [enabled: true, project: 'orders', env: 'dev', credentialsId: 'orders-influx-token',
+                                                                        url: 'https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s'] }, checks: { Map r ->
             check('D2: every database step of 10.1 and 10.6-10.9 in order, with the compile baseline before every update', labels(r) == fullSteps,
                     [labels(r) - fullSteps, fullSteps - labels(r)])
             List<String> liquibase = callsOf(r).findAll { it.startsWith('sh [DB: Liquibase') || it.startsWith('sh [DB: compile') || it.startsWith('sh [DB: invalid') }
@@ -288,6 +299,11 @@ List<Map> goldenSpecs = [
                     (r.j as FakeScript).files['release-gate.json'].contains('"allowed":true') && [REGRESSION, SMOKE, PERFORMANCE, DAST].every { results[it] == 'NOT_REQUIRED' }
                             && results.findAll { k, v -> !(k in [NIQ, SONAR, REGRESSION, SMOKE, PERFORMANCE, DAST]) }.values().every { it == 'PASS' }
                             && (r.html as String).count('Test not required') >= 3, results)
+            List<String> points = ScenarioRunner.influxOf(r.j as FakeScript).readLines().findAll { it.startsWith('database_deployment,') }
+            check('D2: one database_deployment point for each of test, RD and QC, with the changesets applied and the tag of RD and QC',
+                    points.collect { it.substring(0, it.indexOf(' ')) } == ['test', 'rd', 'qc'].collect { "database_deployment,project=orders,env=dev,module=orders-db,target=${it},status=PASS".toString() }
+                            && points.collect { [it.find(/applied=\d+i/), it.find(/tagged=\di/)] } == [['applied=10i', 'tagged=0i'], ['applied=8i', 'tagged=1i'], ['applied=8i', 'tagged=1i']]
+                            && points.every { it.contains(',ok=1i,') && it.contains(',version="341-') && it.contains(',liquibase="5.0.4"') }, points)
             check('D2: the release publishes the zip of the snapshot under the version of the build',
                     callsOf(r).count { it.contains("'-Dversion=341-") && !it.contains('SNAPSHOT') && it.contains("'-Dfile=/ws/.dso-db/orders-db/orders-db-341-") } == 1, null)
         }],
@@ -347,9 +363,13 @@ List<Map> goldenSpecs = [
                             && has(r, '[DB] orders-db rd: invalid before this deployment and not changed by it: VIEW V_LEGACY_REPORT')
                             && has(r, '[DB] orders-db rd: compile check: 1 invalid objects, 1 compile errors (1 invalid before the update, not counted)')
                             && stageOf(r, RD) == 'FAIL', errorOf(r))
+            String card = dbCard(r)
+            check('D5: the Database changes card shows the RD row FAIL with its reason and the object invalid before, after the PASS row of the test database',
+                    card.contains("RD<div style='font-size:0.68rem;color:#64748b;'>the deployment left invalid objects: PACKAGE BODY PKG_ORDERS | PACKAGE BODY PKG_ORDERS line 12: PLS-00201: identifier &#39;ORDER_ITEMZ&#39;")
+                            && card.contains('>1 invalid before</div>') && card.indexOf('>PASS</span>') < card.indexOf('>FAIL</span>') && card.count('>FAIL</span>') == 1, card)
         }],
         security + [name: 'D6 security, static check findings', layout: 'a', executed: securityStages, skipped: [NODE, STATIC], result: 'UNSTABLE',
-                    golden: 'security-static-checks-orange', files: staticTree, configure: dropTargets(['test', 'rd', 'qc']), checks: { Map r ->
+                    golden: 'security-static-checks-orange', demo: 'database-static-checks-orange', files: staticTree, configure: dropTargets(['test', 'rd', 'qc']), checks: { Map r ->
             String found = (r.j as FakeScript).files['.dso-db/orders-db/static-checks.txt'] ?: ''
             check('D6: Unit tests is WARN with M-DB-26, and static-checks.txt holds S1, S2b, S3a and S3b of the formatted SQL and S4, and nothing for the UPDATE or the TOAD package',
                     stageOf(r, UNIT) == 'WARN' && logOf(r).any { it.contains('6 static check finding(s) in the SQL and PL/SQL sources (.dso-db/orders-db/static-checks.txt)') }

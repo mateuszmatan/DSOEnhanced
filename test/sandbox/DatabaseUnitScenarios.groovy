@@ -916,6 +916,69 @@ Closure services = {
 }
 services()
 
+Closure reportAndMetrics = {
+    String base = 'https://jenkins.bbh.com/job/DevSecOps/job/orders-db/341/artifact/'
+    Map shipped = [version  : '341-20261031-101500', liquibase: '4.33.0',
+                   package  : [file: 'orders-db-341-20261031-101500.zip', path: '.dso-db/orders-db/orders-db-341-20261031-101500.zip', fetched: false, changesets: 10,
+                               reviewChangesets: 8, reviewPath: '.dso-db/orders-db/orders-db-341-20261031-101500-update.sql', findings: 2,
+                               staticChecksPath: '.dso-db/orders-db/static-checks.txt'],
+                   tests    : [ran: true, total: 2, failed: 0, skipped: 0, exitCode: 0],
+                   targets  : [test: [status: 'PASS', contexts: 'test', pendingBefore: 10, applied: 10, pendingAfter: 0, tag: ''],
+                               rd  : [status: 'FAIL', contexts: '!test', pendingBefore: 8, applied: 8, invalidObjects: 1, invalidBefore: 1, compileErrors: 1,
+                                      reason: 'the deployment left invalid objects: PACKAGE BODY PKG_ORDERS <line 12>']]]
+    Map fetched = [version: '213-20261031-094500', liquibase: '5.0.4', package: [file: 'orders-db-213-20261031-094500-SNAPSHOT.zip',
+                                                                                path: '.dso-db/orders-db/orders-db-213-20261031-094500-SNAPSHOT.zip', fetched: true, changesets: 10, reviewChangesets: 8],
+                   targets: [qc: [status: 'PASS', contexts: '!test', pendingBefore: 8, applied: 8, tag: 'orders-db-213-20261031-094500']]]
+    Map html = harness.run {
+        FakeScript sc = new FakeScript()
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(sc)
+        def report = harness.type('com.bbh.report.HtmlReportService').newInstance(sc, state, os, harness.type('com.bbh.core.PolicyEngine').newInstance(sc, state, os), 'full')
+        Map none = [enabled: false, notRequired: true, minRequired: 60, reports: []]
+        Map met = [enabled: true, line: 82.4, covered: 824, total: 1000, minRequired: 60]
+        [empty    : report.databaseCard([:], base), shipped: report.databaseCard(['orders-db': shipped], base), fetched: report.databaseCard(['orders-db': fetched], base),
+         line     : report.coverageLine(none), bar: report.coverageBar('orders-db', none),
+         card     : report.coverageCard(met, ['orders-db': none, 'orders-app': met]), cardWithout: report.coverageCard(met, ['orders-api': met, 'orders-app': met])]
+    } as Map
+    String card = html.shipped as String
+    check('HtmlReportService.databaseCard: nothing without database data, and the card with the package and the deployment rows',
+            html.empty == '' && card.startsWith("<div class='card' style='margin-top:16px;'><h2>Database changes</h2>") && card.count('<tr><td') == 3, card.take(300))
+    check('HtmlReportService.databaseCard: the links point into the archived artifacts, and the static check findings link to their file',
+            card.contains("<a href='${base}.dso-db/orders-db/orders-db-341-20261031-101500.zip' target='_blank'".toString())
+                    && card.contains("<a href='${base}.dso-db/orders-db/orders-db-341-20261031-101500-update.sql' target='_blank' style='color:#0369a1;'>review SQL</a>".toString())
+                    && card.contains("<a href='${base}.dso-db/orders-db/static-checks.txt' target='_blank' style='color:#d97706;font-weight:700;'>2</a>".toString())
+                    && card.contains('>10 / 8<') && card.contains('>2 / 0 failed<'), card)
+    check('HtmlReportService.databaseCard: a failed target shows its escaped reason, its new invalid objects and errors in red, and the objects invalid before',
+            card.contains('RD<div style=\'font-size:0.68rem;color:#64748b;\'>the deployment left invalid objects: PACKAGE BODY PKG_ORDERS &lt;line 12&gt;</div>')
+                    && card.contains("color:#dc2626;'>1 / 1<div style='font-size:0.68rem;color:#64748b;font-weight:400;'>1 invalid before</div>") && !card.contains('<line 12>')
+                    && card.contains('>FAIL</span>') && card.contains('>10 / 10 / 0<'), card)
+    check('HtmlReportService.databaseCard: the package of an extended run says delivered snapshot, has no utPLSQL run, and its QC row shows the tag',
+            (html.fetched as String).contains("<td style='padding:5px 10px;'>delivered snapshot</td>") && (html.fetched as String).contains('>not run<')
+                    && (html.fetched as String).contains('>orders-db-213-20261031-094500<') && (html.fetched as String).contains('>QC<'), html.fetched)
+    check('HtmlReportService: coverage that is not required says so in the Unit tests box and the coverage bar, and the services that meet the level count only the scored ones',
+            (html.line as String).contains('>not required</span>') && (html.bar as String).contains('not required &nbsp;&bull;&nbsp; no utPLSQL run for this SQL and PL/SQL service')
+                    && (html.card as String).contains('1 of 1 services meet it') && (html.cardWithout as String).contains('2 of 2 services meet it'), html.card)
+
+    Map metrics = harness.run {
+        def type = harness.type('com.bbh.metrics.PipelineMetrics')
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        Map base2 = [project: 'orders', env: 'dev']
+        List none = type.database(state, base2, 1793528100L) as List
+        state.projectsDatabase = ['orders-db': [version: '341-20261031-101500', liquibase: '4.33.0', package: [changesets: 10],
+                                                targets: [rd: [status: 'PASS', contexts: '!test', pendingBefore: 8, applied: 8, previouslyRun: 0, filteredOut: 2, pendingAfter: 0,
+                                                               invalidObjects: 0, invalidBefore: 0, compileErrors: 0, tag: 'orders-db-341-20261031-101500', durationMs: 6123, reason: '']]]]
+        state.projectsCoverage = ['orders-db': [enabled: false, notRequired: true, minRequired: 60, reports: []]]
+        [none: none, lines: type.database(state, base2, 1793528100L), coverage: type.coverage(state, base2, 1793528100L)]
+    } as Map
+    check('PipelineMetrics.database: no point without database data, and the example line of the documentation for a deployment',
+            metrics.none == [] && metrics.lines == ['database_deployment,project=orders,env=dev,module=orders-db,target=rd,status=PASS pending_before=8i,applied=8i,previously_run=0i,filtered_out=2i,pending_after=0i,invalid_objects=0i,invalid_before=0i,compile_errors=0i,changesets=10i,tagged=1i,ok=1i,duration_ms=6123i,version="341-20261031-101500",liquibase="4.33.0" 1793528100'],
+            metrics.lines)
+    check('PipelineMetrics.coverage: a service without utPLSQL is measured=not_required, with met 0 and gap 0',
+            metrics.coverage == ['code_coverage,project=orders,env=dev,module=orders-db,measured=not_required line_pct=0.0,covered=0i,missed=0i,total=0i,required=60.0,met=0i,gap=0.0 1793528100'],
+            metrics.coverage)
+}
+reportAndMetrics()
+
 tmp.deleteDir()
 println "\n${failures == 0 ? 'ALL DATABASE UNIT CHECKS PASSED' : failures + ' DATABASE UNIT CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

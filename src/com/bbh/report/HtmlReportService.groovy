@@ -130,7 +130,8 @@ class HtmlReportService implements Serializable {
                 new HashMap(state.projectsRemoteTestResults ?: [:]),
                 new HashMap(state.projectsGoldenFix ?: [:]),
                 new HashMap(state.projectsCoverage ?: [:]),
-                (state.portalDocuments ?: []) as List
+                (state.portalDocuments ?: []) as List,
+                new HashMap(state.projectsDatabase ?: [:])
         )
         script.sh "mkdir -p ${script.env.WORKSPACE}/report"
         script.writeFile file: "${script.env.WORKSPACE}/report/pipeline-report.html", text: html
@@ -984,7 +985,7 @@ class HtmlReportService implements Serializable {
             Map projectCoverage = coverageFor(ctx, project)
             extra = coverageLine(projectCoverage)
             if (project && (ctx.isMulti as boolean) && (status == 'PASS' || status == 'WARN') && projectCoverage.containsKey('enabled')) {
-                boolean met = projectCoverage.get('enabled') && ((projectCoverage.get('line') ?: 0.0) as double) >= ((projectCoverage.get('minRequired') ?: 60) as double)
+                boolean met = projectCoverage.get('notRequired') ? true : (projectCoverage.get('enabled') && ((projectCoverage.get('line') ?: 0.0) as double) >= ((projectCoverage.get('minRequired') ?: 60) as double))
                 boolean flagged = !projectReasonParts(((ctx.stageErrors as Map)?.get(baseName) ?: '') as String, project).isEmpty()
                 status = (met && !flagged) ? 'PASS' : 'WARN'
             }
@@ -1030,6 +1031,7 @@ class HtmlReportService implements Serializable {
         return (jobs instanceof List) ? (jobs as List) : []
     }
     @NonCPS protected String coverageLine(Map coverage) {
+        if (coverage?.get('notRequired')) return "<div style='margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-left:25px;'><span style='font-size:1.05rem;font-weight:800;color:${MUTED};'>not required</span><span style='font-size:0.72rem;color:#64748b;'>Code Coverage &bull; no utPLSQL run for this SQL and PL/SQL service</span></div>"
         boolean enabled = coverage?.get('enabled') ? true : false
         Double pct = enabled ? ((coverage.get('line') ?: 0.0) as double) : null
         double minRequired = ((coverage?.get('minRequired') ?: 60) as double)
@@ -1057,8 +1059,9 @@ class HtmlReportService implements Serializable {
         Map projects = projectsCoverage ?: [:]
         StringBuilder body = new StringBuilder()
         if (projects.size() > 1) {
-            int met = projects.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
-            if (coverage?.get('enabled')) body.append(coverageBar('All services', coverage + [met: met == projects.size(), note: "${met} of ${projects.size()} services meet it".toString()]))
+            Map scored = projects.findAll { k, v -> !((v as Map)?.get('notRequired')) }
+            int met = scored.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
+            if (coverage?.get('enabled')) body.append(coverageBar('All services', coverage + [met: met == scored.size(), note: "${met} of ${scored.size()} services meet it".toString()]))
             projects.each { project, value -> body.append(coverageBar(project as String, value as Map)) }
         } else if (coverage?.get('enabled')) {
             body.append(coverageBar('', coverage))
@@ -1071,6 +1074,7 @@ class HtmlReportService implements Serializable {
         return card('Code Coverage', body.toString())
     }
     @NonCPS protected String coverageBar(String project, Map coverage) {
+        if (coverage?.get('notRequired')) return (project ? "<div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>${esc(project)}</div>" : '') + "<div style='margin-bottom:6px;font-size:0.72rem;color:#64748b;'>not required &nbsp;&bull;&nbsp; no utPLSQL run for this SQL and PL/SQL service</div>"
         boolean measured = coverage?.get('enabled') ? true : false
         double pct = measured ? ((coverage.get('line') ?: 0.0) as double) : 0.0d
         def covered = coverage?.get('covered') ?: 0
@@ -1105,6 +1109,54 @@ class HtmlReportService implements Serializable {
         }
         if (!rows) return ''
         return "<div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>"
+    }
+    @NonCPS protected String databaseCard(Map projectsDatabase, String artifactBase) {
+        List packages = []
+        List deployments = []
+        (projectsDatabase ?: [:]).each { project, value ->
+            Map db = (value ?: [:]) as Map
+            Map pkg = (db.get('package') ?: [:]) as Map
+            if (pkg.get('file')) {
+                String file = "<a href='${esc(artifactBase + (pkg.get('path') as String))}' target='_blank' style='color:${LINK_COLOR};font-family:monospace;font-size:0.74rem;'>${esc(pkg.get('file') as String)}</a>"
+                String review = pkg.get('reviewPath') ? "<a href='${esc(artifactBase + (pkg.get('reviewPath') as String))}' target='_blank' style='color:${LINK_COLOR};'>review SQL</a>" : (pkg.get('fetched') ? 'delivered snapshot' : '-')
+                int findings = (pkg.get('findings') ?: 0) as int
+                String checks = findings > 0 && pkg.get('staticChecksPath')
+                        ? "<a href='${esc(artifactBase + (pkg.get('staticChecksPath') as String))}' target='_blank' style='color:#d97706;font-weight:700;'>${findings}</a>"
+                        : String.valueOf(findings)
+                Map tests = (db.get('tests') ?: [:]) as Map
+                String ut = tests.get('ran') ? "${tests.get('total') ?: 0} / ${tests.get('failed') ?: 0} failed" : 'not run'
+                packages << ("<tr>" + td(esc(project as String), 'padding:5px 10px;font-weight:600;')
+                        + td(file, 'padding:5px 10px;overflow-wrap:anywhere;')
+                        + td("${pkg.get('changesets') ?: 0} / ${pkg.get('reviewChangesets') ?: 0}", 'text-align:center;padding:5px 8px;white-space:nowrap;')
+                        + td(review, 'padding:5px 10px;')
+                        + td(checks, 'text-align:center;padding:5px 8px;')
+                        + td(esc(ut), 'text-align:center;padding:5px 8px;white-space:nowrap;')
+                        + td(esc("${db.get('liquibase') ?: ''}".toString()), 'padding:5px 10px;white-space:nowrap;')
+                        + "</tr>")
+            }
+            ((db.get('targets') ?: [:]) as Map).each { target, row ->
+                Map t = (row ?: [:]) as Map
+                String reason = t.get('reason') ? "<div style='font-size:0.68rem;color:#64748b;'>${esc(t.get('reason') as String)}</div>" : ''
+                int invalid = (t.get('invalidObjects') ?: 0) as int
+                int errors = (t.get('compileErrors') ?: 0) as int
+                int before = (t.get('invalidBefore') ?: 0) as int
+                String beforeNote = before > 0 ? "<div style='font-size:0.68rem;color:#64748b;font-weight:400;'>${before} invalid before</div>" : ''
+                deployments << ("<tr>" + td(esc(project as String), 'padding:5px 10px;font-weight:600;')
+                        + td(esc((target as String).toUpperCase()) + reason, 'padding:5px 10px;')
+                        + td(badge((t.get('status') ?: 'SKIP') as String), 'text-align:center;padding:5px 8px;')
+                        + td(esc((t.get('contexts') ?: '-') as String), 'padding:5px 10px;font-family:monospace;font-size:0.74rem;')
+                        + td("${t.get('pendingBefore') ?: 0} / ${t.get('applied') ?: 0} / ${t.get('pendingAfter') ?: 0}", 'text-align:center;padding:5px 8px;white-space:nowrap;')
+                        + td("${invalid} / ${errors}${beforeNote}", "text-align:center;padding:5px 8px;font-weight:700;color:${invalid + errors > 0 ? '#dc2626' : '#334155'};")
+                        + td(esc((t.get('tag') ?: '-') as String), 'padding:5px 10px;font-family:monospace;font-size:0.74rem;overflow-wrap:anywhere;')
+                        + "</tr>")
+            }
+        }
+        if (!packages && !deployments) return ''
+        StringBuilder body = new StringBuilder()
+        if (packages) body.append("<div style='overflow-x:auto;'><table style='min-width:620px;'><thead><tr><th>Service</th><th>Package</th><th style='text-align:center;'>Changesets / for RD and QC</th><th>Review</th><th style='text-align:center;'>Static checks</th><th style='text-align:center;'>utPLSQL</th><th>Liquibase</th></tr></thead><tbody>${packages.join('')}</tbody></table></div>")
+        if (deployments) body.append("<div style='overflow-x:auto;margin-top:8px;'><table style='min-width:620px;'><thead><tr><th>Service</th><th>Database</th><th style='text-align:center;'>Status</th><th>Contexts</th><th style='text-align:center;'>Pending / applied / left</th><th style='text-align:center;'>New invalid / errors</th><th>Tag</th></tr></thead><tbody>${deployments.join('')}</tbody></table></div>")
+        body.append("<div style='margin-top:6px;font-size:0.68rem;color:${MUTED};'>The package is the zip delivered to Nexus; RD and QC are deployed from it. The library never rolls back.</div>")
+        return card('Database changes', body.toString())
     }
     @NonCPS protected String sonarBadgesCards(Map ctx) {
         Map projectsSonarResults = ctx.projectsSonarResults as Map
@@ -1171,7 +1223,7 @@ class HtmlReportService implements Serializable {
                      String sonarProjectKey = '', String sonarBadgeToken = '',
                      Map projectsVulnCounts = [:], Map projectsNexusIQ = [:], Map projectsScanResults = [:],
                      Map projectsSonarResults = [:], List projectKeys = [], Map projectsAllCfg = [:], Map releaseGate = [:],
-                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], List portalDocuments = []) {
+                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], List portalDocuments = [], Map projectsDatabase = [:]) {
 
         String firstFailed = ''
         int firstFailedIdx = -1
@@ -1247,7 +1299,7 @@ ${securityGates}
 ${showsReleasePolicy() ? releaseGateCardHtml(releaseGate) : ''}
 ${goldenFixCardHtml(projectsGoldenFix, isMulti)}
 ${sonarBadgesCards(ctx)}
-${coverageCard(coverage, projectsCoverage)}
+${coverageCard(coverage, projectsCoverage)}${databaseCard(projectsDatabase, buildUrl + 'artifact/')}
 ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}
 </div>
 </div>
