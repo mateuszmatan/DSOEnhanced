@@ -1190,6 +1190,7 @@ projects:
       useAppScanConfig: false        # true: use appscan-config.xml from the repository
       # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another on Linux/macOS
       # maven:  {goals: ['compile']}                   # optional SAST compile instead of build.maven; never 'clean', which deletes target/ before the Nexus delivery
+      # liquibase: {commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db', env: {}}   # optional SQL/PL-SQL SAST generation before IRX; also runs alongside Gradle or Maven in multi-module services
 
     sast:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
@@ -1226,9 +1227,16 @@ projects:
           tasks: ['sonarqube']
         maven:                       # the analysis command of a Maven service (goals, flags, mvnPath, env as in build.maven)
           goals: ['sonar:sonar']
-        sonarScannerVersion: ""      # Flutter: the sonar-scanner-cli-<version> tool of Jenkins [default: sonar-scanner on the PATH]
+        liquibase:                   # the analysis settings of a SQL/PL-SQL (Liquibase) service, or additional SQL sources in a multi-module service
+          sources:    "."            # comma-separated directories with SQL / PL/SQL scripts and changelogs [default: sourceDir or .]
+          inclusions: ""             # optional sonar.inclusions pattern (e.g. "**/*.sql,**/*.pls,**/*.pkb,**/*.pks")
+          exclusions: ""             # optional sonar.exclusions pattern
+          flags:      []             # optional additional sonar-scanner CLI flags (e.g. ["-Dsonar.plsql.file.suffixes=.sql,.pls,.pkb,.pks"])
+          dir:        ""             # optional working directory for sonar-scanner
+          env:        {}             # optional environment variables for sonar-scanner
+        sonarScannerVersion: ""      # Flutter / Liquibase: the sonar-scanner-cli-<version> tool of Jenkins [default: sonar-scanner on the PATH]
         sonarQubeEnv:
-          installationName: ""       # Flutter: SonarQube installation [default: installationName]
+          installationName: ""       # Flutter / Liquibase: SonarQube installation [default: installationName]
         flutterPlugin:    false      # Flutter: true passes the reports of the sonar-flutter plugin instead of the generic formats
         sources:          "lib"      # Flutter: sonar.sources
         tests:            "test"     # Flutter: sonar.tests
@@ -1613,7 +1621,7 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 | `tools.sonar.projectKey` | Recommended | Without it the analysis still runs, but the report has no SonarQube link, issue counts or badges |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
-| `javaPath` or `buildToolAutoSetup: true` | YES | Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with **JAVA_HOME parameter is not specified** |
+| `javaPath` or `buildToolAutoSetup: true` | YES (optional for `buildTool: liquibase` when `java` and `liquibase` are on the agent `PATH`) | Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with **JAVA_HOME parameter is not specified** (unless `buildTool: liquibase`) |
 | `deploy.vm.dod` | Only if `deployTarget: vm` and you use `devSecOpsPipeline` | The lower test region deployment of the full pipeline uses UrbanCode Deploy |
 | `deploy.vm.rd`, `deploy.vm.qc` | Only if `deployTarget: vm` | SSH deployment of the extended pipeline and of the QC stage |
 | `deploy.openshift.*` | Only if `deployTarget: openshift` | `appName` and `artifactName` are required as well |
@@ -1954,13 +1962,140 @@ The required coverage is shown in the report exactly as configured in the bundle
 | Liquibase (SQL / PL/SQL) | `liquibase` + `build.liquibase.commands` and `flags` | `liquibase` + `tests.unitTests.liquibase.commands` (or changelog validation) | – (database migrations skipped from coverage gate) | – (or delivery via Nexus) |
 | Node.js (stage 0, optional) | `build.node.commands`, by default `npm ci` and `npm run build` | – | – | – (the Gradle or Maven build packages the output) |
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.sql` → Liquibase).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, including under `db/`, `sql/`, `liquibase/`, or `src/main/resources/db/changelog/`).
 
 Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
 
-The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK.
+The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK. For a standalone `buildTool: liquibase` service, `javaPath` is optional when `java` and `liquibase` are already available on the agent `PATH`.
 
 A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.
+
+### SQL and PL/SQL with Liquibase (single-module and multi-module)
+
+The library supports SQL and PL/SQL database migration and stored-procedure projects managed by **Liquibase** both as **standalone single-module services** (`buildTool: liquibase`) and as **multi-module / polyglot repositories** where SQL/PL-SQL lives alongside Java, Kotlin, Gradle, Maven, Node.js/NPM/Angular, or Python code.
+
+#### 1. Standalone single-module SQL / PL/SQL service (`buildTool: liquibase`)
+
+Set `buildTool: liquibase` when the service is a dedicated database schema, PL/SQL package, or Liquibase migration service:
+
+- **Build (Stage 2):** runs `liquibase` with `build.liquibase.flags` and `build.liquibase.commands` (default `['updateSQL']`) in `build.liquibase.dir` (or the workspace root) with any `build.liquibase.env` environment variables. Notice that in Liquibase CLI syntax, global flags such as `--changelog-file=...` or `--defaults-file=...` are placed **before** the command name (`liquibase --changelog-file=db/changelog.xml updateSQL`).
+- **Unit tests & Coverage (Stage 2):** runs `liquibase` with `tests.unitTests.liquibase.flags` and `tests.unitTests.liquibase.commands` (default `['validate']`). Because SQL and PL/SQL migrations do not produce JaCoCo XML or LCOV line-coverage reports, the pipeline automatically marks code coverage as `NOT_REQUIRED` (`[COV] Skipping code coverage verification for Liquibase (SQL/PL-SQL) project`) so the 60 % coverage gate never blocks a pure database service.
+- **SAST (Stage 4):** when `asoc.doCompile` is not `false`, the staging step runs `asoc.liquibase` (or `build.liquibase` when `asoc.liquibase` is not set, defaulting to `validate`) before packaging the `.irx` archive so generated SQL (such as `updateSQL` output) and PL/SQL scripts (\`.sql\`, \`.pls\`, \`.pks\`, \`.pkb\`, \`.pck\`, \`.prc\`, \`.fnc\`, \`.trg\`, \`.vw\`, \`.xml\`, \`.yaml\`) are included in the HCL AppScan on Cloud SAST scan.
+- **SonarQube SCA (Stage 5):** runs `sonar-scanner` (using `tools.sonar.sonarScannerVersion` from Jenkins tools when set, otherwise `sonar-scanner` on the agent `PATH`) inside `withSonarQubeEnv`. It scans the directories in `tools.sonar.liquibase.sources` (defaulting to `tools.sonar.sources`, `sourceDir`, or `.`) and passes optional `tools.sonar.liquibase.inclusions` (`-Dsonar.inclusions=...`), `exclusions` (`-Dsonar.exclusions=...`), and extra `flags` (for example `-Dsonar.plsql.file.suffixes=.sql,.pls,.pks,.pkb`).
+- **Nexus IQ (Stage 3):** scans any JDBC drivers, Liquibase extensions, or distribution archives matched by `tools.nexusIq.scanPatterns` (for example `["**/lib/*.jar", "**/*.zip"]`).
+
+Example standalone SQL / PL/SQL service in `devsecops_config.yaml`:
+
+```yaml
+projects:
+  oracle-payments-db:
+    appId:        "11111111-2222-3333-4444-555555555555"
+    buildTool:    liquibase
+    deployTarget: vm
+    sourceDir:    "db"
+    asoc:
+      keyId:      "appscan-key-id"
+      token:      "appscan-secret-cred"
+      doCompile:  true
+      liquibase:
+        commands: ["updateSQL"]
+        flags:    ["--changelog-file=changelog/db.changelog-master.xml", "--url=offline:oracle"]
+        dir:      "db"
+    build:
+      liquibase:
+        commands: ["updateSQL"]
+        flags:    ["--changelog-file=changelog/db.changelog-master.xml", "--url=offline:oracle"]
+        dir:      "db"
+    tests:
+      unitTests:
+        liquibase:
+          commands: ["validate"]
+          flags:    ["--changelog-file=changelog/db.changelog-master.xml"]
+          dir:      "db"
+    tools:
+      sonar:
+        projectKey:  "com.bbh.payments:oracle-payments-db"
+        projectName: "Oracle Payments DB"
+        liquibase:
+          sources:    "db/changelog,db/plsql"
+          inclusions: "**/*.sql,**/*.pls,**/*.pks,**/*.pkb,**/*.xml"
+          flags:
+            - "-Dsonar.plsql.file.suffixes=.sql,.pls,.pks,.pkb"
+      nexusIq:
+        application:  "oracle-payments-db"
+        scanPatterns: ["db/lib/*.jar"]
+    deploy:
+      vm:
+        rd:
+          nexusDeliveryEnabled: false
+          host:         "ora-rd.bbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/deploy/oracle-payments-db"
+          deployScript: "db/scripts/deploy-liquibase.sh"
+          versionFile:  "db/scripts/version.properties"
+```
+
+#### 2. Multi-module and polyglot projects (Java / Gradle / Maven / Node.js + SQL / PL/SQL Liquibase)
+
+Many repositories combine application code (Java/Spring Boot built with Gradle or Maven, optionally with an Angular/React/Node.js frontend in Stage 0) and SQL/PL-SQL database migrations managed by Liquibase. The library supports two ways to model this:
+
+1. **Two services in the same repository (multi-service pipeline run):**
+
+Define the application service (`buildTool: gradle` or `maven`, optionally with `build.node.enabled: true`) and the database service (`buildTool: liquibase`) as two entries under `projects:` in `devsecops_config.yaml` and list both in `projectNames` of the `Jenkinsfile` (for example `projectNames: ['payments-api', 'payments-db']`). Each service gets its own build, unit test, SonarQube project, SAST scan, and deployment target, while the Java/Node.js service enforces the 60 % JaCoCo/LCOV coverage gate and the Liquibase service skips coverage verification automatically.
+
+1. **Single combined service (`buildTool: gradle` or `maven` + `build.liquibase` / `tests.unitTests.liquibase` / `asoc.liquibase` / `tools.sonar.liquibase`):**
+
+Keep `buildTool: gradle` or `buildTool: maven` on a single service and add any of the Liquibase blocks alongside the Gradle or Maven blocks: \*\* **Stage 0 (optional):** `build.node.enabled: true` builds the Node.js/NPM frontend first. \*\* **Build (Stage 2):** the pipeline runs the Gradle or Maven build first, and when `build.liquibase.commands` (or `flags`) is also configured on that service, it immediately runs the Liquibase CLI step in the same stage (`[BUILD] Running additional Liquibase step for multi-module project`). \*\* **Unit tests (Stage 2):** the pipeline runs the Gradle or Maven unit tests first, and when `tests.unitTests.liquibase.commands` (or `flags`) is also configured, it runs the Liquibase validation/test step right after (`[TEST] Running additional Liquibase validation/test step for multi-module project`). JaCoCo and LCOV coverage reports from the Java/Kotlin and Node.js modules are still collected and checked against the 60 % minimum. \*\* **SAST (Stage 4):** during `appscanGenerateIRX`, after the Gradle or Maven SAST compile runs in the staging directory, if `asoc.liquibase` (or `build.liquibase`) is configured on the service, the library also executes the Liquibase command in the staging directory before `appscan prepare`, so both compiled Java bytecode and rendered SQL/PL-SQL scripts are packaged into the IRX archive. \*\* **SonarQube SCA (Stage 5):** when `tools.sonar.liquibase` is configured on a Gradle or Maven service (with `sources`, `inclusions`, `exclusions`, or `flags`), the library appends `-Dsonar.sources=...`, `-Dsonar.inclusions=...`, `-Dsonar.exclusions=...`, and any extra flags to the `./gradlew sonarqube` or `mvn sonar:sonar` command so SonarQube analyzes Java/Kotlin, TypeScript/JavaScript, and SQL/PL-SQL in a single scan.
+
+Example polyglot single-service configuration (Gradle + Node.js + Liquibase SQL/PL-SQL):
+
+```yaml
+projects:
+  payments-fullstack:
+    appId:        "22222222-3333-4444-5555-666666666666"
+    buildTool:    gradle
+    deployTarget: openshift
+    javaPath:     "/usr/lib/jvm/java-21"
+    asoc:
+      keyId:      "appscan-key-id"
+      token:      "appscan-secret-cred"
+      doCompile:  true
+      liquibase:
+        commands: ["updateSQL"]
+        flags:    ["--changelog-file=db/changelog-master.xml", "--url=offline:oracle"]
+    build:
+      node:
+        enabled:  true
+        dir:      "frontend"
+        commands: ["npm ci", "npm run build"]
+      gradle:
+        tasks:    ["clean", "build"]
+        flags:    ["-x", "test"]
+      liquibase:
+        commands: ["updateSQL"]
+        flags:    ["--changelog-file=db/changelog-master.xml", "--url=offline:oracle"]
+    tests:
+      unitTests:
+        gradle:
+          tasks:  ["test", "jacocoTestReport"]
+        liquibase:
+          commands: ["validate"]
+          flags:    ["--changelog-file=db/changelog-master.xml"]
+    tools:
+      sonar:
+        projectKey:  "com.bbh.payments:payments-fullstack"
+        projectName: "Payments Fullstack"
+        gradle:
+          tasks:     ["sonarqube"]
+        liquibase:
+          sources:    "src/main/java,frontend/src,db/changelog,db/plsql"
+          inclusions: "**/*.java,**/*.ts,**/*.sql,**/*.pls,**/*.pks,**/*.pkb"
+          flags:
+            - "-Dsonar.plsql.file.suffixes=.sql,.pls,.pks,.pkb"
+      nexusIq:
+        application:  "payments-fullstack"
+        scanPatterns: ["**/build/libs/*.jar", "db/lib/*.jar"]
+```
 
 ### Node.js before Gradle or Maven
 

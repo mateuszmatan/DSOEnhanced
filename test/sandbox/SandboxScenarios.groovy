@@ -1445,6 +1445,146 @@ check('Smoke tests: 200 remote jobs from 200 URLs all run, at most maxParallel a
         (scaleErrors + ["jobs=${scaleState.jobs}", scaleScript.calls.findAll { it.startsWith('parallel') }]).join(' '))
 check('Smoke tests: every one of the 200 jobs is listed in the report', (scaleState.rows as int) >= 200, scaleState.rows)
 
+SandboxHarness liqHarness = new SandboxHarness(srcDir, stubDir)
+List<String> liqErrors = []
+Map liqResult = [:]
+try {
+    liqHarness.run {
+        List<String> detected = []
+        for (String marker : ['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.sql', 'db/changelog/db.changelog-master.xml']) {
+            FakeScript ds = new FakeScript()
+            ds.files[marker] = '-- changelog'
+            def st = liqHarness.type('com.bbh.core.PipelineState').newInstance()
+            st.cfg = [:]
+            def os = liqHarness.type('com.bbh.core.OsHelper').newInstance(ds)
+            def pol = liqHarness.type('com.bbh.core.PolicyEngine').newInstance(ds, st, os)
+            def bs = liqHarness.type('com.bbh.build.BuildService').newInstance(ds, st, os, pol)
+            detected << (bs.detectTool() as String)
+        }
+        liqResult.detected = detected
+
+        FakeScript ls = new FakeScript()
+        ls.env.vars.putAll([WORKSPACE: '/ws', PATH: '/usr/bin', APPSCAN_SOURCE_DIR_RESOLVED: '/ws/db', APPSCAN_SCAN_NAME: 'db-scan', APPSCAN_LOG_DIR: '/ws/.appscan-logs'])
+        ls.files['.appscan-logs/appscan.cmd'] = '/opt/appscan/appscan.sh'
+        List<String> shCmds = []
+        ls.shHandler = { Map a ->
+            shCmds << "${a.label ?: ''}|${(a.script ?: '').toString().trim()}".toString()
+            if (String.valueOf(a.label ?: '') == 'Coverage: find and read the reports') {
+                return "S\t0\n"
+            }
+            return a.returnStatus ? 0 : ''
+        }
+        def state = liqHarness.type('com.bbh.core.PipelineState').newInstance()
+        state.currentProjectName = 'oracle-plsql'
+        state.cfg = [
+                buildTool: 'liquibase',
+                sourceDir: 'db',
+                build    : [liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml', '--url=offline:oracle'], dir: 'db', env: [NLS_LANG: 'AMERICAN_AMERICA.AL32UTF8']]],
+                tests    : [unitTests: [liquibase: [commands: ['validate'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']]],
+                tools    : [sonar: [projectKey: 'CERT-PLSQL', projectName: 'Cert PL/SQL', installationName: 'SonarBBH',
+                                    liquibase : [commands: ['sonar'], flags: ['-Dsonar.plsql.file.suffixes=sql,pks,pkb'], dir: 'db']]],
+                asoc     : [doCompile: true, liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml'], dir: 'db']]
+        ]
+        state.projectsAllCfg = [
+                'oracle-plsql': state.cfg,
+                'java-api'    : [buildTool: 'gradle', build: [gradle: [tasks: ['build']]], asoc: [doCompile: true, gradle: [tasks: ['build']]]]
+        ]
+        def os = liqHarness.type('com.bbh.core.OsHelper').newInstance(ls)
+        os.detect()
+        def policy = liqHarness.type('com.bbh.core.PolicyEngine').newInstance(ls, state, os)
+        def build = liqHarness.type('com.bbh.build.BuildService').newInstance(ls, state, os, policy)
+        def sonar = liqHarness.type('com.bbh.scanner.SonarService').newInstance(ls, state, os, build)
+        def appScan = liqHarness.type('com.bbh.scanner.AppScanService').newInstance(ls, state, os, policy, build)
+
+        build.buildArtifact()
+        build.unitTests()
+        build.checkCoverage()
+        sonar.scan()
+        appScan.generateIrx(30)
+
+        def buildUtils = liqHarness.type('com.bbh.utils.BuildUtils')
+        liqResult.overrides = buildUtils.sastCompileOverrides(state.projectsAllCfg as Map)
+        liqResult.shCmds = shCmds
+        liqResult.echos = ls.log
+        liqResult.sonarStatus = state.sonarResults.status
+
+        FakeScript ms = new FakeScript()
+        ms.env.vars.putAll([WORKSPACE: '/ws', PATH: '/usr/bin', HAS_BUILD_TOOL_INSTALLED: 'true'])
+        List<String> multiSteps = []
+        ms.shHandler = { Map a ->
+            String lbl = String.valueOf(a.label ?: '')
+            multiSteps << lbl
+            if (lbl == 'Coverage: find and read the reports') {
+                String p = state.currentProjectName
+                if (p == 'oracle-plsql') {
+                    return "S\t0\nR\tjacoco\tdb/build/reports/utplsql/jacoco.xml\t85\t100\t\t\n"
+                }
+                return "S\t0\nR\tjacoco\tapi/build/reports/jacoco/test/jacocoTestReport.xml\t90\t100\t\t\nR\tlcov\tweb/coverage/lcov.info\t80\t100\t\t\n"
+            }
+            return a.returnStatus ? 0 : ''
+        }
+        state.projectsCoverage = [:]
+        Map multiProjects = [
+                'java-api'    : [
+                        buildTool: 'gradle',
+                        javaPath : '/opt/jdk-21',
+                        build    : [node  : [enabled: true, dir: 'web', commands: ['npm ci', 'npm run build']],
+                                    gradle: [tasks: ['clean', 'build'], dir: 'api']],
+                        tests    : [unitTests: [gradle: [tasks: ['test', 'jacocoTestReport'], dir: 'api']]]
+                ],
+                'oracle-plsql': [
+                        buildTool: 'liquibase',
+                        sourceDir: 'db',
+                        build    : [liquibase: [commands: ['updateSQL'], flags: ['--changelog-file=changelog.xml'], dir: 'db']],
+                        tests    : [unitTests: [liquibase: [commands: ['validate'], flags: ['--changelog-file=changelog.xml'], dir: 'db']]],
+                        coverage : [reportPath: 'db/build/reports/utplsql/jacoco.xml']
+                ]
+        ]
+        state.projectsAllCfg = multiProjects
+        def mos = liqHarness.type('com.bbh.core.OsHelper').newInstance(ms)
+        mos.detect()
+        def mpol = liqHarness.type('com.bbh.core.PolicyEngine').newInstance(ms, state, mos)
+        def mbuild = liqHarness.type('com.bbh.build.BuildService').newInstance(ms, state, mos, mpol)
+        for (String proj : ['java-api', 'oracle-plsql']) {
+            state.currentProjectName = proj
+            state.cfg = multiProjects[proj] as Map
+            if (buildUtils.nodeBuildEnabled(state.cfg)) mbuild.nodeBuild()
+            mbuild.buildArtifact()
+            mbuild.unitTests()
+            mbuild.checkCoverage()
+        }
+        liqResult.multiSteps = multiSteps
+        liqResult.multiCoverage = state.projectsCoverage
+        liqResult.runLine = state.coverage.line
+        liqResult.runCounted = state.coverage.counted
+    }
+} catch (Throwable t) {
+    liqErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
+}
+check('Liquibase: auto-detects liquibase from changelog.xml, changelog.yaml, changelog.yml, changelog.sql, liquibase.properties, and db/changelog/db.changelog-master.xml',
+        liqErrors.isEmpty() && liqResult.detected == ['liquibase', 'liquibase', 'liquibase', 'liquibase', 'liquibase', 'liquibase'],
+        (liqErrors + [String.valueOf(liqResult.detected)]).join(' '))
+check('Liquibase: single-module SQL/PL-SQL build runs updateSQL with flags, dir, and env without requiring JAVA_HOME',
+        liqErrors.isEmpty() && (liqResult.shCmds as List).any { String s -> s.startsWith('Liquibase: updateSQL|') && s.contains("'liquibase' '--changelog-file=db/changelog.xml' '--url=offline:oracle' 'updateSQL'") },
+        liqResult.shCmds)
+check('Liquibase: unit tests run validate and skip coverage requirement when no SQL coverage report is present',
+        liqErrors.isEmpty() && (liqResult.shCmds as List).any { String s -> s.startsWith('Liquibase test: validate|') }
+                && (liqResult.echos as List).any { String s -> s.contains('[COVERAGE] Liquibase: skipping coverage requirement') },
+        liqResult.echos)
+check('Liquibase: SonarQube scan runs sonar-scanner with -Dsonar.sources and tools.sonar.liquibase flags while stripping default sonar token',
+        liqErrors.isEmpty() && liqResult.sonarStatus == 'PASS'
+                && (liqResult.shCmds as List).any { String s -> s.contains("'sonar-scanner'") && s.contains('-Dsonar.projectKey=CERT-PLSQL') && s.contains('-Dsonar.plsql.file.suffixes=sql,pks,pkb') && s.contains('-Dsonar.sources=db') && !s.contains(' sonar ') },
+        liqResult.shCmds)
+check('Liquibase: AppScan SAST runs optional asoc.liquibase command before IRX preparation and BuildUtils.sastCompileOverrides detects asoc.liquibase override',
+        liqErrors.isEmpty() && liqResult.overrides == ['oracle-plsql']
+                && (liqResult.shCmds as List).any { String s -> s.startsWith('Liquibase SAST: updateSQL|') },
+        "overrides=${liqResult.overrides} cmds=${liqResult.shCmds}")
+check('Liquibase: multi-module repository combining Liquibase SQL/PL-SQL, Gradle Java backend, and Node.js Stage 0 frontend builds and aggregates coverage across all 3 reports',
+        liqErrors.isEmpty() && liqResult.runCounted == 3 && Math.abs((liqResult.runLine as double) - 85.0d) < 0.1d
+                && ((liqResult.multiCoverage as Map)['oracle-plsql'] as Map)?.line == 85.0d
+                && ((liqResult.multiCoverage as Map)['java-api'] as Map)?.line == 85.0d,
+        "errors=${liqErrors} runLine=${liqResult.runLine} counted=${liqResult.runCounted} cov=${liqResult.multiCoverage}")
+
 Closure rnd = { Random r, int lo, int hi -> lo + r.nextInt(hi - lo + 1) }
 Closure hex32 = { Random r -> (1..32).collect { Integer.toHexString(r.nextInt(16)) }.join('') }
 
