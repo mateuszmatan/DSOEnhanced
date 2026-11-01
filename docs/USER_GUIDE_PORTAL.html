@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevSecOps Management Portal &amp; DSOEnhanced - BBH DevSecOps</title>
+  <style>
+:root {
+  --primary: #0a2540;
+  --primary-light: #1e3a8a;
+  --primary-accent: #2563eb;
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --border: #e2e8f0;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --code-bg: #0f172a;
+  --code-inline-bg: #f1f5f9;
+  --tag-bg: #e0f2fe;
+  --tag-text: #0369a1;
+  --sidebar-w: 300px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar Navigation */
+.sidebar {
+  width: var(--sidebar-w);
+  background: #0f172a;
+  color: #e2e8f0;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  overflow-y: auto;
+  padding: 24px 18px;
+  border-right: 1px solid #1e293b;
+  z-index: 100;
+}
+
+.sidebar-brand {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sidebar-subbrand {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #334155;
+}
+
+.sidebar-nav {
+  list-style: none;
+}
+
+.sidebar-nav li {
+  margin-bottom: 6px;
+}
+
+.sidebar-nav a {
+  display: block;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 0.84rem;
+  padding: 7px 10px;
+  border-radius: 5px;
+  transition: all 0.15s ease;
+  line-height: 1.35;
+}
+
+.sidebar-nav a:hover {
+  background: #1e293b;
+  color: #38bdf8;
+  transform: translateX(3px);
+}
+
+/* Main Content Area */
+.main-wrapper {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  max-width: calc(100% - var(--sidebar-w));
+  padding: 36px 48px 80px;
+}
+
+.content-container {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* Header Banner */
+.doc-header {
+  background: linear-gradient(135deg, #0a2540 0%, #1e3a8a 100%);
+  color: #ffffff;
+  padding: 36px 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(10, 37, 64, 0.12);
+  margin-bottom: 36px;
+}
+
+.doc-header h1 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 10px;
+}
+
+.doc-header p {
+  font-size: 1.02rem;
+  color: #e0e7ff;
+  max-width: 880px;
+  line-height: 1.6;
+}
+
+.doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+  font-size: 0.82rem;
+}
+
+.meta-chip {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 4px 12px;
+  border-radius: 20px;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+/* Content Typography & Cards */
+.doc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px 36px;
+  margin-bottom: 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-top: 24px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+h4 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+p {
+  margin-bottom: 12px;
+}
+
+ul, ol {
+  margin: 10px 0 16px 24px;
+}
+
+li {
+  margin-bottom: 6px;
+}
+
+/* Badges and Tags */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-required { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.badge-optional { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.badge-default  { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.badge-portal   { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+.badge-keyless  { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+/* Tables */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  background: #ffffff;
+}
+
+th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tr:nth-child(even) td {
+  background: #fcfcfd;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/* Callouts / Alerts */
+.callout {
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin: 18px 0;
+  border-left: 4px solid;
+  font-size: 0.9rem;
+}
+
+.callout-header {
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.callout-note {
+  background: #eff6ff;
+  border-left-color: #3b82f6;
+  color: #1e40af;
+}
+
+.callout-tip {
+  background: #f0fdf4;
+  border-left-color: #22c55e;
+  color: #166534;
+}
+
+.callout-important {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+  color: #92400e;
+}
+
+.callout-warning {
+  background: #fef2f2;
+  border-left-color: #ef4444;
+  color: #991b1b;
+}
+
+.callout-body p {
+  margin-bottom: 6px;
+}
+.callout-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Code Blocks */
+code {
+  background: var(--code-inline-bg);
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.84rem;
+}
+
+pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 18px 22px;
+  overflow-x: auto;
+  margin: 14px 0 20px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #f8fafc;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+/* Footer */
+.doc-footer {
+  text-align: center;
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main-wrapper { margin-left: 0; max-width: 100%; padding: 20px 16px; }
+  .doc-header { padding: 24px 20px; }
+  .doc-card { padding: 20px; }
+}
+</style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        BBH DevSecOps
+      </div>
+      <div class="sidebar-subbrand">User Guide (Portal-Integrated Version)</div>
+      <ul class="sidebar-nav">
+        <li><a href='#contents' >Contents</a></li>
+<li><a href='#1-overview-and-architecture' ><span style='color:#94a3b8;font-weight:600;'>1.</span> Overview and Architecture</a></li>
+<li><a href='#key-principles' style='padding-left: 20px; font-size: 0.8rem;'>Key Principles:</a></li>
+<li><a href='#2-managing-products-in-the-portal' ><span style='color:#94a3b8;font-weight:600;'>2.</span> Managing Products in the Portal</a></li>
+<li><a href='#product-form-fields' style='padding-left: 20px; font-size: 0.8rem;'>Product Form Fields:</a></li>
+<li><a href='#3-adding-and-configuring-services' ><span style='color:#94a3b8;font-weight:600;'>3.</span> Adding and Configuring Services</a></li>
+<li><a href='#efficiency-features-in-the-portal-form' style='padding-left: 20px; font-size: 0.8rem;'>Efficiency Features in the Portal Form:</a></li>
+<li><a href='#4-multi-module-and-multi-repository-bitbucket-architectures' ><span style='color:#94a3b8;font-weight:600;'>4.</span> Multi-Module and Multi-Repository Bitbucket Architectures</a></li>
+<li><a href='#1-multi-service-within-one-product' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>1.</span> Multi-Service within One Product</a></li>
+<li><a href='#2-multi-module-single-service' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>2.</span> Multi-Module Single Service</a></li>
+<li><a href='#5-supported-languages-build-tools-and-frameworks' ><span style='color:#94a3b8;font-weight:600;'>5.</span> Supported Languages, Build Tools, and Frameworks</a></li>
+<li><a href='#stage-0-frontend-pre-build' style='padding-left: 20px; font-size: 0.8rem;'>Stage 0 Frontend Pre-Build:</a></li>
+<li><a href='#6-unit-testing-and-multi-report-code-coverage' ><span style='color:#94a3b8;font-weight:600;'>6.</span> Unit Testing and Multi-Report Code Coverage</a></li>
+<li><a href='#7-static-application-security-testing-sast--hcl-appscan' ><span style='color:#94a3b8;font-weight:600;'>7.</span> Static Application Security Testing (SAST) – HCL AppScan</a></li>
+<li><a href='#key-capabilities' style='padding-left: 20px; font-size: 0.8rem;'>Key Capabilities:</a></li>
+<li><a href='#8-dynamic-application-security-testing-dast--hcl-appscan' ><span style='color:#94a3b8;font-weight:600;'>8.</span> Dynamic Application Security Testing (DAST) – HCL AppScan</a></li>
+<li><a href='#9-code-quality--sonarqube--sonar-badges' ><span style='color:#94a3b8;font-weight:600;'>9.</span> Code Quality – SonarQube &amp; Sonar Badges</a></li>
+<li><a href='#key-features' style='padding-left: 20px; font-size: 0.8rem;'>Key Features:</a></li>
+<li><a href='#10-software-composition-analysis--goldenfix--nexus-iq' ><span style='color:#94a3b8;font-weight:600;'>10.</span> Software Composition Analysis &amp; GoldenFix – Nexus IQ</a></li>
+<li><a href='#single-application-constraint' style='padding-left: 20px; font-size: 0.8rem;'>Single-Application Constraint:</a></li>
+<li><a href='#goldenfix--automated-pull-requests' style='padding-left: 20px; font-size: 0.8rem;'>GoldenFix &amp; Automated Pull Requests:</a></li>
+<li><a href='#11-deployments--delivery--openshift-and-virtual-machines-vm' ><span style='color:#94a3b8;font-weight:600;'>11.</span> Deployments &amp; Delivery – OpenShift and Virtual Machines (VM)</a></li>
+<li><a href='#disable-nexus-delivery-checkbox' style='padding-left: 20px; font-size: 0.8rem;'>&quot;Disable Nexus Delivery&quot; Checkbox:</a></li>
+<li><a href='#openshift-qc-region-validation' style='padding-left: 20px; font-size: 0.8rem;'>OpenShift QC Region Validation:</a></li>
+<li><a href='#deployment-targets' style='padding-left: 20px; font-size: 0.8rem;'>Deployment Targets:</a></li>
+<li><a href='#12-telemetry-dora-metrics-influxdb-and-grafana' ><span style='color:#94a3b8;font-weight:600;'>12.</span> Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
+<li><a href='#13-step-by-step-form-reference-what-to-enter-where' ><span style='color:#94a3b8;font-weight:600;'>13.</span> Step-by-Step Form Reference: What to Enter Where</a></li>
+<li><a href='#step-by-step-walkthrough' style='padding-left: 20px; font-size: 0.8rem;'>Step-by-Step Walkthrough:</a></li>
+      </ul>
+    </aside>
+
+    <main class="main-wrapper">
+      <div class="content-container">
+        <header class="doc-header">
+          <h1>DevSecOps Management Portal &amp; DSOEnhanced</h1>
+          <p>User Guide (Portal-Integrated Version)</p>
+          <div class="doc-meta">
+            <span class="meta-chip">Brown Brothers Harriman</span>
+            <span class="meta-chip">DevSecOps Shared Library</span>
+            <span class="meta-chip">Non-Technical User Guide</span>
+            <span class="meta-chip">Enterprise Standard</span>
+          </div>
+        </header>
+
+        <div class="doc-card">
+          <h1 id="devsecops-management-portal-dsoenhanced-user-guide">DevSecOps Management Portal &amp; DSOEnhanced – User Guide</h1>
+<blockquote>
+<p><strong>Comprehensive Guide for the Portal-Integrated Version (<code>DevSecOpsManagementPortal</code> + <code>DSOEnhanced</code> library on <code>main</code> branch).</strong>
+Designed for non-technical users, Product Owners, business analysts, and engineers onboarding applications at Brown Brothers Harriman (BBH).</p>
+</blockquote>
+<hr />
+<h2 id="contents">Contents</h2>
+<ul>
+<li><a href="#1-overview-and-architecture">1. Overview and Architecture</a></li>
+<li><a href="#2-managing-products-in-the-portal">2. Managing Products in the Portal</a></li>
+<li><a href="#3-adding-and-configuring-services">3. Adding and Configuring Services</a></li>
+<li><a href="#4-multi-module-and-multi-repository-bitbucket-architectures">4. Multi-Module and Multi-Repository Bitbucket Architectures</a></li>
+<li><a href="#5-supported-languages-build-tools-and-frameworks">5. Supported Languages, Build Tools, and Frameworks</a></li>
+<li><a href="#6-unit-testing-and-multi-report-code-coverage">6. Unit Testing and Multi-Report Code Coverage</a></li>
+<li><a href="#7-static-application-security-testing-sast--hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</a></li>
+<li><a href="#8-dynamic-application-security-testing-dast--hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</a></li>
+<li><a href="#9-code-quality--sonarqube--sonar-badges">9. Code Quality – SonarQube &amp; Sonar Badges</a></li>
+<li><a href="#10-software-composition-analysis--goldenfix--nexus-iq">10. Software Composition Analysis &amp; GoldenFix – Nexus IQ</a></li>
+<li><a href="#11-deployments--delivery--openshift-and-virtual-machines-vm">11. Deployments &amp; Delivery – OpenShift and Virtual Machines (VM)</a></li>
+<li><a href="#12-telemetry-dora-metrics-influxdb-and-grafana">12. Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
+<li><a href="#13-step-by-step-form-reference-what-to-enter-where">13. Step-by-Step Form Reference: What to Enter Where</a></li>
+</ul>
+<hr />
+<h2 id="1-overview-and-architecture">1. Overview and Architecture</h2>
+<p>The DevSecOps Management Portal is the central management interface for BBH delivery pipelines.</p>
+<h3 id="key-principles">Key Principles:</h3>
+<ul>
+<li><strong>No secrets in source code:</strong> No API keys, passwords, or tokens are ever committed to Git repositories. Credentials reference secure Jenkins credentials store IDs.</li>
+<li><strong>Single Pipeline Key (<code>pipelineKey</code>):</strong> Each pipeline receives a unique secret key. The application's <code>Jenkinsfile</code> contains only this key:
+  <code>groovy
+  @Library('DSOEnhanced@main') _
+  devSecOpsPipeline(pipelineKey: '5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001')</code></li>
+<li><strong>Automated Configuration Retrieval:</strong> When a Jenkins build starts, the shared library fetches its configuration directly from the Portal via REST API, executes the required stages, and streams telemetry to InfluxDB.</li>
+<li><strong>Enterprise-Grade UI:</strong> Designed specifically for BBH investment banking requirements, providing clear visual hierarchy, accessible validation, and immediate feedback.</li>
+</ul>
+<hr />
+<h2 id="2-managing-products-in-the-portal">2. Managing Products in the Portal</h2>
+<p>A Product represents an overarching business application (e.g., <em>Payments Hub</em>, <em>Custody Reporting</em>).</p>
+<h3 id="product-form-fields">Product Form Fields:</h3>
+<ul>
+<li><strong>Business Service:</strong> Select the department from the dropdown (e.g., <em>Custody</em>, <em>Fund Services</em>).</li>
+<li><strong>Product Code:</strong> Unique identifier (2–50 uppercase characters, digits, <code>-</code> or <code>_</code>, starting with a letter, e.g., <code>PAYHUB</code>).</li>
+<li><strong>Product Name:</strong> Descriptive display name for the application.</li>
+<li><strong>Owner Team:</strong> Responsible delivery team name.</li>
+<li><strong>Contact E-mail:</strong> Group mailbox for communications and notifications.</li>
+<li><strong>Jenkins Agents:</strong> Comma-separated labels of Jenkins nodes assigned to run the pipelines (the first agent is the default).</li>
+</ul>
+<div class="callout callout-note"><div class="callout-header">NOTE</div><div class="callout-body"><p><strong>Credentials Architecture:</strong> The <em>AppScan API Key ID</em> field has been removed from the Product level. All security credentials are now configured directly within individual Services to maintain consistency and isolation.</p></div></div>
+
+<hr />
+<h2 id="3-adding-and-configuring-services">3. Adding and Configuring Services</h2>
+<p>A Service represents an independently deployable component (e.g., backend API, web frontend, microservice, or database migration package).</p>
+<h3 id="efficiency-features-in-the-portal-form">Efficiency Features in the Portal Form:</h3>
+<ul>
+<li><strong>Import Config from YAML:</strong></li>
+<li>Import an existing <code>devsecops_config.yaml</code> or <code>config.yaml</code> file.</li>
+<li>The Portal parses the document and automatically populates all form sections.</li>
+<li><strong>Copy Values from Existing Service:</strong></li>
+<li>Replicate settings from an already configured service within the same product with one click.</li>
+<li>Simply update the specific attributes (such as service name and repository URL).</li>
+<li><strong>Smart "Add Service" Button:</strong></li>
+<li>The button is disabled whenever any required field is invalid or missing.</li>
+<li>Displays a real-time counter of missing fields with one-click direct navigation to each unconfigured section.</li>
+<li><strong>Library Defaults Presentation:</strong></li>
+<li>Fields with global defaults defined in <em>Library Defaults</em> (Global Settings) are automatically pre-filled.</li>
+<li>Helper hints display the source value (e.g., <em>Library default: mvn clean package</em>).</li>
+<li><strong>Contextual Tooltips:</strong></li>
+<li>Every field includes an intuitive tooltip explaining its purpose, requirements, and expected input format.</li>
+</ul>
+<hr />
+<h2 id="4-multi-module-and-multi-repository-bitbucket-architectures">4. Multi-Module and Multi-Repository Bitbucket Architectures</h2>
+<p>The platform natively supports complex enterprise project structures:</p>
+<h3 id="1-multi-service-within-one-product">1. Multi-Service within One Product</h3>
+<ul>
+<li>Add as many services to a single product as necessary.</li>
+<li>Each service can be hosted in <strong>a completely separate Bitbucket repository</strong>.</li>
+<li>Each service specifies its own Bitbucket repository URL (<code>scm.bitbucket.repositoryUrl</code>), branch, credentials, and PR reviewers.</li>
+</ul>
+<h3 id="2-multi-module-single-service">2. Multi-Module Single Service</h3>
+<ul>
+<li>For projects with multiple sub-modules (e.g., Maven submodules, Gradle subprojects, or Liquibase changelogs):</li>
+<li>The build stage compiles all modules automatically.</li>
+<li>Shared version catalogs (e.g., <code>gradle/libs.versions.toml</code>, <code>platform/build.gradle</code>) are monitored and remediated together by GoldenFix in a single Pull Request.</li>
+</ul>
+<hr />
+<h2 id="5-supported-languages-build-tools-and-frameworks">5. Supported Languages, Build Tools, and Frameworks</h2>
+<p>The pipeline supports all standard BBH languages and build tools:</p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>Language / Stack</th>
+<th>Build Tool</th>
+<th>Standard Build Command</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Java</strong></td>
+<td>Maven (<code>mvn</code>)</td>
+<td><code>clean package -DskipTests</code></td>
+<td>Enterprise backend APIs</td>
+</tr>
+<tr>
+<td><strong>Kotlin</strong></td>
+<td>Gradle (<code>gradle</code>)</td>
+<td><code>clean assemble -x test</code></td>
+<td>Modern microservices</td>
+</tr>
+<tr>
+<td><strong>Groovy</strong></td>
+<td>Gradle / Maven</td>
+<td><code>clean build -x test</code></td>
+<td>Automation utilities &amp; libraries</td>
+</tr>
+<tr>
+<td><strong>Node.js / TypeScript</strong></td>
+<td>npm</td>
+<td><code>npm run build</code></td>
+<td>Web backends &amp; BFF services</td>
+</tr>
+<tr>
+<td><strong>Angular</strong></td>
+<td>npm</td>
+<td><code>npm ci &amp;&amp; npm run build --prod</code></td>
+<td>Client-facing web apps</td>
+</tr>
+<tr>
+<td><strong>Python</strong></td>
+<td>pip / python3</td>
+<td><code>pip install -r requirements.txt</code></td>
+<td>Data analytics &amp; automation</td>
+</tr>
+<tr>
+<td><strong>SQL / PL-SQL</strong></td>
+<td>Liquibase</td>
+<td><code>liquibase update</code></td>
+<td>Oracle &amp; PostgreSQL migrations</td>
+</tr>
+<tr>
+<td><strong>Flutter / Dart</strong></td>
+<td>flutter / pub</td>
+<td><code>flutter build</code></td>
+<td>Mobile &amp; desktop applications</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="stage-0-frontend-pre-build">Stage 0 Frontend Pre-Build:</h3>
+<ul>
+<li>For full-stack applications where Java/Kotlin packages serve Angular/Node.js assets, Stage 0 compiles the frontend before backend packaging.</li>
+</ul>
+<hr />
+<h2 id="6-unit-testing-and-multi-report-code-coverage">6. Unit Testing and Multi-Report Code Coverage</h2>
+<p>The library automatically enforces test coverage across all project modules:</p>
+<ul>
+<li><strong>Automatic Report Detection:</strong></li>
+<li>Scans all workspace subdirectories (<code>build/</code>, <code>target/</code>, <code>coverage/</code>, etc.).</li>
+<li>Parses <strong>JaCoCo XML</strong> reports for Java, Kotlin, and Groovy.</li>
+<li>Parses <strong>LCOV (<code>lcov.info</code>)</strong> reports for JavaScript, TypeScript, Angular, Python, and Flutter.</li>
+<li><strong>Granular Per-Module Reporting:</strong></li>
+<li>Every discovered report receives its own line in the build log and HTML report with path, line count, and percentage.</li>
+<li><strong>Project Run Summary:</strong></li>
+<li>Computes a weighted overall average line for the entire project (<code>All services</code>).</li>
+<li><strong>Release Quality Gate:</strong></li>
+<li>If project coverage falls below the threshold (default: 80%), the pipeline halts and prevents release.</li>
+</ul>
+<hr />
+<h2 id="7-static-application-security-testing-sast-hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</h2>
+<p>Static security analysis inspects application source code for security vulnerabilities.</p>
+<h3 id="key-capabilities">Key Capabilities:</h3>
+<ul>
+<li><strong>Background Parallel Scanning:</strong></li>
+<li>The IRX archive is generated immediately after build.</li>
+<li>The HCL ASOC cloud scan is queued in the background and runs <strong>in parallel</strong> with Nexus IQ and SonarQube.</li>
+<li>Results are fetched at the end of the static analysis stage, significantly reducing overall pipeline duration.</li>
+<li><strong>Streamlined Configuration:</strong></li>
+<li><code>asoc.token</code> is positioned in the <strong>main SAST section</strong>.</li>
+<li><code>sast.scanName</code> is available in <strong>Advanced Settings</strong> for custom scan naming.</li>
+<li>Credentials (<code>asoc.keyId</code>, <code>asoc.token</code>) are configured per service.</li>
+</ul>
+<hr />
+<h2 id="8-dynamic-application-security-testing-dast-hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</h2>
+<p>Dynamic analysis scans running web applications in staging environments for runtime vulnerabilities:</p>
+<ul>
+<li><strong>Target URL (<code>dast.targetUrl</code>):</strong> Deployed endpoint URL (e.g., <code>https://dev-payhub.bbh.com</code>).</li>
+<li><strong>Presence ID (<code>dast.presenceId</code>):</strong> Internal AppScan proxy ID enabling scanning behind the BBH corporate firewall.</li>
+<li><strong>Credentials:</strong> Jenkins credentials ID for authenticated crawler scanning.</li>
+</ul>
+<hr />
+<h2 id="9-code-quality-sonarqube-sonar-badges">9. Code Quality – SonarQube &amp; Sonar Badges</h2>
+<p>SonarQube analyzes technical debt, cyclomatic complexity, and code smells.</p>
+<h3 id="key-features">Key Features:</h3>
+<ul>
+<li><strong>Main Section Access:</strong></li>
+<li><code>Installation Name</code>, <code>Auth Token</code>, and <code>Badge Token</code> are in the primary SonarQube configuration section.</li>
+<li><strong>Alternative Badge Token Configuration:</strong></li>
+<li>Configure via raw token string: <strong>Badge Token</strong></li>
+<li>OR configure via Jenkins secret: <strong>Badge Credentials ID</strong><blockquote>
+<p>[!TIP]
+Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do not configure both.</p>
+</blockquote>
+</li>
+<li><strong>Full Language Coverage:</strong> Includes native rules for Java, Kotlin, TypeScript, SQL/PL-SQL (Liquibase), and Flutter/Dart.</li>
+</ul>
+<hr />
+<h2 id="10-software-composition-analysis-goldenfix-nexus-iq">10. Software Composition Analysis &amp; GoldenFix – Nexus IQ</h2>
+<p>Nexus IQ identifies known open-source vulnerabilities (CVEs) and license compliance issues.</p>
+<h3 id="single-application-constraint">Single-Application Constraint:</h3>
+<ul>
+<li>The UI enforces <strong>exactly one Nexus IQ application</strong> (<code>applicationId</code>) per service, eliminating duplicate configuration errors.</li>
+</ul>
+<h3 id="goldenfix-automated-pull-requests">GoldenFix &amp; Automated Pull Requests:</h3>
+<ul>
+<li>When vulnerable dependencies are detected, GoldenFix finds compatible non-vulnerable versions.</li>
+<li><strong>Automated Remediation:</strong> Opens a Bitbucket Pull Request upgrading dependencies in <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, or version catalogs (<code>libs.versions.toml</code>).</li>
+<li>Groups updates by repository, opening a single consolidated Pull Request for multi-module projects.</li>
+</ul>
+<hr />
+<h2 id="11-deployments-delivery-openshift-and-virtual-machines-vm">11. Deployments &amp; Delivery – OpenShift and Virtual Machines (VM)</h2>
+<p>The delivery module packages artifacts and deploys services to target infrastructure.</p>
+<h3 id="disable-nexus-delivery-checkbox">"Disable Nexus Delivery" Checkbox:</h3>
+<ul>
+<li>Allows skipping artifact publishing to Nexus:</li>
+<li>For VM targets: <code>deploy.vm.rd.nexusDeliveryEnabled: false</code></li>
+<li>For OpenShift targets: <code>deploy.openshift.rd.nexusDeliveryEnabled: false</code></li>
+<li>When checked, delivery fields are hidden and their validation is bypassed.</li>
+</ul>
+<h3 id="openshift-qc-region-validation">OpenShift QC Region Validation:</h3>
+<ul>
+<li>The QC region configuration is <strong>entirely optional</strong>.</li>
+<li>Forms remain valid and savable if the QC region is left unconfigured.</li>
+<li>Validation for QC fields triggers only when user input is entered into that section.</li>
+</ul>
+<h3 id="deployment-targets">Deployment Targets:</h3>
+<ol>
+<li><strong>OpenShift (Containers):</strong> Kubernetes namespace, deployment, and service management.</li>
+<li><strong>Virtual Machines (VM):</strong> Integration with IBM UrbanCode Deploy (IBM DevOps Delivery).</li>
+</ol>
+<hr />
+<h2 id="12-telemetry-dora-metrics-influxdb-and-grafana">12. Telemetry, DORA Metrics, InfluxDB, and Grafana</h2>
+<p>Every pipeline execution streams performance and quality data to InfluxDB:</p>
+<ul>
+<li><strong>Four DORA Metrics:</strong></li>
+<li><strong>Deployment Frequency:</strong> How often code reaches production.</li>
+<li><strong>Lead Time for Changes:</strong> Commit to deployment latency.</li>
+<li><strong>Change Failure Rate:</strong> Ratio of builds or deployments requiring remediation.</li>
+<li><strong>Time to Restore Service (MTTR):</strong> Time required to recover from pipeline failures.</li>
+<li><strong>Stage Metrics:</strong> Build durations, test executions, JaCoCo/LCOV coverage points, vulnerability counts.</li>
+<li><strong>Dashboards:</strong></li>
+<li>Inside Portal: <strong>Pipeline Monitoring</strong> view.</li>
+<li>Enterprise view: Dedicated Grafana departmental dashboards.</li>
+</ul>
+<hr />
+<h2 id="13-step-by-step-form-reference-what-to-enter-where">13. Step-by-Step Form Reference: What to Enter Where</h2>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>Portal Field</th>
+<th>Description</th>
+<th>Example Input</th>
+<th>Source / Where to get it</th>
+<th style="text-align: center;">Required?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Service Name</strong></td>
+<td>Unique component name</td>
+<td><code>backend-api</code> or <code>web-gui</code></td>
+<td>Team naming convention</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Bitbucket Repo URL</strong></td>
+<td>Git repository SSH URL</td>
+<td><code>ssh://git@bitbucket.bbh.com/pay/api.git</code></td>
+<td>Bitbucket (Clone -&gt; SSH)</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Git Branch</strong></td>
+<td>Target build branch</td>
+<td><code>main</code> or <code>master</code></td>
+<td>Repository default branch</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Build Tool</strong></td>
+<td>Technology build system</td>
+<td><code>maven</code>, <code>gradle</code>, <code>npm</code>, <code>pip</code></td>
+<td>Application runtime</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Build Tasks / Command</strong></td>
+<td>Build invocation arguments</td>
+<td><code>clean package -DskipTests</code></td>
+<td>Build tool command</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Unit Test Tasks</strong></td>
+<td>Test execution command</td>
+<td><code>test</code> or <code>test jacocoTestReport</code></td>
+<td>Build tool test task</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Coverage Minimum</strong></td>
+<td>Enforced coverage percentage</td>
+<td><code>80</code></td>
+<td>BBH standard default (80)</td>
+<td style="text-align: center;"><span class="badge badge-default">DEFAULT</span></td>
+</tr>
+<tr>
+<td><strong>AppScan ASOC Key ID</strong></td>
+<td>ASOC API key credential ID</td>
+<td><code>asoc-key-payments-api</code></td>
+<td>Jenkins Credentials store</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>AppScan ASOC Token</strong></td>
+<td>ASOC API secret credential ID</td>
+<td><code>asoc-secret-payments-api</code></td>
+<td>Jenkins Credentials store</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>SAST Scan Name</strong></td>
+<td>Custom ASOC scan display name</td>
+<td><code>PAYHUB-API-Nightly</code></td>
+<td>Team preference (optional)</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Sonar Installation</strong></td>
+<td>SonarQube server in Jenkins</td>
+<td><code>BBH-SonarQube</code></td>
+<td>Standard Jenkins tool name</td>
+<td style="text-align: center;"><span class="badge badge-default">DEFAULT</span></td>
+</tr>
+<tr>
+<td><strong>Sonar Auth Token</strong></td>
+<td>SonarQube token credential ID</td>
+<td><code>sonar-auth-token-id</code></td>
+<td>Jenkins Credentials store</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Sonar Badge Token</strong></td>
+<td>Project badge token (direct)</td>
+<td><code>sonar-badge-raw-token</code></td>
+<td>SonarQube Project Settings</td>
+<td style="text-align: center;"><span class="badge badge-optional">1 OF 2</span></td>
+</tr>
+<tr>
+<td><strong>Sonar Badge Creds ID</strong></td>
+<td>Project badge secret in Jenkins</td>
+<td><code>sonar-badge-credentials-id</code></td>
+<td>Jenkins Credentials store</td>
+<td style="text-align: center;"><span class="badge badge-optional">1 OF 2</span></td>
+</tr>
+<tr>
+<td><strong>Nexus IQ Application ID</strong></td>
+<td>Unique app ID in Nexus IQ</td>
+<td><code>payhub-backend-api</code></td>
+<td>Nexus IQ Server Dashboard</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>Disable Nexus Delivery</strong></td>
+<td>Toggle off Nexus artifact push</td>
+<td>Checked <code>[X]</code> / Unchecked <code>[ ]</code></td>
+<td>Check if no artifact needed</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>OpenShift Namespace</strong></td>
+<td>Target cluster project/namespace</td>
+<td><code>payhub-dev</code></td>
+<td>OpenShift web console</td>
+<td style="text-align: center;"><span class="badge badge-optional">OpenShift</span></td>
+</tr>
+<tr>
+<td><strong>VM Application Name</strong></td>
+<td>UrbanCode Deploy application</td>
+<td><code>PAYHUB_CORE</code></td>
+<td>IBM UrbanCode Deploy console</td>
+<td style="text-align: center;"><span class="badge badge-optional">VM</span></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h3 id="step-by-step-walkthrough">Step-by-Step Walkthrough:</h3>
+<ol>
+<li><strong>Navigate to Admin -&gt; Products:</strong> Click <em>Add Product</em>, supply your Product Code (e.g., <code>PAYHUB</code>), and set Jenkins Agent labels.</li>
+<li><strong>Add Service:</strong></li>
+<li>Click <strong>Import config</strong> (upload <code>devsecops_config.yaml</code> or <code>config.yaml</code>), OR</li>
+<li>Click <strong>Copy values</strong> (replicate an existing service), OR</li>
+<li>Fill in the form fields using contextual tooltips for guidance.</li>
+<li><strong>Configure Security:</strong></li>
+<li>Supply AppScan ASOC credentials in the main SAST section.</li>
+<li>Enter SonarQube credentials and choose either Badge Token or Badge Credentials ID.</li>
+<li>Enter your single Nexus IQ Application ID.</li>
+<li><strong>Configure Target Deployment:</strong></li>
+<li>Set OpenShift namespace or VM UrbanCode application name.</li>
+<li>Check <em>Disable Nexus Delivery</em> if you do not publish jars/wars to Nexus.</li>
+<li><strong>Save:</strong> The <em>Add service</em> button activates once all required fields are valid.</li>
+<li><strong>Deploy Jenkinsfile:</strong> Copy the generated single-line <code>Jenkinsfile</code> with its <code>pipelineKey</code> into your Git repository. The pipeline is ready to run!</li>
+</ol>
+        </div>
+
+        <footer class="doc-footer">
+          <p>BBH DevSecOps Platform &bull; Technical &amp; User Documentation &bull; Confidential / Internal Use Only</p>
+        </footer>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
