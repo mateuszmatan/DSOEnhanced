@@ -62,6 +62,9 @@ class BuildService implements Serializable {
                     script.sh("flutter build apk --flavor ${flavour} -t lib/main_${flavour}.dart --obfuscate --split-debug-info=build/app/outputs/flutter-apk/debug-info --no-tree-shake-icons --dart-define=CERTIFICATE_PASSWORD=${script.password} --dart-define=MISNAP_LICENSE=${flavorLicense}")
                 }
                 break
+            case ['npm', 'node']:
+                nodeBuild()
+                break
             case 'liquibase':
                 runLiquibaseBuild()
                 break
@@ -94,10 +97,23 @@ class BuildService implements Serializable {
                     script.echo "[TEST] Running additional Liquibase validation/test step for multi-module project"
                     runLiquibaseTests()
                 }
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
+                break
+
+            case ['npm', 'node']:
+                runNodeTests()
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
                 break
 
             case 'flutter':
                 FlutterUtils.unitTestsFlutter(state.cfg, script)
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
                 break
 
             case 'liquibase':
@@ -108,6 +124,79 @@ class BuildService implements Serializable {
                 script.error "[TEST] Unknown build tool: ${tool}"
         }
         state.recordUnitTests([durationMs: System.currentTimeMillis() - startMs])
+    }
+
+    boolean isCypressEnabled() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        if (unitTests.cypress?.enabled != null) return BuildUtils.booleanValue(unitTests.cypress.enabled, false)
+        if (state.cfg.build?.node?.cypress?.enabled != null) return BuildUtils.booleanValue(state.cfg.build.node.cypress.enabled, false)
+        if (state.cfg.cypress?.enabled != null) return BuildUtils.booleanValue(state.cfg.cypress.enabled, false)
+        return script.fileExists('cypress.config.js') || script.fileExists('cypress.config.ts') || script.fileExists('cypress.json')
+    }
+
+    void runCypressTests() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        Map cypressCfg = (unitTests.cypress ?: (state.cfg.build?.node?.cypress ?: (state.cfg.cypress ?: [:]))) as Map
+        String dir = (cypressCfg.dir ?: (state.cfg.build?.node?.dir ?: '.')) as String
+        String defaultCmd = 'npx cypress run'
+        String command = (cypressCfg.command ?: cypressCfg.tasks ?: defaultCmd) as String
+        String label = (cypressCfg.label ?: "Cypress: ${command}") as String
+        script.echo "[TEST] Cypress: running ${command} in ${dir ?: 'the workspace'}"
+        try {
+            Map nodeCfg = (state.cfg.build?.node ?: [:]) as Map
+            new NodeBuildRunner(script, os).withNode(nodeCfg) {
+                if (dir && dir != '.') {
+                    script.dir(dir) {
+                        if (os.isWindows()) {
+                            script.bat(label: label, script: command)
+                        } else {
+                            BuildUtils.execSh(script, command, label, false)
+                        }
+                    }
+                } else {
+                    if (os.isWindows()) {
+                        script.bat(label: label, script: command)
+                    } else {
+                        BuildUtils.execSh(script, command, label, false)
+                    }
+                }
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Cypress tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+        }
+        String reportsDir = (cypressCfg.reportsDir ?: 'cypress/results') as String
+        script.junit allowEmptyResults: true, testResults: "${reportsDir}/*.xml, **/cypress/results/*.xml"
+    }
+
+    void runNodeTests() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        List commands = BuildUtils.normalizeTokens(unitTests.commands ?: unitTests.tasks ?: ['npm test'])
+        String dir = (unitTests.dir ?: (state.cfg.sourceDir ?: '.')) as String
+        Map nodeCfg = (state.cfg.build?.node ?: [:]) as Map
+        script.echo "[TEST] Node.js: running ${commands.join(' && ')} in ${dir ?: 'the workspace'}"
+        try {
+            new NodeBuildRunner(script, os).withNode(nodeCfg) {
+                Closure runCommands = {
+                    for (String cmd : commands) {
+                        if (os.isWindows()) {
+                            script.bat(label: "Node.js: ${cmd}", script: cmd)
+                        } else {
+                            BuildUtils.execSh(script, cmd, "Node.js: ${cmd}", false)
+                        }
+                    }
+                }
+                if (dir && dir != '.') {
+                    script.dir(dir) { runCommands() }
+                } else {
+                    runCommands()
+                }
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Node.js unit tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+        }
+        script.junit allowEmptyResults: true, testResults: (unitTests.unitTestResult ?: '**/test-results/*.xml, **/junit.xml') as String
     }
 
     void checkCoverage() {
@@ -653,7 +742,7 @@ class BuildService implements Serializable {
 
     String setupBuildTool() {
         String buildTool = detectTool()
-        if (buildTool == 'liquibase') {
+        if (buildTool == 'liquibase' || buildTool in ['npm', 'node']) {
             String javaPath = state.cfg?.javaPath
             if (javaPath) {
                 script.env.JAVA_HOME = javaPath

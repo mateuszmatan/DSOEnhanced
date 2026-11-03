@@ -184,6 +184,10 @@ projects:
           tasks: ['test', 'jacocoTestReport']
         maven:
           goals: ['test', 'jacoco:report']
+        cypress:
+          enabled:    false          # set true to run Cypress component/unit tests (node/npm)
+          command:    ""             # custom command [default: npx cypress run --component]
+          reportsDir: ""             # JUnit XML reports directory [default: cypress/results]
         # liquibase:
         #   commands: ['validate']
         #   flags:    ['--changelog-file=src/main/resources/changelog.xml']

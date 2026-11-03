@@ -557,55 +557,6 @@ set +x
 set -euo pipefail
 curl -sS -X 'GET' -u "$NIQ_GF_USER:$NIQ_GF_PASS" -H 'Accept: application/json'  -w '\n%{http_code}' 'https://tools.bbh.com/IQ/api/v2/applications/CertValidityMonitoring-GUI/reports/0f1e2d3c4b5a69788796a5b4c3d2e1f0/policy'
 
-sh chmod +x gradlew
-sh [Gradle: sonarqube] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            './gradlew' 'sonarqube'
-        
-withCredentials [sonarqube-token]
-sh 
-_TMP=$(mktemp)
-curl -f -H "Authorization: Bearer ${authToken}" \
-"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-gui&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
-python3 - "${_TMP}" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1]) as f: d = json.load(f)
-    c = {}
-    for item in d.get('facets', []):
-        if item.get('property') == 'severities':
-            for v in item.get('values', []): c[v['val']] = v['count']
-    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
-    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
-except Exception: print('0,0,0,0')
-PYEOF
-rm -f "${_TMP}"
-
-sh [Maven: sonar:sonar] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            'mvn' 'sonar:sonar'
-        
-withCredentials [sonarqube-token]
-sh 
-_TMP=$(mktemp)
-curl -f -H "Authorization: Bearer ${authToken}" \
-"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-backend&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
-python3 - "${_TMP}" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1]) as f: d = json.load(f)
-    c = {}
-    for item in d.get('facets', []):
-        if item.get('property') == 'severities':
-            for v in item.get('values', []): c[v['val']] = v['count']
-    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
-    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
-except Exception: print('0,0,0,0')
-PYEOF
-rm -f "${_TMP}"
-
 withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_POLL_INTERVAL=30, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
 sh #!/usr/bin/env bash
 set -euo pipefail; set +x
@@ -676,6 +627,55 @@ for i in {1..6}; do
 done
 
 sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-certscanner-backend.html' || true
+sh chmod +x gradlew
+sh [Gradle: sonarqube] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'sonarqube'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-gui&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
+sh [Maven: sonar:sonar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'sonar:sonar'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-backend&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
 junit build/test-results/test/*.xml
 reportUnitTest
 sh ls target/*.jar target/*.war 2>/dev/null | head -n 1 || true
@@ -798,7 +798,7 @@ Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
 [STAGE]  Build artifact
 [RESULT] NOT_REQUIRED
 ------------------------------------------------------------
-[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last
+[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last
 Detected tool from config file is gradle
 Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
 Start queue sast
@@ -859,6 +859,16 @@ covered=840  missed=160  total=1000
 [STAGE]  Dependencies scan (Nexus IQ)
 [RESULT] WARN
 ------------------------------------------------------------
+[SAST] Report counts: Critical=0 High=3 Medium=4 Low=6
+[unstable] [POLICY] gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+[SAST] Report counts: Critical=0 High=1 Medium=2 Low=3
+[unstable] [POLICY] backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+------------------------------------------------------------
+[STAGE]  SAST - Static Application Security Tests - HCL AppScan
+[RESULT] WARN
+[SAST]   Found:  Critical=0  High=1  Medium=2  Low=3
+[SAST]   Limits: Critical<=0  High<=0  Medium<=0
+------------------------------------------------------------
 Detected tool from config file is gradle
 Execute Gradle Command: './gradlew' 'sonarqube'
 Detected tool from config file is maven
@@ -869,16 +879,6 @@ Execute Maven Command: 'mvn' 'sonar:sonar'
 [RESULT] WARN
 [SCA]    Found:  Critical=1  High=2  Medium=3  Low=4
 [SCA]    Limits: Critical<=0  High<=0
-------------------------------------------------------------
-[SAST] Report counts: Critical=0 High=3 Medium=4 Low=6
-[unstable] [POLICY] gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
-[SAST] Report counts: Critical=0 High=1 Medium=2 Low=3
-[unstable] [POLICY] backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
-------------------------------------------------------------
-[STAGE]  SAST - Static Application Security Tests - HCL AppScan
-[RESULT] WARN
-[SAST]   Found:  Critical=0  High=1  Medium=2  Low=3
-[SAST]   Limits: Critical<=0  High<=0  Medium<=0
 ------------------------------------------------------------
 Detected tool from config file is gradle
 [REPORT] No artifact found for gradle/apk

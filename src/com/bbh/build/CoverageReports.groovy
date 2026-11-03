@@ -26,6 +26,11 @@ class CoverageReports implements Serializable {
             String node = CoverageReports.folderOf(c.build?.node?.dir)
             result[node] = ((result[node] ?: []) as List) + ['node']
         }
+        def cypressDir = [c.tests?.unitTests?.cypress?.dir, c.build?.node?.cypress?.dir, c.cypress?.dir].find { (it ?: '').toString().trim() }
+        if (cypressDir || c.tests?.unitTests?.cypress?.enabled || c.build?.node?.cypress?.enabled || c.cypress?.enabled) {
+            String cdir = CoverageReports.folderOf(cypressDir ?: (c.build?.node?.dir ?: '.'))
+            result[cdir] = (((result[cdir] ?: []) as List) + ['node', 'cypress']).unique()
+        }
         return result
     }
 

@@ -569,9 +569,13 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <p>The library automatically enforces test coverage across all project modules:</p>
 <ul>
 <li><strong>Automatic Report Detection:</strong></li>
-<li>Scans all workspace subdirectories (<code>build/</code>, <code>target/</code>, <code>coverage/</code>, etc.).</li>
+<li>Scans all workspace subdirectories (<code>build/</code>, <code>target/</code>, <code>coverage/</code>, <code>cypress/</code>, etc.).</li>
 <li>Parses <strong>JaCoCo XML</strong> reports for Java, Kotlin, and Groovy.</li>
-<li>Parses <strong>LCOV (<code>lcov.info</code>)</strong> reports for JavaScript, TypeScript, Angular, Python, and Flutter.</li>
+<li>Parses <strong>LCOV (<code>lcov.info</code>)</strong> reports for JavaScript, TypeScript, Angular, Python, Flutter, and Cypress.</li>
+<li><strong>Node.js &amp; Cypress Unit Testing:</strong></li>
+<li>Dedicated support for Node.js unit and component tests via Cypress (<code>tests.unitTests.cypress</code>).</li>
+<li>Runs Cypress tests (<code>npx cypress run --component</code> or custom command) inside the Node.js runtime.</li>
+<li>Ingests JUnit XML test reports and aggregates Cypress LCOV coverage files (<code>coverage/lcov.info</code>).</li>
 <li><strong>Granular Per-Module Reporting:</strong></li>
 <li>Every discovered report receives its own line in the build log and HTML report with path, line count, and percentage.</li>
 <li><strong>Project Run Summary:</strong></li>
@@ -642,12 +646,17 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
 <ol>
 <li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling backend code.</li>
-<li><strong>Parallel Verification Stages:</strong> Four stages execute concurrently:
+<li><strong>Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):</strong>
   <ul>
-    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies.</li>
-    <li><strong>SonarQube:</strong> Executes static code analysis and evaluates quality gates.</li>
-    <li><strong>Unit Tests:</strong> Runs tests and aggregates JaCoCo &amp; LCOV code coverage.</li>
-    <li><strong>SAST:</strong> Runs HCL AppScan static security scanning in the background.</li>
+    <li><strong>Unit Tests:</strong> Runs tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>SAST (HCL AppScan):</strong> Queues static security scanning in the background and retrieves findings.</li>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix.</li>
+  </ul>
+</li>
+<li><strong>Stage 3: SonarQube (Static Code Analysis &amp; Quality Gate):</strong>
+  <ul>
+    <li>Runs last after Unit tests, SAST, and Nexus IQ have finished.</li>
+    <li>Ingests test execution and coverage reports to enforce the SonarQube Quality Gate.</li>
   </ul>
 </li>
 </ol>
@@ -739,6 +748,27 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td>Test execution command</td>
 <td><code>test</code> or <code>test jacocoTestReport</code></td>
 <td>Build tool test task</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Cypress Tests Enabled</strong></td>
+<td>Run Cypress unit/component tests</td>
+<td>Checked <code>[X]</code> / Unchecked <code>[ ]</code></td>
+<td>Test suite config</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Cypress Command</strong></td>
+<td>Cypress invocation command</td>
+<td><code>npx cypress run --component</code></td>
+<td>Project scripts</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Cypress Reports Dir</strong></td>
+<td>JUnit test reports folder</td>
+<td><code>cypress/results</code></td>
+<td>Cypress reporter</td>
 <td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>

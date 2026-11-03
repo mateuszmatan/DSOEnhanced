@@ -142,7 +142,7 @@ def parallelScans() {
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
     _setup()
     String sast = PolicyEngine.stageNameFor('sast')
-    echo '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
+    echo '[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last'
     String part = 'queue'
     _state.stageStart(sast)
     try {
@@ -159,7 +159,7 @@ def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
         } else {
             _policy.failStage(sast)
         }
-        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Unit tests, Nexus IQ and SonarQube do not run in this build'
+        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Unit tests and Nexus IQ do not run in this build'
         throw t
     } finally {
         _state.stageDone(sast)
