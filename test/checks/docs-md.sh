@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keeps documentation.md, the Markdown copy that Bitbucket and GitHub display, a faithful
+# Keeps documentation.md, the Markdown copy that Bitbucket displays, a faithful
 # rendering of documentation.confluence, the single source of the documentation.
 cd "$(dirname "$0")/../.." || exit 1
 if ! command -v python3 > /dev/null 2>&1; then

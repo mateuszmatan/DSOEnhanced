@@ -4,7 +4,7 @@
 documentation.confluence is the single source of the library documentation. It is
 written in Confluence wiki markup so that it can be pasted into Confluence without
 conversion; this script renders the same content as a standalone HTML page and as
-GitHub Flavored Markdown without raw HTML, which GitHub and Bitbucket display.
+Markdown without raw HTML, which Bitbucket displays.
 
     python3 tools/build-documentation-html.py                  writes both files
     python3 tools/build-documentation-html.py --html <file>    writes only the HTML page there
@@ -348,7 +348,7 @@ def md_guard(text):
 
 
 def plain(text):
-    """The text a reader sees, from which GitHub and Bitbucket derive the heading anchor."""
+    """The text a reader sees, from which Bitbucket derives the heading anchor."""
     text = re.sub(CODE, lambda m: m.group(1), text)
     text = re.sub(ANCHOR_LINK, lambda m: m.group(1), text)
     text = re.sub(URL_LINK, lambda m: m.group(1), text)
@@ -357,7 +357,7 @@ def plain(text):
 
 
 class Slugger:
-    """GitHub heading anchors: lower case, punctuation removed, spaces as hyphens, -1, -2 for repeats."""
+    """Bitbucket heading anchors: lower case, punctuation removed, spaces as hyphens, -1, -2 for repeats."""
 
     def __init__(self):
         self.seen = {}
