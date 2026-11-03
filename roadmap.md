@@ -169,6 +169,14 @@ Library pull request #6 and portal pull request #4.
 | **InfluxDB and Grafana telemetry** | All pipeline stages publish detailed telemetry points (`stage_event`, `stage_metric`, `pipeline_run`, `dora`, `security_findings`, `policy_status`, `code_coverage`, `coverage_report`, `test_execution`, `build_evidence`) containing execution durations, status codes, application identifiers, vulnerability counts, and test success/failure metrics, enabling long-term trend analysis in Grafana. |
 | **Tests and verification** | All baseline commands, scenario verifications, and regression tests were updated to validate REST API SAST workflows under the Jenkins sandbox harness. The full test suite passes at 100% (742+ checks). |
 
+## 18. Pipeline Report Delivery to DevSecOps Management Portal (2026-11-03)
+
+| Change | Description |
+|--------|-------------|
+| **Automated report transmission** | `PortalReportService` transmits the build status, execution duration, git commit, branch, outcome counters (passed, warned, failed, blocked, skipped) and the full content of `report/pipeline-report.html` to `${DSO_PORTAL_URL}/api/dso/reports` at the conclusion of each pipeline run. |
+| **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
+| **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
+
 ---
 
 ## Known limitations
