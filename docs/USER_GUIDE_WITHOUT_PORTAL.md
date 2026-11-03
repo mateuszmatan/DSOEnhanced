@@ -107,7 +107,11 @@ The pipeline supports all enterprise programming languages and build tools:
 - **Automated Multi-Report Discovery:**
   - The pipeline automatically searches all workspace directories for test reports:
     - **JaCoCo XML:** Java, Kotlin, Groovy test coverage reports.
-    - **LCOV (`lcov.info`):** JavaScript, TypeScript, Angular, Python, Flutter reports.
+    - **LCOV (`lcov.info`):** JavaScript, TypeScript, Angular, Python, Flutter, and Cypress reports.
+- **Node.js & Cypress Unit Testing:**
+  - Dedicated support for Node.js unit and component tests via Cypress (`tests.unitTests.cypress`).
+  - Seamless execution of Cypress tests (`npx cypress run --component` or custom command) within the Node.js environment.
+  - Ingestion of JUnit XML test results and automatic aggregation of Cypress LCOV coverage data (`coverage/lcov.info`).
 - **Per-Module Reporting:**
   - Every individual report has a dedicated log and report line showing file path, line count, and percentage.
 - **Project Run Summary:**
@@ -123,7 +127,7 @@ Static security analysis executed in the cloud:
 
 - **Parallel Background Scanning:**
   - Generates the IRX archive and submits the scan to HCL ASOC in the background.
-  - Nexus IQ and SonarQube execute in parallel while ASOC processes the code. Results are retrieved at the end of the static stage.
+  - Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.
 - **Credentials Configuration:**
   - Configured per service in the `asoc:` section:
     ```yaml
@@ -202,11 +206,13 @@ tools:
 
 ### Decoupled Pipeline Execution Order:
 1. **Stage 1: Build Artifact (without tests):** The pipeline first builds application artifacts without executing unit tests (e.g., `-DskipTests` / `-x test`). If a Node.js build is configured (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling the backend application.
-2. **Parallel Verification Stages:** Four stages execute simultaneously:
-   - **Nexus IQ:** Evaluates open-source dependencies against security policies.
-   - **SonarQube:** Executes static code analysis and evaluates quality gates.
-   - **Unit Tests:** Runs automated unit tests and aggregates JaCoCo & LCOV code coverage.
-   - **SAST:** Initiates and monitors HCL AppScan static security scanning in the background.
+2. **Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):**
+   - **Unit Tests:** Runs automated unit tests (including Node.js & Cypress tests) and aggregates JaCoCo & LCOV code coverage.
+   - **SAST (HCL AppScan):** Queues static application security analysis in the background and retrieves findings.
+   - **Nexus IQ:** Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.
+3. **Stage 3: SonarQube (Static Code Analysis & Quality Gate):**
+   - Runs last after Unit tests, SAST, and Nexus IQ have concluded.
+   - Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.
 
 ---
 
@@ -318,6 +324,10 @@ projects:
 
     unitTests:
       tasks: 'npm test -- --watch=false --browsers=ChromeHeadless'
+      cypress:
+        enabled: true                             # Enable Cypress component/unit tests
+        command: 'npx cypress run --component'    # Custom test execution command
+        reportsDir: 'cypress/results'             # Folder containing JUnit XML results
     coverage:
       minimum: 80
 
@@ -358,6 +368,10 @@ projects:
 | `scm.bitbucket.targetBranch` | Main branch to build | `main` | <span class="badge badge-required">YES</span> |
 | `build.tool` | Compilation tool | `maven`, `gradle`, `npm`, `pip` | <span class="badge badge-required">YES</span> |
 | `build.tasks` | Build command string | `clean package -DskipTests` | <span class="badge badge-required">YES</span> |
+| `unitTests.tasks` | Test command string | `test` or `npm test` | <span class="badge badge-optional">OPTIONAL</span> |
+| `unitTests.cypress.enabled` | Enable Cypress component tests | `true` or `false` | <span class="badge badge-optional">OPTIONAL</span> |
+| `unitTests.cypress.command` | Custom Cypress command | `npx cypress run --component` | <span class="badge badge-optional">OPTIONAL</span> |
+| `unitTests.cypress.reportsDir` | Cypress JUnit reports dir | `cypress/results` | <span class="badge badge-optional">OPTIONAL</span> |
 | `coverage.minimum` | Quality gate threshold | `80` | <span class="badge badge-default">DEFAULT 80</span> |
 | `asoc.keyId` & `asoc.token` | AppScan SAST credentials | `asoc-cred-id` (from Jenkins) | <span class="badge badge-required">YES</span> |
 | `sast.scanName` | ASOC scan display name | `PAYHUB-NIGHTLY` | <span class="badge badge-optional">OPTIONAL</span> |
@@ -367,3 +381,4 @@ projects:
 | `tools.nexusIq.applicationId` | Single app ID in Nexus IQ | `payhub-backend-api` | <span class="badge badge-required">YES</span> |
 | `goldenFix.pullRequest` | Auto-create remediation PR | `true` | <span class="badge badge-default">DEFAULT TRUE</span> |
 | `nexusDeliveryEnabled` | Toggle Nexus delivery | `false` | <span class="badge badge-optional">OPTIONAL</span> |
+

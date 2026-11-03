@@ -119,9 +119,13 @@ The pipeline supports all standard BBH languages and build tools:
 The library automatically enforces test coverage across all project modules:
 
 - **Automatic Report Detection:**
-  - Scans all workspace subdirectories (`build/`, `target/`, `coverage/`, etc.).
+  - Scans all workspace subdirectories (`build/`, `target/`, `coverage/`, `cypress/`, etc.).
   - Parses **JaCoCo XML** reports for Java, Kotlin, and Groovy.
-  - Parses **LCOV (`lcov.info`)** reports for JavaScript, TypeScript, Angular, Python, and Flutter.
+  - Parses **LCOV (`lcov.info`)** reports for JavaScript, TypeScript, Angular, Python, Flutter, and Cypress.
+- **Node.js & Cypress Unit Testing:**
+  - Dedicated support for Node.js unit and component tests via Cypress (`tests.unitTests.cypress`).
+  - Seamless execution of Cypress tests (`npx cypress run --component` or custom command) within the Node.js environment.
+  - Ingestion of JUnit XML test results and automatic aggregation of Cypress LCOV coverage data (`coverage/lcov.info`).
 - **Granular Per-Module Reporting:**
   - Every discovered report receives its own line in the build log and HTML report with path, line count, and percentage.
 - **Project Run Summary:**
@@ -195,11 +199,13 @@ Nexus IQ identifies known open-source vulnerabilities (CVEs) and license complia
 
 ### Decoupled Pipeline Execution Order:
 1. **Stage 1: Build Artifact (without tests):** The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling backend code.
-2. **Parallel Verification Stages:** Four stages execute concurrently:
-   - **Nexus IQ:** Evaluates open-source dependencies against security policies.
-   - **SonarQube:** Executes static code analysis and evaluates quality gates.
-   - **Unit Tests:** Runs tests and aggregates JaCoCo & LCOV code coverage.
-   - **SAST:** Runs HCL AppScan static security scanning in the background.
+2. **Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):**
+   - **Unit Tests:** Runs automated tests (including Node.js & Cypress tests) and aggregates JaCoCo & LCOV code coverage.
+   - **SAST (HCL AppScan):** Queues static application security analysis in the background and retrieves findings.
+   - **Nexus IQ:** Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.
+3. **Stage 3: SonarQube (Static Code Analysis & Quality Gate):**
+   - Runs last after Unit tests, SAST, and Nexus IQ have concluded.
+   - Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.
 
 ---
 
@@ -250,6 +256,9 @@ Every pipeline execution streams performance and quality data to InfluxDB:
 | **Build Tool** | Technology build system | `maven`, `gradle`, `npm`, `pip` | Application runtime | <span class="badge badge-required">YES</span> |
 | **Build Tasks / Command** | Build invocation arguments | `clean package -DskipTests` | Build tool command | <span class="badge badge-required">YES</span> |
 | **Unit Test Tasks** | Test execution command | `test` or `test jacocoTestReport` | Build tool test task | <span class="badge badge-optional">OPTIONAL</span> |
+| **Cypress Tests Enabled** | Run Cypress unit/component tests | Checked `[X]` / Unchecked `[ ]` | Test suite config | <span class="badge badge-optional">OPTIONAL</span> |
+| **Cypress Command** | Cypress invocation command | `npx cypress run --component` | Project scripts | <span class="badge badge-optional">OPTIONAL</span> |
+| **Cypress Reports Dir** | JUnit test reports folder | `cypress/results` | Cypress reporter | <span class="badge badge-optional">OPTIONAL</span> |
 | **Coverage Minimum** | Enforced coverage percentage | `80` | BBH standard default (80) | <span class="badge badge-default">DEFAULT</span> |
 | **AppScan ASOC Key ID** | ASOC API key credential ID | `asoc-key-payments-api` | Jenkins Credentials store | <span class="badge badge-required">YES</span> |
 | **AppScan ASOC Token** | ASOC API secret credential ID | `asoc-secret-payments-api` | Jenkins Credentials store | <span class="badge badge-required">YES</span> |

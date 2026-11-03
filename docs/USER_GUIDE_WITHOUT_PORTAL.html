@@ -501,9 +501,13 @@ devSecOpsPipeline(
 <li><strong>Automated Multi-Report Discovery:</strong></li>
 <li>The pipeline automatically searches all workspace directories for test reports:<ul>
 <li><strong>JaCoCo XML:</strong> Java, Kotlin, Groovy test coverage reports.</li>
-<li><strong>LCOV (<code>lcov.info</code>):</strong> JavaScript, TypeScript, Angular, Python, Flutter reports.</li>
+<li><strong>LCOV (<code>lcov.info</code>):</strong> JavaScript, TypeScript, Angular, Python, Flutter, and Cypress reports.</li>
 </ul>
 </li>
+<li><strong>Node.js &amp; Cypress Unit Testing:</strong></li>
+<li>Dedicated support for Node.js unit and component tests via Cypress (<code>tests.unitTests.cypress</code>).</li>
+<li>Seamless execution of Cypress tests (<code>npx cypress run --component</code> or custom command) within the Node.js environment.</li>
+<li>Ingestion of JUnit XML test results and automatic aggregation of Cypress LCOV coverage data (<code>coverage/lcov.info</code>).</li>
 <li><strong>Per-Module Reporting:</strong></li>
 <li>Every individual report has a dedicated log and report line showing file path, line count, and percentage.</li>
 <li><strong>Project Run Summary:</strong></li>
@@ -517,7 +521,7 @@ devSecOpsPipeline(
 <ul>
 <li><strong>Parallel Background Scanning:</strong></li>
 <li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
-<li>Nexus IQ and SonarQube execute in parallel while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
+<li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
 <li><strong>Credentials Configuration:</strong></li>
 <li>Configured per service in the <code>asoc:</code> section:
     <code>yaml
@@ -583,12 +587,17 @@ devSecOpsPipeline(
 <h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
 <ol>
 <li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling the backend application.</li>
-<li><strong>Parallel Verification Stages:</strong> Four stages execute simultaneously:
+<li><strong>Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):</strong>
   <ul>
-    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies.</li>
-    <li><strong>SonarQube:</strong> Executes static code analysis and evaluates quality gates.</li>
-    <li><strong>Unit Tests:</strong> Runs automated unit tests and aggregates JaCoCo &amp; LCOV code coverage.</li>
-    <li><strong>SAST:</strong> Initiates and monitors HCL AppScan static security scanning in the background.</li>
+    <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>SAST (HCL AppScan):</strong> Queues static application security analysis in the background and retrieves findings.</li>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
+  </ul>
+</li>
+<li><strong>Stage 3: SonarQube (Static Code Analysis &amp; Quality Gate):</strong>
+  <ul>
+    <li>Runs last after Unit tests, SAST, and Nexus IQ have concluded.</li>
+    <li>Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.</li>
   </ul>
 </li>
 </ol>
@@ -689,6 +698,10 @@ projects:
 
     unitTests:
       tasks: 'npm test -- --watch=false --browsers=ChromeHeadless'
+      cypress:
+        enabled: true                             # Enable Cypress component/unit tests
+        command: 'npx cypress run --component'    # Custom test execution command
+        reportsDir: 'cypress/results'             # Folder containing JUnit XML results
     coverage:
       minimum: 80
 
@@ -763,6 +776,30 @@ projects:
 <td>Build command string</td>
 <td><code>clean package -DskipTests</code></td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>unitTests.tasks</code></td>
+<td>Test command string</td>
+<td><code>test</code> or <code>npm test</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.enabled</code></td>
+<td>Enable Cypress component tests</td>
+<td><code>true</code> or <code>false</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.command</code></td>
+<td>Custom Cypress command</td>
+<td><code>npx cypress run --component</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.reportsDir</code></td>
+<td>Cypress JUnit reports dir</td>
+<td><code>cypress/results</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
 <td><code>coverage.minimum</code></td>

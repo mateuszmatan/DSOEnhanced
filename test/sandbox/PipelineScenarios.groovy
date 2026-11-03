@@ -238,8 +238,8 @@ Closure sectionsOf = { String view ->
     return out
 }
 String stagedCopy = 'sh rm -rf "$WORKSPACE/appscan-source-staged"'
-String orderLine = '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
-String stopLine = '[STATIC] SAST stopped while it prepared its scans: Unit tests, Nexus IQ and SonarQube do not run in this build'
+String orderLine = '[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last'
+String stopLine = '[STATIC] SAST stopped while it prepared its scans: Unit tests and Nexus IQ do not run in this build'
 Closure reordered = { List<String> lines -> lines.findAll { !it.startsWith('[STATIC] ') && it != stagedCopy }.sort() }
 
 Closure goldenView = { Map r ->
@@ -516,9 +516,9 @@ Closure verify = { Map spec ->
         int sonarFirst = calls.findIndexOf { it.startsWith('sh [Gradle: sonarqube]') }
         int sonarLast = calls.findLastIndexOf { it.startsWith('sh [Maven: sonar:sonar]') }
         int polled = calls.findIndexOf { it.contains(' status -i ') }
-        check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, SonarQube builds, and only then SAST polls its scans",
-                chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() <= sonarFirst && sonarLast < polled,
-                [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, sonar: [sonarFirst, sonarLast], polled: polled])
+        check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, and only then SAST polls its scans before SonarQube runs last",
+                chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < polled && polled <= sonarFirst,
+                [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, polled: polled, sonar: [sonarFirst, sonarLast]])
         List<String> staticLines = log.findAll { it.startsWith('[STATIC] ') }
         check("${name}: the log names the new order once, without a fallback or a SAST stop", staticLines == [orderLine], staticLines)
     }
@@ -880,9 +880,9 @@ check('full pipeline, stage failure, parallel scans: release-gate.json equals th
 
 Map waitFails = parallelRun([name: 'full pipeline, SAST wait fails, parallel scans', breakSastWait: true, buildNumber: 366])
 List<String> waitFailures = (waitFails.var as FakeCpsScript).stageFailures
-check('full pipeline, SAST wait fails, parallel scans: SAST fails after its scans are queued, Nexus IQ and SonarQube keep their results and the release gate lists the SAST failure',
-        !waitFails.crash && waitFailures.size() == 1 && waitFailures[0].startsWith(STATIC) && [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) } == ['PASS', 'FAIL', 'PASS']
-                && !boxOf(waitFails.html as String, "${SONAR} - gui").contains('pipeline blocked by previous failure')
+check('full pipeline, SAST wait fails, parallel scans: SAST fails after its scans are queued, Nexus IQ keeps its result, SonarQube is blocked and the release gate lists the SAST failure',
+        !waitFails.crash && waitFailures.size() == 1 && waitFailures[0].startsWith(STATIC) && [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) } == ['PASS', 'FAIL', 'not run']
+                && boxOf(waitFails.html as String, "${SONAR} - gui").contains('pipeline blocked by previous failure')
                 && (((waitFails.j as FakeScript).jsonFiles['release-gate.json'] as Map).violations as List).contains("stage '${SAST}' is FAIL".toString()),
         [waitFails.crash, waitFailures] + [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) })
 
