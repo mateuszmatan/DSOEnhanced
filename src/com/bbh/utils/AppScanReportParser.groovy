@@ -25,6 +25,15 @@ class AppScanReportParser implements Serializable {
         Map headers = countSevFromHeaders(n)
         Map issues  = countSevFromIssueBlocks(n)
         List keys = ['critical', 'high', 'medium', 'low']
+        boolean hasIssueBlocks = n.contains('Issue ID') || (n =~ /(?is)Issue\s*ID\s*:/).find()
+        boolean hasNoise = (n =~ /(?is)Status\s*:?\s*Noise/).find()
+        if (hasIssueBlocks && (hasNoise || out.critical == null)) {
+            for (int i = 0; i < keys.size(); i++) {
+                String k = keys.get(i) as String
+                out[k] = (issues[k] ?: 0) as int
+            }
+            out.total = (out.critical as int) + (out.high as int) + (out.medium as int) + (out.low as int)
+        }
         for (int i = 0; i < keys.size(); i++) {
             String k = keys.get(i) as String
             if (out[k] == null) out[k] = (headers[k] ?: 0) as int
@@ -124,7 +133,7 @@ class AppScanReportParser implements Serializable {
             def statusMatcher = text =~ /(?i)Status\s*:?\s*(Open|New|In\s*Progress|Passed|Noise|Fixed)/
             if (statusMatcher.find()) {
                 String status = statusMatcher.group(1)
-                if (!status.contains('Open') && !status.contains('New')) continue
+                if (status.equalsIgnoreCase('Noise') || (!status.contains('Open') && !status.contains('New'))) continue
             }
             String sev = severityMatcher.group(1).replaceAll(/\s+/, ' ').trim().toLowerCase()
             if (out.containsKey(sev)) out[sev] = (out[sev] as int) + 1

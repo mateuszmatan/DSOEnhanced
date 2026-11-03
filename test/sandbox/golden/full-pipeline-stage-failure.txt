@@ -73,25 +73,8 @@ printf '%s' "$APPSCAN_CMD" > "$APPSCAN_LOG_DIR/appscan.cmd"
 sh chmod +x "$APPSCAN_BIN_DIR/gradle"
 sh mkdir -p '/ws/.appscan-home/.appscan'
 sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
-withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
 withCredentials [bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9]
-sh #!/usr/bin/env bash
-set -euo pipefail; set +x
-_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
-_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
-env -u APPSCAN_DOMAIN \
-    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
-    APPSCAN_OPTS="${_OPTS}" \
-"$APPSCAN_CMD_RUNTIME" api_login \
-    -u "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9" -P "fake-APPSCAN_KEY_SECRET" -persist -acceptssl \
-    -service_url "https://bbh.cloud.appscan.com" \
-    > "$APPSCAN_LOG_DIR/api_login.log" 2>&1 || true
-grep -v "^Picked up " "$APPSCAN_LOG_DIR/api_login.log" || true
-if grep -qiE 'unable to authenticate|authentication failed|unauthorized|token has expired' "$APPSCAN_LOG_DIR/api_login.log"; then
-    echo "[ERROR] AppScan CLI login failed."; exit 1
-fi
-echo "[INFO] AppScan CLI login succeeded."
-
+sh curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:null" -H "Content-Type: application/json" -d "{\"KeyId\":\"bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
 sh mkdir -p /ws/report
 withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
 sh set +x
@@ -168,6 +151,7 @@ covered=840  missed=160  total=1000
 [STAGE]  Dependencies scan (Nexus IQ)
 [RESULT] PASS
 ------------------------------------------------------------
+[DAST] Starting API Authentication
 ------------------------------------------------------------
 [STAGE]  SAST - Static Application Security Tests - HCL AppScan
 [RESULT] FAIL

@@ -5,7 +5,7 @@ Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delive
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
 {info}
-*This is the {{DSOEnhancedWithoutPortal}} branch, DevSecOps version 0.* A pipeline is configured by its {{Jenkinsfile}} and the {{devsecops_config.yaml}} of its repository only, with the global settings that the library bundles. The {{main}} branch of the repository is the release with the DevSecOps portal. The features of {{main}} are carried over to this branch.
+*This is the {{DSOEnhancedAppScanApiOnly}} branch, DevSecOps REST API SAST release.* A pipeline is configured by its {{Jenkinsfile}} and {{devsecops_config.yaml}} without portal dependency. Static Application Security Testing (SAST) is invoked via direct HCL AppScan on Cloud REST API calls (upload, start, poll, download) matching DAST, supporting TLS certificate verification skipping ({{insecureTls: true}}), proxy tunnel integration, and automatic exclusion of vulnerabilities with {{Noise}} status. The {{main}} branch of the repository is the release with the DevSecOps portal.
 {info}
 
 h2. Contents
@@ -205,11 +205,11 @@ h3. Security scanning
 
 ||Scan||Tool||Capabilities||
 |Dependency / SCA|Sonatype Nexus IQ|Policy evaluation of the whole dependency tree, per severity counts, a link to the composition report, and automated remediation pull requests|
-|SAST|HCL AppScan on Cloud|IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report archived, link to the AppScan console|
-|DAST|HCL AppScan on Cloud|Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived|
+|SAST|HCL AppScan on Cloud|IRX generation on the agent, file upload and scan execution via REST API v4, polling until the scan finishes, HTML and PDF report archived, link to the AppScan console; vulnerabilities with Noise status are strictly excluded|
+|DAST|HCL AppScan on Cloud|Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived; vulnerabilities with Noise status are strictly excluded|
 |Code quality|SonarQube|Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report|
 
-The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
+The severity counts the pipeline reports are the ones printed in the tool's own report (excluding any issues with Noise status), and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
 * When {{staticAnalysis.parallel}} is switched on, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 

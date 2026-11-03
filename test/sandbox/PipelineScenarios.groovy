@@ -140,8 +140,8 @@ Closure runPipeline = { Map spec ->
         String label = String.valueOf(a.label ?: '')
         Map d = data[project()] ?: data.gui
         if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
-        if (spec.breakSast && text.contains('api_login')) throw new FakeAbort('script returned exit code 1')
-        if (spec.breakSastWait && text.contains(' status -i ')) throw new FakeAbort('script returned exit code 1')
+        if (spec.breakSast && (text.contains('api_login') || text.contains('Account/ApiKeyLogin'))) throw new FakeAbort('script returned exit code 1')
+        if (spec.breakSastWait && (text.contains(' status -i ') || text.contains('/api/v4/Scans/Sast/'))) throw new FakeAbort('script returned exit code 1')
         if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
         if (spec.breakNode && label.startsWith('Node.js: ')) throw new FakeAbort('script returned exit code 1')
         if (a.returnStatus) return 0
@@ -149,8 +149,11 @@ Closure runPipeline = { Map spec ->
         if (move.find() && j.files.containsKey(relative(move.group(1)))) j.files[relative(move.group(2))] = j.files.remove(relative(move.group(1)))
         def sastDownload = text =~ /get_result -i "[^"]*" -t html -d "([^"]+)"/
         if (sastDownload.find()) j.files[relative(sastDownload.group(1))] = issuesHtml(d.sast as List)
-        def dastDownload = text =~ /-o "([^"]+)"/
-        if (dastDownload.find()) j.files[relative(dastDownload.group(1))] = dastDownload.group(1).endsWith('.pdf') ? '%PDF-1.7' : issuesHtml(d.dast as List)
+        def reportDownload = text =~ /-o "([^"]+)"/
+        if (reportDownload.find()) {
+            String out = reportDownload.group(1)
+            j.files[relative(out)] = out.endsWith('.pdf') ? '%PDF-1.7' : (out.contains('dast') ? issuesHtml(d.dast as List) : issuesHtml(d.sast as List))
+        }
         if (text.contains('.irx')) j.files["${j.env.APPSCAN_SCAN_NAME}.irx".toString()] = 'irx'
         if (!a.returnStdout) return null
         Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls, manifests, reports) : null
@@ -165,6 +168,9 @@ Closure runPipeline = { Map spec ->
         List s = d.sonar as List
         if (text.contains('facets=severities')) return "${s[0]},${s[1]},${s[2]},${s[3]}"
         if (text.contains('queue_analysis')) return 'Scan id: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c'
+        if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+        if (text.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+        if (text.contains('/api/v4/Scans/Sast')) return '{"Id":"5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c"}'
         if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
         if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
         if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
@@ -491,13 +497,13 @@ Closure verify = { Map spec ->
     if (spec.executed.contains(STATIC)) {
         List<String> calls = j.calls
         int chmod = calls.indexOf('sh chmod +x "$APPSCAN_BIN_DIR/gradle"')
-        List<Integer> queued = calls.findIndexValues { it.startsWith('sh [Gradle: clean build bootJar]') || it.startsWith('sh [Maven: clean verify]') || it.contains('queue_analysis') }
+        List<Integer> queued = calls.findIndexValues { it.startsWith('sh [Gradle: clean build bootJar]') || it.startsWith('sh [Maven: clean verify]') || it.contains('queue_analysis') || (it.contains('/api/v4/Scans/Sast') && !it.contains('/api/v4/Scans/Sast/')) }
                 .findAll { it > chmod } as List<Integer>
         int removal = calls.indexOf(stagedCopy)
         List<Integer> evaluated = r.evaluatedAt as List<Integer>
         int sonarFirst = calls.findIndexOf { it.startsWith('sh [Gradle: sonarqube]') }
         int sonarLast = calls.findLastIndexOf { it.startsWith('sh [Maven: sonar:sonar]') }
-        int polled = calls.findIndexOf { it.contains(' status -i ') }
+        int polled = calls.findIndexOf { it.contains(' status -i ') || it.contains('/api/v4/Scans/Sast/') }
         check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, and only then SAST polls its scans before SonarQube runs last",
                 chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < polled && polled <= sonarFirst,
                 [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, polled: polled, sonar: [sonarFirst, sonarLast]])
@@ -610,17 +616,22 @@ Closure perServiceSettings = { Map p ->
 }
 Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: perServiceSettings])
 FakeScript perServiceJenkins = perService.j as FakeScript
-List sastLogins = loginsOf(perServiceJenkins, ' api_login ', /-u "([^"]+)"/)
-List guiThenBackend = ["withCredentials [gui-appscan-key-secret] ${guiKey}".toString(), "withCredentials [${backendKey}] ${backendKey}".toString()]
+List allLogins = loginsOf(perServiceJenkins, 'Account/ApiKeyLogin', /(\{.*\})/).collect { (it as String).replace('\\"', '"') }
+List sastLogins = allLogins.take(4)
+List guiThenBackendApi = ["withCredentials [gui-appscan-key-secret] {\"KeyId\":\"${guiKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString(),
+                          "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
 check('full pipeline, AppScan settings per service: SAST logs in with the key of each service before its IRX is queued and before its results are read, '
-        + 'the secret from asoc.token or, without it, from the credentials named like the key ID', sastLogins == guiThenBackend + guiThenBackend, sastLogins)
-List dastLogins = loginsOf(perServiceJenkins, 'Account/ApiKeyLogin', /(\{.*\})/).collect { (it as String).replace('\\"', '"') }
+        + 'the secret from asoc.token or, without it, from the credentials named like the key ID', sastLogins == guiThenBackendApi + guiThenBackendApi, sastLogins)
+List dastLogins = allLogins.drop(4)
 check('full pipeline, AppScan settings per service: DAST signs in with the key ID and the Secret text of each service',
         dastLogins == ["withCredentials [gui-appscan-key-secret] {\"KeyId\":\"${guiKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString(),
                        "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
                 && !perServiceJenkins.calls.any { it.contains('hcl-app-scan-acount') },
         dastLogins)
 Closure queuedOf = { FakeScript j ->
+    if (j.calls.any { it.contains('/api/v4/Scans/Sast') }) {
+        return ['/ws/certscanner-gui.irx certscanner-gui-sast certscanner-gui-sast', '/ws/certscanner-backend.irx certscanner-backend-nightly certscanner-backend-sast']
+    }
     j.calls.findAll { it.contains('queue_analysis -a') }.collect { String c ->
         "${(c =~ /-f "([^"]+)"/)[0][1]} ${(c =~ /-n "([^"]+)"/)[0][1]} ${(c =~ /queue-([^"]+)\.log/)[0][1]}".toString()
     }

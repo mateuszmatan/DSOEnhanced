@@ -92,6 +92,9 @@ appScript.shHandler = { Map a ->
     if (a.returnStatus) return 0
     if (!a.returnStdout) return null
     if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
+    if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+    if (text.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+    if (text.contains('/api/v4/Scans/Sast')) return '{"Id":"12345678-1234-1234-1234-123456789abc"}'
     if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
     if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
     if (text.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"REPORT-ID"}'
