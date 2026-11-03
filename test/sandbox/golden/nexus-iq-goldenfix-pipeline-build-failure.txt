@@ -28,6 +28,7 @@ cleanWs
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
 ------------------------------------------------------------
+[NODE] gui: build.node.enabled is not set - no Node.js build
 Detected tool from config file is gradle
 [BUILD] Tool: gradle OS: linux
 Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'

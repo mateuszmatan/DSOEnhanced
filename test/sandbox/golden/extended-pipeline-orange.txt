@@ -1,9 +1,10 @@
 == calls
 agent linux-agent
-copyArtifacts DevSecOps/CertScanner-security-pipeline filter=config.yaml,release-gate.json
+copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
 sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
 sh ssh -o StrictHostKeyChecking=no taadmin@rdltaapps1.testbbh.com uptime
 sh chmod +x 'scripts/deployment/zero-downtime-deployment.sh' 2>/dev/null || true
 sh ssh -o StrictHostKeyChecking=no taadmin@rdltaapps1.testbbh.com "mkdir -p /opt/ta/CertScanner/gui/deployment"
@@ -206,7 +207,7 @@ Rollout deployment and wait
 [RELEASE-GATE] Nexus release and QC deployment blocked: gui SAST (AppScan) high 3 > 0 (previous pipeline) | stage 'Smoke tests' is WARN | stage 'DAST - Dynamic Application Security Tests - HCL AppScan' is WARN | stage 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities' is BLOCKED | gui DAST (AppScan) critical 1 > 0 | gui DAST (AppScan) high 2 > 0 | gui DAST (AppScan) medium 3 > 0
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
-[INFLUX] 51 metric line(s) for CertScannerextended (test), build 119, result UNSTABLE
+[INFLUX] 53 metric line(s) for CertScannerextended (test), build 119, result UNSTABLE
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
@@ -268,6 +269,8 @@ test_job,project=CertScannerextended,env=test,module=backend-api,suite=Smoke\ te
 test_execution,project=CertScannerextended,env=test,module=backend-api,suite=Smoke\ tests total=2i,passed=2i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
 test_job,project=CertScannerextended,env=test,module=backend-api,suite=Performance\ tests,status=SUCCESS,type=local duration_ms=<n>i,name="CertScanner-Backend - performance",ok=1i <s>
 test_execution,project=CertScannerextended,env=test,module=backend-api,suite=Performance\ tests total=1i,passed=1i,failed=0i,not_configured=0i,duration_ms=<n>i,success_rate=100.0 <s>
+build_evidence,project=CertScannerextended,env=test,module=gui artifact_version="119",sonar_quality_gate="NONE",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-extended-pipeline/119/artifact/appscan-dast-report-certscanner-gui.html",config_file="devsecops_config.yaml" <s>
+build_evidence,project=CertScannerextended,env=test,module=backend-api artifact_version="213-<stamp>",sonar_quality_gate="NONE",dast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-extended-pipeline/119/artifact/appscan-dast-report-certscanner-backend.html",config_file="devsecops_config.yaml" <s>
 release_gate,project=CertScannerextended,env=test,allowed=no allowed=0i,blocked=1i,violations=15i,reason="Nexus release and QC deployment blocked: gui SAST (AppScan) high 3 > 0 (previous pipeline) (previous pipeline) | stage 'Smoke tests' is WARN (previous pipeline) | stage 'DAST - Dynamic Application Security Tests - HCL AppScan' is WARN (prev" <s>
 == report
 <!DOCTYPE html>
@@ -293,7 +296,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-extended-pipeline &nbsp;&bull;&nbsp; Build #119</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from devsecops_config.yaml in the repository</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

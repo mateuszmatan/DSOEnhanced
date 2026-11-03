@@ -39,8 +39,8 @@ if re.search(r'\bdevSecOpsApi\b', steps_code):
                     "binding, so that builds a second instance - take the instance as an argument instead")
 
 monitor = 'Monitor source changes (download sources)'
-node = 'Node.js build'
-security = [monitor, node, 'Unit tests', 'Static analysis', 'Dependencies scan (Nexus IQ)',
+build = 'Build artifact'
+security = [monitor, build, 'Static analysis', 'Unit tests', 'Dependencies scan (Nexus IQ)',
             'SAST - Static Application Security Tests - HCL AppScan', 'SCA (SonarQube)',
             'Nexus delivery (Static analysis passed)']
 extended = [monitor, 'Lower test region deployment', 'Regression tests (>60% user stories coverage)',
@@ -50,8 +50,8 @@ expected = {
     'vars/devSecOpsPipeline.groovy': security + extended[1:],
     'vars/devSecOpsSecurityPipeline.groovy': security,
     'vars/devSecOpsExtendedPipeline.groovy': extended,
-    'vars/devSecOpsSASTScanningPipeline.groovy': [monitor, node, 'SAST - Static Application Security Tests - HCL AppScan'],
-    'vars/devSecOpsNexusIqGoldenFixPipeline.groovy': [monitor, node, 'Build artifact', 'Dependencies scan (Nexus IQ)'],
+    'vars/devSecOpsSASTScanningPipeline.groovy': [monitor, build, 'SAST - Static Application Security Tests - HCL AppScan'],
+    'vars/devSecOpsNexusIqGoldenFixPipeline.groovy': [monitor, build, 'Dependencies scan (Nexus IQ)'],
 }
 for f, want in expected.items():
     got = re.findall(r"^\s+stage\('(.+?)'\)", open(f).read(), re.M)

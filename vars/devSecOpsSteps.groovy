@@ -31,7 +31,6 @@ def nodeBuild(def api) {
 def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
-            api.buildArtifact()
             api.unitTests()
             api.checkCoverage()
         }
@@ -40,7 +39,14 @@ def unitTests(def api) {
 
 def buildArtifacts(def api) {
     api.runStage('Build artifact') {
-        api.eachProject {
+        api.eachProject { String projectName ->
+            if (api.nodeBuildNeeded()) {
+                api.nodeBuild()
+            } else if (api.nodeBuildEnabled()) {
+                api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
+            } else {
+                api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+            }
             api.buildArtifact()
         }
     }
@@ -56,12 +62,14 @@ def dependenciesScan(def api) {
 
 def staticAnalysis(def api) {
     if (!api.parallelScans()) {
+        unitTests(api)
         dependenciesScan(api)
         sast(api)
         sonarQube(api)
         return
     }
     api.scanWhileSastRuns({ sastQueue(api) }, {
+        unitTests(api)
         dependenciesScan(api)
         sonarQube(api)
     }, { sastResults(api) })

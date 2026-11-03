@@ -569,7 +569,29 @@ devSecOpsPipeline(
       enabled: true
       pullRequest: true</code></li>
 <li>Creates a dedicated branch and opens a Bitbucket Pull Request with the updated <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, or <code>libs.versions.toml</code>.</li>
+<li><strong>External Version Catalog Repository:</strong></li>
+<li>When version catalogs or BOMs reside in an external Bitbucket repository:
+    <pre><code class="language-yaml">goldenFix:
+  versionCatalogRepo:
+    url: 'ssh://git@bitbucket.bbh.com/shared/version-catalogs.git'
+    credentialsId: 'bitbucket-http-credentials'
+    branch: 'main'
+    path: 'catalogs/libs.versions.toml'</code></pre>
+</li>
+<li>GoldenFix checks out the external repository, upgrades dependency versions, validates changes, and submits the Pull Request directly to the external catalog repository.</li>
 </ul>
+<h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
+<ol>
+<li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling the backend application.</li>
+<li><strong>Parallel Verification Stages:</strong> Four stages execute simultaneously:
+  <ul>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies.</li>
+    <li><strong>SonarQube:</strong> Executes static code analysis and evaluates quality gates.</li>
+    <li><strong>Unit Tests:</strong> Runs automated unit tests and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>SAST:</strong> Initiates and monitors HCL AppScan static security scanning in the background.</li>
+  </ul>
+</li>
+</ol>
 <hr />
 <h2 id="11-deployments-and-disable-nexus-delivery-openshift-vm">11. Deployments and "Disable Nexus Delivery" (OpenShift &amp; VM)</h2>
 <h3 id="skipping-nexus-artifact-publishing">Skipping Nexus Artifact Publishing:</h3>
@@ -686,6 +708,11 @@ projects:
     goldenFix:
       enabled: true
       pullRequest: true
+      versionCatalogRepo:
+        url: 'ssh://git@bitbucket.bbh.com/shared/catalogs.git'
+        credentialsId: 'bitbucket-http-credentials'
+        branch: 'main'
+        path: 'catalogs/libs.versions.toml'
 
     deploy:
       openshift:
@@ -784,6 +811,24 @@ projects:
 <td>Auto-create remediation PR</td>
 <td><code>true</code></td>
 <td style="text-align: center;"><span class="badge badge-default">DEFAULT TRUE</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.url</code></td>
+<td>Dedicated catalog repository</td>
+<td><code>ssh://git@bitbucket.bbh.com/...</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.branch</code></td>
+<td>Branch of catalog repository</td>
+<td><code>main</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.path</code></td>
+<td>Relative path to catalog file</td>
+<td><code>catalogs/libs.versions.toml</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
 <td><code>nexusDeliveryEnabled</code></td>

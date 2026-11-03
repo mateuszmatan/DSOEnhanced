@@ -171,6 +171,11 @@ projects:
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
       versionCatalogs:        []     # optional: shared catalog files the search does not find by itself,
                                      # repository-relative paths or globs (* within a folder name, ** across folders)
+      versionCatalogRepo:            # optional: dedicated repository containing shared version catalogs
+        url:           ""            # repository clone URL (e.g. ssh://git@bitbucket.bbh.com/shared/catalogs.git)
+        credentialsId: ""            # Jenkins credentials ID [default: falls back to scm credentials]
+        branch:        ""            # branch to checkout and update [default: default branch]
+        path:          ""            # path to version catalog file or directory within the repo
 
     tests:
       maxParallel: 20                # [library default] max jobs of one test stage running at the same time

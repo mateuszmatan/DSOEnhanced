@@ -4,6 +4,22 @@ checkout
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
 sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: clean build bootJar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh mvn -v
+sh mvn -version
+withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
+sh [Maven: clean verify] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'clean' 'verify' '-B' '-U'
+        
 sh mkdir -p DevSecOpsJenkinsLibrary
 sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
 sh chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh
@@ -592,6 +608,19 @@ cleanWs
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
 ------------------------------------------------------------
+[NODE] gui: build.node.enabled is not set - no Node.js build
+Detected tool from config file is gradle
+[BUILD] Tool: gradle OS: linux
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+[NODE] backend-api: build.node.enabled is not set - no Node.js build
+Detected tool from config file is maven
+[BUILD] Tool: maven OS: linux
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
 Detected tool from config file is gradle
 Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
 Start queue sast
@@ -613,7 +642,7 @@ Start queue sast
 ------------------------------------------------------------
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
-[INFLUX] 20 metric line(s) for CertScannersast (test), build 88, result UNSTABLE
+[INFLUX] 24 metric line(s) for CertScannersast (test), build 88, result UNSTABLE
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
 Vulnerabilities above the policy severity: SAST=3, DAST=0
 -----------------------------------------------------------------
@@ -629,13 +658,15 @@ deployments,project=CertScannersast,env=test count=1 <s>
 change_failure,project=CertScannersast,env=test value=1i <s>
 build_duration,project=CertScannersast,env=test value=0i <s>
 stage_metric,project=CertScannersast,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersast,env=test,stage=Build\ artifact result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScannersast,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 vulnerabilities,project=CertScannersast,env=test,scanner=sast critical=0i,high=1i,medium=2i,low=3i <s>
 vulnerabilities,project=CertScannersast,env=test,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
-pipeline_run,project=CertScannersast,env=test,variant=sast,result=UNSTABLE,branch=origin/develop build=88i,duration_s=<n>i,success=0i,unstable=1i,stages_total=2i,passed=1i,warned=1i,failed=0i,blocked=0i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-sast-pipeline" <s>
+pipeline_run,project=CertScannersast,env=test,variant=sast,result=UNSTABLE,branch=origin/develop build=88i,duration_s=<n>i,success=0i,unstable=1i,stages_total=3i,passed=1i,warned=1i,failed=0i,blocked=0i,skipped=0i,not_required=1i,modules=2i,commit="",job="DevSecOps/CertScanner-sast-pipeline" <s>
 dora,project=CertScannersast,env=test,variant=sast deployment=0i,change_failure=1i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
 stage_event,project=CertScannersast,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
-stage_event,project=CertScannersast,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=2i,reason="gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. || backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScannersast,env=test,stage=Build\ artifact,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=CertScannersast,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=3i,reason="gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. || backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
 security_findings,project=CertScannersast,env=test,module=gui,scanner=sast,status=WARN critical=0i,high=3i,medium=4i,low=6i,total=13i,above_policy=7i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
 security_findings,project=CertScannersast,env=test,module=backend-api,scanner=sast,status=WARN critical=0i,high=1i,medium=2i,low=3i,total=6i,above_policy=3i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
 policy_status,project=CertScannersast,env=test,scanner=sast,status=WARN ok=0i,measured=1i <s>
@@ -644,6 +675,8 @@ policy_status,project=CertScannersast,env=test,scanner=dast,status=SKIP ok=0i,me
 policy_status,project=CertScannersast,env=test,scanner=iast,status=SKIP ok=0i,measured=0i <s>
 policy_status,project=CertScannersast,env=test,scanner=coverage,status=SKIP ok=0i,measured=0i <s>
 policy_status,project=CertScannersast,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
+build_evidence,project=CertScannersast,env=test,module=gui artifact_version="88",sonar_quality_gate="NONE",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-sast-pipeline/88/artifact/appscan-report-certscanner-gui.html",config_file="devsecops_config.yaml" <s>
+build_evidence,project=CertScannersast,env=test,module=backend-api artifact_version="88",sonar_quality_gate="NONE",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-sast-pipeline/88/artifact/appscan-report-certscanner-backend.html",config_file="devsecops_config.yaml" <s>
 release_gate,project=CertScannersast,env=test,allowed=no allowed=0i,blocked=1i,violations=10i,reason="Nexus release and QC deployment blocked: stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN (previous pipeline) | gui SAST (AppScan) high 3 > 0 (previous pipeline) | gui SAST (AppScan) medium 4 > 0 (previous pipeline) | " <s>
 == report
 <!DOCTYPE html>
@@ -669,7 +702,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-sast-pipeline &nbsp;&bull;&nbsp; Build #88</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from devsecops_config.yaml in the repository</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

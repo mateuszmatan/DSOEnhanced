@@ -19,4 +19,6 @@ interface SourceRepository extends Serializable {
     void cleanup(String dir)
 
     String resolveCurrentBranch()
+
+    String prepareExternalRepository(String url, String branch, String credentialsId)
 }

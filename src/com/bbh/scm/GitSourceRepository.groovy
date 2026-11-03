@@ -133,6 +133,20 @@ git worktree prune 2>/dev/null || true
         return branch == 'HEAD' ? '' : branch
     }
 
+    String prepareExternalRepository(String url, String branch, String credentialsId) {
+        String root = workspaceRoot()
+        String base = "${script.env.WORKSPACE_TMP ?: root + '@tmp'}/version-catalogs"
+        String dir  = "${base}/${branch ?: 'main'}"
+        String targetBranch = branch ?: 'main'
+        script.sh(label: 'GoldenFix: prepare external version catalog repository', script: """#!/bin/bash
+set -euo pipefail
+rm -rf '${q(dir)}'
+mkdir -p '${q(base)}'
+git clone --depth 1 -b '${q(targetBranch)}' '${q(url)}' '${q(dir)}' 2>/dev/null || git clone --depth 1 '${q(url)}' '${q(dir)}'
+""")
+        return dir
+    }
+
     int runGit(String dir, String authOptions, String command, String preamble) {
         return script.sh(label: 'GoldenFix: git push', returnStatus: true, script: """#!/bin/bash
 set +x

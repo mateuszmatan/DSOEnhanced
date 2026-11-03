@@ -3,12 +3,21 @@ agent linux-agent
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
 sh [Read the commit under test] git log -1 --format='%ct|%H|%ae' 2>/dev/null || true
+writeYaml pipeline-config.yaml
 sh [ -f "./gradlew" ]
 sh chmod +x gradlew
 sh [Gradle: clean build bootJar] 
             #!/usr/bin/env bash
             set -euo pipefail
             './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+        
+sh mvn -v
+sh mvn -version
+withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
+sh [Maven: clean verify] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'clean' 'verify' '-B' '-U'
         
 sh [ -f "./gradlew" ]
 sh chmod +x gradlew
@@ -22,14 +31,6 @@ python3 -I - --root '.' --own 'gradle' --others 'maven' <<'PYEOF'
 <scan script>
 PYEOF
 
-sh mvn -v
-sh mvn -version
-withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
-sh [Maven: clean verify] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            'mvn' 'clean' 'verify' '-B' '-U'
-        
 sh mvn -v
 sh mvn -version
 sh [Maven: test jacoco:report] 
@@ -690,7 +691,7 @@ sh [Maven: deploy:deploy-file]
             set -euo pipefail
             'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots' '-Durl=https://tools.bbh.com/nexus/repository/snapshots' '-DgroupId=com.bbh.certscanner' '-DartifactId=certscanner-api' '-DgeneratePom=true' '-Dversion=214-<stamp>-SNAPSHOT' '-Dpackaging=jar' '-Dfile=target/certscanner-api.jar'
         
-writeYaml config.yaml
+writeYaml pipeline-config.yaml
 sh mkdir -p /ws/report
 withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
 sh set +x
@@ -699,7 +700,7 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,config.yaml,release-gate.json
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
 publishHTML pipeline-report.html
 cleanWs
 == log
@@ -707,9 +708,19 @@ cleanWs
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
 ------------------------------------------------------------
+[NODE] gui: build.node.enabled is not set - no Node.js build
 Detected tool from config file is gradle
 [BUILD] Tool: gradle OS: linux
 Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+[NODE] backend-api: build.node.enabled is not set - no Node.js build
+Detected tool from config file is maven
+[BUILD] Tool: maven OS: linux
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
 Detected tool from config file is gradle
 [TEST] Tool: gradle
 Execute Gradle Command: './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
@@ -725,10 +736,6 @@ Package: com.bbh.certscanner, Class: CertificateService, Coverage: 82.4, Missed:
 covered=824  missed=176  total=1000
 ----------------------------------------------------
 [COVERAGE] gui: Line coverage 82.4% meets the required 60%.
-Detected tool from config file is maven
-[BUILD] Tool: maven OS: linux
-Maven is installed on this agent
-Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
 Detected tool from config file is maven
 [TEST] Tool: maven
 Maven is installed on this agent
@@ -803,7 +810,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots'
 ------------------------------------------------------------
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
-[INFLUX] 41 metric line(s) for CertScannersecurity (test), build 214, result SUCCESS
+[INFLUX] 47 metric line(s) for CertScannersecurity (test), build 214, result SUCCESS
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
@@ -820,6 +827,7 @@ deployments,project=CertScannersecurity,env=test count=1 <s>
 change_failure,project=CertScannersecurity,env=test value=0i <s>
 build_duration,project=CertScannersecurity,env=test value=0i <s>
 stage_metric,project=CertScannersecurity,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScannersecurity,env=test,stage=Build\ artifact result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScannersecurity,env=test,stage=Unit\ tests result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScannersecurity,env=test,stage=Dependencies\ scan\ (Nexus\ IQ) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScannersecurity,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
@@ -830,14 +838,15 @@ vulnerabilities,project=CertScannersecurity,env=test,scanner=dast critical=0i,hi
 vulnerabilities,project=CertScannersecurity,env=test,scanner=nexusiq critical=0i,high=0i,medium=0i,low=0i <s>
 vulnerabilities,project=CertScannersecurity,env=test,scanner=sonar critical=0i,high=0i,medium=0i,low=0i <s>
 test_coverage,project=CertScannersecurity,env=test line_pct=83.2,covered=1664i,total=2000i <s>
-pipeline_run,project=CertScannersecurity,env=test,variant=security,result=SUCCESS,branch=origin/develop build=214i,duration_s=<n>i,success=1i,unstable=0i,stages_total=6i,passed=6i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-security-pipeline" <s>
+pipeline_run,project=CertScannersecurity,env=test,variant=security,result=SUCCESS,branch=origin/develop build=214i,duration_s=<n>i,success=1i,unstable=0i,stages_total=7i,passed=6i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=1i,modules=2i,commit="",job="DevSecOps/CertScanner-security-pipeline" <s>
 dora,project=CertScannersecurity,env=test,variant=security deployment=0i,change_failure=0i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
 stage_event,project=CertScannersecurity,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
-stage_event,project=CertScannersecurity,env=test,stage=Unit\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
-stage_event,project=CertScannersecurity,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
-stage_event,project=CertScannersecurity,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=4i,reason="" <s>
-stage_event,project=CertScannersecurity,env=test,stage=SCA\ (SonarQube),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=5i,reason="" <s>
-stage_event,project=CertScannersecurity,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Build\ artifact,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Unit\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=4i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=5i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=SCA\ (SonarQube),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
+stage_event,project=CertScannersecurity,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
 security_findings,project=CertScannersecurity,env=test,module=gui,scanner=niq,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
 security_findings,project=CertScannersecurity,env=test,module=gui,scanner=sast,status=PASS critical=0i,high=0i,medium=0i,low=5i,total=5i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
 security_findings,project=CertScannersecurity,env=test,module=gui,scanner=sonar,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
@@ -856,6 +865,10 @@ code_coverage,project=CertScannersecurity,env=test,module=gui,measured=yes line_
 code_coverage,project=CertScannersecurity,env=test,module=backend-api,measured=yes line_pct=84.0,covered=840i,missed=160i,total=1000i,required=60.0,met=1i,gap=0.0 <s>
 coverage_report,project=CertScannersecurity,env=test,module=gui,report=build/reports/jacoco/test/jacocoTestReport.xml,tool=jacoco,counted=yes line_pct=82.4,covered=824i,missed=176i,total=1000i <s>
 coverage_report,project=CertScannersecurity,env=test,module=backend-api,report=target/site/jacoco/jacoco.xml,tool=jacoco,counted=yes line_pct=84.0,covered=840i,missed=160i,total=1000i <s>
+test_execution,project=CertScannersecurity,env=test,module=gui,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
+test_execution,project=CertScannersecurity,env=test,module=backend-api,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
+build_evidence,project=CertScannersecurity,env=test,module=gui artifact_version="214",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/214/artifact/appscan-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_file="devsecops_config.yaml" <s>
+build_evidence,project=CertScannersecurity,env=test,module=backend-api artifact_version="214",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/214/artifact/appscan-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_file="devsecops_config.yaml" <s>
 release_gate,project=CertScannersecurity,env=test,allowed=yes allowed=1i,blocked=0i,violations=0i,reason="" <s>
 == report
 <!DOCTYPE html>
@@ -881,7 +894,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#15803d,#22c55e);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>SUCCESS</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-security-pipeline &nbsp;&bull;&nbsp; Build #214</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from devsecops_config.yaml in the repository</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

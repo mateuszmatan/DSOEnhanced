@@ -185,6 +185,22 @@ Nexus IQ identifies known open-source vulnerabilities (CVEs) and license complia
 - **Automated Remediation:** Opens a Bitbucket Pull Request upgrading dependencies in `pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, or version catalogs (`libs.versions.toml`).
 - Groups updates by repository, opening a single consolidated Pull Request for multi-module projects.
 
+### External Version Catalog Repository:
+- When dependency versions and catalogs are managed in a separate, dedicated Git/Bitbucket repository:
+  - **Catalog Repository URL (`goldenFix.versionCatalogRepo.url`):** The clone address of the repository containing the version catalog.
+  - **Credentials ID (`goldenFix.versionCatalogRepo.credentialsId`):** Jenkins credentials for the catalog repository (falls back to SCM credentials if empty).
+  - **Branch (`goldenFix.versionCatalogRepo.branch`):** Target branch to update (falls back to default branch).
+  - **Path (`goldenFix.versionCatalogRepo.path`):** Relative file or directory path within the external repository (e.g., `catalogs/libs.versions.toml`).
+- GoldenFix checks out the external catalog repository, performs version upgrades, validates the build, and submits the remediation Pull Request directly to the catalog repository.
+
+### Decoupled Pipeline Execution Order:
+1. **Stage 1: Build Artifact (without tests):** The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling backend code.
+2. **Parallel Verification Stages:** Four stages execute concurrently:
+   - **Nexus IQ:** Evaluates open-source dependencies against security policies.
+   - **SonarQube:** Executes static code analysis and evaluates quality gates.
+   - **Unit Tests:** Runs tests and aggregates JaCoCo & LCOV code coverage.
+   - **SAST:** Runs HCL AppScan static security scanning in the background.
+
 ---
 
 ## 11. Deployments & Delivery – OpenShift and Virtual Machines (VM)
@@ -243,6 +259,9 @@ Every pipeline execution streams performance and quality data to InfluxDB:
 | **Sonar Badge Token** | Project badge token (direct) | `sonar-badge-raw-token` | SonarQube Project Settings | <span class="badge badge-optional">1 OF 2</span> |
 | **Sonar Badge Creds ID** | Project badge secret in Jenkins | `sonar-badge-credentials-id` | Jenkins Credentials store | <span class="badge badge-optional">1 OF 2</span> |
 | **Nexus IQ Application ID** | Unique app ID in Nexus IQ | `payhub-backend-api` | Nexus IQ Server Dashboard | <span class="badge badge-required">YES</span> |
+| **External Catalog Repo URL** | Dedicated catalog repository | `ssh://git@bitbucket.bbh.com/shared/catalogs.git` | Bitbucket | <span class="badge badge-optional">OPTIONAL</span> |
+| **External Catalog Branch** | Branch of external catalog repo | `main` | Bitbucket | <span class="badge badge-optional">OPTIONAL</span> |
+| **External Catalog Path** | Relative path to catalog file | `catalogs/libs.versions.toml` | Bitbucket | <span class="badge badge-optional">OPTIONAL</span> |
 | **Disable Nexus Delivery** | Toggle off Nexus artifact push | Checked `[X]` / Unchecked `[ ]` | Check if no artifact needed | <span class="badge badge-optional">OPTIONAL</span> |
 | **OpenShift Namespace** | Target cluster project/namespace | `payhub-dev` | OpenShift web console | <span class="badge badge-optional">OpenShift</span> |
 | **VM Application Name** | UrbanCode Deploy application | `PAYHUB_CORE` | IBM UrbanCode Deploy console | <span class="badge badge-optional">VM</span> |

@@ -188,6 +188,26 @@ tools:
     ```
   - Creates a dedicated branch and opens a Bitbucket Pull Request with the updated `pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, or `libs.versions.toml`.
 
+- **External Version Catalog Repository:**
+  - When version catalogs or BOMs reside in an external Bitbucket repository:
+    ```yaml
+    goldenFix:
+      versionCatalogRepo:
+        url: 'ssh://git@bitbucket.bbh.com/shared/version-catalogs.git'
+        credentialsId: 'bitbucket-http-credentials'
+        branch: 'main'
+        path: 'catalogs/libs.versions.toml'
+    ```
+  - GoldenFix checks out the external repository, upgrades dependency versions, validates changes, and submits the Pull Request directly to the external catalog repository.
+
+### Decoupled Pipeline Execution Order:
+1. **Stage 1: Build Artifact (without tests):** The pipeline first builds application artifacts without executing unit tests (e.g., `-DskipTests` / `-x test`). If a Node.js build is configured (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling the backend application.
+2. **Parallel Verification Stages:** Four stages execute simultaneously:
+   - **Nexus IQ:** Evaluates open-source dependencies against security policies.
+   - **SonarQube:** Executes static code analysis and evaluates quality gates.
+   - **Unit Tests:** Runs automated unit tests and aggregates JaCoCo & LCOV code coverage.
+   - **SAST:** Initiates and monitors HCL AppScan static security scanning in the background.
+
 ---
 
 ## 11. Deployments and "Disable Nexus Delivery" (OpenShift & VM)
@@ -266,6 +286,11 @@ projects:
     goldenFix:
       enabled: true                               # Run GoldenFix analysis
       pullRequest: true                           # Open automated Bitbucket PR
+      versionCatalogRepo:
+        url: 'ssh://git@bitbucket.bbh.com/shared/catalogs.git'
+        credentialsId: 'bitbucket-http-credentials'
+        branch: 'main'
+        path: 'catalogs/libs.versions.toml'
 
     # 7. Deployment & Delivery
     deploy:
