@@ -449,5 +449,27 @@ check('a service message names the file that was read',
         !run.error && j.log.contains('Skipping extended pipeline - jenkins.pipeline.extendedPipeline is not set for the service in devsecops_config.yaml'),
         "${run.error} | ${j.log.findAll { it.startsWith('Skipping') }}")
 
+j = jenkins([DSO_PORTAL_URL: 'https://portal.bbh.com:8443', DSO_PIPELINE_KEY: 'pipe-key-99', BUILD_NUMBER: '42', JOB_NAME: 'CertScanner-build'])
+j.files['devsecops_config.yaml'] = configText
+j.files['report/pipeline-report.html'] = '<html><body><h3>Pipeline Execution Report</h3></body></html>'
+run = apiRun(j) { fake ->
+    fake.configure('full', agents + [projectNames: 'gui'])
+    j.onAgent('linux-agent') { fake.initialize() }
+    fake.stagePass('Build artifact')
+    fake.stagePass('Unit tests')
+    fake.sendPortalReport('full')
+}
+String portalSh = j.calls.find { it.contains('curl ') && it.contains('$PORTAL_URL/api/dso/reports') } ?: ''
+Map portalPayload = j.jsonFiles.find { it.key.startsWith('portal_report_') }?.value as Map
+check('Portal report upload: build status, tally and pipeline-report.html are sent to DSO_PORTAL_URL',
+        !run.error && portalSh.contains('curl -sS -k') && portalSh.contains('-H "Content-Type: application/json"')
+                && portalPayload?.pipelineKey == 'pipe-key-99'
+                && portalPayload?.job == 'CertScanner-build'
+                && portalPayload?.build == 42L
+                && portalPayload?.reportHtml == '<html><body><h3>Pipeline Execution Report</h3></body></html>'
+                && portalPayload?.stagesTotal == 2L
+                && portalPayload?.passed == 2L,
+        "${run.error} | ${portalSh} | ${portalPayload}")
+
 println "\n${failures == 0 ? 'ALL CONFIG SCENARIOS PASSED' : failures + ' CONFIG SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
