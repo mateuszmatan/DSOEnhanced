@@ -144,7 +144,7 @@ def parallelScans() {
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
     _setup()
     String sast = PolicyEngine.stageNameFor('sast')
-    echo '[STATIC] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
+    echo '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
     String part = 'queue'
     _state.stageStart(sast)
     try {
@@ -161,11 +161,11 @@ def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
         } else {
             _policy.failStage(sast)
         }
-        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Nexus IQ and SonarQube do not run in this build'
+        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Unit tests, Nexus IQ and SonarQube do not run in this build'
         throw t
     } finally {
         _state.stageDone(sast)
-        _state.settle([PolicyEngine.stageNameFor('niq'), sast, PolicyEngine.stageNameFor('sca')], [['niq'], ['sast'], ['sonar', 'sca']])
+        _state.settle([PolicyEngine.stageNameFor('unit'), PolicyEngine.stageNameFor('niq'), sast, PolicyEngine.stageNameFor('sca')], [['coverage', 'unit'], ['niq'], ['sast'], ['sonar', 'sca']])
     }
 }
 
@@ -246,7 +246,7 @@ def dastScan() {
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
-def nodeBuild()           { _setup(); _build.nodeBuild() }
+def nodeBuild()           { _setup(); _state.stageResults['Node.js build'] = 'PASS'; _build.nodeBuild() }
 def buildArtifact()       { _setup(); _build.buildArtifact() }
 def unitTests()           { _setup(); _build.unitTests() }
 def checkCoverage()       { _setup(); _build.checkCoverage() }

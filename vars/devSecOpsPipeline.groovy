@@ -30,18 +30,18 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.monitorSources(devSecOpsApi) } }
             }
 
-            stage('Node.js build') {
-                when { expression { return devSecOpsApi.nodeBuildRequired() } }
-                steps { script { devSecOpsSteps.nodeBuild(devSecOpsApi) } }
-            }
-
-            stage('Unit tests') {
-                steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
+            stage('Build artifact') {
+                steps { script { devSecOpsSteps.buildArtifacts(devSecOpsApi) } }
             }
 
             stage('Static analysis') {
                 when { expression { return devSecOpsApi.parallelScans() } }
                 steps { script { devSecOpsSteps.staticAnalysis(devSecOpsApi) } }
+            }
+
+            stage('Unit tests') {
+                when { expression { return !devSecOpsApi.parallelScans() } }
+                steps { script { devSecOpsSteps.unitTests(devSecOpsApi) } }
             }
 
             stage('Dependencies scan (Nexus IQ)') {

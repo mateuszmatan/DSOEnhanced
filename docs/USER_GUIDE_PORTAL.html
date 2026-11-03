@@ -630,6 +630,27 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <li><strong>Automated Remediation:</strong> Opens a Bitbucket Pull Request upgrading dependencies in <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, or version catalogs (<code>libs.versions.toml</code>).</li>
 <li>Groups updates by repository, opening a single consolidated Pull Request for multi-module projects.</li>
 </ul>
+<h3 id="external-version-catalog-repository">External Version Catalog Repository:</h3>
+<ul>
+<li>When dependency versions and catalogs are managed in a separate, dedicated Git/Bitbucket repository:</li>
+<li><strong>Catalog Repository URL (<code>goldenFix.versionCatalogRepo.url</code>):</strong> The clone address of the repository containing the version catalog.</li>
+<li><strong>Credentials ID (<code>goldenFix.versionCatalogRepo.credentialsId</code>):</strong> Jenkins credentials for the catalog repository (falls back to SCM credentials if empty).</li>
+<li><strong>Branch (<code>goldenFix.versionCatalogRepo.branch</code>):</strong> Target branch to update (falls back to default branch).</li>
+<li><strong>Path (<code>goldenFix.versionCatalogRepo.path</code>):</strong> Relative file or directory path within the external repository (e.g., <code>catalogs/libs.versions.toml</code>).</li>
+<li>GoldenFix checks out the external catalog repository, performs version upgrades, validates the build, and submits the remediation Pull Request directly to the catalog repository.</li>
+</ul>
+<h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
+<ol>
+<li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling backend code.</li>
+<li><strong>Parallel Verification Stages:</strong> Four stages execute concurrently:
+  <ul>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies.</li>
+    <li><strong>SonarQube:</strong> Executes static code analysis and evaluates quality gates.</li>
+    <li><strong>Unit Tests:</strong> Runs tests and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>SAST:</strong> Runs HCL AppScan static security scanning in the background.</li>
+  </ul>
+</li>
+</ol>
 <hr />
 <h2 id="11-deployments-delivery-openshift-and-virtual-machines-vm">11. Deployments &amp; Delivery – OpenShift and Virtual Machines (VM)</h2>
 <p>The delivery module packages artifacts and deploys services to target infrastructure.</p>
@@ -782,6 +803,27 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td><code>payhub-backend-api</code></td>
 <td>Nexus IQ Server Dashboard</td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><strong>External Catalog Repo URL</strong></td>
+<td>Dedicated catalog repository</td>
+<td><code>ssh://git@bitbucket.bbh.com/shared/catalogs.git</code></td>
+<td>Bitbucket</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>External Catalog Branch</strong></td>
+<td>Branch of external catalog repo</td>
+<td><code>main</code></td>
+<td>Bitbucket</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>External Catalog Path</strong></td>
+<td>Relative path to catalog file</td>
+<td><code>catalogs/libs.versions.toml</code></td>
+<td>Bitbucket</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
 <td><strong>Disable Nexus Delivery</strong></td>

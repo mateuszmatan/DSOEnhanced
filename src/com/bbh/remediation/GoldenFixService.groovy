@@ -316,11 +316,40 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
         List<String> listed = CatalogDiscovery.listed(cfg.versionCatalogs)
+        Map vcRepo = (cfg.versionCatalogRepo ?: (cfg.versionCatalogRepository ?: (cfg.goldenFix?.versionCatalogRepo ?: (cfg.goldenFix?.versionCatalogRepository ?: [:])))) as Map
+        if (vcRepo && (vcRepo.url || vcRepo.repositoryUrl)) {
+            String repoUrl = (vcRepo.url ?: vcRepo.repositoryUrl) as String
+            String catalogBranch = (vcRepo.branch ?: (vcRepo.targetBranch ?: 'main')) as String
+            String catalogPath = (vcRepo.path ?: 'gradle/libs.versions.toml') as String
+            script.echo "[GOLDENFIX] Using separate version catalog repository: ${repoUrl} (branch: ${catalogBranch}, path: ${catalogPath})"
+            String extDir = prepareExternalCatalog(repoUrl, catalogBranch, (vcRepo.credentialsId ?: '') as String)
+            if (extDir) {
+                String catalogFile = catalogPath.startsWith('/') ? catalogPath.substring(1) : catalogPath
+                try {
+                    String catalogText = repository.readText(extDir, catalogFile)
+                    if (catalogText) {
+                        texts[catalogFile] = catalogText
+                        if (!listed.contains(catalogFile)) listed << catalogFile
+                    }
+                } catch (Throwable t) {
+                    script.echo "[GOLDENFIX] Note: version catalog file ${catalogFile} in ${repoUrl}: ${t.message}"
+                }
+            }
+        }
         for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
         List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
         for (String f : CatalogDiscovery.toRead(scanned + extra)) read(dir, texts, f)
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
+    }
+
+    private String prepareExternalCatalog(String url, String branch, String credentialsId) {
+        try {
+            return repository.prepareExternalRepository(url, branch, credentialsId)
+        } catch (Throwable t) {
+            script.echo "[GOLDENFIX] Warning: could not clone external version catalog repository ${url}: ${t.message}"
+            return null
+        }
     }
 
     private void applyRound(String dir, List<ManifestUpdater> active, List<Map> fixes, List<String> roundFiles, List<String> files, Map texts, Map run) {
