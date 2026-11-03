@@ -148,6 +148,13 @@ Library pull request #6 and portal pull request #4.
 | **Tests** | Four twins of the green and orange full and security runs give the release gate, the metrics and the report of their unchanged golden files and the same steps and log in the new order; `full-pipeline-orange-parallel-scans.txt` pins that order. Focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after the queue, GoldenFix and the AppScan settings per service. `StaticAnalysisScenarios.groovy` covers the switch, the compile rule, `settle` and the removal on Linux and Windows. Each twin checks that the AppScan client stays in the workspace. No existing golden file changed. The check suite now holds 742 checks, all passing. |
 | **Documentation** | Chapters 1, 3, 8, 9 and 10 name the stage; chapter 15 describes the key, the environment variable and the compile rule, chapter 16 the stage, its failures and the workspace; the thresholds, API, metrics, troubleshooting and test suite chapters follow. |
 
+## 16. Pipeline Report Delivery to DevSecOps Management Portal (2026-11-03)
+
+| Change | Description |
+|--------|-------------|
+| **Automated report transmission** | `PortalReportService` transmits the build status, execution duration, git commit, branch, outcome counters (passed, warned, failed, blocked, skipped) and the full content of `report/pipeline-report.html` to `${DSO_PORTAL_URL}/api/dso/reports` at the conclusion of each pipeline run. |
+| **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
+| **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
 ---
 
 ## Known limitations

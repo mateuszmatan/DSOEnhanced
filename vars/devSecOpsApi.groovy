@@ -21,25 +21,27 @@ import com.bbh.scanner.NexusIqGoldenFixSource
 import com.bbh.scm.BitbucketPullRequestPublisher
 import com.bbh.scm.GitSourceRepository
 import com.bbh.report.HtmlReportService
+import com.bbh.report.PortalReportService
 import com.bbh.scanner.AppScanService
 import com.bbh.scanner.NexusIqService
 import com.bbh.scanner.SonarService
 import com.bbh.utils.BuildUtils
 
-@Field PipelineState    _state
-@Field OsHelper         _os
-@Field PolicyEngine     _policy
-@Field ConfigLoader     _config
-@Field BuildService     _build
-@Field AppScanService   _appScan
-@Field SonarService     _sonar
-@Field NexusIqService   _nexusIq
-@Field VmDeployService  _vmDeploy
-@Field OpenshiftService _openshift
-@Field InfluxDbService  _influx
-@Field Map              _pipelineConfig = [:]
-@Field String           _variant = 'full'
-@Field Boolean          _parallelScans = null
+@Field PipelineState       _state
+@Field OsHelper            _os
+@Field PolicyEngine        _policy
+@Field ConfigLoader        _config
+@Field BuildService        _build
+@Field AppScanService      _appScan
+@Field SonarService        _sonar
+@Field NexusIqService      _nexusIq
+@Field VmDeployService     _vmDeploy
+@Field OpenshiftService    _openshift
+@Field InfluxDbService     _influx
+@Field PortalReportService _portalReport
+@Field Map                 _pipelineConfig = [:]
+@Field String              _variant = 'full'
+@Field Boolean             _parallelScans = null
 
 private void _setup() {
     if (_state != null) return
@@ -57,6 +59,7 @@ private void _setup() {
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
+    _portalReport = new PortalReportService(this, _state, _os)
 }
 
 def configure(String variant, Map config) {
@@ -185,6 +188,8 @@ def finishPipeline(Map options = [:]) {
         writeFile file: 'report/pipeline-report.html',
                   text: "<html><head><meta charset='UTF-8'><title>Pipeline Report</title></head><body style='font-family:sans-serif;padding:24px'><h2>Pipeline Report</h2><p>Report could not be generated - check build logs.</p></body></html>"
     }
+    try { sendPortalReport(type) }
+    catch (Throwable t) { echo "[WARN] Could not upload report to portal: ${t.message}" }
     try { echo vulnerabilitySummary() }
     catch (Throwable t) { echo "[WARN] Could not summarise the vulnerabilities: ${t.message}" }
     section('Pipeline finished')
@@ -274,8 +279,9 @@ def deployOpenshift(String envName)      { _setup(); _openshift.deploy(envName) 
 def nexusDelivery(String envName)        { _setup(); _openshift.deliverToNexus(envName) }
 def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipeline() }
 
-def generateHtmlReport()              { _setup(); reportService().generate() }
-def feedInfluxDB(String pipelineType) { _setup(); _influx.send(pipelineType) }
+def generateHtmlReport()                       { _setup(); reportService().generate() }
+def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
+def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
 
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }

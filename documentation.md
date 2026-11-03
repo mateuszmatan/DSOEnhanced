@@ -2160,6 +2160,15 @@ A bucket keeps the data for its retention period, and the cumulative "since the 
 
 [Grafana dashboards and queries](#22-grafana-dashboard-query-reference) holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` continue to work; the stage panels of `devSecOpsDashboard` show the Build artifact stage of the Nexus IQ GoldenFix pipeline as `Build` and the Node.js build as `Node.js`, with the sort key of `Download sources`.
 
+### Pipeline Report Delivery to DevSecOps Management Portal
+
+At the conclusion of each pipeline execution, `com.bbh.report.PortalReportService` transmits the execution status and the complete `report/pipeline-report.html` file to the DevSecOps Management Portal via `POST /api/dso/reports`.
+
+- **Target endpoint:** `${DSO_PORTAL_URL}/api/dso/reports` (or `portal.url` in service / default settings).
+- **Payload structure:** JSON containing `pipelineKey`, `job`, `build`, `result`, `branch`, `commit`, `durationSeconds`, `stagesTotal`, `passed`, `warned`, `failed`, `blocked`, `skipped`, and the complete `reportHtml` document.
+- **Resilience:** When `DSO_PORTAL_URL` is not configured, report upload is silently bypassed without warning or failure, preserving full compatibility for standalone Jenkins installations.
+- **Portal rendering:** Inside the DevSecOps Management Portal, the execution report is displayed in an interactive card featuring responsive iframe sandboxing, preserving all original styling, stage outcome badges, vulnerability tables, and links to remote Jenkins jobs, artifacts, SonarQube, Nexus IQ, and AppScan reports.
+
 ## 22. Grafana Dashboard Query Reference
 
 Every build writes one batch of InfluxDB line protocol from `post { always }`, so a run that failed is recorded exactly like a run that succeeded. This document lists what is written and the Flux to put on a dashboard.
