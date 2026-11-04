@@ -127,7 +127,8 @@ class LiquibaseRunner implements Serializable {
 
     Map utplsql(Map target, Map s, String jdk) {
         String dir = workDir(s.name as String)
-        Map step = [label: 'DB: utPLSQL tests on the test database', dir: dir, out: 'utplsql.out', lock: false]
+        Map step = [label: 'DB: utPLSQL tests on the test database', dir: dir, out: 'utplsql.out', lock: false,
+                    minutes: Math.max(target.timeoutMinutes as int, (((target.utplsql ?: [:]) as Map).timeoutMinutes ?: 30) as int) + 5]
         String text = utplsqlCommand(tool('utplsql', state.cfg).path as String, s, target, dir)
         List env = baseEnv(jdk) + ["DSO_TMP=${dir}".toString(), "DSO_UT_CONNECT=${(target.parsed as Map).connect}".toString()]
         Map result = online(target, env) {
@@ -158,13 +159,15 @@ class LiquibaseRunner implements Serializable {
     }
 
     def guarded(Map target, Map step, Closure body) {
+        int minutes = (step.minutes ?: target.timeoutMinutes) as int
+        String setting = step.minutes ? 'the larger of database.test.timeoutMinutes and database.test.utplsql.timeoutMinutes, plus 5' : "database.${target.name}.timeoutMinutes".toString()
         try {
-            return script.timeout(time: target.timeoutMinutes as int, unit: 'MINUTES') {
+            return script.timeout(time: minutes, unit: 'MINUTES') {
                 body()
             }
         } catch (Exception e) {
             if (BuildService.interruptionKind(e) == 'TIMEOUT' || ((e.message ?: '') as String).contains('Timeout has been exceeded')) {
-                script.echo "[DB] ${state.currentProjectName} ${target.name}: ${step.label} did not end within ${target.timeoutMinutes} minutes (database.${target.name}.timeoutMinutes)"
+                script.echo "[DB] ${state.currentProjectName} ${target.name}: ${step.label} did not end within ${minutes} minutes (${setting})"
             }
             if (step.lock) releaseOwnLock(target, step)
             throw e

@@ -2103,7 +2103,7 @@ Every key of the first two tables is a key of the service, under `projects.<serv
 | `database.test.utplsql.paths` | the suites of `database.test.utplsql.owner` | the utPLSQL paths, such as `orders_owner:ut_orders` |
 | `database.test.utplsql.owner` | `database.test.defaultSchema`, else `database.defaultSchema`, else the login schema | the schema whose suites run |
 | `database.test.utplsql.sourcePath`, `database.test.utplsql.testPath` | – | the folders of the packages and of the test packages, relative to the search root, which map the reports to the files |
-| `database.test.utplsql.timeoutMinutes` | `30` | the timeout of utPLSQL |
+| `database.test.utplsql.timeoutMinutes` | `30` | the timeout of the utPLSQL run (`-t`), from 1 to 240; the Jenkins step around it ends 5 minutes after the larger of this and `database.test.timeoutMinutes`, so that utPLSQL ends first, with its reports |
 
 There is no production target: `database.prod`, `database.production`, `database.prd` and `database.live` are refused. With a block, `deployTarget` and `deploy` are not used, and a `database.allowedTargets` of the service is ignored with a line in the console.
 
@@ -2262,7 +2262,7 @@ The changesets that ran stay applied: fix the source and run the stage again.
 
 **Packages in use.** A package that sessions hold cannot be replaced (ORA-04021), and sessions see ORA-04068 afterwards. Deploy QC when the application is idle; edition-based redefinition is the long-term answer.
 
-**The lock and the timeouts.** Liquibase waits `lockWaitMinutes` for its lock. Each online step ends after `<target>.timeoutMinutes`; after such an abort the library releases the lock only when this build held it, and otherwise names `DATABASECHANGELOGLOCK` for the DBA.
+**The lock and the timeouts.** Liquibase waits `lockWaitMinutes` for its lock. Each online step ends after `<target>.timeoutMinutes`; after such an abort the library releases the lock only when this build held it, and otherwise names `DATABASECHANGELOGLOCK` for the DBA. utPLSQL ends its run itself after `test.utplsql.timeoutMinutes`, which turns Unit tests orange with the reports written so far; its Jenkins step ends 5 minutes after the larger of the two values.
 
 **The tag and a manual rollback.** `rollback --tag <tag>` undoes the changesets after the tag that have a rollback. A code changeset with an empty `<rollback/>` keeps the new code. The DBA runs it by hand from the delivered zip.
 
@@ -2350,7 +2350,7 @@ The messages below are quoted with `...` for the parts that change.
 | **the deployment left invalid objects** | new invalid objects | fix the PL/SQL and run the stage again; the library does not roll back |
 | **invalid before this deployment and not changed by it** | old invalid objects | information; the owning team fixes them |
 | **still pending after the update** | contexts, labels or preconditions | check the filters of the target |
-| **did not end within ... minutes**, **the Liquibase lock** | a timeout or a held lock | `<target>.timeoutMinutes`; the DBA checks `DATABASECHANGELOGLOCK` |
+| **did not end within ... minutes**, **the Liquibase lock** | a timeout or a held lock | `<target>.timeoutMinutes`, for utPLSQL `test.utplsql.timeoutMinutes`; the DBA checks `DATABASECHANGELOGLOCK` |
 | **the tag ... could not be set** | the tag failed | the changes are deployed; run again only to tag |
 | **the security pipeline delivered no version**, **could not be fetched** | no delivered zip | run the security pipeline; check Nexus and the Maven settings of the agent |
 | **Maven is not installed on agent** | Maven missing | `database.package.mvnPath` or `build.maven.mvnPath` |

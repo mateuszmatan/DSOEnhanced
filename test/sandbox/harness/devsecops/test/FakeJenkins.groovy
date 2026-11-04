@@ -138,6 +138,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     List<String> events = []
     Map<String, Closure> steps = [:]
     Set<String> missingCredentials = [] as Set
+    List<Object> timeouts = []
 
     private String norm(Object path) {
         String p = String.valueOf(path)
@@ -291,7 +292,14 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def usernamePassword(Map args) { args }
     def string(Map args) { args }
     def file(Map args) { args }
-    def timeout(Map args, Closure body) { body.call() }
+    def timeout(Map args, Closure body) {
+        timeouts << args.time
+        try {
+            return body.call()
+        } finally {
+            timeouts.remove(timeouts.size() - 1)
+        }
+    }
     def sleep(Object args) {}
     def dir(String path, Closure body) {
         String saved = cwd

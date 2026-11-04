@@ -110,7 +110,7 @@ Closure runDatabase = { Map spec ->
     full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString()] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
         shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME,
-                   sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)]]
+                   sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)], timeout: j.timeouts ? j.timeouts[-1] : null]
         DatabaseResponder.sh(j, a, full)
     }
     full.prepare = { FakeScript j ->
@@ -601,6 +601,11 @@ check('D32: drop-all, then the drop of the code, types and synonyms that drop-al
                 && restShell.sql == new File(fixtures, 'test-reset-default.sql').text, [labels(reset), restShell.script])
 focused('D32 the code left by drop-all cannot be dropped', unit + [failedStage: UNIT, resetFails: true, configure: orders { Map db, Map svc -> (db.test as Map).reset = true }],
         '[DB] orders-db test: drop-all failed: the packages, procedures, functions, triggers, types and synonyms that it leaves could not be dropped: ORA-01031: insufficient privileges - the deploy user lacks a privilege: see the grants in chapter 14.8')
+Map timeouts = (reset.shells as List<Map>).findAll { it.label in ['DB: Liquibase update on test', 'DB: utPLSQL tests on the test database'] }.collectEntries { [(it.label): it.timeout] }
+check('D31: utPLSQL runs under a Jenkins timeout 5 minutes longer than its own -t=30, so that its own timeout, with its reports, comes first; the update keeps database.test.timeoutMinutes',
+        timeouts == ['DB: Liquibase update on test': 30, 'DB: utPLSQL tests on the test database': 35], timeouts)
+focused('D31 utPLSQL does not end', unit + [failedStage: UNIT, timeoutAt: 'DB: utPLSQL tests on the test database'],
+        '[DB] orders-db test: DB: utPLSQL tests on the test database did not end within 35 minutes (the larger of database.test.timeoutMinutes and database.test.utplsql.timeoutMinutes, plus 5)')
 focused('D32 changesets of another branch in the test database', unit + [result: 'SUCCESS', unexpected: true],
         '[DB] orders-db test: 2 changesets in the test database are not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema')
 
