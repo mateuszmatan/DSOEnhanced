@@ -689,7 +689,7 @@ Map ownFileScan = blockScanner(ownFile)
 check('A2: a -Dproject.settings of tools.sonar.liquibase.flags wins: the scanner of the block gets only that file, and the block writes no empty settings file',
         (ownFileScan.script as String)?.contains("'-Dproject.settings=db/sonar-orders.properties'") && (ownFileScan.script as String).count('-Dproject.settings=') == 1
                 && !((ownFileScan.files ?: [:]) as Map).containsKey(ownSettings) && stageOf(ownFile, SONAR) == 'PASS', ownFileScan.script)
-Map keyless =focused('D26 SonarQube without a project key, with the auto-resolve off', unit + [result: 'SUCCESS', sonarPlsql: 'plsql',
+Map keyless = focused('D26 SonarQube without a project key, with the auto-resolve off', unit + [result: 'SUCCESS', sonarPlsql: 'plsql',
                                                                                               configure: { Map p -> (p['orders-db'] as Map).put('autoresolve parameters', false) }],
         '[SONAR] orders-db: no SonarQube project for this service (tools.sonar.projectKey) - SonarQube is not required for SQL and PL/SQL')
 check('D26: without tools.sonar.projectKey the block asks SonarQube nothing and runs no scanner, and SCA (SonarQube) is NOT_REQUIRED',
