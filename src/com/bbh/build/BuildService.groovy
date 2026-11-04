@@ -217,16 +217,16 @@ class BuildService implements Serializable {
             policy.missingCoverage(found.missing as String, reports)
             return
         }
+        if (tool == 'liquibase' && !CoverageReports.summary(reports).counted) {
+            script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
+            return
+        }
         applyCoverage(tool, reports, minLine)
     }
 
     void applyCoverage(String tool, List reports, int minLine) {
         Map own = CoverageReports.summary(reports)
         if (!own.counted) {
-            if (tool == 'liquibase') {
-                script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
-                return
-            }
             policy.missingCoverage(CoverageReports.noLines(reports), reports)
             return
         }
@@ -318,7 +318,7 @@ class BuildService implements Serializable {
     }
 
     void reportArtifactBuild() {
-        if (BuildUtils.databaseService(state.cfg)) {
+        if (BuildUtils.databaseBlock(state.cfg)) {
             reportDatabasePackage()
             return
         }
@@ -367,7 +367,7 @@ class BuildService implements Serializable {
     }
 
     void reportUnitTests() {
-        if (BuildUtils.databaseService(state.cfg)) {
+        if (BuildUtils.databaseBlock(state.cfg)) {
             reportDatabaseTests()
             return
         }
@@ -488,7 +488,7 @@ class BuildService implements Serializable {
 
         List<Map> jobs = normalizeTestJobs(testCfg)
         if (!jobs) {
-            if (BuildUtils.databaseService(state.cfg) && testCfg?.required == null) {
+            if (BuildUtils.databaseBlock(state.cfg) && testCfg?.required == null) {
                 script.echo "[TEST] ${state.currentProjectName}: no ${label} jobs for a SQL and PL/SQL service - not required"
                 state.recordTestJobs(stageName, [[index: 1, name: 'Test not required', type: 'unknown', status: 'ALREADY IMPLEMENTED', url: '', durationMs: 0L, message: '']])
                 state.projectNotRequired()

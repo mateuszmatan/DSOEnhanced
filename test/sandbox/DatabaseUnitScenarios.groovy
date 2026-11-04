@@ -52,18 +52,23 @@ Closure writeTree = { File dir, Map tree ->
 
 Closure basics = {
     Closure utils = { -> harness.type('com.bbh.utils.BuildUtils') }
-    List serviceCases = [['liquibase', [buildTool: 'liquibase'], true], ['with blanks', [buildTool: ' liquibase '], true],
-                         ['gradle', [buildTool: 'gradle'], false], ['no buildTool', [buildTool: null], false], ['no cfg', null, false]]
-    List serviceWrong = mismatches(serviceCases) { List c -> harness.run { utils().databaseService(c[1] as Map) } }
-    check('BuildUtils.databaseService: buildTool liquibase, also with blanks, and nothing else', serviceWrong.isEmpty(), serviceWrong)
+    Map changelog = [database: [changelogFile: 'db/changelog-master.xml']]
+    List serviceCases = [['liquibase with a changelog', [buildTool: 'liquibase'] + changelog, true],
+                         ['blanks and capitals', [buildTool: ' Liquibase ', database: [changelogFile: ' db/changelog-master.xml ']], true],
+                         ['liquibase without a changelog', [buildTool: 'liquibase', database: [allowedTargets: ['rd-db.bbh.com']]], false],
+                         ['liquibase with a blank changelog', [buildTool: 'liquibase', database: [changelogFile: ' ']], false],
+                         ['liquibase without a database block', [buildTool: 'liquibase'], false], ['gradle with a changelog', [buildTool: 'gradle'] + changelog, false],
+                         ['no buildTool', [buildTool: null], false], ['no cfg', null, false]]
+    List serviceWrong = mismatches(serviceCases) { List c -> harness.run { utils().databaseBlock(c[1] as Map) } }
+    check('BuildUtils.databaseBlock: buildTool liquibase, also with blanks and capitals, with a database.changelogFile, and nothing else', serviceWrong.isEmpty(), serviceWrong)
 
     Map node = [build: [node: [enabled: true]]]
     List nodeFlags = harness.run {
-        [utils().nodeBuildEnabled(node + [buildTool: 'liquibase']), utils().nodeBuildNeeded(node + [buildTool: 'liquibase'], 'full', false),
-         utils().nodeBuildEnabled(node + [buildTool: 'gradle']), utils().nodeBuildNeeded(node + [buildTool: 'gradle'], 'full', false)]
+        [utils().nodeBuildEnabled(node + changelog + [buildTool: 'liquibase']), utils().nodeBuildNeeded(node + changelog + [buildTool: 'liquibase'], 'full', false),
+         utils().nodeBuildEnabled(node + [buildTool: 'liquibase']), utils().nodeBuildEnabled(node + [buildTool: 'gradle']), utils().nodeBuildNeeded(node + [buildTool: 'gradle'], 'full', false)]
     } as List
-    check('BuildUtils.nodeBuildEnabled and nodeBuildNeeded: a database service never builds Node.js, even with build.node.enabled',
-            nodeFlags == [false, false, true, true], nodeFlags)
+    check('BuildUtils.nodeBuildEnabled and nodeBuildNeeded: a service with a database block never builds Node.js, even with build.node.enabled; a Liquibase service without one does as on main',
+            nodeFlags == [false, false, true, true, true], nodeFlags)
 
     Map recorded = harness.run {
         def state = harness.type('com.bbh.core.PipelineState').newInstance()
@@ -134,7 +139,7 @@ Closure validation = {
     String sha = 'a' * 64
     List<List> cases = [
             ['the layout a settings', { Map cfg, Map db -> }, 'full', allowAll, []],
-            ['V1 no changelog', { Map cfg, Map db -> db.remove('changelogFile') }, 'full', allowAll, ['database.changelogFile is required for buildTool liquibase']],
+            ['V1 no changelog', { Map cfg, Map db -> db.remove('changelogFile') }, 'full', allowAll, ['database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only']],
             ['V2 a changelog with ..', { Map cfg, Map db -> db.changelogFile = 'db/../changelog.xml' }, 'full', allowAll,
              ['database.changelogFile db/../changelog.xml must be a relative path of letters, digits, ".", "_" and "-", separated by "/", without ".." and not starting with "/"']],
             ['V3 sourceDir outside', { Map cfg, Map db -> cfg.sourceDir = '../other' }, 'full', allowAll,
@@ -396,8 +401,8 @@ Closure settings = {
     Map minimal = harness.run { ds().resolve('svc', [buildTool: 'liquibase', database: [changelogFile: 'changelog.xml', searchPath: 'db']]) } as Map
     List summaries = harness.run { [ds().summary('orders-db', ds().resolve('orders-db', baseCfg())), ds().summary('svc', minimal)] } as List
     check('DatabaseSettings.summary: the M-DB-03 text with and without a package folder and targets',
-            summaries == ['[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes',
-                          '[DB] svc: SQL and PL/SQL service - changelog changelog.xml in db, package folder the whole search root, test database no, RD no, QC no'],
+            summaries == ['[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes',
+                          '[DB] svc: Liquibase service with a database block - changelog changelog.xml in db, package folder the whole search root, test database no, RD no, QC no'],
             summaries)
 
     File layout = new File(tmp, 'layout-a')
@@ -880,7 +885,7 @@ Closure services = {
     }
     String filesStep = "sh [DB: check the files of orders-db] ${harness.run { ds().filesCheckScript(ds().resolve('orders-db', baseCfg())) }}"
     String order = '[DB] orders-db comes after api in the list of services: the database changes are then deployed after that application in RD and QC; list the SQL and PL/SQL service first'
-    String summary = '[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes'
+    String summary = '[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes'
     Closure stop = { int count -> "[DB] The SQL and PL/SQL settings in devsecops_config.yaml have ${count} ${count == 1 ? 'problem' : 'problems'}, listed above: fix them and run the build again".toString() }
     Map noJava = baseCfg()
     noJava.remove('javaPath')
@@ -891,7 +896,11 @@ Closure services = {
     List cases = [
             ['no database service', [api: [buildTool: 'gradle']], allowAll, 'full', false, present, [log: [], calls: [], failure: null]],
             ['a changelog in a Java service', [api: [buildTool: 'maven', database: [changelogFile: 'db/x.xml']]], allowAll, 'full', false, present,
-             [log: ['[DB] api: database.changelogFile is set, but buildTool is maven: the database settings are ignored; give the changelog its own service with buildTool liquibase'], calls: [], failure: null]],
+             [log: ['[DB] api: database.changelogFile is set, but buildTool is maven: the database block is ignored; give the changelog its own service with buildTool liquibase, or run Liquibase in this service with build.liquibase'], calls: [], failure: null]],
+            ['a Liquibase service without a database block', [db: [buildTool: 'liquibase', database: [:] + allowAll.database]], allowAll, 'full', false, present, [log: [], calls: [], failure: null]],
+            ['a database block without a changelog', [db: [buildTool: 'liquibase', database: [contexts: '!test'] + allowAll.database]], allowAll, 'full', false, present,
+             [log: ['[DB] db: database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only', "[error] ${stop(1)}".toString()],
+              calls: [], failure: stop(1)]],
             ['layout a after a Gradle service', [api: [buildTool: 'gradle'], 'orders-db': baseCfg()], allowAll, 'full', false, present,
              [log: [order, summary], calls: [filesStep], failure: null]],
             ['the extended pipeline checks no files', ['orders-db': baseCfg(), api: [buildTool: 'gradle']], allowAll, 'extended', false, '', [log: [summary], calls: [], failure: null]],
@@ -903,15 +912,15 @@ Closure services = {
             ['a Global Settings problem', ['orders-db': baseCfg()], allowAll + [tools: [liquibase: [home: 'opt/lb']]], 'full', false, present,
              [log: ['[DB] Global Settings: defaults.tools.liquibase.home opt/lb must be an absolute path', "[error] ${stop(1)}".toString()], calls: [filesStep], failure: stop(1)]],
             ['a Windows agent', ['orders-db': baseCfg()], allowAll, 'full', true, present,
-             [log: ['[error] [DB] orders-db: SQL and PL/SQL services (buildTool liquibase) run on Linux or macOS agents only: choose a Linux agent in AGENT_NAME'], calls: [],
-              failure: '[DB] orders-db: SQL and PL/SQL services (buildTool liquibase) run on Linux or macOS agents only: choose a Linux agent in AGENT_NAME']],
+             [log: ['[error] [DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME'], calls: [],
+              failure: '[DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME']],
             ['allowedTargets of the service', ['orders-db': ownTargets], allowAll, 'full', false, present,
              [log: ['[DB] orders-db: database.allowedTargets is a Global Setting (defaults.database.allowedTargets in the DevSecOps portal); the value set for the service is ignored', summary],
               calls: [filesStep], failure: null]],
             ['allowedTargets merged from the Global Settings', ['orders-db': sameTargets], allowAll, 'full', false, present, [log: [summary], calls: [filesStep], failure: null]]
     ]
     List wrong = mismatches(cases) { List c -> validate(c[1] as Map, c[2] as Map, c[3] as String, c[4] as boolean, c[5] as String) }
-    check('DatabaseBuild.validateServices: nothing without a database service, M-DB-06, the files step, V42 and V43, M-DB-02 with its count, the global problems, M-DB-01, M-DB-05, M-DB-09 and M-DB-03',
+    check('DatabaseBuild.validateServices: nothing without a database service or for a Liquibase service without a database block, M-DB-06, V1 for a database block without a changelog, the files step, V42 and V43, M-DB-02 with its count, the global problems, M-DB-01, M-DB-05, M-DB-09 and M-DB-03',
             wrong.isEmpty(), wrong)
 }
 services()

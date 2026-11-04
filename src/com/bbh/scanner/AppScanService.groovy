@@ -101,8 +101,8 @@ echo "[INFO] AppScan CLI login succeeded."
 
     void generateIrx(int timeoutMin = 120) {
         if (!script.env.APPSCAN_SOURCE_DIR_RESOLVED?.trim()) script.error "APPSCAN_SOURCE_DIR_RESOLVED not set"
-        boolean database = BuildUtils.databaseService(state.cfg)
-        boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true) && !database
+        boolean database = BuildUtils.databaseBlock(state.cfg)
+        boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true)
         boolean sourceCodeOnly = BuildUtils.booleanValue(state.cfg.asoc?.sourceCodeOnly, false) || database
         boolean useAppScanConfig = BuildUtils.booleanValue(state.cfg.asoc?.useAppScanConfig, false)
         String scoOption = sourceCodeOnly ? '-sco' : ''
@@ -415,7 +415,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             state.vulnCounts.sast = counts
             state.recordVulns('sast', counts)
         } else {
-            if (BuildUtils.databaseService(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
+            if (BuildUtils.databaseBlock(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
         }
     }
@@ -428,7 +428,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void dastScan() {
         def cfgDast = state.cfg.dast ?: [:]
-        if (BuildUtils.databaseService(state.cfg) && !(cfgDast.enabled as boolean)) {
+        if (BuildUtils.databaseBlock(state.cfg) && !(cfgDast.enabled as boolean)) {
             script.echo "[DAST] ${state.currentProjectName}: a SQL and PL/SQL service has no web application to scan - DAST is not required"
             state.recordScan('dast', 'NOT_REQUIRED')
             state.recordVulns('dast', [critical: 0, high: 0, medium: 0, low: 0])

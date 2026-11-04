@@ -31,7 +31,7 @@ def nodeBuild(def api) {
 def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.databaseBuild()
             } else {
                 api.unitTests()
@@ -44,7 +44,7 @@ def unitTests(def api) {
 def buildArtifacts(def api) {
     api.runStage('Build artifact') {
         api.eachProject { String projectName ->
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.notRequired("[BUILD] ${projectName}: a SQL and PL/SQL service has no build artifact for Nexus IQ - not required")
             } else {
                 if (api.nodeBuildNeeded()) {
@@ -125,7 +125,7 @@ def nexusSnapshotDelivery(def api) {
         api.eachProject { String projectName ->
             api.reportArtifactBuild()
             api.reportUnitTests()
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.databaseDelivery('snapshot')
             } else if (!api.nexusDeliveryEnabled()) {
                 api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
@@ -142,7 +142,7 @@ def nexusSnapshotDelivery(def api) {
 def lowerRegionDeployment(def api, String vmMode = 'ssh') {
     api.runStage('Lower test region deployment') {
         api.eachProject {
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.databaseDeploy('rd')
             } else if (api.deployTarget() == 'openshift') {
                 api.checkDeploymentRepo()
@@ -194,7 +194,7 @@ def dast(def api, Map options = [:]) {
 def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.databaseDelivery('release')
             } else {
                 if (options.nodeBuild && api.nodeBuildEnabled()) {
@@ -209,7 +209,7 @@ def nexusReleaseDelivery(def api, Map options = [:]) {
 def higherEnvironmentDeployment(def api) {
     api.runStage('Higher test environment deployment') {
         api.eachProject {
-            if (api.databaseService()) {
+            if (api.databaseBlock()) {
                 api.databaseDeploy('qc')
             } else if (api.deployTarget() == 'openshift') {
                 api.deployOpenshift('qc')

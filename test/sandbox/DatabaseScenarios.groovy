@@ -416,7 +416,7 @@ Closure focused = { String name, Map spec, String expected ->
 focused('D10 Nexus IQ GoldenFix with only a database service', nexusiq + [layout: 'a', failedStage: MONITOR],
         '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing: orders-db is SQL and PL/SQL service(s), which have no dependency components; run it for a service with a Nexus IQ application')
 focused('D11 a Windows agent', plsql + [failedStage: MONITOR, env: [DSO_PORTAL_AGENT: 'portal-agent'], prepare: { FakeScript j -> j.steps['isUnix'] = { a -> j.env.NODE_NAME == 'portal-agent' } }],
-        '[DB] orders-db: SQL and PL/SQL services (buildTool liquibase) run on Linux or macOS agents only: choose a Linux agent in AGENT_NAME')
+        '[DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME')
 focused('D13 the database service after the Java service', security + [layout: 'b', configure: { Map p -> p.put('orders-db', p.remove('orders-db')) }],
         '[DB] orders-db comes after orders-app in the list of services: the database changes are then deployed after that application in RD and QC; list the SQL and PL/SQL service first')
 

@@ -44,7 +44,7 @@ class CoverageReports implements Serializable {
         Map all = projects ?: [:]
         Map mine = CoverageReports.folders(all[project] as Map, tool)
         Map theirs = [:]
-        all.each { name, cfg -> if (name != project && !BuildUtils.databaseService(cfg as Map)) theirs[name] = CoverageReports.folders(cfg as Map, tool) }
+        all.each { name, cfg -> if (name != project && !BuildUtils.databaseBlock(cfg as Map)) theirs[name] = CoverageReports.folders(cfg as Map, tool) }
         List folders = ((theirs.values() as List) + (roots ? [] : [mine])).collectMany { (it as Map).keySet() as List }.unique()
         List parts = (roots ?: (mine.keySet() as List)).collect { def root ->
             Map shared = [:]
@@ -55,7 +55,7 @@ class CoverageReports implements Serializable {
         Map shared = [:]
         parts.each { (it.shared as Map).each { name, kinds -> shared[name] = (((shared[name] ?: []) as List) + (kinds as List)).unique() } }
         Map listed = [:]
-        all.each { name, cfg -> if (name != project && !BuildUtils.databaseService(cfg as Map) && CoverageReports.paths((cfg as Map)?.coverage?.reportPath)) listed[name] = CoverageReports.paths((cfg as Map).coverage.reportPath) }
+        all.each { name, cfg -> if (name != project && !BuildUtils.databaseBlock(cfg as Map) && CoverageReports.paths((cfg as Map)?.coverage?.reportPath)) listed[name] = CoverageReports.paths((cfg as Map).coverage.reportPath) }
         List places = parts.collect { it.root }
         return [parts: parts, roots: places, shared: shared, listed: listed, excluded: parts.collectMany { it.excluded as List }.unique() - places]
     }

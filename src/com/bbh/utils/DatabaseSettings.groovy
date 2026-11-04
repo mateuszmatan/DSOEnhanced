@@ -72,10 +72,21 @@ class DatabaseSettings implements Serializable {
     }
 
     @NonCPS
-    static boolean concerns(Map projectsAllCfg) {
+    static boolean concerns(Map projectsAllCfg, Map cfgDefaults) {
         return (projectsAllCfg ?: [:]).values().any { def cfg ->
-            BuildUtils.databaseService(DatabaseSettings.map(cfg)) || DatabaseSettings.str(DatabaseSettings.map(DatabaseSettings.map(cfg).database).changelogFile)
+            DatabaseSettings.str(DatabaseSettings.map(DatabaseSettings.map(cfg).database).changelogFile) || DatabaseSettings.unfinished(DatabaseSettings.map(cfg), cfgDefaults)
         }
+    }
+
+    @NonCPS
+    static boolean unfinished(Map cfg, Map cfgDefaults) {
+        Map db = map(cfg?.database)
+        return str(cfg?.buildTool).equalsIgnoreCase('liquibase') && !str(db.changelogFile) && db && db != map(map(cfgDefaults).database)
+    }
+
+    @NonCPS
+    static String changelogRequired() {
+        return 'database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only'
     }
 
     @NonCPS
@@ -237,7 +248,7 @@ class DatabaseSettings implements Serializable {
         Map s = resolve(name, cfg)
         String changelog = s.changelog as String
         if (!changelog) {
-            add(found, 1, 'database.changelogFile is required for buildTool liquibase')
+            add(found, 1, changelogRequired())
         } else {
             if (!isPath(changelog)) {
                 add(found, 2, "database.changelogFile ${changelog} must be a relative path of letters, digits, \".\", \"_\" and \"-\", separated by \"/\", without \"..\" and not starting with \"/\"".toString())
@@ -737,6 +748,6 @@ class DatabaseSettings implements Serializable {
     static String summary(String name, Map s) {
         Map targets = (s.targets ?: [:]) as Map
         Closure yes = { String t -> targets[t] ? 'yes' : 'no' }
-        return "[DB] ${name}: SQL and PL/SQL service - changelog ${s.changelog} in ${s.searchRoot}, package folder ${s.packageFolder ?: 'the whole search root'}, test database ${yes('test')}, RD ${yes('rd')}, QC ${yes('qc')}".toString()
+        return "[DB] ${name}: Liquibase service with a database block - changelog ${s.changelog} in ${s.searchRoot}, package folder ${s.packageFolder ?: 'the whole search root'}, test database ${yes('test')}, RD ${yes('rd')}, QC ${yes('qc')}".toString()
     }
 }

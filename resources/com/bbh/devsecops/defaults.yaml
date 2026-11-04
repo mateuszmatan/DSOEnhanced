@@ -18,7 +18,7 @@ defaults:
       home:        ""                # folder of the liquibase launcher on the agent, e.g. /opt/liquibase/4.33.0
       url:         ""                # or a Nexus URL of liquibase-<version>.tar.gz, with sha256
       sha256:      ""
-      javaVersion: 17                # JDK for buildToolAutoSetup of SQL and PL/SQL services
+      javaVersion: 17                # JDK for buildToolAutoSetup of Liquibase services with a database block
     oracleJdbc:
       path:   ""                     # ojdbc11 jar; needed by Liquibase 5 and by a trimmed Liquibase 4.33
       url:    ""
@@ -87,7 +87,7 @@ defaults:
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default
 
-  database:                        # SQL and PL/SQL services (buildTool: liquibase)
+  database:                        # database block of Liquibase services (buildTool: liquibase)
     allowedTargets: []             # databases the library may deploy to: "host" or "host/SERVICE", "*" allowed,
                                    # e.g. "rd-db*.bbh.com", "qc-db.bbh.com/ORDERS_QC"; empty = no database deployment
     package:

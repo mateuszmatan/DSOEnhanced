@@ -9,6 +9,7 @@ import com.bbh.utils.BuildUtils
 import com.bbh.utils.DatabaseSettings
 import com.bbh.utils.FlutterSonarReports
 import com.bbh.utils.LiquibaseOutput
+import com.cloudbees.groovy.cps.NonCPS
 
 class SonarService implements Serializable {
 
@@ -44,12 +45,10 @@ class SonarService implements Serializable {
         ].findAll { it }
         def scaFailReason = null
         try {
-            if (BuildUtils.databaseService(state.cfg)) {
-                if (!scanDatabase(sonarCfg, sonarArgs, installationName as String, credentialsId as String)) return
-            } else if (tool == 'flutter') {
+            if (tool == 'flutter') {
                 scanFlutter(sonarCfg, sonarArgs, installationName)
             } else if (tool == 'liquibase') {
-                scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, projectKey, fullBadges)
+                if (!scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, projectKey, fullBadges)) return
             } else {
                 Map runCfg = effectiveSonarCfg(sonarCfg as Map, tool as String)
                 if (credentialsId) {
@@ -87,72 +86,6 @@ class SonarService implements Serializable {
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
-    }
-
-    private boolean scanDatabase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId) {
-        String name = state.currentProjectName
-        state.vulnCounts.sca = [critical: 0, high: 0, medium: 0, low: 0]
-        String scope = "[SONAR] ${name}: "
-        if (!sonarCfg.projectKey) {
-            sonarNotRequired("${scope}no SonarQube project for this service (tools.sonar.projectKey) - SonarQube is not required for SQL and PL/SQL")
-            return false
-        }
-        LiquibaseRunner runner = new LiquibaseRunner(script, state, os, build)
-        String dir = runner.workDir(name)
-        try {
-            String languages = "${dir}/sonar-languages.txt"
-            int status = sonarEnv(credentialsId, installationName) {
-                script.sh(returnStatus: true, label: 'DB: ask SonarQube for its PL/SQL analyzer',
-                        script: LiquibaseOutput.sonarLanguagesScript((sonarCfg.serverUrl ?: '').toString().trim() ?: 'https://tools.bbh.com/sonar', dir))
-            } as int
-            String analyzer = status == 0 && script.fileExists(languages) ? LiquibaseOutput.sonarLanguages(script.readFile(languages) as String).analyzer : ''
-            if (!analyzer) {
-                sonarNotRequired(status != 0
-                        ? "${scope}the SonarQube server did not list its languages - SonarQube is not required for SQL and PL/SQL; set tools.sonar.authToken when the server needs a login"
-                        : "${scope}the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL")
-                return false
-            }
-            script.echo "${scope}the SonarQube server analyses PL/SQL with ${analyzer == 'plsql' ? 'SonarSource PL/SQL' : 'the ZPA plugin'} (language ${analyzer})"
-            Map s = DatabaseSettings.resolve(name, state.cfg)
-            String root = s.searchRoot
-            String testPath = ((((s.profiles as Map).test as Map).utplsql as Map).testPath ?: '') as String
-            List args = sonarArgs + ["-Dsonar.sources=${sonarCfg.sources ?: DatabaseSettings.join(root, s.packageFolder as String)}",
-                                     "-Dsonar.${analyzer}.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy"]
-            if (testPath) args += ["-Dsonar.tests=${DatabaseSettings.join(root, testPath)}", "-Dsonar.exclusions=${DatabaseSettings.join(root, testPath)}/**"]
-            String out = ".dso-db/${name}"
-            if (script.fileExists("${out}/utplsql-coverage-sonar.xml")) args << "-Dsonar.coverageReportPaths=${out}/utplsql-coverage-sonar.xml"
-            if (script.fileExists("${out}/utplsql-sonar-tests.xml")) args << "-Dsonar.testExecutionReportPaths=${out}/utplsql-sonar-tests.xml"
-            String jdk = runner.javaHome(name, state.cfg)
-            sonarEnv(credentialsId, installationName) {
-                script.withEnv(runner.baseEnv(jdk)) {
-                    runScanner(sonarCfg, args.collect { DatabaseSettings.quote(it as String) })
-                }
-            }
-            return true
-        } finally {
-            script.dir(dir) {
-                script.deleteDir()
-            }
-        }
-    }
-
-    private def sonarEnv(String credentialsId, String installationName, Closure body) {
-        if (credentialsId) {
-            return script.withSonarQubeEnv(credentialsId: credentialsId, installationName: installationName) {
-                body()
-            }
-        }
-        return script.withSonarQubeEnv(installationName) {
-            body()
-        }
-    }
-
-    private void sonarNotRequired(String message) {
-        state.sonarResults['status'] = 'NOT_REQUIRED'
-        state.recordScan('sonar', 'NOT_REQUIRED')
-        state.projectNotRequired()
-        if (state.policyStatus['sonar'] == 'SKIP') state.policyStatus['sonar'] = 'NOT_REQUIRED'
-        script.echo message
     }
 
     private String resolveBadgeToken(Map sonarCfg) {
@@ -319,12 +252,22 @@ rm -f "\${_TMP}"
         return copy
     }
 
-    private void scanLiquibase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
+    private boolean scanLiquibase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
         Map liqCfg = (sonarCfg.liquibase ?: [:]) as Map
+        boolean block = BuildUtils.databaseBlock(state.cfg)
+        Map s = block ? DatabaseSettings.resolve(state.currentProjectName, state.cfg) : [:]
+        if (block) {
+            state.vulnCounts.sca = [critical: 0, high: 0, medium: 0, low: 0]
+            if (!projectKey) {
+                databaseNotRequired('no SonarQube project for this service (tools.sonar.projectKey) - SonarQube is not required for SQL and PL/SQL')
+                return false
+            }
+        }
         List extra = BuildUtils.normalizeTokens(liqCfg.commands ?: liqCfg.tasks).findAll { !(it in ['sonar', 'sonarqube', 'sonar:sonar']) } + BuildUtils.normalizeTokens(liqCfg.flags)
         List args = [] + sonarArgs + extra
         if (!args.any { (it as String).startsWith('-Dsonar.sources=') }) {
-            def rawSources = liqCfg.sources ?: sonarCfg.sources ?: liqCfg.dir ?: state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.'
+            def rawSources = liqCfg.sources ?: sonarCfg.sources ?: (block ? DatabaseSettings.join(s.searchRoot as String, s.packageFolder as String) : '') ?:
+                    liqCfg.dir ?: state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.'
             String sources = (rawSources instanceof Collection ? (rawSources as Collection).join(',') : rawSources) as String
             args.add("-Dsonar.sources=${sources}".toString())
         }
@@ -336,9 +279,14 @@ rm -f "\${_TMP}"
             String exc = (liqCfg.exclusions instanceof Collection ? (liqCfg.exclusions as Collection).join(',') : liqCfg.exclusions) as String
             args.add("-Dsonar.exclusions=${exc}".toString())
         }
+        boolean scanned = true
         Closure invoke = {
-            runScanner(sonarCfg, args)
-            if (addBadges) {
+            if (block) {
+                scanned = scanDatabase(sonarCfg, args, s, sonarUrl)
+            } else {
+                runScanner(sonarCfg, args)
+            }
+            if (scanned && addBadges) {
                 script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
             }
         }
@@ -364,5 +312,58 @@ rm -f "\${_TMP}"
                 runBody()
             }
         }
+        return scanned
+    }
+
+    private boolean scanDatabase(Map sonarCfg, List args, Map s, String sonarUrl) {
+        String name = state.currentProjectName
+        LiquibaseRunner runner = new LiquibaseRunner(script, state, os, build)
+        String dir = runner.workDir(name)
+        try {
+            String languages = "${dir}/sonar-languages.txt"
+            int status = script.sh(returnStatus: true, label: 'DB: ask SonarQube for its PL/SQL analyzer', script: LiquibaseOutput.sonarLanguagesScript(sonarUrl, dir)) as int
+            String analyzer = status == 0 && script.fileExists(languages) ? LiquibaseOutput.sonarLanguages(script.readFile(languages) as String).analyzer : ''
+            if (!analyzer) {
+                databaseNotRequired(status != 0
+                        ? 'the SonarQube server did not list its languages - SonarQube is not required for SQL and PL/SQL; set tools.sonar.authToken when the server needs a login'
+                        : 'the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL')
+                return false
+            }
+            script.echo "[SONAR] ${name}: the SonarQube server analyses PL/SQL with ${analyzer == 'plsql' ? 'SonarSource PL/SQL' : 'the ZPA plugin'} (language ${analyzer})"
+            String testPath = ((((s.profiles as Map).test as Map).utplsql as Map).testPath ?: '') as String
+            String tests = testPath ? DatabaseSettings.join(s.searchRoot as String, testPath) : ''
+            String out = ".dso-db/${name}"
+            Map wanted = [("-Dsonar.${analyzer}.file.suffixes=".toString()): 'sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy',
+                          '-Dsonar.tests=': tests, '-Dsonar.exclusions=': tests ? "${tests}/**".toString() : '',
+                          '-Dsonar.coverageReportPaths=': script.fileExists("${out}/utplsql-coverage-sonar.xml") ? "${out}/utplsql-coverage-sonar.xml".toString() : '',
+                          '-Dsonar.testExecutionReportPaths=': script.fileExists("${out}/utplsql-sonar-tests.xml") ? "${out}/utplsql-sonar-tests.xml".toString() : '']
+            List run = args + missingFlags(args, wanted)
+            script.withEnv(runner.baseEnv(runner.javaHome(name, state.cfg))) {
+                runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })
+            }
+            return true
+        } finally {
+            script.dir(dir) {
+                script.deleteDir()
+            }
+        }
+    }
+
+    @NonCPS
+    private static List missingFlags(List args, Map wanted) {
+        List flags = []
+        for (def entry : wanted.entrySet()) {
+            String prefix = entry.key as String
+            if (entry.value && !args.any { (it as String).startsWith(prefix) }) flags << "${prefix}${entry.value}".toString()
+        }
+        return flags
+    }
+
+    private void databaseNotRequired(String reason) {
+        state.sonarResults['status'] = 'NOT_REQUIRED'
+        state.recordScan('sonar', 'NOT_REQUIRED')
+        state.projectNotRequired()
+        if (state.policyStatus['sonar'] == 'SKIP') state.policyStatus['sonar'] = 'NOT_REQUIRED'
+        script.echo "[SONAR] ${state.currentProjectName}: ${reason}"
     }
 }

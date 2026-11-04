@@ -20,7 +20,7 @@ class NexusIqService implements Serializable {
     }
 
     void scan() {
-        if (BuildUtils.databaseService(state.cfg) && !ownScanPatterns()) {
+        if (BuildUtils.databaseBlock(state.cfg) && !ownScanPatterns()) {
             script.echo "[DEP-SCAN] ${state.currentProjectName}: SQL and PL/SQL have no dependency components - Nexus IQ is not required"
             state.recordScan('niq', 'NOT_REQUIRED')
             state.projectNotRequired()

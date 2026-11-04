@@ -145,7 +145,7 @@ class ConfigLoader implements Serializable {
         }
 
         script.env.APPSCAN_KEY_ID = appScanKeyId(state.currentProjectName)
-        List databases = (projectNames as List).findAll { BuildUtils.databaseService(state.projectsAllCfg[it] as Map) }
+        List databases = (projectNames as List).findAll { BuildUtils.databaseBlock(state.projectsAllCfg[it] as Map) }
         if (variant == 'nexusiq' && databases && databases.size() == (projectNames as List).size()) {
             script.error "[INIT] The Nexus IQ GoldenFix pipeline would scan nothing: ${databases.join(', ')} ${databases.size() == 1 ? 'is' : 'are'} SQL and PL/SQL service(s), which have no dependency components; run it for a service with a Nexus IQ application"
         }
@@ -196,7 +196,7 @@ class ConfigLoader implements Serializable {
     @NonCPS
     private List withoutNexusIqScan(List names) {
         return names.findAll { name ->
-            if (BuildUtils.databaseService(state.projectsAllCfg[name] as Map)) return false
+            if (BuildUtils.databaseBlock(state.projectsAllCfg[name] as Map)) return false
             Map niq = (state.projectsAllCfg[name]?.tools?.nexusIq ?: [:]) as Map
             def app = niq.application
             Map apps = app instanceof Map ? app as Map : (app ? [(app): niq] : [:])

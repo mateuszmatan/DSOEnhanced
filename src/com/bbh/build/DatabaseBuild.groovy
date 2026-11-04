@@ -31,9 +31,9 @@ class DatabaseBuild implements Serializable {
 
     void validateServices(String variant) {
         Map all = (state.projectsAllCfg ?: [:]) as Map
-        if (!DatabaseSettings.concerns(all)) return
+        if (!DatabaseSettings.concerns(all, state.cfgDefaults)) return
         List names = all.keySet().collect { it as String }
-        List databases = names.findAll { BuildUtils.databaseService(all[it] as Map) }
+        List databases = names.findAll { BuildUtils.databaseBlock(all[it] as Map) }
         int count = 0
         if (databases) {
             List global = DatabaseSettings.globalProblems(state.cfgDefaults)
@@ -47,15 +47,18 @@ class DatabaseBuild implements Serializable {
         for (String name : names) {
             Map cfg = (all[name] ?: [:]) as Map
             String tool = DatabaseSettings.str(cfg.buildTool)
-            if (!BuildUtils.databaseService(cfg)) {
-                if (DatabaseSettings.str(DatabaseSettings.map(cfg.database).changelogFile)) {
-                    script.echo "[DB] ${name}: database.changelogFile is set, but buildTool is ${tool}: the database settings are ignored; give the changelog its own service with buildTool liquibase"
+            if (!BuildUtils.databaseBlock(cfg)) {
+                if (DatabaseSettings.unfinished(cfg, state.cfgDefaults)) {
+                    script.echo "[DB] ${name}: ${DatabaseSettings.changelogRequired()}"
+                    count++
+                } else if (DatabaseSettings.str(DatabaseSettings.map(cfg.database).changelogFile)) {
+                    script.echo "[DB] ${name}: database.changelogFile is set, but buildTool is ${tool}: the database block is ignored; give the changelog its own service with buildTool liquibase, or run Liquibase in this service with build.liquibase"
                 }
                 if (!java && tool in ['gradle', 'maven', 'flutter']) java = name
                 continue
             }
             if (os.isWindows()) {
-                script.error "[DB] ${name}: SQL and PL/SQL services (buildTool liquibase) run on Linux or macOS agents only: choose a Linux agent in AGENT_NAME"
+                script.error "[DB] ${name}: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME"
             }
             List problems = DatabaseSettings.problems(name, cfg, state.cfgDefaults, variant)
             def ownTargets = DatabaseSettings.map(cfg.database).allowedTargets
