@@ -17,7 +17,8 @@ class PortalReportService implements Serializable {
 
     void send(String pipelineType = '') {
         String portalUrl = resolvePortalUrl()
-        if (!portalUrl) return
+        String pipelineKey = resolvePipelineKey()
+        if (!portalUrl || !pipelineKey) return
 
         String reportPath = 'report/pipeline-report.html'
         String reportHtml = ''

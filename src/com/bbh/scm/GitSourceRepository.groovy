@@ -192,7 +192,7 @@ rm -f '${q(dir)}.push.log'
 
     @NonCPS
     static String normalizeBranch(String branch) {
-        return (branch ?: '').trim().replaceFirst('^(refs/remotes/origin/|refs/heads/|origin/)', '')
+        return BuildUtils.normalizeBranch(branch)
     }
 
     @NonCPS

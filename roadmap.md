@@ -155,6 +155,30 @@ Library pull request #6 and portal pull request #4.
 | **Automated report transmission** | `PortalReportService` transmits the build status, execution duration, git commit, branch, outcome counters (passed, warned, failed, blocked, skipped) and the full content of `report/pipeline-report.html` to `${DSO_PORTAL_URL}/api/dso/reports` at the conclusion of each pipeline run. |
 | **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
 | **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
+
+## 17. Bitbucket PR Decoration and Shift-Left Feedback (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Consolidated Static Security PR** | Static analysis (Nexus IQ GoldenFix, AppScan SAST, SonarQube) consolidates all findings and remediation changes into a single Bitbucket Pull Request. GoldenFix supplies safe manifest upgrades on branch `GoldenFix-YYYYMMDDHHMM`. AppScan SAST findings (skipping `Noise`) and SonarQube quality and security findings are added as inline line comments on the exact source file and line. |
+| **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
+| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with DevSecOps Management Portal via `/api/dso/bitbucket/pull-requests/decorate`. |
+
+## 18. SonarQube Default Properties, Heuristic Module Discovery, and Branch Pinning (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Default Configuration Synthesis** | When `sonar-project.properties` is omitted, `SonarService` synthesizes a comprehensive default configuration with standard BBH settings (`sonar.java.binaries=target/classes`, `sonar.java.coveragePlugin=jacoco`, `sonar.language=java`, `sonar.jacoco.reportPaths=target/jacoco.exec`, `sonar.junit.reportPaths=target/surefire-reports`, `sonar.sourceEncoding=UTF-8`, `sonar.dynamicAnalysis=reuseReports`). |
+| **Heuristic Source and Module Detection** | Automatically detects project keys (`com.bbh:<projectKey>`), multi-module Maven submodules (`pom.xml`), Gradle submodules (`settings.gradle` / `settings.gradle.kts`), and multi-language source trees (Kotlin, Python, Dart/Flutter, Liquibase SQL) without manual pipeline configuration flags. |
+| **Branch Pinning** | Guarantees that SonarQube scans the active branch evaluated by the DevSecOps pipeline (`sonar.branch.name=${branch}`) rather than defaulting to `master` or `main`. If `sonar-project.properties` already exists in the repository, `sonar.branch.name` is appended if missing. |
+
+## 19. Repo Auto-Discovery / Smart Auto-Resolve and SAST Credential Isolation (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Pipeline-Level Auto-Resolve** | `RepoStackAutoResolver` auto-resolves unspecified pipeline settings directly during pipeline execution when `autoresolve parameters: true` (default). Inspects workspace files to detect build tools (Maven, Gradle, Liquibase, Flutter, Python/pip), compiler versions, Node.js Stage 0 (`engines.node`, Cypress/Jest runners), OpenShift targets (`Dockerfile`, manifests), and Sonar parameters. Preserves full backward compatibility with explicitly provided YAML/Portal configurations. |
+| **SAST & DAST Credential Isolation** | `AppScanService` isolates SAST credentials (`sast.keyId`/`asoc.keyId`, `sast.token`/`asoc.token`) from DAST credentials (`dast.keyId`, `dast.token`), ensuring SAST REST authentication never attempts or reports DAST credential authentication. |
+
 ---
 
 ## Known limitations

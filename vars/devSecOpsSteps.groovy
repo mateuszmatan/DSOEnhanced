@@ -66,6 +66,7 @@ def staticAnalysis(def api) {
         dependenciesScan(api)
         sast(api)
         sonarQube(api)
+        api.publishStaticSecurityPullRequest()
         return
     }
     api.scanWhileSastRuns({ sastQueue(api) }, {
@@ -73,6 +74,7 @@ def staticAnalysis(def api) {
         dependenciesScan(api)
     }, { sastResults(api) })
     sonarQube(api)
+    api.publishStaticSecurityPullRequest()
 }
 
 def sast(def api) {
@@ -111,6 +113,9 @@ def sonarQube(def api) {
             api.codeQualityScan()
             api.sonarscanEnforcePolicy()
         }
+    }
+    if (!api.parallelScans()) {
+        api.publishStaticSecurityPullRequest()
     }
 }
 
@@ -178,6 +183,7 @@ def dast(def api, Map options = [:]) {
         api.eachProject {
             api.dastScan()
         }
+        api.publishDastPullRequest()
     }
 }
 
