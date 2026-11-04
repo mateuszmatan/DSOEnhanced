@@ -35,6 +35,62 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
         authorized(scmCfg) { Map auth -> comment(repo, pullRequest.id as String, text, auth) }
     }
 
+    void addLineComment(Map scmCfg, Map pullRequest, String path, int line, String text) {
+        Map repo = parse(scmCfg)
+        if (repo.error) script.error("[SECURITY-PR] ${repo.error}")
+        authorized(scmCfg) { Map auth -> lineComment(repo, pullRequest.id as String, path, line, text, auth) }
+    }
+
+    Map lineComment(Map repo, String id, String path, int line, String text, Map auth) {
+        boolean cloud = repo.type == 'cloud'
+        String api = cloud ? "${cloudPullRequests(repo)}/${id}/comments" : "${repo.apiBase}/pull-requests/${id}/comments"
+        Map payload = cloud
+                ? [content: [raw: truncate(text)], inline: [to: line, path: path]]
+                : [text: truncate(text), anchor: [line: line, lineType: 'ADDED', fileType: 'TO', path: path]]
+        Map response = rest.request('POST', api, payload, auth, "Bitbucket: line comment on pull request ${id}")
+        if ((response.status as int) >= 400) {
+            return comment(repo, id, "[${path}:${line}] ${text}".toString(), auth)
+        }
+        return response
+    }
+
+    Map findOpenPullRequest(Map scmCfg, String sourceBranch, String targetBranch) {
+        try {
+            Map repo = parse(scmCfg)
+            if (repo.error) return null
+            return authorized(scmCfg) { Map auth ->
+                if (repo.type == 'cloud') {
+                    String q = "source.branch.name=\"${sourceBranch}\"+AND+state=\"OPEN\""
+                    String url = "${cloudPullRequests(repo)}?q=${RestClient.urlEncode(q)}"
+                    try {
+                        def json = rest.getJson(url, auth, 'Bitbucket Cloud: find open pull request')
+                        def first = firstValue(json)
+                        if (first) {
+                            return [id: first.id?.toString(), url: (first.links?.html?.href ?: "${repo.webUrl}/pull-requests/${first.id}") as String]
+                        }
+                    } catch (Throwable ignored) {
+                        return null
+                    }
+                } else {
+                    String at = RestClient.urlEncode("refs/heads/${sourceBranch}".toString())
+                    String url = "${repo.apiBase}/pull-requests?state=OPEN&direction=OUTGOING&at=${at}"
+                    try {
+                        def json = rest.getJson(url, auth, 'Bitbucket: find open pull request')
+                        def first = firstValue(json)
+                        if (first) {
+                            return [id: first.id?.toString(), url: serverPullRequestUrl(first, repo)]
+                        }
+                    } catch (Throwable ignored) {
+                        return null
+                    }
+                }
+                return null
+            } as Map
+        } catch (Throwable ignored) {
+            return null
+        }
+    }
+
     def authorized(Map scmCfg, Closure body) {
         String credentialsId = (scmCfg.credentialsId ?: '') as String
         if (!credentialsId) script.error("[GOLDENFIX] scm.bitbucket.credentialsId is required to raise a pull request")

@@ -6,5 +6,9 @@ interface PullRequestPublisher extends Serializable {
 
     void addComment(Map scmCfg, Map pullRequest, String text)
 
+    void addLineComment(Map scmCfg, Map pullRequest, String path, int line, String text)
+
+    Map findOpenPullRequest(Map scmCfg, String sourceBranch, String targetBranch)
+
     Map repositoryInfo(Map scmCfg)
 }

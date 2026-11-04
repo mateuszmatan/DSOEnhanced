@@ -14,6 +14,7 @@ import com.bbh.deploy.VmDeployService
 import com.bbh.metrics.InfluxDbService
 import com.bbh.metrics.PipelineMetrics
 import com.bbh.remediation.GoldenFixService
+import com.bbh.remediation.SecurityPullRequestService
 import com.bbh.remediation.updater.GradleUpdater
 import com.bbh.remediation.updater.MavenPomUpdater
 import com.bbh.remediation.updater.NpmPackageJsonUpdater
@@ -43,6 +44,7 @@ import com.bbh.utils.BuildUtils
 @Field PortalReportService _portalReport
 @Field DatabaseBuild       _database
 @Field DatabaseDeployService _databaseDeploy
+@Field SecurityPullRequestService _securityPr
 @Field Map                 _pipelineConfig = [:]
 @Field String              _variant = 'full'
 @Field Boolean             _parallelScans = null
@@ -56,8 +58,11 @@ private void _setup() {
     _build     = new BuildService(this, _state, _os, _policy)
     _appScan   = new AppScanService(this, _state, _os, _policy, _build)
     _sonar     = new SonarService(this, _state, _os, _build)
+    BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
+    GitSourceRepository gitRepo = new GitSourceRepository(this)
+    _securityPr = new SecurityPullRequestService(this, _state, publisher, gitRepo)
     _nexusIq   = new NexusIqService(this, _state, _policy, new GoldenFixService(this, _state,
-            new NexusIqGoldenFixSource(this), new GitSourceRepository(this), new BitbucketPullRequestPublisher(this),
+            new NexusIqGoldenFixSource(this), gitRepo, publisher,
             [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater()],
             new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
     _vmDeploy  = new VmDeployService(this, _state, _os)
@@ -289,6 +294,8 @@ def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipel
 def generateHtmlReport()                       { _setup(); reportService().generate() }
 def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
 def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
+def publishStaticSecurityPullRequest()         { _setup(); _securityPr.publishStaticSecurityPullRequest() }
+def publishDastPullRequest()                   { _setup(); _securityPr.publishDastPullRequest() }
 
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }

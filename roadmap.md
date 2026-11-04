@@ -156,7 +156,83 @@ Library pull request #6 and portal pull request #4.
 | **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
 | **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
 
-## 17. SQL and PL/SQL with Liquibase (2026-11-04)
+## 17. Bitbucket PR Decoration and Shift-Left Feedback (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Consolidated Static Security PR** | Static analysis (Nexus IQ GoldenFix, AppScan SAST, SonarQube) consolidates all findings and remediation changes into a single Bitbucket Pull Request. GoldenFix supplies safe manifest upgrades on branch `GoldenFix-YYYYMMDDHHMM`. AppScan SAST findings (skipping `Noise`) and SonarQube quality and security findings are added as inline line comments on the exact source file and line. |
+| **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
+| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with DevSecOps Management Portal via `/api/dso/bitbucket/pull-requests/decorate`. |
+
+## 18. SonarQube Default Properties, Heuristic Module Discovery, and Branch Pinning (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Default Configuration Synthesis** | When `sonar-project.properties` is omitted, `SonarService` synthesizes a comprehensive default configuration with standard BBH settings (`sonar.java.binaries=target/classes`, `sonar.java.coveragePlugin=jacoco`, `sonar.language=java`, `sonar.jacoco.reportPaths=target/jacoco.exec`, `sonar.junit.reportPaths=target/surefire-reports`, `sonar.sourceEncoding=UTF-8`, `sonar.dynamicAnalysis=reuseReports`). |
+| **Heuristic Source and Module Detection** | Automatically detects project keys (`com.bbh:<projectKey>`), multi-module Maven submodules (`pom.xml`), Gradle submodules (`settings.gradle` / `settings.gradle.kts`), and multi-language source trees (Kotlin, Python, Dart/Flutter, Liquibase SQL) without manual pipeline configuration flags. |
+| **Branch Pinning** | Guarantees that SonarQube scans the active branch evaluated by the DevSecOps pipeline (`sonar.branch.name=${branch}`) rather than defaulting to `master` or `main`. If `sonar-project.properties` already exists in the repository, `sonar.branch.name` is appended if missing. |
+
+## 19. Repo Auto-Discovery / Smart Auto-Resolve and SAST Credential Isolation (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Pipeline-Level Auto-Resolve** | `RepoStackAutoResolver` auto-resolves unspecified pipeline settings directly during pipeline execution when `autoresolve parameters: true` (default). Inspects workspace files to detect build tools (Maven, Gradle, Liquibase, Flutter, Python/pip), compiler versions, Node.js Stage 0 (`engines.node`, Cypress/Jest runners), OpenShift targets (`Dockerfile`, manifests), and Sonar parameters. Preserves full backward compatibility with explicitly provided YAML/Portal configurations. |
+| **SAST & DAST Credential Isolation** | `AppScanService` isolates SAST credentials (`sast.keyId`/`asoc.keyId`, `sast.token`/`asoc.token`) from DAST credentials (`dast.keyId`, `dast.token`), ensuring SAST REST authentication never attempts or reports DAST credential authentication. |
+
+### Auto-Resolved Parameters Reference
+
+| Setting / Field | Target Key / Form Field | Workspace Indicator / Manifest | Resolved Default Value |
+|---|---|---|---|
+| Build Tool | `buildTool` | `pom.xml` present | `maven` |
+| Build Tool | `buildTool` | `build.gradle` or `build.gradle.kts` present | `gradle` |
+| Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, `liquibase.properties` | `liquibase` |
+| Build Tool | `buildTool` | `pubspec.yaml` present | `flutter` |
+| Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | `pip` |
+| Build Tool Auto Setup | `buildToolAutoSetup` | Set to `true` whenever Maven or Gradle is detected | `true` |
+| Java / JDK Version | `build.maven.javaVersion` / `build.gradle.javaVersion` | `<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, `<release>` in `pom.xml`, or `jvmToolchain`, `sourceCompatibility` in `build.gradle` | Matched JDK version (`17`, `21`, `11`, `8`) |
+| Gradle Version | `build.gradle.version` | `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` | Exact Gradle wrapper version (e.g. `8.7`, `7.6`) |
+| Node.js Stage 0 Enabled | `build.node.enabled` | `package.json` exists in root or standard frontend folders | `true` |
+| Node.js Directory | `build.node.dir` | Detected subfolder holding `package.json` | `.`, `frontend`, `web`, `client`, or `ui` |
+| Node.js Engine Version | `build.node.version` | `engines.node` in `package.json` (e.g. `>=20.0.0`) | Major Node version (e.g. `20`) |
+| Cypress Unit Testing | `tests.unitTests.node.cypress` | `cypress` in `devDependencies` / `dependencies` of `package.json` | `true` |
+| Jest Unit Testing | `tests.unitTests.node.jest` | `jest` in `devDependencies` / `dependencies` of `package.json` | `true` |
+| Liquibase Build Command | `build.liquibase.commands` | Detected `changelog.xml` / `liquibase.properties` | `['updateSQL']` |
+| Liquibase Test Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']` |
+| Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, `helm/` present | `openshift` (otherwise defaults to `vm`) |
+| Sonar Project Key | `tools.sonar.projectKey` | Empty or missing in config | `com.bbh:<projectName>` or `com.bbh:<appName>` |
+| Sonar Language | `sonar.language` | Source tree inspection (`pubspec.yaml` -> `dart`, `requirements.txt` -> `py`, Kotlin files -> `kotlin`, Liquibase -> `sql`, else `java`) | Detected language code |
+| Sonar Sources Directory | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python) |
+| Sonar Tests Directory | `sonar.tests` | Missing `sonar-project.properties` | `src/test/java` (Java), `src/test/kotlin` (Kotlin), `test` (Dart), `tests` (Python) |
+| Sonar Java Binaries | `sonar.java.binaries` | Maven: `target/classes`; Gradle: `target/classes,build/classes/java/main` | Standard build output directories |
+| Sonar Submodules | `sonar.modules` | Submodules in `pom.xml` (`<module>`) or `settings.gradle` (`include '...'`) | Comma-separated module names |
+| Sonar Branch Pinning | `sonar.branch.name` | Auto-detected from pipeline branch (`CHANGE_BRANCH`, `BRANCH_NAME`, `GIT_BRANCH`) | Active evaluated branch (never master) |
+
+### Configuration Instructions by Deployment Mode
+
+#### 1. Version with Portal (`main` branch)
+* **Portal Wizard (One-Click Inspect)**: Click **Scan & Auto-fill** in the DevSecOps Management Portal after entering the Bitbucket repository URL and branch. The REST API inspects the repository and pre-populates all form fields.
+* **Pipeline Auto-Resolve (`autoResolveParameters: true`)**: If any fields are left blank, `RepoStackAutoResolver` auto-resolves them during Jenkins execution. Explicit fields always override auto-resolution.
+* **Jenkinsfile**:
+  ```groovy
+  @Library('DSOEnhanced@main') _
+  devSecOpsPipeline(pipelineKey: '<key from DevSecOps portal>')
+  ```
+
+#### 2. Standalone Version without Portal (`DSOEnhancedWithoutPortal` & `DSOEnhancedAppScanApiOnly` branches)
+* **Default Mode**: `autoresolve parameters: true` is enabled by default in `devsecops_config.yaml`.
+* **Minimal Configuration**:
+  ```yaml
+  projects:
+    my-service:
+      appId: "APP-12345"
+      asoc:
+        keyId: "11111111-2222-3333-4444-555555555555"
+        token: "APPSCAN_CREDENTIALS_ID"
+  ```
+* **Disabling Auto-Resolve**: Set `autoresolve parameters: false` under the service to enforce strict manual configuration.
+* **REST API SAST (`DSOEnhancedAppScanApiOnly`)**: Authenticates via AppScan REST API v4, isolates SAST credentials (`sast.keyId`, `sast.token`), and ignores findings marked as `Noise`.
+
+## 20. SQL and PL/SQL with Liquibase (2026-11-04)
 
 | Change | Description |
 |--------|-------------|
