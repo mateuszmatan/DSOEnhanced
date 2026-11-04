@@ -267,7 +267,7 @@ rm -f "\${_TMP}"
         List args = [] + sonarArgs + extra
         if (!args.any { (it as String).startsWith('-Dsonar.sources=') }) {
             def rawSources = liqCfg.sources ?: sonarCfg.sources ?: (block ? DatabaseSettings.join(s.searchRoot as String, s.packageFolder as String) : '') ?:
-                    liqCfg.dir ?: state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.'
+                    (liqCfg.dir ? '.' : state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.')
             String sources = (rawSources instanceof Collection ? (rawSources as Collection).join(',') : rawSources) as String
             args.add("-Dsonar.sources=${sources}".toString())
         }

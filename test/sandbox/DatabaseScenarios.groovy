@@ -628,6 +628,13 @@ List<String> appSteps = (nextTo.shells as List<Map>).findAll { it.owner == 'orde
 check('N6: the Gradle service runs its Gradle build and then the additional Liquibase step of main',
         (logOf(nextTo) as OwnedList).ownedBy('orders-app').contains('[BUILD] Running additional Liquibase step for multi-module project')
                 && before(appSteps, { it.startsWith('Gradle: ') }, { it == 'Liquibase: updateSQL' }), appSteps)
+Map folder = verify(security + [name: 'N7 tools.sonar.liquibase.dir without sources', layout: 'a', configure: { Map p ->
+    noBlock(p)
+    ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [dir: 'db']
+}])
+Map inDir = (folder.shells as List<Map>).find { (it.script as String).contains("'sonar-scanner' ") }
+check('N7: with tools.sonar.liquibase.dir and no sources the scanner runs in that folder with -Dsonar.sources=., not the folder twice',
+        inDir?.cwd == 'db' && (inDir.script as String).tokenize(' ').contains('-Dsonar.sources=.'), inDir)
 focused('N8 a database block without a changelog', plsql + [failedStage: MONITOR, configure: dropTargets(['test', 'rd', 'qc', 'changelogFile'])],
         '[DB] orders-db: database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only')
 
