@@ -249,8 +249,8 @@ class DatabaseResponder {
         }
         String dir = quoted(text, /mkdir -p '([^']+)'/)
         put(j, "${dir}/utplsql-junit.xml", '<testsuites tests="2" skipped="0" error="0" failure="' + (spec.utFail ? 1 : 0) + '" name="" time=".031" >\n</testsuites>\n')
-        put(j, "${dir}/utplsql-cobertura.xml", '<?xml version="1.0"?>\n<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">\n' +
-                '<coverage line-rate="0.8823529411764705882352941176470588235294" branch-rate="0.0" lines-covered="150" lines-valid="170" branches-covered="0" branches-valid="0" complexity="0" version="1" timestamp="1793441702">\n</coverage>\n')
+        put(j, "${dir}/utplsql-cobertura.xml", (spec.cobertura ?: '<?xml version="1.0"?>\n<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">\n' +
+                '<coverage line-rate="0.8823529411764705882352941176470588235294" branch-rate="0.0" lines-covered="150" lines-valid="170" branches-covered="0" branches-valid="0" complexity="0" version="1" timestamp="1793441702">\n</coverage>\n') as String)
         put(j, "${dir}/utplsql-coverage-sonar.xml", '<coverage version="1">\n<file path="db/code/pkg_orders.pkb">\n<lineToCover lineNumber="3" covered="true"/>\n</file>\n</coverage>\n')
         put(j, "${dir}/utplsql-sonar-tests.xml", '<testExecutions version="1">\n<file path="db/test/ut_pkg_orders.pkb">\n<testCase name="total_without_orders" duration="12" >\n</testCase>\n</file>\n</testExecutions>\n')
         put(j, out, 'orders\n  Orders package\n    total_for returns 0 without orders [.012 sec]\n    add_order stores the order [.008 sec]\n \nFinished in .031 seconds\n' +

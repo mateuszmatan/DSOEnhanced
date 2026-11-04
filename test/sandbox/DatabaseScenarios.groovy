@@ -221,6 +221,17 @@ Closure errorOf = { Map r -> logOf(r).find { it.startsWith('[error] ') } ?: '' }
 
 Closure orders = { Closure change -> { Map p -> change((p['orders-db'] as Map).database as Map, p['orders-db'] as Map) } }
 Closure dropTargets = { List targets -> orders { Map db, Map svc -> targets.each { db.remove(it) } } }
+Closure sonarKey = { Map p -> (p['orders-db'] as Map).tools = [sonar: [projectKey: 'orders-db', serverUrl: 'https://tools.bbh.com/sonar', installationName: 'SonarQube', authToken: 'sonarqube-token']] }
+String changelogFlag = '--changelog-file=db/changelog-master.xml'
+Closure ownSteps = { Map svc ->
+    svc.build = [liquibase: [commands: ['updateSQL'], flags: [changelogFlag, '--url=offline:oracle']]]
+    svc.tests = [unitTests: [liquibase: [commands: ['validate'], flags: [changelogFlag]]]]
+}
+Closure noBlock = { Map p ->
+    (p['orders-db'] as Map).remove('database')
+    ownSteps(p['orders-db'] as Map)
+    sonarKey(p)
+}
 Map full = [var: 'devSecOpsPipeline', job: 'orders-db-devsecops-pipeline', buildNumber: 341, params: [DEPLOY_HIGHER_ENV: true]]
 Map security = [var: 'devSecOpsSecurityPipeline', job: 'orders-db-security-pipeline', buildNumber: 212, params: [RUN_EXTENDED_PIPELINE: false]]
 Map extended = [var: 'devSecOpsExtendedPipeline', job: 'orders-db-extended-pipeline', buildNumber: 118, params: [DEPLOY_HIGHER_ENV: true], delivery: delivered]
@@ -400,6 +411,17 @@ List<Map> goldenSpecs = [
                     has(r, '[BUILD] orders-db: the Nexus IQ GoldenFix pipeline does not package the database changes - not required')
                             && has(r, '[DEP-SCAN] orders-db: SQL and PL/SQL have no dependency components - Nexus IQ is not required')
                             && (r.evaluations as List<Map>).collect { it.iqApplication } == ['CertValidityMonitoring-GUI'], (r.evaluations as List<Map>).collect { it.iqApplication })
+        }],
+        full + [name: 'N1 full, a Liquibase service without a database block', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8),
+                result: 'FAILURE', failedStage: RD, golden: 'full-liquibase-commands-rd-failure',
+                configure: { Map p -> noBlock(p); ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [sources: 'db'] }, checks: { Map r ->
+            List<String> steps = callsOf(r).findAll { it.startsWith('sh [Liquibase') }.collect { it.substring(4, it.indexOf(']')) }
+            check('N1: without a database block the service runs the Liquibase commands of build.liquibase, tests.unitTests.liquibase and asoc.liquibase, scans tools.sonar.liquibase.sources, and runs no database step',
+                    steps == ['Liquibase: updateSQL', 'Liquibase test: validate', 'Liquibase SAST: updateSQL'] && callsOf(r).any { it.contains("'sonar-scanner' ") && it.contains(' -Dsonar.sources=db') }
+                            && !callsOf(r).any { it.startsWith('sh [DB: ') || it.contains('.dso-db') } && !logOf(r).any { it.startsWith('[DB]') }, steps)
+            check('N1: coverage is skipped as for every Liquibase service of main, and RD fails as on main, which has no database deployment',
+                    has(r, '[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement') && errorOf(r) == '[error] [DOD] No UrbanCode Deploy applications are configured',
+                    errorOf(r))
         }]
 ]
 goldenSpecs.each { verify(it) }
@@ -519,7 +541,6 @@ Map dast = verify(extended + [name: 'D25 DAST on a database service', layout: 'a
 check('D25: dast.enabled on a database service runs the existing DAST path', (logOf(dast) as OwnedList).ownedBy('orders-db').contains('[DAST] Scan ID: DAST-SCAN-ID')
         && !logOf(dast).any { it.contains('has no web application to scan') } && stageOf(dast, DAST) == 'PASS', stageOf(dast, DAST))
 
-Closure sonarKey = { Map p -> (p['orders-db'] as Map).tools = [sonar: [projectKey: 'orders-db', serverUrl: 'https://tools.bbh.com/sonar', installationName: 'SonarQube', authToken: 'sonarqube-token']] }
 Map analysed = focused('D26 SonarQube with SonarSource PL/SQL', unit + [result: 'SUCCESS', sonarPlsql: 'plsql', configure: sonarKey, env: [SONAR_AUTH_TOKEN: 'fake-sonar-token']],
         '[SONAR] orders-db: the SonarQube server analyses PL/SQL with SonarSource PL/SQL (language plsql)')
 String scanner = callsOf(analysed).find { it.contains("'sonar-scanner' ") } ?: ''
@@ -570,6 +591,45 @@ int dropped = labels(reset).indexOf('DB: Liquibase drop-all on the test database
 check('D32: drop-all runs before the update of the test database', dropped >= 0 && dropped < labels(reset).indexOf('DB: Liquibase update on test'), labels(reset))
 focused('D32 changesets of another branch in the test database', unit + [result: 'SUCCESS', unexpected: true],
         '[DB] orders-db test: 2 changesets in the test database are not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema')
+
+Closure before = { List<String> items, Closure first, Closure then -> int at = items.findIndexOf(first); at >= 0 && at < items.findIndexOf(then) }
+Map withSteps = verify(unit + [name: 'N2 a database block with the Liquibase commands of build.liquibase and tests.unitTests.liquibase', result: 'SUCCESS',
+                               configure: orders { Map db, Map svc -> ownSteps(svc) }])
+List<String> order = (withSteps.shells as List<Map>).collect { it.label as String }
+List<Map> ownShells = (withSteps.shells as List<Map>).findAll { it.label in ['Liquibase: updateSQL', 'Liquibase test: validate'] }
+check('N2: the step of build.liquibase runs before the offline validation of the block, and the step of tests.unitTests.liquibase before the update of the test database, both with the JDK of the service',
+        before(order, { it == 'Liquibase: updateSQL' }, { it == 'DB: Liquibase validate (offline)' }) && before(order, { it == 'Liquibase test: validate' }, { it == 'DB: Liquibase update on test' })
+                && ownShells.size() == 2 && ownShells.every { it.javaHome == '/usr/lib/jvm/java-17-openjdk' }, order)
+Map sastStep = verify(sast + [name: 'N3 a database block with asoc.liquibase', layout: 'a', result: 'SUCCESS',
+                              configure: orders { Map db, Map svc -> (svc.asoc as Map).liquibase = [commands: ['validate'], flags: [changelogFlag]] }])
+String irx = callsOf(sastStep).find { it.contains('" prepare ') } ?: ''
+check('N3: the step of asoc.liquibase runs before the IRX is prepared, and the IRX has no compile step (-sco)',
+        before(callsOf(sastStep), { it.startsWith('sh [Liquibase SAST: validate]') }, { it.contains('" prepare ') }) && irx.contains(' -sco'),
+        callsOf(sastStep).findAll { it.startsWith('sh [Liquibase') } + [irx.readLines().find { it.contains(' prepare ') }])
+Map tuned = verify(unit + [name: 'N4 a database block with tools.sonar.liquibase', result: 'SUCCESS', sonarPlsql: 'plsql', env: [SONAR_AUTH_TOKEN: 'fake-sonar-token'], configure: { Map p ->
+    sonarKey(p)
+    ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [sources: 'db/code', flags: ['-Dsonar.plsql.file.suffixes=pks,pkb'], exclusions: 'db/legacy/**']
+}])
+String tunedScan = callsOf(tuned).find { it.contains("'sonar-scanner' ") } ?: ''
+check('N4: the sources, flags and exclusions of tools.sonar.liquibase win, and the block adds only the arguments they leave out',
+        tunedScan == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.plsql.file.suffixes=pks,pkb' '-Dsonar.sources=db/code' " +
+                "'-Dsonar.exclusions=db/legacy/**' '-Dsonar.tests=db/test' '-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' " +
+                "'-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'", tunedScan)
+[['N5 a utPLSQL coverage report without lines', '<coverage line-rate="0.0" lines-covered="0" lines-valid="0" version="1">\n</coverage>\n'],
+ ['N5 a utPLSQL coverage report that cannot be read', '<html><body>Bad Gateway</body></html>\n']].each { List c ->
+    Map r = focused(c[0] as String, unit + [result: 'UNSTABLE', cobertura: c[1]],
+            'No coverage report with measured lines (.dso-db/orders-db/utplsql-cobertura.xml) - the required 60% line coverage cannot be verified.')
+    check("${c[0]}: Unit tests is WARN, and the Liquibase coverage skip of main does not apply", stageOf(r, UNIT) == 'WARN' && !logOf(r).any { it.startsWith('[COVERAGE] Liquibase:') }, stageOf(r, UNIT))
+}
+Map nextTo = verify(security + [name: 'N6 a Gradle service with build.liquibase next to a database service', layout: 'b', result: 'SUCCESS', configure: { Map p ->
+    ((p['orders-app'] as Map).build as Map).liquibase = [commands: ['updateSQL'], flags: ['--changelog-file=orders-db/src/main/resources/db/changelog/db.changelog-master.xml', '--url=offline:oracle']]
+}])
+List<String> appSteps = (nextTo.shells as List<Map>).findAll { it.owner == 'orders-app' }.collect { it.label as String }
+check('N6: the Gradle service runs its Gradle build and then the additional Liquibase step of main',
+        (logOf(nextTo) as OwnedList).ownedBy('orders-app').contains('[BUILD] Running additional Liquibase step for multi-module project')
+                && before(appSteps, { it.startsWith('Gradle: ') }, { it == 'Liquibase: updateSQL' }), appSteps)
+focused('N8 a database block without a changelog', plsql + [failedStage: MONITOR, configure: dropTargets(['test', 'rd', 'qc', 'changelogFile'])],
+        '[DB] orders-db: database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only')
 
 println()
 println(failures ? "${failures} DATABASE SCENARIO CHECK(S) FAILED" : 'ALL DATABASE SCENARIOS PASSED')
