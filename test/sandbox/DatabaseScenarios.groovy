@@ -638,6 +638,33 @@ check('N7: with tools.sonar.liquibase.dir and no sources the scanner runs in tha
 focused('N8 a database block without a changelog', plsql + [failedStage: MONITOR, configure: dropTargets(['test', 'rd', 'qc', 'changelogFile'])],
         '[DB] orders-db: database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only')
 
+List<String> doc = new File(root, 'documentation.confluence').readLines()
+Closure blockAfter = { int at ->
+    int open = (at + 1..<doc.size()).find { doc[it].startsWith('{code') } as int
+    doc.subList(open + 1, (open + 1..<doc.size()).find { doc[it] == '{code}' } as int)
+}
+Closure inOrder = { List<String> items, List<String> within ->
+    int at = 0
+    items.every { String w -> int found = within.subList(at, within.size()).indexOf(w); at += found + 1; found >= 0 }
+}
+List<String> examples = []
+doc.eachWithIndex { String line, int i ->
+    java.util.regex.Matcher file = line =~ /^File \{\{.+\}\} \(\{\{(test\/fixtures\/database\/.+)\}\}\):$/
+    java.util.regex.Matcher console = line =~ /^Console of \{\{(test\/sandbox\/golden\/database-.+\.txt)\}\}/
+    if (file.matches()) {
+        examples << file.group(1)
+        check("Chapter 14: the example of ${file.group(1)} equals the fixture file", blockAfter(i) == new File(root, file.group(1)).readLines(), blockAfter(i))
+    } else if (console.find()) {
+        List<String> log = new File(root, console.group(1)).readLines().dropWhile { it != '== log' }
+        List<String> shown = blockAfter(i).findAll { it != '...' }
+        check("Chapter 14: the console lines of ${console.group(1)} occur in that order in its golden log", shown && inOrder(shown, log), shown.findAll { !log.contains(it) })
+    }
+}
+List<String> tree = blockAfter(doc.findIndexOf { it.startsWith('*Layout (a), only PL/SQL.*') })
+check('Chapter 14: every file of the layout (a) tree is a fixture, and its configuration and changelog master are examples',
+        tree && tree.every { new File(fixtures, "layout-a/${it}").file } && ['devsecops_config.yaml', 'db/changelog-master.xml'].every { examples.contains("test/fixtures/database/layout-a/${it}".toString()) },
+        tree.findAll { !new File(fixtures, "layout-a/${it}").file } + examples)
+
 println()
 println(failures ? "${failures} DATABASE SCENARIO CHECK(S) FAILED" : 'ALL DATABASE SCENARIOS PASSED')
 System.exit(failures ? 1 : 0)

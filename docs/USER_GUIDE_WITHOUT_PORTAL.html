@@ -490,7 +490,8 @@ devSecOpsPipeline(
 <li>Command: <code>pip install -r requirements.txt</code>.</li>
 <li><strong>SQL / PL-SQL (Liquibase):</strong></li>
 <li>Automatic detection of database changelogs (<code>detectTool()</code>).</li>
-<li>Command: <code>liquibase update</code>.</li>
+<li>Command: <code>liquibase validate</code> (the default of <code>build.liquibase</code>).</li>
+<li>With <code>database.changelogFile</code> the service gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See <a href="../documentation.html#ch14">chapter 14 of the library documentation</a>.</li>
 <li>Static code analysis and validation through SonarQube.</li>
 <li><strong>Flutter / Dart:</strong></li>
 <li>Mobile and desktop application packaging with LCOV test coverage generation.</li>

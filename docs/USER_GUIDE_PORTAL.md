@@ -106,8 +106,11 @@ The pipeline supports all standard BBH languages and build tools:
 | **Node.js / TypeScript** | npm | `npm run build` | Web backends & BFF services |
 | **Angular** | npm | `npm ci && npm run build --prod` | Client-facing web apps |
 | **Python** | pip / python3 | `pip install -r requirements.txt` | Data analytics & automation |
-| **SQL / PL-SQL** | Liquibase | `liquibase update` | Oracle & PostgreSQL migrations |
+| **SQL / PL-SQL** | Liquibase | `liquibase validate` (default) | Oracle & PostgreSQL migrations |
 | **Flutter / Dart** | flutter / pub | `flutter build` | Mobile & desktop applications |
+
+### SQL and PL/SQL with a database block:
+- A Liquibase service with `database.changelogFile` gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See [chapter 14 of the library documentation](../documentation.html#ch14).
 
 ### Stage 0 Frontend Pre-Build:
 - For full-stack applications where Java/Kotlin packages serve Angular/Node.js assets, Stage 0 compiles the frontend before backend packaging.

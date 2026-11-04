@@ -549,7 +549,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <tr>
 <td><strong>SQL / PL-SQL</strong></td>
 <td>Liquibase</td>
-<td><code>liquibase update</code></td>
+<td><code>liquibase validate</code> (default)</td>
 <td>Oracle &amp; PostgreSQL migrations</td>
 </tr>
 <tr>
@@ -560,6 +560,10 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 </tr>
 </tbody>
 </table></div>
+<h3 id="sql-and-pl-sql-with-a-database-block">SQL and PL/SQL with a database block:</h3>
+<ul>
+<li>A Liquibase service with <code>database.changelogFile</code> gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See <a href="../documentation.html#ch14">chapter 14 of the library documentation</a>.</li>
+</ul>
 <h3 id="stage-0-frontend-pre-build">Stage 0 Frontend Pre-Build:</h3>
 <ul>
 <li>For full-stack applications where Java/Kotlin packages serve Angular/Node.js assets, Stage 0 compiles the frontend before backend packaging.</li>
