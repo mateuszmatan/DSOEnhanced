@@ -6,7 +6,7 @@ Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delive
 
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
-> **Note:** **This is the `DSOEnhancedWithoutPortal` branch, DevSecOps version 0.** A pipeline is configured by its `Jenkinsfile` and the `devsecops_config.yaml` of its repository only, with the global settings that the library bundles. The `main` branch of the repository is the release with the DevSecOps portal. The features of `main` are carried over to this branch.
+> **Note:** **This is the `DSOEnhancedAppScanApiOnly` branch, DevSecOps REST API SAST release.** A pipeline is configured by its `Jenkinsfile` and `devsecops_config.yaml` without portal dependency. Static Application Security Testing (SAST) is invoked via direct HCL AppScan on Cloud REST API calls (upload, start, poll, download) matching DAST, supporting TLS certificate verification skipping (`insecureTls: true`), proxy tunnel integration, and automatic exclusion of vulnerabilities with `Noise` status. The `main` branch of the repository is the release with the DevSecOps portal.
 
 ## Contents
 
@@ -197,11 +197,11 @@ Every stage runs on every build. A stage that breaks the policy is marked **oran
 | Scan | Tool | Capabilities |
 |---|---|---|
 | Dependency / SCA | Sonatype Nexus IQ | Policy evaluation of the whole dependency tree, per severity counts, a link to the composition report, and automated remediation pull requests |
-| SAST | HCL AppScan on Cloud | IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report archived, link to the AppScan console |
-| DAST | HCL AppScan on Cloud | Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived |
+| SAST | HCL AppScan on Cloud | IRX generation on the agent, file upload and scan execution via REST API v4, polling until the scan finishes, HTML and PDF report archived, link to the AppScan console; vulnerabilities with Noise status are strictly excluded |
+| DAST | HCL AppScan on Cloud | Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived; vulnerabilities with Noise status are strictly excluded |
 | Code quality | SonarQube | Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report |
 
-The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
+The severity counts the pipeline reports are the ones printed in the tool's own report (excluding any issues with Noise status), and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
 - When `staticAnalysis.parallel` is switched on, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 
@@ -1882,6 +1882,41 @@ In the **Static analysis** stage the staging copy `appscan-source-staged` (Windo
 ### Stage 5: SCA (SonarQube)
 
 Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the bundled defaults (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
+
+#### Automatic SonarQube Default Configuration and Branch Analysis
+
+When a repository does not include an explicit `sonar-project.properties` file, the pipeline automatically generates and applies enterprise default configuration before invoking SonarQube:
+
+- **Default properties**:
+  - `sonar.java.binaries=target/classes` (augmented with `build/classes/java/main` for Gradle builds)
+  - `sonar.java.coveragePlugin=jacoco`
+  - `sonar.language=java` (or detected language: `kotlin`, `dart`, `py`, `sql`)
+  - `sonar.jacoco.reportPaths=target/jacoco.exec`
+  - `sonar.junit.reportPaths=target/surefire-reports`
+  - `sonar.projectKey=com.bbh:<resolvedKey>` (prefixed with `com.bbh:` if not present)
+  - `sonar.sources=src/main/java` (or detected sources: `lib`, `db`, `src/main/kotlin`, `src`)
+  - `sonar.sourceEncoding=UTF-8`
+  - `sonar.tests=src/test/java` (or detected test suites)
+  - `sonar.dynamicAnalysis=reuseReports`
+  - `sonar.modules=<detected modules>` (automatically detected from `pom.xml` module elements or `settings.gradle` includes)
+- **Branch-specific scanning**: SonarQube always analyzes the active pipeline branch (`CHANGE_BRANCH` in Pull Request builds, or normalized `BRANCH_NAME` / `GIT_BRANCH`) via `sonar.branch.name=${branch}`, ensuring scans never fall back to `master` or `main`.
+
+### Bitbucket Pull Request Decoration and Shift-Left Feedback
+
+To empower developers to review and remediate security defects directly within their daily Bitbucket code review workflows, the pipeline provides automated inline Pull Request decoration:
+
+#### Static Security Pull Request (Single Consolidated PR)
+
+During the static security pipeline, all findings and remediation changes are consolidated into a single Bitbucket Pull Request:
+
+- **Nexus IQ GoldenFix**: Automatically applies safe dependency upgrades to manifests (`pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `pubspec.yaml`) on branch `GoldenFix-YYYYMMDDHHMM`.
+- **HCL AppScan SAST**: Inspects open findings, filters out issues marked with status `Noise`, and decorates the pull request with inline comments on the exact file and line number containing the vulnerability description and actionable remediation advice.
+- **SonarQube**: Fetches open code quality, vulnerability, and bug issues and decorates the pull request with line comments on the specific source lines.
+- **DevSecOps Portal Synchronization**: Posts decoration events and findings to DevSecOps Management Portal (`POST /api/dso/bitbucket/pull-requests/decorate`).
+
+#### DAST Dynamic Security Pull Request (Dedicated PR)
+
+During dynamic security testing (DAST in enhanced pipelines), when policy violations are detected or `dast.createPullRequest: true` is set, a dedicated second Pull Request (`security-dast-<project>`) is opened. This cleanly segregates operational and runtime infrastructure defects (e.g. HTTP headers, SSL/TLS configurations, cookie flags) from source code dependency upgrades and static flaws.
 
 ### Stages 6–10: Delivery and tests
 

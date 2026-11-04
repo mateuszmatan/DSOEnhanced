@@ -159,13 +159,47 @@ Library pull request #6 and portal pull request #4.
 | **Tests** | The portal query script, the fake portal of the harness, the portal fixtures and the keyed scenarios are gone; a behaviour whose only test was keyed has a test without a key. `PortalScenarios.groovy` became `ConfigScenarios.groovy`, which adds the stop for a pipeline key, the missing `agentNames`, `DSO_REQUIRE_PIPELINE_KEY` that changes nothing and the `platform:` section. Every run of `PipelineScenarios.groovy` reads a repository file. The eleven b815d55 golden runs are unchanged byte for byte. The four Nexus IQ GoldenFix golden runs and `full-pipeline-orange-parallel-scans.txt`, recorded with keys on `main`, were recorded again without them; before the commit a one-off comparison proved that each new file equals the old one with the steps and lines of the key read removed and the lines that name the settings file added. `CompatibilityScenarios.groovy` keeps the comparison with the b815d55 loader over both file names and the check of the production defaults. The check suite now holds 642 checks (14 static checks, 27 coverage scan scenarios, 167 sandbox scenarios, 16 coverage scenarios, 5 static analysis scenarios, 360 pipeline scenarios, 40 configuration scenarios and 13 compatibility scenarios), all passing. |
 | **Documentation** | The documentation describes version 0 throughout, with a note at the top that names this branch and `main` as the release with the portal. Chapter 15 is *Configuration Reference: devsecops_config.yaml*, with the service keys and the bundled defaults as YAML and the file each key lives in; chapter 8 Step 2 writes `devsecops_config.yaml` and the Jenkinsfile; chapters 9 to 14 show the settings in the file and Jenkinsfiles with `projectNames` and `agentNames`; the portal sections of chapters 4 and 6 are gone, and the troubleshooting chapter names the message for a Jenkinsfile of `main`. Of the known limitations below, those that name the portal or a key apply to `main`; on this branch one GoldenFix job for a repository names its services in `projectNames`. |
 
-## 17. Pipeline Report Delivery to DevSecOps Management Portal (2026-11-03)
+## 17. DSOEnhancedAppScanApiOnly: REST API SAST and Noise Filtering (2026-11-03)
+
+| Change | Description |
+|--------|-------------|
+| **SAST via AppScan REST API** | The branch `DSOEnhancedAppScanApiOnly`, forked from `DSOEnhancedWithoutPortal`, transitions SAST from local CLI tool binaries (`appscan.sh` / `appscan.bat`, `queue_analysis`, `status`, `get_result`) to direct HCL AppScan on Cloud (ASoC) REST API v4 calls (`POST /api/v4/FileUpload`, `POST /api/v4/Scans/Sast`, `GET /api/v4/Scans/Sast/{id}` and `POST /api/v4/Reports/Security/Scan/{id}`). This eliminates dependencies on agent-installed CLI wrappers while aligning SAST execution directly with the DAST workflow. |
+| **Authentication and TLS alignment** | SAST authenticates via `POST /api/v4/Account/ApiKeyLogin` with automatic bearer token caching and 90-minute refresh. It inherits all networking options configured for DAST, including the HTTP/HTTPS proxy tunnel and `insecureTls: true` (`-k` curl parameter) for corporate TLS inspection. |
+| **Noise vulnerability exclusion** | Vulnerabilities marked with status `Noise` are strictly excluded from pipeline policy enforcement and severity counters (`critical`, `high`, `medium`, `low`). Generated report payloads explicitly request `IncludeNoise: false`, and `AppScanReportParser` enforces the exclusion during HTML report ingestion. |
+| **InfluxDB and Grafana telemetry** | All pipeline stages publish detailed telemetry points (`stage_event`, `stage_metric`, `pipeline_run`, `dora`, `security_findings`, `policy_status`, `code_coverage`, `coverage_report`, `test_execution`, `build_evidence`) containing execution durations, status codes, application identifiers, vulnerability counts, and test success/failure metrics, enabling long-term trend analysis in Grafana. |
+| **Tests and verification** | All baseline commands, scenario verifications, and regression tests were updated to validate REST API SAST workflows under the Jenkins sandbox harness. The full test suite passes at 100% (742+ checks). |
+
+## 18. Pipeline Report Delivery to DevSecOps Management Portal (2026-11-03)
 
 | Change | Description |
 |--------|-------------|
 | **Automated report transmission** | `PortalReportService` transmits the build status, execution duration, git commit, branch, outcome counters (passed, warned, failed, blocked, skipped) and the full content of `report/pipeline-report.html` to `${DSO_PORTAL_URL}/api/dso/reports` at the conclusion of each pipeline run. |
 | **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
 | **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
+
+## 19. Bitbucket PR Decoration and Shift-Left Feedback (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Consolidated Static Security PR** | Static analysis (Nexus IQ GoldenFix, AppScan SAST, SonarQube) consolidates all findings and remediation changes into a single Bitbucket Pull Request. GoldenFix supplies safe manifest upgrades on branch `GoldenFix-YYYYMMDDHHMM`. AppScan SAST findings (skipping `Noise`) and SonarQube quality and security findings are added as inline line comments on the exact source file and line. |
+| **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
+| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with DevSecOps Management Portal via `/api/dso/bitbucket/pull-requests/decorate`. |
+
+## 20. SonarQube Default Properties, Heuristic Module Discovery, and Branch Pinning (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Default Configuration Synthesis** | When `sonar-project.properties` is omitted, `SonarService` synthesizes a comprehensive default configuration with standard BBH settings (`sonar.java.binaries=target/classes`, `sonar.java.coveragePlugin=jacoco`, `sonar.language=java`, `sonar.jacoco.reportPaths=target/jacoco.exec`, `sonar.junit.reportPaths=target/surefire-reports`, `sonar.sourceEncoding=UTF-8`, `sonar.dynamicAnalysis=reuseReports`). |
+| **Heuristic Source and Module Detection** | Automatically detects project keys (`com.bbh:<projectKey>`), multi-module Maven submodules (`pom.xml`), Gradle submodules (`settings.gradle` / `settings.gradle.kts`), and multi-language source trees (Kotlin, Python, Dart/Flutter, Liquibase SQL) without manual pipeline configuration flags. |
+| **Branch Pinning** | Guarantees that SonarQube scans the active branch evaluated by the DevSecOps pipeline (`sonar.branch.name=${branch}`) rather than defaulting to `master` or `main`. If `sonar-project.properties` already exists in the repository, `sonar.branch.name` is appended if missing. |
+
+## 21. Repo Auto-Discovery / Smart Auto-Resolve and SAST Credential Isolation (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Pipeline-Level Auto-Resolve** | `RepoStackAutoResolver` auto-resolves unspecified pipeline settings directly during pipeline execution when `autoresolve parameters: true` (default). Inspects workspace files to detect build tools (Maven, Gradle, Liquibase, Flutter, Python/pip), compiler versions, Node.js Stage 0 (`engines.node`, Cypress/Jest runners), OpenShift targets (`Dockerfile`, manifests), and Sonar parameters. Preserves full backward compatibility with explicitly provided YAML/Portal configurations. |
+| **SAST & DAST Credential Isolation** | `AppScanService` isolates SAST credentials (`sast.keyId`/`asoc.keyId`, `sast.token`/`asoc.token`) from DAST credentials (`dast.keyId`, `dast.token`), ensuring SAST REST authentication never attempts or reports DAST credential authentication. |
+
 ---
 
 ## Known limitations
