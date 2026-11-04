@@ -110,5 +110,54 @@ check('AppScanService.removeStagedSources: one step removes the SAST staging cop
                 && removal(false) == ['powershell Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'],
         removal(true) + removal(false))
 
+FakeScript sonarScript = new FakeScript()
+sonarScript.env.vars.putAll([
+        WORKSPACE    : '/ws',
+        PATH         : '/usr/bin',
+        CHANGE_BRANCH: 'feature/DSO-2026',
+        GIT_BRANCH   : 'origin/master'
+])
+sonarScript.files['pom.xml'] = '<project><properties><kotlin.version>1.9.22</kotlin.version></properties><modules><module>core-module</module><module>api-module</module></modules></project>'
+sonarScript.files['src/main/kotlin/App.kt'] = 'package com.bbh'
+Map sonarResult = [:]
+try {
+    harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        state.cfg = [
+                appName  : 'my-payment-service',
+                buildTool: 'maven',
+                tools    : [sonar: [installationName: 'SonarBBH', maven: [goals: ['sonar:sonar']]]]
+        ]
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(sonarScript)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(sonarScript, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(sonarScript, state, os, policy)
+        def sonar = harness.type('com.bbh.scanner.SonarService').newInstance(sonarScript, state, os, build)
+        sonar.scan()
+        sonarResult.propertiesText = sonarScript.files['sonar-project.properties']
+        sonarResult.sonarStatus = state.sonarResults.status
+        sonarResult.sonarUrl = state.sonarResults.url
+    }
+} catch (Throwable t) {
+    sonarResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+check('SonarQube: applies default sonar-project.properties when missing with com.bbh: key, detected modules, kotlin sources, and pipeline branch (not master)',
+        !sonarResult.error && sonarResult.propertiesText
+                && (sonarResult.propertiesText as String).contains('sonar.projectKey=com.bbh:my-payment-service')
+                && (sonarResult.propertiesText as String).contains('sonar.java.binaries=target/classes')
+                && (sonarResult.propertiesText as String).contains('sonar.java.coveragePlugin=jacoco')
+                && (sonarResult.propertiesText as String).contains('sonar.jacoco.reportPaths=target/jacoco.exec')
+                && (sonarResult.propertiesText as String).contains('sonar.junit.reportPaths=target/surefire-reports')
+                && (sonarResult.propertiesText as String).contains('sonar.language=kotlin')
+                && (sonarResult.propertiesText as String).contains('sonar.sources=src/main/kotlin')
+                && (sonarResult.propertiesText as String).contains('sonar.sourceEncoding=UTF-8')
+                && (sonarResult.propertiesText as String).contains('sonar.dynamicAnalysis=reuseReports')
+                && (sonarResult.propertiesText as String).contains('sonar.modules=core-module,api-module')
+                && (sonarResult.propertiesText as String).contains('sonar.branch.name=feature/DSO-2026')
+                && !(sonarResult.propertiesText as String).contains('sonar.branch.name=master')
+                && (sonarResult.propertiesText as String).contains('core-module.sonar.projectName=core-module')
+                && (sonarResult.sonarUrl as String).contains('dashboard?id=com.bbh:my-payment-service'),
+        "error=${sonarResult.error} props=${sonarResult.propertiesText} url=${sonarResult.sonarUrl}")
+
 println "\n${failures == 0 ? 'ALL STATIC ANALYSIS SCENARIOS PASSED' : failures + ' STATIC ANALYSIS SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

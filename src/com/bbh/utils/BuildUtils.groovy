@@ -159,4 +159,9 @@ class BuildUtils implements Serializable {
         int sec = s % 60
         return sec > 0 ? "${m}m ${sec}s" : "${m}m"
     }
+
+    @NonCPS
+    static String normalizeBranch(String branch) {
+        return (branch ?: '').trim().replaceFirst('^(refs/remotes/origin/|refs/heads/|origin/)', '')
+    }
 }

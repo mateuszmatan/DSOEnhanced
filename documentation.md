@@ -1883,6 +1883,24 @@ In the **Static analysis** stage the staging copy `appscan-source-staged` (Windo
 
 Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the bundled defaults (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
 
+#### Automatic SonarQube Default Configuration and Branch Analysis
+
+When a repository does not include an explicit `sonar-project.properties` file, the pipeline automatically generates and applies enterprise default configuration before invoking SonarQube:
+
+- **Default properties**:
+  - `sonar.java.binaries=target/classes` (augmented with `build/classes/java/main` for Gradle builds)
+  - `sonar.java.coveragePlugin=jacoco`
+  - `sonar.language=java` (or detected language: `kotlin`, `dart`, `py`, `sql`)
+  - `sonar.jacoco.reportPaths=target/jacoco.exec`
+  - `sonar.junit.reportPaths=target/surefire-reports`
+  - `sonar.projectKey=com.bbh:<resolvedKey>` (prefixed with `com.bbh:` if not present)
+  - `sonar.sources=src/main/java` (or detected sources: `lib`, `db`, `src/main/kotlin`, `src`)
+  - `sonar.sourceEncoding=UTF-8`
+  - `sonar.tests=src/test/java` (or detected test suites)
+  - `sonar.dynamicAnalysis=reuseReports`
+  - `sonar.modules=<detected modules>` (automatically detected from `pom.xml` module elements or `settings.gradle` includes)
+- **Branch-specific scanning**: SonarQube always analyzes the active pipeline branch (`CHANGE_BRANCH` in Pull Request builds, or normalized `BRANCH_NAME` / `GIT_BRANCH`) via `sonar.branch.name=${branch}`, ensuring scans never fall back to `master` or `main`.
+
 ### Bitbucket Pull Request Decoration and Shift-Left Feedback
 
 To empower developers to review and remediate security defects directly within their daily Bitbucket code review workflows, the pipeline provides automated inline Pull Request decoration:

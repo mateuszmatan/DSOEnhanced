@@ -34,38 +34,43 @@ class SonarService implements Serializable {
         def tool        = build.detectTool()
         String badgeToken = resolveBadgeToken(sonarCfg)
         state.sonarResults['badgeToken'] = badgeToken
+        String branch = resolveBranch()
+        applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
+        String effectiveProjectKey = projectKey ?: resolveProjectKey(sonarCfg as Map)
+        String reportedKey = projectKey ?: effectiveProjectKey
         def sonarArgs = [
             "-Dsonar.host.url=${sonarUrl}",
-            projectKey  ? "-Dsonar.projectKey=${projectKey}"    : null,
-            projectName ? "-Dsonar.projectName=${projectName}"  : null
+            effectiveProjectKey ? "-Dsonar.projectKey=${effectiveProjectKey}"    : null,
+            projectName ? "-Dsonar.projectName=${projectName}"  : null,
+            branch      ? "-Dsonar.branch.name=${branch}"        : null
         ].findAll { it }
         def scaFailReason = null
         try {
             if (tool == 'flutter') {
                 scanFlutter(sonarCfg, sonarArgs, installationName)
             } else if (tool == 'liquibase') {
-                scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, projectKey, fullBadges)
+                scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, effectiveProjectKey, fullBadges)
             } else {
                 Map runCfg = effectiveSonarCfg(sonarCfg as Map, tool as String)
                 if (credentialsId) {
                     script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
                         new BuildRunner(script, runCfg, tool).run()
                         if (addBadges) {
-                            script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+                            script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
                         }
                     }
                 } else {
                     script.withSonarQubeEnv("${installationName}") {
                         new BuildRunner(script, runCfg, tool).run()
                         if (addBadges) {
-                            script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+                            script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
                         }
                     }
                 }
             }
-        state.sonarResults['url']      = projectKey ? "${sonarUrl}/dashboard?id=${projectKey}" : ''
-        state.sonarResults['badgeUrl'] = (projectKey && badgeToken)
-                ? "${sonarUrl}/api/project_badges/quality_gate?project=${projectKey}&token=${badgeToken}" : ''
+        state.sonarResults['url']      = reportedKey ? "${sonarUrl}/dashboard?id=${reportedKey}" : ''
+        state.sonarResults['badgeUrl'] = (reportedKey && badgeToken)
+                ? "${sonarUrl}/api/project_badges/quality_gate?project=${reportedKey}&token=${badgeToken}" : ''
         state.sonarResults['status']   = 'SKIP'
         } catch (e) {
             scaFailReason = "[SONAR] Scan failed: ${e.message ?: e.getClass().getSimpleName()}"
@@ -78,7 +83,7 @@ class SonarService implements Serializable {
             script.unstable(scaFailReason)
             return
         }
-        fetchIssueCounts(sonarUrl, projectKey)
+        fetchIssueCounts(sonarUrl, reportedKey)
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
@@ -292,6 +297,151 @@ rm -f "\${_TMP}"
             script.withSonarQubeEnv("${installationName}") {
                 runBody()
             }
+        }
+    }
+
+    String resolveBranch() {
+        String raw = ((script.env.CHANGE_BRANCH ?: script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: state.cfg?.scm?.bitbucket?.branch ?: state.cfg?.scm?.bitbucket?.targetBranch ?: state.cfg?.scm?.branch ?: state.cfg?.scm?.targetBranch ?: '') as String).trim()
+        return BuildUtils.normalizeBranch(raw)
+    }
+
+    String resolveProjectKey(Map sonarCfg) {
+        String key = ((sonarCfg?.projectKey ?: '') as String).trim()
+        if (key) {
+            return key.startsWith('com.bbh:') ? key : "com.bbh:${key}"
+        }
+        String fallback = ((sonarCfg?.projectName ?: state.cfg?.appName ?: state.currentProjectName ?: state.cfg?.primaryProject ?: 'app') as String).trim()
+        return fallback.startsWith('com.bbh:') ? fallback : "com.bbh:${fallback}"
+    }
+
+    List<String> detectModules() {
+        List<String> modules = []
+        try {
+            if (script.fileExists('pom.xml')) {
+                String pom = script.readFile('pom.xml') as String
+                def matcher = pom =~ /<module>\s*([^<\s]+)\s*<\/module>/
+                while (matcher.find()) {
+                    String mod = matcher.group(1).trim()
+                    if (mod && !modules.contains(mod)) modules << mod
+                }
+            }
+            if (!modules && (script.fileExists('settings.gradle') || script.fileExists('settings.gradle.kts'))) {
+                String settingsFile = script.fileExists('settings.gradle') ? 'settings.gradle' : 'settings.gradle.kts'
+                String settings = script.readFile(settingsFile) as String
+                def matcher = settings =~ /include\s*\(?\s*['"](?::)?([^'",\s\)]+)['"]/
+                while (matcher.find()) {
+                    String mod = matcher.group(1).trim()
+                    if (mod && !modules.contains(mod)) modules << mod
+                }
+            }
+        } catch (Exception ignored) {}
+        return modules
+    }
+
+    void applyDefaultSonarProperties(Map sonarCfg, String tool, String branch) {
+        boolean exists = script.fileExists('sonar-project.properties')
+        String dir = ((sonarCfg?.dir ?: '') as String).trim()
+        if (dir && !exists) {
+            exists = script.fileExists("${dir}/sonar-project.properties")
+        }
+        if (exists) {
+            if (branch) {
+                String targetPath = (dir && script.fileExists("${dir}/sonar-project.properties"))
+                        ? "${dir}/sonar-project.properties" : 'sonar-project.properties'
+                try {
+                    String existing = script.readFile(targetPath) as String
+                    if (!existing.contains('sonar.branch.name=')) {
+                        String updated = existing.trim() + "\nsonar.branch.name=${branch}\n"
+                        script.writeFile file: targetPath, text: updated
+                    }
+                } catch (Exception ignored) {}
+            }
+            return
+        }
+
+        String projectKey = resolveProjectKey(sonarCfg)
+        List<String> modules = detectModules()
+        String modulesProp = modules ? modules.join(',') : ''
+
+        String binaries = 'target/classes'
+        if (tool == 'gradle' || script.fileExists('build.gradle') || script.fileExists('build.gradle.kts')) {
+            binaries = 'target/classes,build/classes/java/main'
+        }
+
+        String pomText = ''
+        if (script.fileExists('pom.xml')) {
+            try { pomText = script.readFile('pom.xml') as String } catch (Exception ignored) {}
+        }
+
+        String lang = 'java'
+        if (tool == 'flutter' || script.fileExists('pubspec.yaml')) {
+            lang = 'dart'
+        } else if (tool == 'liquibase' || script.fileExists('changelog.xml')) {
+            lang = 'sql'
+        } else if (script.fileExists('requirements.txt') || script.fileExists('pyproject.toml') || script.fileExists('setup.py')) {
+            lang = 'py'
+        } else if (script.fileExists('src/main/kotlin') || script.fileExists('build.gradle.kts') || pomText.contains('kotlin')) {
+            lang = 'kotlin'
+        }
+
+        String sources = ((sonarCfg?.sources ?: '') as String).trim()
+        if (!sources) {
+            if (lang == 'dart') {
+                sources = 'lib'
+            } else if (lang == 'sql') {
+                sources = 'db'
+            } else if (lang == 'py') {
+                sources = script.fileExists('src') ? 'src' : '.'
+            } else if (lang == 'kotlin') {
+                sources = script.fileExists('src/main/java') ? 'src/main/java,src/main/kotlin' : 'src/main/kotlin'
+            } else {
+                sources = 'src/main/java'
+            }
+        }
+
+        String tests = ((sonarCfg?.tests ?: '') as String).trim()
+        if (!tests) {
+            if (lang == 'dart') {
+                tests = 'test'
+            } else if (lang == 'sql') {
+                tests = ''
+            } else if (lang == 'py') {
+                tests = script.fileExists('tests') ? 'tests' : (script.fileExists('test') ? 'test' : '')
+            } else if (lang == 'kotlin') {
+                tests = script.fileExists('src/test/java') ? 'src/test/java,src/test/kotlin' : 'src/test/kotlin'
+            } else {
+                tests = 'src/test/java'
+            }
+        }
+
+        List<String> lines = [
+            "sonar.java.binaries=${binaries}",
+            'sonar.java.coveragePlugin=jacoco',
+            "sonar.language=${lang}",
+            'sonar.jacoco.reportPaths=target/jacoco.exec',
+            'sonar.junit.reportPaths=target/surefire-reports',
+            "sonar.projectKey=${projectKey}",
+            "sonar.sources=${sources}",
+            'sonar.sourceEncoding=UTF-8',
+            "sonar.tests=${tests}",
+            'sonar.dynamicAnalysis=reuseReports',
+            "sonar.modules=${modulesProp}"
+        ]
+        if (branch) {
+            lines << "sonar.branch.name=${branch}"
+        }
+        for (String mod : modules) {
+            lines << "${mod}.sonar.projectName=${mod}"
+            lines << "${mod}.sonar.sources=${mod}/src/main/java"
+            lines << "${mod}.sonar.tests=${mod}/src/test/java"
+            lines << "${mod}.sonar.java.binaries=${mod}/target/classes,${mod}/build/classes/java/main"
+        }
+
+        String content = lines.join('\n') + '\n'
+        String targetPath = dir ? "${dir}/sonar-project.properties" : 'sonar-project.properties'
+        script.writeFile file: targetPath, text: content
+        if (dir && targetPath != 'sonar-project.properties') {
+            script.writeFile file: 'sonar-project.properties', text: content
         }
     }
 }

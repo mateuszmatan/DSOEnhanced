@@ -185,6 +185,14 @@ Library pull request #6 and portal pull request #4.
 | **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
 | **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with DevSecOps Management Portal via `/api/dso/bitbucket/pull-requests/decorate`. |
 
+## 20. SonarQube Default Properties, Heuristic Module Discovery, and Branch Pinning (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Default Configuration Synthesis** | When `sonar-project.properties` is omitted, `SonarService` synthesizes a comprehensive default configuration with standard BBH settings (`sonar.java.binaries=target/classes`, `sonar.java.coveragePlugin=jacoco`, `sonar.language=java`, `sonar.jacoco.reportPaths=target/jacoco.exec`, `sonar.junit.reportPaths=target/surefire-reports`, `sonar.sourceEncoding=UTF-8`, `sonar.dynamicAnalysis=reuseReports`). |
+| **Heuristic Source and Module Detection** | Automatically detects project keys (`com.bbh:<projectKey>`), multi-module Maven submodules (`pom.xml`), Gradle submodules (`settings.gradle` / `settings.gradle.kts`), and multi-language source trees (Kotlin, Python, Dart/Flutter, Liquibase SQL) without manual pipeline configuration flags. |
+| **Branch Pinning** | Guarantees that SonarQube scans the active branch evaluated by the DevSecOps pipeline (`sonar.branch.name=${branch}`) rather than defaulting to `master` or `main`. If `sonar-project.properties` already exists in the repository, `sonar.branch.name` is appended if missing. |
+
 ---
 
 ## Known limitations
