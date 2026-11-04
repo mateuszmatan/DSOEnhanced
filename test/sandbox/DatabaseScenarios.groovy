@@ -426,6 +426,10 @@ List<Map> goldenSpecs = [
         }]
 ]
 goldenSpecs.each { verify(it) }
+Map textKey = verify(full + [name: 'N1 full, a Liquibase service whose database key is a text', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8),
+                             result: 'FAILURE', failedStage: RD, configure: { Map p -> noBlock(p); (p['orders-db'] as Map).database = 'ORDERS' }])
+check('N1: a database key that is not a map is ignored as on main: no database step, and RD fails as in N1',
+        !logOf(textKey).any { it.startsWith('[DB]') } && errorOf(textKey) == '[error] [DOD] No UrbanCode Deploy applications are configured', errorOf(textKey))
 
 Map plsql = security + [layout: 'a', configure: dropTargets(['test', 'rd', 'qc'])]
 Closure focused = { String name, Map spec, String expected ->

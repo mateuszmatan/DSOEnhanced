@@ -133,7 +133,7 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static boolean databaseBlock(Map cfg) {
-        return ((cfg?.buildTool ?: '') as String).trim().equalsIgnoreCase('liquibase') && ((cfg?.database?.changelogFile ?: '') as String).trim()
+        return ((cfg?.buildTool ?: '') as String).trim().equalsIgnoreCase('liquibase') && cfg.database instanceof Map && ((cfg.database.changelogFile ?: '') as String).trim()
     }
 
     @NonCPS

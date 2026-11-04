@@ -58,9 +58,18 @@ Closure basics = {
                          ['liquibase without a changelog', [buildTool: 'liquibase', database: [allowedTargets: ['rd-db.bbh.com']]], false],
                          ['liquibase with a blank changelog', [buildTool: 'liquibase', database: [changelogFile: ' ']], false],
                          ['liquibase without a database block', [buildTool: 'liquibase'], false], ['gradle with a changelog', [buildTool: 'gradle'] + changelog, false],
-                         ['no buildTool', [buildTool: null], false], ['no cfg', null, false]]
-    List serviceWrong = mismatches(serviceCases) { List c -> harness.run { utils().databaseBlock(c[1] as Map) } }
-    check('BuildUtils.databaseBlock: buildTool liquibase, also with blanks and capitals, with a database.changelogFile, and nothing else', serviceWrong.isEmpty(), serviceWrong)
+                         ['no buildTool', [buildTool: null], false], ['no cfg', null, false],
+                         ['liquibase with a database key that is a text', [buildTool: 'liquibase', database: 'ORDERS'], false],
+                         ['liquibase with a database key that is a list', [buildTool: 'liquibase', database: ['ORDERS']], false]]
+    List serviceWrong = mismatches(serviceCases) { List c ->
+        try {
+            harness.run { utils().databaseBlock(c[1] as Map) }
+        } catch (Throwable e) {
+            e.getClass().simpleName
+        }
+    }
+    check('BuildUtils.databaseBlock: buildTool liquibase, also with blanks and capitals, with a database.changelogFile, and nothing else; a database key that is not a map is ignored as on main',
+            serviceWrong.isEmpty(), serviceWrong)
 
     Map node = [build: [node: [enabled: true]]]
     List nodeFlags = harness.run {
