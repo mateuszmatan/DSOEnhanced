@@ -32,7 +32,7 @@ def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
             if (api.databaseBlock()) {
-                api.databaseBuild()
+                api.databaseTests()
             } else {
                 api.unitTests()
                 api.checkCoverage()
@@ -45,7 +45,7 @@ def buildArtifacts(def api) {
     api.runStage('Build artifact') {
         api.eachProject { String projectName ->
             if (api.databaseBlock()) {
-                api.notRequired("[BUILD] ${projectName}: a SQL and PL/SQL service has no build artifact for Nexus IQ - not required")
+                api.databaseBuild()
             } else {
                 if (api.nodeBuildNeeded()) {
                     api.nodeBuild()

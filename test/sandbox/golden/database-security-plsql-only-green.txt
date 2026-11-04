@@ -402,12 +402,25 @@ sh [DB: publish orders-db-212-<stamp>.zip to Nexus]
 writeYaml pipeline-config.yaml
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p /ws/report
+withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
+sh set +x
+code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+rc=$?
+if [ $rc -ne 0 ]; then
+  exit $rc
+fi
+echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+if [ "$code" -ge 300 ]; then
+  exit 1
+fi
+
+sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
 publishHTML pipeline-report.html
 cleanWs
 == log
 [PORTAL] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database no, RD no, QC no
+[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database no, RD no, QC no
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -417,6 +430,10 @@ cleanWs
 [DB] orders-db: 10 changesets in the changelog
 [DB] orders-db: review SQL .dso-db/orders-db/orders-db-212-<stamp>-update.sql: 8 changesets for contexts !test
 [DB] orders-db: package .dso-db/orders-db/orders-db-212-<stamp>.zip (folder db of .), validated from the package
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] PASS
+------------------------------------------------------------
 [DB] orders-db: no test database (database.test.url) - no unit tests, coverage is not required
 ------------------------------------------------------------
 [STAGE]  Unit tests
@@ -429,6 +446,7 @@ cleanWs
 ------------------------------------------------------------
 [SAST] orders-db: SQL and PL/SQL sources - the scan has no compile step
 [SAST] orders-db: 2 of 8 SQL and PL/SQL files have extensions AppScan does not scan (.prc .fnc .trg .vw .tps .tpb .typ .bdy): db/code/trg_orders_bi.trg, db/code/v_order_totals.vw
+Detected tool from config file is liquibase
 Start queue sast
 [INFO] 'orders-db-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
 [SAST] Report counts: Critical=0 High=0 Medium=0 Low=1
@@ -457,6 +475,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-snapsho
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
 [INFLUX] InfluxDB disabled or not configured.
+[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/orders-db-security-pipeline build 212
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---

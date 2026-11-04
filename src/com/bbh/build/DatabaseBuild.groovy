@@ -89,50 +89,79 @@ class DatabaseBuild implements Serializable {
         }
     }
 
-    void build() {
+    void build(String variant) {
+        boolean step = build.hasLiquibaseStep(state.cfg.build?.liquibase)
+        if (step) liquibaseStep { build.runLiquibaseBuild() }
+        if (!(variant in ['full', 'security'])) {
+            if (!step) {
+                script.echo "[BUILD] ${state.currentProjectName}: the ${variant == 'sast' ? 'SAST' : 'Nexus IQ GoldenFix'} pipeline does not package the database changes - not required"
+                state.projectNotRequired()
+            }
+            return
+        }
         Map c = context()
         try {
-            long startMs = System.currentTimeMillis()
-            Map s = c.s as Map
             Map pkg = packageOnly(c, DatabaseSettings.version(script.env.BUILD_NUMBER as String, stamp()))
-            Map test = (s.targets as Map).test as Map
-            if (!test) {
-                script.echo "[DB] ${c.name}: no test database (database.test.url) - no unit tests, coverage is not required"
-                coverageNotRequired(startMs)
-            } else {
-                if (test.reset) {
-                    prepare(c, test)
-                    Map dropped = online(c, test, pkg, [label: 'DB: Liquibase drop-all on the test database', command: 'drop-all', args: [], out: 'test-drop-all.out', lock: true])
-                    if (dropped.status != 0) {
-                        fail(c, 'test', startMs, [:], "[DB] ${c.name} test: drop-all failed: ${failure(dropped.text as String)}")
-                    }
-                    script.echo "[DB] ${c.name} test: removed every object of the test schema before the deployment (database.test.reset)"
-                }
-                deployTo(c, 'test')
-                Map found = online(c, test, pkg, [label: 'DB: Liquibase unexpected-changesets on the test database', command: 'unexpected-changesets',
-                                                  args: ['--verbose=true', "--changelog-file=${s.changelog}".toString()], out: 'test-unexpected.out', quiet: true])
-                Map unexpected = found.status == 0 ? LiquibaseOutput.unexpected(found.text as String) : [count: 0]
-                state.recordDatabaseTarget('test', [unexpected: unexpected.count])
-                if ((unexpected.count as int) > 0) {
-                    script.echo "[DB] ${c.name} test: ${DatabaseSettings.changesetsText(unexpected.count as int)} in the test database ${unexpected.count == 1 ? 'is' : 'are'} not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema"
-                }
-                if ((test.utplsql as Map).enabled) {
-                    runUtplsql(c, test, startMs)
-                } else {
-                    script.echo "[DB] ${c.name}: deployed to the test database; utPLSQL is off (database.test.utplsql.enabled) - coverage is not required"
-                    coverageNotRequired(startMs)
-                }
-            }
-            String base = "${c.out}/${(s.package as Map).artifactId}-${pkg.version}"
-            List files = []
-            for (String file : [pkg.path, pkg.reviewPath, pkg.rollbackPath, "${c.out}/static-checks.txt", "${c.out}/utplsql-junit.xml", "${c.out}/utplsql-cobertura.xml",
-                                "${c.out}/utplsql-coverage-sonar.xml", "${c.out}/utplsql-sonar-tests.xml", "${base}-test-changes.txt"]) {
-                if (file && script.fileExists(file)) files << file
-            }
-            if (files) script.archiveArtifacts(artifacts: files.join(','), allowEmptyArchive: true)
+            archive([pkg.path, pkg.reviewPath, pkg.rollbackPath, "${c.out}/static-checks.txt"])
         } finally {
             clean(c)
         }
+    }
+
+    void tests() {
+        if (build.hasLiquibaseStep(state.cfg.tests?.unitTests?.liquibase)) liquibaseStep { build.runLiquibaseTests() }
+        long startMs = System.currentTimeMillis()
+        Map test = (settings().targets as Map).test as Map
+        if (!test) {
+            script.echo "[DB] ${state.currentProjectName}: no test database (database.test.url) - no unit tests, coverage is not required"
+            coverageNotRequired(startMs)
+            return
+        }
+        Map c = context()
+        try {
+            Map s = c.s as Map
+            Map pkg = packaged(c)
+            if (test.reset) {
+                prepare(c, test)
+                Map dropped = online(c, test, pkg, [label: 'DB: Liquibase drop-all on the test database', command: 'drop-all', args: [], out: 'test-drop-all.out', lock: true])
+                if (dropped.status != 0) {
+                    fail(c, 'test', startMs, [:], "[DB] ${c.name} test: drop-all failed: ${failure(dropped.text as String)}")
+                }
+                script.echo "[DB] ${c.name} test: removed every object of the test schema before the deployment (database.test.reset)"
+            }
+            deployTo(c, 'test')
+            Map found = online(c, test, pkg, [label: 'DB: Liquibase unexpected-changesets on the test database', command: 'unexpected-changesets',
+                                              args: ['--verbose=true', "--changelog-file=${s.changelog}".toString()], out: 'test-unexpected.out', quiet: true])
+            Map unexpected = found.status == 0 ? LiquibaseOutput.unexpected(found.text as String) : [count: 0]
+            state.recordDatabaseTarget('test', [unexpected: unexpected.count])
+            if ((unexpected.count as int) > 0) {
+                script.echo "[DB] ${c.name} test: ${DatabaseSettings.changesetsText(unexpected.count as int)} in the test database ${unexpected.count == 1 ? 'is' : 'are'} not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema"
+            }
+            if ((test.utplsql as Map).enabled) {
+                runUtplsql(c, test, startMs)
+            } else {
+                script.echo "[DB] ${c.name}: deployed to the test database; utPLSQL is off (database.test.utplsql.enabled) - coverage is not required"
+                coverageNotRequired(startMs)
+            }
+            archive(["${c.out}/utplsql-junit.xml", "${c.out}/utplsql-cobertura.xml", "${c.out}/utplsql-coverage-sonar.xml", "${c.out}/utplsql-sonar-tests.xml",
+                     "${c.out}/${(s.package as Map).artifactId}-${pkg.version}-test-changes.txt"])
+        } finally {
+            clean(c)
+        }
+    }
+
+    private void liquibaseStep(Closure body) {
+        script.withEnv(liquibaseRunner.baseEnv(liquibaseRunner.javaHome(state.currentProjectName, state.cfg))) {
+            body()
+        }
+    }
+
+    private void archive(List paths) {
+        List files = []
+        for (def file : paths) {
+            if (file && script.fileExists(file as String)) files << (file as String)
+        }
+        if (files) script.archiveArtifacts(artifacts: files.join(','), allowEmptyArchive: true)
     }
 
     Map ensurePackage() {

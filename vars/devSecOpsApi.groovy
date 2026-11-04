@@ -307,7 +307,8 @@ def switchProject(String projectName) { _setup(); _config.switchProject(projectN
 def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
 def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
 def databaseBlock()                 { _setup(); return BuildUtils.databaseBlock(_state.cfg) }
-def databaseBuild()                   { _setup(); _database.build() }
+def databaseBuild()                   { _setup(); _database.build(_variant) }
+def databaseTests()                   { _setup(); _database.tests() }
 def databaseDelivery(String kind)     { _setup(); _databaseDeploy.deliver(kind) }
 def databaseDeploy(String envName)    { _setup(); _databaseDeploy.deploy(envName) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }

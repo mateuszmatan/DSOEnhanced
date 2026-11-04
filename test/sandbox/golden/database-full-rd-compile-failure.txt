@@ -81,6 +81,8 @@ export LIQUIBASE_ANALYTICS_ENABLED=false
 rm -f '<tmp>/dso-db/orders-db/package.csv'
 '/opt/liquibase/4.33.0/liquibase' '--defaults-file=<tmp>/dso-db/orders-db/offline.properties' '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-341-<stamp>.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'validate' '--changelog-file=db/changelog-master.xml' '--url=offline:oracle?version=19.0&changeLogFile=<tmp>/dso-db/orders-db/package.csv' 2>&1 | tee '<tmp>/dso-db/orders-db/package.out'
 
+archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>.zip,.dso-db/orders-db/orders-db-341-<stamp>-update.sql
+deleteDir <tmp>/dso-db/orders-db
 withCredentials [orders-db-test]
 withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-devsecops-pipeline-341, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=test.properties]
 sh [DB: Liquibase status on test] #!/usr/bin/env bash
@@ -229,7 +231,7 @@ mkdir -p '.dso-db/orders-db'
 '/opt/utPLSQL-cli/bin/utplsql' run "@$DSO_ARGS" '--failure-exit-code=2' '-t=30' '-f=ut_documentation_reporter' '-s' '-f=ut_junit_reporter' '-o=.dso-db/orders-db/utplsql-junit.xml' '-f=ut_coverage_cobertura_reporter' '-o=.dso-db/orders-db/utplsql-cobertura.xml' '-f=ut_coverage_sonar_reporter' '-o=.dso-db/orders-db/utplsql-coverage-sonar.xml' '-f=ut_sonar_test_reporter' '-o=.dso-db/orders-db/utplsql-sonar-tests.xml' '-source_path=db/code' '-test_path=db/test' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/utplsql.out'
 
 junit .dso-db/orders-db/utplsql-junit.xml
-archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>.zip,.dso-db/orders-db/orders-db-341-<stamp>-update.sql,.dso-db/orders-db/utplsql-junit.xml,.dso-db/orders-db/utplsql-cobertura.xml,.dso-db/orders-db/utplsql-coverage-sonar.xml,.dso-db/orders-db/utplsql-sonar-tests.xml,.dso-db/orders-db/orders-db-341-<stamp>-test-changes.txt
+archiveArtifacts .dso-db/orders-db/utplsql-junit.xml,.dso-db/orders-db/utplsql-cobertura.xml,.dso-db/orders-db/utplsql-coverage-sonar.xml,.dso-db/orders-db/utplsql-sonar-tests.xml,.dso-db/orders-db/orders-db-341-<stamp>-test-changes.txt
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p DevSecOpsJenkinsLibrary
 sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
@@ -638,12 +640,25 @@ export JAVA_OPTS="${JAVA_OPTS:-} -Dliquibase.hostDescription=$DSO_LOCK_ID"
 
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p /ws/report
+withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
+sh set +x
+code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+rc=$?
+if [ $rc -ne 0 ]; then
+  exit $rc
+fi
+echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+if [ "$code" -ge 300 ]; then
+  exit 1
+fi
+
+sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
 cleanWs
 == log
 [PORTAL] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
+[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -653,6 +668,10 @@ cleanWs
 [DB] orders-db: 10 changesets in the changelog
 [DB] orders-db: review SQL .dso-db/orders-db/orders-db-341-<stamp>-update.sql: 8 changesets for contexts !test
 [DB] orders-db: package .dso-db/orders-db/orders-db-341-<stamp>.zip (folder db of .), validated from the package
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] PASS
+------------------------------------------------------------
 [DB] orders-db test: 10 changesets pending before the update
 [DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
 [DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
@@ -678,6 +697,7 @@ covered=150  missed=20  total=170
 ------------------------------------------------------------
 [SAST] orders-db: SQL and PL/SQL sources - the scan has no compile step
 [SAST] orders-db: 2 of 8 SQL and PL/SQL files have extensions AppScan does not scan (.prc .fnc .trg .vw .tps .tpb .typ .bdy): db/code/trg_orders_bi.trg, db/code/v_order_totals.vw
+Detected tool from config file is liquibase
 Start queue sast
 [INFO] 'orders-db-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
 [SAST] Report counts: Critical=0 High=0 Medium=0 Low=1
@@ -714,6 +734,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-snapsho
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
 [INFLUX] InfluxDB disabled or not configured.
+[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/orders-db-devsecops-pipeline build 341
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---

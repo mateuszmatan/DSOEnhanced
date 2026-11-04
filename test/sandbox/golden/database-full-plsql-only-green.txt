@@ -81,6 +81,8 @@ export LIQUIBASE_ANALYTICS_ENABLED=false
 rm -f '<tmp>/dso-db/orders-db/package.csv'
 '/opt/liquibase/5.0.4/liquibase' '--defaults-file=<tmp>/dso-db/orders-db/offline.properties' '--show-banner=false' '--search-path=.dso-db/orders-db/orders-db-341-<stamp>.zip' '--classpath=/opt/oracle/ojdbc11.jar' 'validate' '--changelog-file=db/changelog-master.xml' '--url=offline:oracle?version=19.0&changeLogFile=<tmp>/dso-db/orders-db/package.csv' 2>&1 | tee '<tmp>/dso-db/orders-db/package.out'
 
+archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>.zip,.dso-db/orders-db/orders-db-341-<stamp>-update.sql
+deleteDir <tmp>/dso-db/orders-db
 withCredentials [orders-db-test]
 withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-devsecops-pipeline-341, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=test.properties]
 sh [DB: Liquibase status on test] #!/usr/bin/env bash
@@ -229,7 +231,7 @@ mkdir -p '.dso-db/orders-db'
 '/opt/utPLSQL-cli/bin/utplsql' run "@$DSO_ARGS" '--failure-exit-code=2' '-t=30' '-f=ut_documentation_reporter' '-s' '-f=ut_junit_reporter' '-o=.dso-db/orders-db/utplsql-junit.xml' '-f=ut_coverage_cobertura_reporter' '-o=.dso-db/orders-db/utplsql-cobertura.xml' '-f=ut_coverage_sonar_reporter' '-o=.dso-db/orders-db/utplsql-coverage-sonar.xml' '-f=ut_sonar_test_reporter' '-o=.dso-db/orders-db/utplsql-sonar-tests.xml' '-source_path=db/code' '-test_path=db/test' 2>&1 | dso_mask | tee '<tmp>/dso-db/orders-db/utplsql.out'
 
 junit .dso-db/orders-db/utplsql-junit.xml
-archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>.zip,.dso-db/orders-db/orders-db-341-<stamp>-update.sql,.dso-db/orders-db/utplsql-junit.xml,.dso-db/orders-db/utplsql-cobertura.xml,.dso-db/orders-db/utplsql-coverage-sonar.xml,.dso-db/orders-db/utplsql-sonar-tests.xml,.dso-db/orders-db/orders-db-341-<stamp>-test-changes.txt
+archiveArtifacts .dso-db/orders-db/utplsql-junit.xml,.dso-db/orders-db/utplsql-cobertura.xml,.dso-db/orders-db/utplsql-coverage-sonar.xml,.dso-db/orders-db/utplsql-sonar-tests.xml,.dso-db/orders-db/orders-db-341-<stamp>-test-changes.txt
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p DevSecOpsJenkinsLibrary
 sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
@@ -827,12 +829,25 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
+withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
+sh set +x
+code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+rc=$?
+if [ $rc -ne 0 ]; then
+  exit $rc
+fi
+echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+if [ "$code" -ge 300 ]; then
+  exit 1
+fi
+
+sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
 cleanWs
 == log
 [PORTAL] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[DB] orders-db: SQL and PL/SQL service - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
+[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -842,6 +857,10 @@ cleanWs
 [DB] orders-db: 10 changesets in the changelog
 [DB] orders-db: review SQL .dso-db/orders-db/orders-db-341-<stamp>-update.sql: 8 changesets for contexts !test
 [DB] orders-db: package .dso-db/orders-db/orders-db-341-<stamp>.zip (folder db of .), validated from the package
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] PASS
+------------------------------------------------------------
 [DB] orders-db test: 10 changesets pending before the update
 [DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
 [DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
@@ -867,6 +886,7 @@ covered=150  missed=20  total=170
 ------------------------------------------------------------
 [SAST] orders-db: SQL and PL/SQL sources - the scan has no compile step
 [SAST] orders-db: 2 of 8 SQL and PL/SQL files have extensions AppScan does not scan (.prc .fnc .trg .vw .tps .tpb .typ .bdy): db/code/trg_orders_bi.trg, db/code/v_order_totals.vw
+Detected tool from config file is liquibase
 Start queue sast
 [INFO] 'orders-db-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
 [SAST] Report counts: Critical=0 High=0 Medium=0 Low=1
@@ -942,8 +962,9 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-release
 ------------------------------------------------------------
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
-[INFLUX] 59 metric line(s) for orders (dev), build 341, result SUCCESS
+[INFLUX] 61 metric line(s) for orders (dev), build 341, result SUCCESS
 [INFLUX] Sending metrics to https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s
+[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/orders-db-devsecops-pipeline build 341
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---
@@ -958,6 +979,7 @@ deployments,project=orders,env=dev count=1 <s>
 change_failure,project=orders,env=dev value=0i <s>
 build_duration,project=orders,env=dev value=0i <s>
 stage_metric,project=orders,env=dev,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=orders,env=dev,stage=Build\ artifact result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=orders,env=dev,stage=Unit\ tests result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=orders,env=dev,stage=Dependencies\ scan\ (Nexus\ IQ) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=orders,env=dev,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
@@ -974,21 +996,22 @@ vulnerabilities,project=orders,env=dev,scanner=sast critical=0i,high=0i,medium=0
 vulnerabilities,project=orders,env=dev,scanner=dast critical=0i,high=0i,medium=0i,low=0i <s>
 vulnerabilities,project=orders,env=dev,scanner=sonar critical=0i,high=0i,medium=0i,low=0i <s>
 test_coverage,project=orders,env=dev line_pct=88.2,covered=150i,total=170i <s>
-pipeline_run,project=orders,env=dev,variant=full,result=SUCCESS,branch=origin/develop build=341i,duration_s=<n>i,success=1i,unstable=0i,stages_total=13i,passed=7i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=6i,modules=1i,commit="",job="DevSecOps/orders-db-devsecops-pipeline" <s>
+pipeline_run,project=orders,env=dev,variant=full,result=SUCCESS,branch=origin/develop build=341i,duration_s=<n>i,success=1i,unstable=0i,stages_total=14i,passed=8i,warned=0i,failed=0i,blocked=0i,skipped=0i,not_required=6i,modules=1i,commit="",job="DevSecOps/orders-db-devsecops-pipeline" <s>
 dora,project=orders,env=dev,variant=full deployment=1i,change_failure=0i,lead_time_s=<n>i,duration_s=<n>i,released=1i <s>
 stage_event,project=orders,env=dev,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Unit\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Dependencies\ scan\ (Nexus\ IQ),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
-stage_event,project=orders,env=dev,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=4i,reason="" <s>
-stage_event,project=orders,env=dev,stage=SCA\ (SonarQube),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=5i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Lower\ test\ region\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Regression\ tests\ (>60%\ user\ stories\ coverage),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=8i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Smoke\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=9i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Performance\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=10i,reason="" <s>
-stage_event,project=orders,env=dev,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=11i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=12i,reason="" <s>
-stage_event,project=orders,env=dev,stage=Higher\ test\ environment\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=13i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Build\ artifact,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Unit\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=3i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Dependencies\ scan\ (Nexus\ IQ),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=4i,reason="" <s>
+stage_event,project=orders,env=dev,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=5i,reason="" <s>
+stage_event,project=orders,env=dev,stage=SCA\ (SonarQube),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Lower\ test\ region\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=8i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Regression\ tests\ (>60%\ user\ stories\ coverage),status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=9i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Smoke\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=10i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Performance\ tests,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=11i,reason="" <s>
+stage_event,project=orders,env=dev,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=12i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=13i,reason="" <s>
+stage_event,project=orders,env=dev,stage=Higher\ test\ environment\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=14i,reason="" <s>
 security_findings,project=orders,env=dev,module=orders-db,scanner=niq,status=NOT_REQUIRED critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
 security_findings,project=orders,env=dev,module=orders-db,scanner=sast,status=PASS critical=0i,high=0i,medium=0i,low=1i,total=1i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
 security_findings,project=orders,env=dev,module=orders-db,scanner=sonar,status=NOT_REQUIRED critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>

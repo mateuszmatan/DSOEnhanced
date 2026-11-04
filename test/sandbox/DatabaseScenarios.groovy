@@ -34,7 +34,6 @@ String onlinePrelude = harness.run { harness.type('com.bbh.utils.LiquibaseOutput
 String utplsqlPrelude = harness.run { harness.type('com.bbh.utils.LiquibaseOutput').utplsqlScript() } as String
 
 String MONITOR = 'Monitor source changes (download sources)'
-String NODE = 'Node.js build'
 String UNIT = 'Unit tests'
 String BUILD = 'Build artifact'
 String NIQ = 'Dependencies scan (Nexus IQ)'
@@ -49,9 +48,9 @@ String PERFORMANCE = 'Performance tests'
 String DAST = 'DAST - Dynamic Application Security Tests - HCL AppScan'
 String RELEASE = 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities'
 String QC = 'Higher test environment deployment'
-List<String> securityStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
+List<String> securityStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
 List<String> extendedStages = [MONITOR, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
-List<String> fullStages = [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+List<String> fullStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 
 int failures = 0
 Closure check = { String name, boolean ok, Object detail ->
@@ -174,8 +173,9 @@ Closure basics = { Map spec, Map r ->
     List<String> carriers = j.calls + j.log + (j.files.values() as List<String>) + [ScenarioRunner.influxOf(j)]
     List<String> scripts = j.calls.findAll { it.startsWith('sh [DB: ') }
     List<String> named = scripts.findAll { s -> ['--password', '--username', '--url=jdbc', 'LIQUIBASE_COMMAND_USERNAME', 'LIQUIBASE_COMMAND_PASSWORD'].any { s.contains(it) } }
-    check("${name}: D-SEC no call, withEnv, log line, file or InfluxDB line holds a bound credential, and no DB script names a user, a password or a JDBC URL",
-            !carriers.any { it.contains('fake-DSO_DB_') } && !named, carriers.findAll { it.contains('fake-DSO_DB_') }.take(3) + named.take(3))
+    boolean portal = j.files.keySet().any { it.startsWith('portal_report_') }
+    check("${name}: D-SEC no call, withEnv, log line, file (the report sent to the portal too) or InfluxDB line holds a bound credential, and no DB script names a user, a password or a JDBC URL",
+            !carriers.any { it.contains('fake-DSO_DB_') } && !named && (portal || !spec.golden), carriers.findAll { it.contains('fake-DSO_DB_') }.take(3) + named.take(3) + [portal])
     List<String> online = scripts.findAll { it.contains('"--defaults-file=$DSO_STEP"') }
     List<String> tests = scripts.findAll { it.startsWith('sh [DB: utPLSQL ') }
     check("${name}: D-SEC every online Liquibase script starts with the online prelude, and every utPLSQL script with its prefix",
@@ -270,11 +270,11 @@ Closure dbCard = { Map r ->
 
 Map d3Alone = null
 List<Map> goldenSpecs = [
-        security + [name: 'D1 security, PL/SQL only, green', layout: 'a', executed: securityStages, skipped: [NODE, STATIC], result: 'SUCCESS',
+        security + [name: 'D1 security, PL/SQL only, green', layout: 'a', executed: securityStages, skipped: [STATIC], result: 'SUCCESS',
                     golden: 'security-plsql-only-green', configure: dropTargets(['test', 'rd', 'qc']), checks: { Map r ->
             Map results = stageResults(r.j as FakeScript)
             check('D1: the stage results of 10.15 for the security stages, and coverage is not required',
-                    results == [(MONITOR): 'PASS', (UNIT): 'PASS', (NIQ): 'NOT_REQUIRED', (SAST): 'PASS', (SONAR): 'NOT_REQUIRED', (SNAPSHOT): 'PASS']
+                    results == [(MONITOR): 'PASS', (BUILD): 'PASS', (UNIT): 'PASS', (NIQ): 'NOT_REQUIRED', (SAST): 'PASS', (SONAR): 'NOT_REQUIRED', (SNAPSHOT): 'PASS']
                             && has(r, '[DB] orders-db: no test database (database.test.url) - no unit tests, coverage is not required') && !logOf(r).any { it.startsWith('[COVERAGE]') },
                     results)
             List zips = callsOf(r).findAll { it.startsWith('archiveArtifacts ') && it.contains('.zip') }
@@ -285,7 +285,7 @@ List<Map> goldenSpecs = [
             check('D1: the Database changes card has one package row, with the review SQL and utPLSQL not run, and no deployments table',
                     card.count('<tr><td') == 1 && card.contains('>review SQL</a>') && card.contains('>not run<') && !card.contains('<th>Database</th>'), card)
         }],
-        full + [name: 'D2 full, PL/SQL only, Liquibase 5.0.4, green', layout: 'a', executed: fullStages, skipped: [NODE, STATIC], result: 'SUCCESS',
+        full + [name: 'D2 full, PL/SQL only, Liquibase 5.0.4, green', layout: 'a', executed: fullStages, skipped: [STATIC], result: 'SUCCESS',
                 golden: 'full-plsql-only-green', demo: 'database-plsql-green', defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4'] },
                 configure: { Map p -> (p['orders-db'] as Map).influx = [enabled: true, project: 'orders', env: 'dev', credentialsId: 'orders-influx-token',
                                                                         url: 'https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s'] }, checks: { Map r ->
@@ -307,7 +307,7 @@ List<Map> goldenSpecs = [
             check('D2: the release publishes the zip of the snapshot under the version of the build',
                     callsOf(r).count { it.contains("'-Dversion=341-") && !it.contains('SNAPSHOT') && it.contains("'-Dfile=/ws/.dso-db/orders-db/orders-db-341-") } == 1, null)
         }],
-        full + [name: 'D3 full, Gradle module and Node.js, green', layout: 'b', executed: [MONITOR, NODE] + fullStages.drop(1), skipped: [STATIC], result: 'SUCCESS',
+        full + [name: 'D3 full, Gradle module and Node.js, green', layout: 'b', executed: fullStages, skipped: [STATIC], result: 'SUCCESS',
                 golden: 'full-gradle-module-green', prepare: { FakeScript j -> j.files['/opt/liquibase/4.33.0/internal/lib/ojdbc8.jar'] = 'jar' }, checks: { Map r ->
             List<String> late = []
             List<String> block = []
@@ -327,11 +327,11 @@ List<Map> goldenSpecs = [
             Closure appCalls = { Map run ->
                 List<String> calls = ((run.j as FakeScript).calls as OwnedList).ownedBy('orders-app')
                 List<Integer> logins = (0..<calls.size()).findAll { calls[it].contains('" api_login ') }.collectMany { [it - 2, it - 1, it] }
-                (0..<calls.size()).findAll { !logins.contains(it) }.collect { calls[it].replace(',.dso-db', '') }
+                (0..<calls.size()).findAll { !logins.contains(it) && !calls[it].contains('portal_re') }.collect { calls[it].replace(',.dso-db', '').replaceAll(/(?<!\d)\d{13}(?!\d)/, '<ms>') }
             }
             List<String> mixed = appCalls(r)
             List<String> single = appCalls(alone)
-            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS and the AppScan logins that the second AppScan key adds',
+            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS, the AppScan logins that the second AppScan key adds and the report sent to the portal, which names every service',
                     mixed == single && ((r.j as FakeScript).calls as OwnedList).ownedBy('orders-app').any { it.contains('APPSCAN_EXCLUDED_FOLDERS=orders-db,node_modules,.dso-db') },
                     [mixed.size(), single.size()] + (0..<Math.min(mixed.size(), single.size())).findAll { mixed[it] != single[it] }.take(1).collect { [mixed[it], single[it]]*.take(300) })
             List gradle = (r.shells as List<Map>).findAll { (it.label as String).startsWith('Gradle: ') }
@@ -342,7 +342,7 @@ List<Map> goldenSpecs = [
                     has(r, '[DB] orders-db: Liquibase 4.33 uses its bundled Oracle driver /opt/liquibase/4.33.0/internal/lib/ojdbc8.jar before tools.oracleJdbc.path - remove that jar to use the configured driver (chapter 14.2, trimmed install)')
                             && has(r, '[DB] orders-db: Liquibase 4.33.0, licence Apache-2.0 (core; bundle includes third-party and commercial components), JDK /usr/lib/jvm/java-17-openjdk'), null)
         }],
-        security + [name: 'D4 security, Maven and Node.js in their own folders, green', layout: 'c', executed: [MONITOR, NODE] + securityStages.drop(1), skipped: [STATIC],
+        security + [name: 'D4 security, Maven and Node.js in their own folders, green', layout: 'c', executed: securityStages, skipped: [STATIC],
                     result: 'SUCCESS', golden: 'security-maven-green', checks: { Map r ->
             List maven = (r.shells as List<Map>).findAll { (it.label as String).startsWith('Maven: ') && it.owner == 'orders-api' }
             String irx = ((r.j as FakeScript).calls as OwnedList).ownedBy('orders-api').find { it.startsWith('withEnv [APPSCAN_CMD_RUNTIME') && it.contains('APPSCAN_EXCLUDED_FOLDERS=') }
@@ -354,7 +354,7 @@ List<Map> goldenSpecs = [
                     has(planted, '[DB] orders-db: 1 liquibase*.properties file(s) were left out of the package: the pipeline passes every Liquibase setting itself, and a properties file may hold a password'),
                     logOf(planted).findAll { it.startsWith('[DB]') })
         }],
-        full + [name: 'D5 full, compile errors on RD', layout: 'a', executed: fullStages.take(6), skipped: [NODE, STATIC] + fullStages.drop(7), result: 'FAILURE',
+        full + [name: 'D5 full, compile errors on RD', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8), result: 'FAILURE',
                 failedStage: RD, golden: 'full-rd-compile-failure',
                 compile: [rd: [before: [oldView], updated: [oldView, 'PACKAGE BODY PKG_ORDERS 20261031101502'], invalid: ['PACKAGE BODY PKG_ORDERS', 'VIEW V_LEGACY_REPORT'],
                                errors: [pkgError, viewError]]], checks: { Map r ->
@@ -368,11 +368,11 @@ List<Map> goldenSpecs = [
                     card.contains("RD<div style='font-size:0.68rem;color:#64748b;'>the deployment left invalid objects: PACKAGE BODY PKG_ORDERS | PACKAGE BODY PKG_ORDERS line 12: PLS-00201: identifier &#39;ORDER_ITEMZ&#39;")
                             && card.contains('>1 invalid before</div>') && card.indexOf('>PASS</span>') < card.indexOf('>FAIL</span>') && card.count('>FAIL</span>') == 1, card)
         }],
-        security + [name: 'D6 security, static check findings', layout: 'a', executed: securityStages, skipped: [NODE, STATIC], result: 'UNSTABLE',
+        security + [name: 'D6 security, static check findings', layout: 'a', executed: securityStages, skipped: [STATIC], result: 'UNSTABLE',
                     golden: 'security-static-checks-orange', demo: 'database-static-checks-orange', files: staticTree, configure: dropTargets(['test', 'rd', 'qc']), checks: { Map r ->
             String found = (r.j as FakeScript).files['.dso-db/orders-db/static-checks.txt'] ?: ''
-            check('D6: Unit tests is WARN with M-DB-26, and static-checks.txt holds S1, S2b, S3a and S3b of the formatted SQL and S4, and nothing for the UPDATE or the TOAD package',
-                    stageOf(r, UNIT) == 'WARN' && logOf(r).any { it.contains('6 static check finding(s) in the SQL and PL/SQL sources (.dso-db/orders-db/static-checks.txt)') }
+            check('D6: Build artifact is WARN with M-DB-26, and static-checks.txt holds S1, S2b, S3a and S3b of the formatted SQL and S4, and nothing for the UPDATE or the TOAD package',
+                    stageOf(r, BUILD) == 'WARN' && logOf(r).any { it.contains('6 static check finding(s) in the SQL and PL/SQL sources (.dso-db/orders-db/static-checks.txt)') }
                             && found.readLines() == staticFindings && callsOf(r).contains('archiveArtifacts .dso-db/orders-db/static-checks.txt'), found)
         }],
         extended + [name: 'D7 extended, the delivered package', layout: 'a', executed: extendedStages, skipped: [], result: 'SUCCESS', golden: 'extended-green', checks: { Map r ->
@@ -386,7 +386,7 @@ List<Map> goldenSpecs = [
                     online && online.every { it.contains("'--search-path=${zip}'") } && callsOf(r).any { it.contains("'-Dversion=${delivered}'") && it.contains("'-Dfile=/ws/${zip}'") }
                             && !stageResults(r.j as FakeScript).containsKey(UNIT) && !(r.j as FakeScript).files['release-gate.json'].contains(UNIT), online.take(1))
         }],
-        sast + [name: 'D8 SAST, PL/SQL only', layout: 'a', executed: [MONITOR, SAST], skipped: [NODE], result: 'SUCCESS', golden: 'sast-green', checks: { Map r ->
+        sast + [name: 'D8 SAST, PL/SQL only', layout: 'a', executed: [MONITOR, BUILD, SAST], skipped: [], result: 'SUCCESS', golden: 'sast-green', checks: { Map r ->
             String prepare = callsOf(r).find { it.contains('" prepare ') } ?: ''
             check('D8: the IRX has no compile step (-sco), M-DB-51 and M-DB-50, no .dso-db in APPSCAN_EXCLUDED_FOLDERS, and no Liquibase step',
                     prepare.contains(' -sco') && has(r, '[SAST] orders-db: SQL and PL/SQL sources - the scan has no compile step')
@@ -394,10 +394,10 @@ List<Map> goldenSpecs = [
                             && !callsOf(r).any { it.contains('APPSCAN_EXCLUDED_FOLDERS=') && it.contains('.dso-db') } && !callsOf(r).any { it.startsWith('sh [DB: Liquibase') },
                     prepare.readLines().find { it.contains(' prepare ') })
         }],
-        nexusiq + [name: 'D9 Nexus IQ GoldenFix, Gradle module and Node.js', layout: 'b', executed: [MONITOR, NODE, BUILD, NIQ], skipped: [], result: 'SUCCESS',
+        nexusiq + [name: 'D9 Nexus IQ GoldenFix, Gradle module and Node.js', layout: 'b', executed: [MONITOR, BUILD, NIQ], skipped: [], result: 'SUCCESS',
                    golden: 'nexusiq-mixed-green', checks: { Map r ->
             check('D9: Build artifact and Nexus IQ are not required for orders-db, and Nexus IQ evaluates orders-app only',
-                    has(r, '[BUILD] orders-db: a SQL and PL/SQL service has no build artifact for Nexus IQ - not required')
+                    has(r, '[BUILD] orders-db: the Nexus IQ GoldenFix pipeline does not package the database changes - not required')
                             && has(r, '[DEP-SCAN] orders-db: SQL and PL/SQL have no dependency components - Nexus IQ is not required')
                             && (r.evaluations as List<Map>).collect { it.iqApplication } == ['CertValidityMonitoring-GUI'], (r.evaluations as List<Map>).collect { it.iqApplication })
         }]
@@ -420,9 +420,9 @@ focused('D11 a Windows agent', plsql + [failedStage: MONITOR, env: [DSO_PORTAL_A
 focused('D13 the database service after the Java service', security + [layout: 'b', configure: { Map p -> p.put('orders-db', p.remove('orders-db')) }],
         '[DB] orders-db comes after orders-app in the list of services: the database changes are then deployed after that application in RD and QC; list the SQL and PL/SQL service first')
 
-focused('D14 a Liquibase home that is not on the agent', plsql + [failedStage: UNIT, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.30.0'] }],
+focused('D14 a Liquibase home that is not on the agent', plsql + [failedStage: BUILD, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.30.0'] }],
         '[DB] defaults.tools.liquibase.home is /opt/liquibase/4.30.0, which does not exist on agent linux-agent: install it there or correct the setting')
-focused('D14 no Liquibase CLI', plsql + [failedStage: UNIT, missingTool: 'liquibase', defaults: { Map d -> (d.tools as Map).liquibase = [:] }],
+focused('D14 no Liquibase CLI', plsql + [failedStage: BUILD, missingTool: 'liquibase', defaults: { Map d -> (d.tools as Map).liquibase = [:] }],
         '[DB] No Liquibase CLI on agent linux-agent: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of the DevSecOps portal, or put liquibase on the PATH of the agent')
 focused('D14 no utPLSQL-cli', security + [layout: 'a', failedStage: UNIT, missingTool: 'utplsql', defaults: { Map d -> (d.tools as Map).utplsql = [:] }],
         '[DB] No utPLSQL-cli on agent linux-agent, and orders-db runs utPLSQL (database.test.utplsql.enabled): set tools.utplsql.home, or tools.utplsql.url with its sha256, or put utplsql on the PATH of the agent')
@@ -431,7 +431,7 @@ Closure downloads = { Map d ->
     (d.tools as Map).liquibase = [url: 'https://tools.bbh.com/nexus/repository/tools/liquibase-4.33.0.tar.gz', sha256: sha]
     (d.tools as Map).utplsql = [url: 'https://tools.bbh.com/nexus/repository/tools/utPLSQL-cli.zip', sha256: 'b' * 64]
 }
-focused('D14 a download with the wrong sha256', plsql + [failedStage: UNIT, badSha: true, defaults: downloads],
+focused('D14 a download with the wrong sha256', plsql + [failedStage: BUILD, badSha: true, defaults: downloads],
         '[DB] The file at defaults.tools.liquibase.url does not have the sha256 of defaults.tools.liquibase.sha256 and was removed: check both settings')
 Map twice = verify(security + [name: 'D14 two database services with the same tools', layout: 'a', defaults: downloads, configure: { Map p ->
     Map second = new Yaml().load(new Yaml().dump(p['orders-db'])) as Map
@@ -444,7 +444,7 @@ check('D14: the second service resolves Liquibase from the cache, and the later 
         fetched == ['sh [DB: download liquibase] #!/usr/bin/env bash', 'sh [DB: download utplsql] #!/usr/bin/env bash']
                 && callsOf(twice).findIndexOf { it.startsWith('sh [DB: download utplsql]') } > callsOf(twice).findIndexOf { it.startsWith('sh [DB: stage the package orders-db-') }, fetched)
 
-focused('D15 Liquibase 4.32.0', plsql + [failedStage: UNIT, prepare: { FakeScript j -> j.files['/opt/liquibase/4.32.0'] = '' }, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.32.0'] }],
+focused('D15 Liquibase 4.32.0', plsql + [failedStage: BUILD, prepare: { FakeScript j -> j.files['/opt/liquibase/4.32.0'] = '' }, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.32.0'] }],
         '[DB] orders-db: Liquibase 4.32.0 is not supported: use Liquibase 4.33 or 5.0')
 focused('D15 Liquibase 4.34.0', plsql + [result: 'SUCCESS', prepare: { FakeScript j -> j.files['/opt/liquibase/4.34.0'] = '' }, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.34.0'] }],
         '[DB] orders-db: Liquibase 4.34.0 has not been tested with the library (tested: 4.33.0 and 5.0.4)')
@@ -456,9 +456,9 @@ focused('D16 Liquibase 5.0.4 without a driver', security + [layout: 'a', failedS
  E4: "Error parsing command line: Using 'include in Formatted SQL changelog' requires a valid Liquibase license key. Get a Liquibase license key and free trial at https://liquibase.com/trial. - the changelog uses a Liquibase Pro feature, which the library does not support (for example include inside formatted SQL): remove it",
  E5: "Error parsing line 13 column 76 of db/changelog-master.xml: cvc-complex-type.2.4.a: Invalid content was found starting with element '{\"http://www.liquibase.org/xml/ns/dbchangelog\":changeSet}'. One of '{...}' is expected."
 ].each { String error, String reason ->
-    focused("D17 an invalid changelog (${error})", plsql + [failedStage: UNIT, validateError: error], "[DB] orders-db: the changelog db/changelog-master.xml is not valid: ${reason}".toString())
+    focused("D17 an invalid changelog (${error})", plsql + [failedStage: BUILD, validateError: error], "[DB] orders-db: the changelog db/changelog-master.xml is not valid: ${reason}".toString())
 }
-focused('D18 a package that does not validate', plsql + [failedStage: UNIT, badPackage: true],
+focused('D18 a package that does not validate', plsql + [failedStage: BUILD, badPackage: true],
         '[DB] orders-db: the package .dso-db/orders-db/orders-db-212-<stamp>.zip is not usable: Validation Failed: 1 changes have validation failures The file code/pkg_orderz.pkb was not found in the configured search path: - /ws - /opt/liquibase/4.33.0/lib - the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog - every file the changelog uses must be under db of .')
 
 Map unit = security + [layout: 'a']
@@ -545,7 +545,7 @@ focused('D28 the delivered package cannot be fetched', onRd + [fetchFails: true]
         "[DB] orders-db: the delivered package com.bbh.orders:orders-db:${delivered}-SNAPSHOT could not be fetched from bbh-db-snapshots: script returned exit code 1 - check that it is in Nexus and that the agent's Maven settings can read the repository".toString())
 
 String secret = 'Rd3r-Secret'
-Map blocked = focused('D30 a password and an executeCommand in the sources', plsql + [failedStage: UNIT, files: [
+Map blocked = focused('D30 a password and an executeCommand in the sources', plsql + [failedStage: BUILD, files: [
         'db/changelog-master.xml'        : withChangeSets('    <changeSet id="run-script" author="orders-team">\n        <executeCommand executable="/bin/sh"/>\n    </changeSet>\n'),
         'db/tables/003-create-reader.sql': "--liquibase formatted sql\n\n--changeset orders-team:003-create-reader\nCREATE USER orders_reader IDENTIFIED BY \"${secret}\";\n".toString()]],
         '[DB] orders-db: 2 finding(s) that the library does not deploy (.dso-db/orders-db/static-checks.txt): a password, executeCommand, customChange or a ${...} that names a secret - remove them')
