@@ -119,7 +119,7 @@ class BuildUtils implements Serializable {
             Map asoc = (cfg.asoc ?: [:]) as Map
             Map build = (cfg.build ?: [:]) as Map
             if (!booleanValue(asoc.doCompile, true)) continue
-            for (String tool : ['gradle', 'maven']) {
+            for (String tool : ['gradle', 'maven', 'liquibase']) {
                 if (asoc.get(tool) && asoc.get(tool) != build.get(tool) && !names.contains(entry.key)) names << (entry.key as String)
             }
         }

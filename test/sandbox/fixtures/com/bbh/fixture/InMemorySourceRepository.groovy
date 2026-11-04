@@ -65,4 +65,8 @@ class InMemorySourceRepository implements SourceRepository {
     String resolveCurrentBranch() {
         return 'develop'
     }
+
+    String prepareExternalRepository(String url, String branch, String credentialsId) {
+        return '/ws@tmp/version-catalogs/' + (branch ?: 'main')
+    }
 }

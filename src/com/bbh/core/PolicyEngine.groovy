@@ -35,6 +35,7 @@ class PolicyEngine implements Serializable {
     @NonCPS
     static String stageNameFor(String key) {
         Map names = [
+                unit: 'Unit tests',
                 sast: 'SAST - Static Application Security Tests - HCL AppScan',
                 sca : 'SCA (SonarQube)',
                 niq : 'Dependencies scan (Nexus IQ)',

@@ -28,18 +28,6 @@ sh [Gradle: clean build bootJar]
             set -euo pipefail
             './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
         
-sh [ -f "./gradlew" ]
-sh chmod +x gradlew
-sh [Gradle: test jacocoTestReport jacocoTestCoverageVerification] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
-        
-sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
-python3 -I - --root '.' --own 'gradle' --others 'maven' <<'PYEOF'
-<scan script>
-PYEOF
-
 sh mvn -v
 sh mvn -version
 withEnv [MAVEN_OPTS=-Xms512m -Xmx1g]
@@ -48,18 +36,6 @@ sh [Maven: clean verify]
             set -euo pipefail
             'mvn' 'clean' 'verify' '-B' '-U'
         
-sh mvn -v
-sh mvn -version
-sh [Maven: test jacoco:report] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            'mvn' 'test' 'jacoco:report'
-        
-sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
-python3 -I - --root '.' --own 'maven' --others 'gradle' <<'PYEOF'
-<scan script>
-PYEOF
-
 sh mkdir -p DevSecOpsJenkinsLibrary
 sh chmod +x DevSecOpsJenkinsLibrary/a2a.sh
 sh chmod +x DevSecOpsJenkinsLibrary/get-a2a-password.sh
@@ -563,6 +539,30 @@ env -u APPSCAN_DOMAIN \
     2>&1 | tee "$APPSCAN_LOG_DIR/queue-certscanner-backend-sast.log" | grep -v "^Picked up " || true
 
 sh rm -rf "$WORKSPACE/appscan-source-staged"
+sh [ -f "./gradlew" ]
+sh chmod +x gradlew
+sh [Gradle: test jacocoTestReport jacocoTestCoverageVerification] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
+        
+sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
+python3 -I - --root '.' --own 'gradle' --others 'maven' <<'PYEOF'
+<scan script>
+PYEOF
+
+sh mvn -v
+sh mvn -version
+sh [Maven: test jacoco:report] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'test' 'jacoco:report'
+        
+sh [Coverage: find and read the reports] if ! command -v python3 >/dev/null 2>&1; then echo NO-PYTHON3; exit 0; fi
+python3 -I - --root '.' --own 'maven' --others 'gradle' <<'PYEOF'
+<scan script>
+PYEOF
+
 withCredentials [nexusiqP]
 sh [Nexus IQ: resolve application CertValidityMonitoring-GUI] #!/bin/bash
 set +x
@@ -573,55 +573,6 @@ sh [Nexus IQ: policy report 0f1e2d3c4b5a69788796a5b4c3d2e1f0] #!/bin/bash
 set +x
 set -euo pipefail
 curl -sS -X 'GET' -u "$NIQ_GF_USER:$NIQ_GF_PASS" -H 'Accept: application/json'  -w '\n%{http_code}' 'https://tools.bbh.com/IQ/api/v2/applications/CertValidityMonitoring-GUI/reports/0f1e2d3c4b5a69788796a5b4c3d2e1f0/policy'
-
-sh chmod +x gradlew
-sh [Gradle: sonarqube] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            './gradlew' 'sonarqube'
-        
-withCredentials [sonarqube-token]
-sh 
-_TMP=$(mktemp)
-curl -f -H "Authorization: Bearer ${authToken}" \
-"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-gui&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
-python3 - "${_TMP}" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1]) as f: d = json.load(f)
-    c = {}
-    for item in d.get('facets', []):
-        if item.get('property') == 'severities':
-            for v in item.get('values', []): c[v['val']] = v['count']
-    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
-    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
-except Exception: print('0,0,0,0')
-PYEOF
-rm -f "${_TMP}"
-
-sh [Maven: sonar:sonar] 
-            #!/usr/bin/env bash
-            set -euo pipefail
-            'mvn' 'sonar:sonar'
-        
-withCredentials [sonarqube-token]
-sh 
-_TMP=$(mktemp)
-curl -f -H "Authorization: Bearer ${authToken}" \
-"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-backend&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
-python3 - "${_TMP}" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1]) as f: d = json.load(f)
-    c = {}
-    for item in d.get('facets', []):
-        if item.get('property') == 'severities':
-            for v in item.get('values', []): c[v['val']] = v['count']
-    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
-    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
-except Exception: print('0,0,0,0')
-PYEOF
-rm -f "${_TMP}"
 
 withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_SCAN_ID=5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c, APPSCAN_POLL_INTERVAL=30, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
 sh #!/usr/bin/env bash
@@ -693,6 +644,55 @@ for i in {1..6}; do
 done
 
 sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-certscanner-backend.html' || true
+sh chmod +x gradlew
+sh [Gradle: sonarqube] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            './gradlew' 'sonarqube'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-gui&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
+sh [Maven: sonar:sonar] 
+            #!/usr/bin/env bash
+            set -euo pipefail
+            'mvn' 'sonar:sonar'
+        
+withCredentials [sonarqube-token]
+sh 
+_TMP=$(mktemp)
+curl -f -H "Authorization: Bearer ${authToken}" \
+"https://tools.bbh.com/sonar/api/issues/search?componentKeys=cert-scanner-backend&types=VULNERABILITY&resolved=false&facets=severities&ps=1" > "${_TMP}" 2>/dev/null || echo '{}' > "${_TMP}"
+python3 - "${_TMP}" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f: d = json.load(f)
+    c = {}
+    for item in d.get('facets', []):
+        if item.get('property') == 'severities':
+            for v in item.get('values', []): c[v['val']] = v['count']
+    crit = c.get('BLOCKER', 0) + c.get('CRITICAL', 0)
+    print(str(crit)+','+str(c.get('MAJOR',0))+','+str(c.get('MINOR',0))+','+str(c.get('INFO',0)))
+except Exception: print('0,0,0,0')
+PYEOF
+rm -f "${_TMP}"
+
 junit build/test-results/test/*.xml
 reportUnitTest
 sh ls target/*.jar target/*.war 2>/dev/null | head -n 1 || true
@@ -804,9 +804,29 @@ cleanWs
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
 ------------------------------------------------------------
+[NODE] gui: build.node.enabled is not set - no Node.js build
 Detected tool from config file is gradle
 [BUILD] Tool: gradle OS: linux
 Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+[NODE] backend-api: build.node.enabled is not set - no Node.js build
+Detected tool from config file is maven
+[BUILD] Tool: maven OS: linux
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+------------------------------------------------------------
+[STAGE]  Build artifact
+[RESULT] NOT_REQUIRED
+------------------------------------------------------------
+[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last
+Detected tool from config file is gradle
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+Start queue sast
+[INFO] 'certscanner-gui-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
+Detected tool from config file is maven
+Maven is installed on this agent
+Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
+Start queue sast
+[INFO] 'certscanner-backend-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
 Detected tool from config file is gradle
 [TEST] Tool: gradle
 Execute Gradle Command: './gradlew' 'test' 'jacocoTestReport' 'jacocoTestCoverageVerification'
@@ -822,10 +842,6 @@ Package: com.bbh.certscanner, Class: CertificateService, Coverage: 45.0, Missed:
 covered=450  missed=550  total=1000
 ----------------------------------------------------
 [unstable] [POLICY] gui: Line coverage 45.0% is below the required 60%. The Nexus release and the QC deployment stay blocked until this is fixed.
-Detected tool from config file is maven
-[BUILD] Tool: maven OS: linux
-Maven is installed on this agent
-Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
 Detected tool from config file is maven
 [TEST] Tool: maven
 Maven is installed on this agent
@@ -849,16 +865,6 @@ covered=840  missed=160  total=1000
 [COV]    Line: 64.5% (mean of 2 reports)  required: 60%  OK
 [COV]    Covered: 1290  Missed: 710  Total: 2000
 ------------------------------------------------------------
-[STATIC] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last
-Detected tool from config file is gradle
-Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
-Start queue sast
-[INFO] 'certscanner-gui-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
-Detected tool from config file is maven
-Maven is installed on this agent
-Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
-Start queue sast
-[INFO] 'certscanner-backend-sast' queued - Scan ID: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c
 [DEP-SCAN] Application: CertValidityMonitoring-GUI | Server: https://tools.bbh.com/IQ
 [DEP-SCAN] Application: CertValidityMonitoring-GUI - C:2 H:5 M:9
 [GOLDENFIX] Nexus IQ policy violated - fetching GoldenFix list for 1 Nexus IQ application(s)
@@ -872,6 +878,16 @@ Start queue sast
 [STAGE]  Dependencies scan (Nexus IQ)
 [RESULT] WARN
 ------------------------------------------------------------
+[SAST] Report counts: Critical=0 High=3 Medium=4 Low=6
+[unstable] [POLICY] gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+[SAST] Report counts: Critical=0 High=1 Medium=2 Low=3
+[unstable] [POLICY] backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
+------------------------------------------------------------
+[STAGE]  SAST - Static Application Security Tests - HCL AppScan
+[RESULT] WARN
+[SAST]   Found:  Critical=0  High=1  Medium=2  Low=3
+[SAST]   Limits: Critical<=0  High<=0  Medium<=0
+------------------------------------------------------------
 Detected tool from config file is gradle
 Execute Gradle Command: './gradlew' 'sonarqube'
 Detected tool from config file is maven
@@ -882,16 +898,6 @@ Execute Maven Command: 'mvn' 'sonar:sonar'
 [RESULT] WARN
 [SCA]    Found:  Critical=1  High=2  Medium=3  Low=4
 [SCA]    Limits: Critical<=0  High<=0
-------------------------------------------------------------
-[SAST] Report counts: Critical=0 High=3 Medium=4 Low=6
-[unstable] [POLICY] gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
-[SAST] Report counts: Critical=0 High=1 Medium=2 Low=3
-[unstable] [POLICY] backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed.
-------------------------------------------------------------
-[STAGE]  SAST - Static Application Security Tests - HCL AppScan
-[RESULT] WARN
-[SAST]   Found:  Critical=0  High=1  Medium=2  Low=3
-[SAST]   Limits: Critical<=0  High<=0  Medium<=0
 ------------------------------------------------------------
 Detected tool from config file is gradle
 [REPORT] No artifact found for gradle/apk
@@ -1054,7 +1060,7 @@ Rollout deployment and wait
 [RELEASE-GATE] Nexus release and QC deployment blocked: stage 'Unit tests' is WARN | stage 'Dependencies scan (Nexus IQ)' is WARN | stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN | stage 'SCA (SonarQube)' is WARN | stage 'Smoke tests' is WARN | stage 'DAST - Dynamic Application Security Tests - HCL AppScan' is WARN | stage 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities' is BLOCKED | gui SAST (AppScan) high 3 > 0 | gui SAST (AppScan) medium 4 > 0 | gui DAST (AppScan) critical 1 > 0 | gui DAST (AppScan) high 2 > 0 | gui DAST (AppScan) medium 3 > 0 | backend-api SAST (AppScan) high 1 > 0 | backend-api SAST (AppScan) medium 2 > 0 | backend-api SCA (SonarQube) critical 1 > 0 | backend-api SCA (SonarQube) high 2 > 0 | backend-api SCA (SonarQube) medium 3 > 0 | gui line coverage 45.0% below the required 60%
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
-[INFLUX] 81 metric line(s) for CertScanner (test), build 342, result UNSTABLE
+[INFLUX] 83 metric line(s) for CertScanner (test), build 342, result UNSTABLE
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
 Vulnerabilities above the policy severity: SAST=3, DAST=0
 -----------------------------------------------------------------
@@ -1070,6 +1076,7 @@ deployments,project=CertScanner,env=test count=1 <s>
 change_failure,project=CertScanner,env=test value=1i <s>
 build_duration,project=CertScanner,env=test value=0i <s>
 stage_metric,project=CertScanner,env=test,stage=Monitor\ source\ changes\ (download\ sources) result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
+stage_metric,project=CertScanner,env=test,stage=Build\ artifact result="success",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScanner,env=test,stage=Unit\ tests result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScanner,env=test,stage=Dependencies\ scan\ (Nexus\ IQ) result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
 stage_metric,project=CertScanner,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan result="failure",start_time=<n>i,end_time=<n>i,duration_ms=<n>i <s>
@@ -1087,21 +1094,22 @@ vulnerabilities,project=CertScanner,env=test,scanner=dast critical=0i,high=0i,me
 vulnerabilities,project=CertScanner,env=test,scanner=nexusiq critical=2i,high=5i,medium=9i,low=0i <s>
 vulnerabilities,project=CertScanner,env=test,scanner=sonar critical=1i,high=2i,medium=3i,low=0i <s>
 test_coverage,project=CertScanner,env=test line_pct=64.5,covered=1290i,total=2000i <s>
-pipeline_run,project=CertScanner,env=test,variant=full,result=UNSTABLE,branch=origin/develop build=342i,duration_s=<n>i,success=0i,unstable=1i,stages_total=13i,passed=5i,warned=6i,failed=0i,blocked=2i,skipped=0i,not_required=0i,modules=2i,commit="",job="DevSecOps/CertScanner-devsecops-pipeline" <s>
+pipeline_run,project=CertScanner,env=test,variant=full,result=UNSTABLE,branch=origin/develop build=342i,duration_s=<n>i,success=0i,unstable=1i,stages_total=14i,passed=5i,warned=6i,failed=0i,blocked=2i,skipped=0i,not_required=1i,modules=2i,commit="",job="DevSecOps/CertScanner-devsecops-pipeline" <s>
 dora,project=CertScanner,env=test,variant=full deployment=1i,change_failure=1i,lead_time_s=<n>i,duration_s=<n>i,released=0i <s>
 stage_event,project=CertScanner,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
-stage_event,project=CertScanner,env=test,stage=Unit\ tests,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=2i,reason="gui: Line coverage 45.0% is below the required 60%. || backend-api: Unit tests failed (script returned exit code 1), coverage is checked on the reports that were produced. The Nexus release and the QC deployment stay blocked until this is f" <s>
-stage_event,project=CertScanner,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=3i,reason="gui: Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
-stage_event,project=CertScanner,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=4i,reason="gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. || backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
-stage_event,project=CertScanner,env=test,stage=SCA\ (SonarQube),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=5i,reason="backend-api: SonarQube vulnerabilities above the policy: critical 1 of max 0, high 2 of max 0, medium 3 of max 0; SonarQube quality gate is ERROR. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
-stage_event,project=CertScanner,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=6i,reason="" <s>
-stage_event,project=CertScanner,env=test,stage=Lower\ test\ region\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
-stage_event,project=CertScanner,env=test,stage=Regression\ tests\ (>60%\ user\ stories\ coverage),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=8i,reason="" <s>
-stage_event,project=CertScanner,env=test,stage=Smoke\ tests,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=9i,reason="gui: Smoke Tests failed - CertScanner-GUI - local smoke: FAILURE. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
-stage_event,project=CertScanner,env=test,stage=Performance\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=10i,reason="" <s>
-stage_event,project=CertScanner,env=test,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=11i,reason="gui: DAST (AppScan) policy not met: critical 1 of max 0, high 2 of max 0, medium 3 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
-stage_event,project=CertScanner,env=test,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities,status=BLOCKED duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=12i,reason="Blocked by 17 release policy violations, listed under Release policy." <s>
-stage_event,project=CertScanner,env=test,stage=Higher\ test\ environment\ deployment,status=BLOCKED duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=13i,reason="Blocked by 18 release policy violations, listed under Release policy." <s>
+stage_event,project=CertScanner,env=test,stage=Build\ artifact,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
+stage_event,project=CertScanner,env=test,stage=Unit\ tests,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=3i,reason="gui: Line coverage 45.0% is below the required 60%. || backend-api: Unit tests failed (script returned exit code 1), coverage is checked on the reports that were produced. The Nexus release and the QC deployment stay blocked until this is f" <s>
+stage_event,project=CertScanner,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=4i,reason="gui: Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScanner,env=test,stage=SAST\ -\ Static\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=5i,reason="gui: SAST (AppScan) policy not met: high 3 of max 0, medium 4 of max 0. || backend-api: SAST (AppScan) policy not met: high 1 of max 0, medium 2 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScanner,env=test,stage=SCA\ (SonarQube),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=6i,reason="backend-api: SonarQube vulnerabilities above the policy: critical 1 of max 0, high 2 of max 0, medium 3 of max 0; SonarQube quality gate is ERROR. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScanner,env=test,stage=Nexus\ delivery\ (Static\ analysis\ passed),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=7i,reason="" <s>
+stage_event,project=CertScanner,env=test,stage=Lower\ test\ region\ deployment,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=8i,reason="" <s>
+stage_event,project=CertScanner,env=test,stage=Regression\ tests\ (>60%\ user\ stories\ coverage),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=9i,reason="" <s>
+stage_event,project=CertScanner,env=test,stage=Smoke\ tests,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=10i,reason="gui: Smoke Tests failed - CertScanner-GUI - local smoke: FAILURE. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScanner,env=test,stage=Performance\ tests,status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=11i,reason="" <s>
+stage_event,project=CertScanner,env=test,stage=DAST\ -\ Dynamic\ Application\ Security\ Tests\ -\ HCL\ AppScan,status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=12i,reason="gui: DAST (AppScan) policy not met: critical 1 of max 0, high 2 of max 0, medium 3 of max 0. The Nexus release and the QC deployment stay blocked until this is fixed." <s>
+stage_event,project=CertScanner,env=test,stage=Nexus\ delivery\ -\ Safe\ Artifact\ -\ 0\ known\ Security\ Vulnerabilities,status=BLOCKED duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=13i,reason="Blocked by 17 release policy violations, listed under Release policy." <s>
+stage_event,project=CertScanner,env=test,stage=Higher\ test\ environment\ deployment,status=BLOCKED duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=14i,reason="Blocked by 18 release policy violations, listed under Release policy." <s>
 security_findings,project=CertScanner,env=test,module=gui,scanner=niq,status=WARN critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
 security_findings,project=CertScanner,env=test,module=gui,scanner=sast,status=WARN critical=0i,high=3i,medium=4i,low=6i,total=13i,above_policy=7i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
 security_findings,project=CertScanner,env=test,module=gui,scanner=sonar,status=PASS critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>

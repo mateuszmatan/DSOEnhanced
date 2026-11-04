@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevSecOps Shared Library (Standalone Version) - BBH DevSecOps</title>
+  <style>
+:root {
+  --primary: #0a2540;
+  --primary-light: #1e3a8a;
+  --primary-accent: #2563eb;
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --border: #e2e8f0;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --code-bg: #0f172a;
+  --code-inline-bg: #f1f5f9;
+  --tag-bg: #e0f2fe;
+  --tag-text: #0369a1;
+  --sidebar-w: 300px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar Navigation */
+.sidebar {
+  width: var(--sidebar-w);
+  background: #0f172a;
+  color: #e2e8f0;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  overflow-y: auto;
+  padding: 24px 18px;
+  border-right: 1px solid #1e293b;
+  z-index: 100;
+}
+
+.sidebar-brand {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sidebar-subbrand {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #334155;
+}
+
+.sidebar-nav {
+  list-style: none;
+}
+
+.sidebar-nav li {
+  margin-bottom: 6px;
+}
+
+.sidebar-nav a {
+  display: block;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 0.84rem;
+  padding: 7px 10px;
+  border-radius: 5px;
+  transition: all 0.15s ease;
+  line-height: 1.35;
+}
+
+.sidebar-nav a:hover {
+  background: #1e293b;
+  color: #38bdf8;
+  transform: translateX(3px);
+}
+
+/* Main Content Area */
+.main-wrapper {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  max-width: calc(100% - var(--sidebar-w));
+  padding: 36px 48px 80px;
+}
+
+.content-container {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* Header Banner */
+.doc-header {
+  background: linear-gradient(135deg, #0a2540 0%, #1e3a8a 100%);
+  color: #ffffff;
+  padding: 36px 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(10, 37, 64, 0.12);
+  margin-bottom: 36px;
+}
+
+.doc-header h1 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 10px;
+}
+
+.doc-header p {
+  font-size: 1.02rem;
+  color: #e0e7ff;
+  max-width: 880px;
+  line-height: 1.6;
+}
+
+.doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+  font-size: 0.82rem;
+}
+
+.meta-chip {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 4px 12px;
+  border-radius: 20px;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+/* Content Typography & Cards */
+.doc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px 36px;
+  margin-bottom: 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-top: 24px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+h4 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+p {
+  margin-bottom: 12px;
+}
+
+ul, ol {
+  margin: 10px 0 16px 24px;
+}
+
+li {
+  margin-bottom: 6px;
+}
+
+/* Badges and Tags */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-required { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.badge-optional { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+.badge-default  { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.badge-portal   { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+.badge-keyless  { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+/* Tables */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  background: #ffffff;
+}
+
+th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tr:nth-child(even) td {
+  background: #fcfcfd;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/* Callouts / Alerts */
+.callout {
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin: 18px 0;
+  border-left: 4px solid;
+  font-size: 0.9rem;
+}
+
+.callout-header {
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.callout-note {
+  background: #eff6ff;
+  border-left-color: #3b82f6;
+  color: #1e40af;
+}
+
+.callout-tip {
+  background: #f0fdf4;
+  border-left-color: #22c55e;
+  color: #166534;
+}
+
+.callout-important {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+  color: #92400e;
+}
+
+.callout-warning {
+  background: #fef2f2;
+  border-left-color: #ef4444;
+  color: #991b1b;
+}
+
+.callout-body p {
+  margin-bottom: 6px;
+}
+.callout-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Code Blocks */
+code {
+  background: var(--code-inline-bg);
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.84rem;
+}
+
+pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 18px 22px;
+  overflow-x: auto;
+  margin: 14px 0 20px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #f8fafc;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+/* Footer */
+.doc-footer {
+  text-align: center;
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main-wrapper { margin-left: 0; max-width: 100%; padding: 20px 16px; }
+  .doc-header { padding: 24px 20px; }
+  .doc-card { padding: 20px; }
+}
+</style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        BBH DevSecOps
+      </div>
+      <div class="sidebar-subbrand">User Guide (Without Portal Version)</div>
+      <ul class="sidebar-nav">
+        <li><a href='#contents' >Contents</a></li>
+<li><a href='#1-overview-and-standalone-model' ><span style='color:#94a3b8;font-weight:600;'>1.</span> Overview and Standalone Model</a></li>
+<li><a href='#2-the-jenkinsfile-defining-your-pipeline' ><span style='color:#94a3b8;font-weight:600;'>2.</span> The Jenkinsfile: Defining Your Pipeline</a></li>
+<li><a href='#available-pipeline-entry-points' style='padding-left: 20px; font-size: 0.8rem;'>Available Pipeline Entry Points:</a></li>
+<li><a href='#3-the-devsecops_configyaml-configuration-file' ><span style='color:#94a3b8;font-weight:600;'>3.</span> The devsecops_config.yaml Configuration File</a></li>
+<li><a href='#file-evaluation-order' style='padding-left: 20px; font-size: 0.8rem;'>File Evaluation Order:</a></li>
+<li><a href='#4-multi-service-and-multi-repository-bitbucket-support' ><span style='color:#94a3b8;font-weight:600;'>4.</span> Multi-Service and Multi-Repository Bitbucket Support</a></li>
+<li><a href='#1-multiple-services-in-one-pipeline-multi-service' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>1.</span> Multiple Services in One Pipeline (Multi-Service)</a></li>
+<li><a href='#2-multi-module-projects' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>2.</span> Multi-Module Projects</a></li>
+<li><a href='#5-supported-languages-and-build-tools' ><span style='color:#94a3b8;font-weight:600;'>5.</span> Supported Languages and Build Tools</a></li>
+<li><a href='#6-unit-testing-and-multi-report-code-coverage' ><span style='color:#94a3b8;font-weight:600;'>6.</span> Unit Testing and Multi-Report Code Coverage</a></li>
+<li><a href='#7-static-application-security-testing-sast--hcl-appscan' ><span style='color:#94a3b8;font-weight:600;'>7.</span> Static Application Security Testing (SAST) – HCL AppScan</a></li>
+<li><a href='#8-dynamic-application-security-testing-dast--hcl-appscan' ><span style='color:#94a3b8;font-weight:600;'>8.</span> Dynamic Application Security Testing (DAST) – HCL AppScan</a></li>
+<li><a href='#9-code-quality--sonarqube--alternative-badge-tokens' ><span style='color:#94a3b8;font-weight:600;'>9.</span> Code Quality – SonarQube &amp; Alternative Badge Tokens</a></li>
+<li><a href='#10-dependency-security--goldenfix--nexus-iq' ><span style='color:#94a3b8;font-weight:600;'>10.</span> Dependency Security &amp; GoldenFix – Nexus IQ</a></li>
+<li><a href='#11-deployments-and-disable-nexus-delivery-openshift--vm' ><span style='color:#94a3b8;font-weight:600;'>11.</span> Deployments and &quot;Disable Nexus Delivery&quot; (OpenShift &amp; VM)</a></li>
+<li><a href='#skipping-nexus-artifact-publishing' style='padding-left: 20px; font-size: 0.8rem;'>Skipping Nexus Artifact Publishing:</a></li>
+<li><a href='#optional-openshift-qc-region' style='padding-left: 20px; font-size: 0.8rem;'>Optional OpenShift QC Region:</a></li>
+<li><a href='#12-telemetry-dora-metrics-influxdb-and-grafana' ><span style='color:#94a3b8;font-weight:600;'>12.</span> Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
+<li><a href='#13-complete-devsecops_configyaml-template-with-field-reference' ><span style='color:#94a3b8;font-weight:600;'>13.</span> Complete devsecops_config.yaml Template with Field Reference</a></li>
+<li><a href='#non-technical-field-quick-reference' style='padding-left: 20px; font-size: 0.8rem;'>Non-Technical Field Quick Reference:</a></li>
+      </ul>
+    </aside>
+
+    <main class="main-wrapper">
+      <div class="content-container">
+        <header class="doc-header">
+          <h1>DevSecOps Shared Library (Standalone Version)</h1>
+          <p>User Guide (Without Portal Version)</p>
+          <div class="doc-meta">
+            <span class="meta-chip">Brown Brothers Harriman</span>
+            <span class="meta-chip">DevSecOps Shared Library</span>
+            <span class="meta-chip">Non-Technical User Guide</span>
+            <span class="meta-chip">Enterprise Standard</span>
+          </div>
+        </header>
+
+        <div class="doc-card">
+          <h1 id="devsecops-jenkins-shared-library-standalone-user-guide-without-portal">DevSecOps Jenkins Shared Library – Standalone User Guide (Without Portal)</h1>
+<blockquote>
+<p><strong>Comprehensive Guide for Pipelines Running Without the Portal (<code>DSOEnhanced</code> library on <code>DSOEnhancedWithoutPortal</code> branch).</strong>
+Fully autonomous delivery pipeline configured via code using <code>Jenkinsfile</code> and <code>devsecops_config.yaml</code> in your Git repository.
+Designed for non-technical users, Product Owners, business analysts, and engineers.</p>
+</blockquote>
+<hr />
+<h2 id="contents">Contents</h2>
+<ul>
+<li><a href="#1-overview-and-standalone-model">1. Overview and Standalone Model</a></li>
+<li><a href="#2-the-jenkinsfile-defining-your-pipeline">2. The Jenkinsfile: Defining Your Pipeline</a></li>
+<li><a href="#3-the-devsecops_configyaml-configuration-file">3. The devsecops_config.yaml Configuration File</a></li>
+<li><a href="#4-multi-service-and-multi-repository-bitbucket-support">4. Multi-Service and Multi-Repository Bitbucket Support</a></li>
+<li><a href="#5-supported-languages-and-build-tools">5. Supported Languages and Build Tools</a></li>
+<li><a href="#6-unit-testing-and-multi-report-code-coverage">6. Unit Testing and Multi-Report Code Coverage</a></li>
+<li><a href="#7-static-application-security-testing-sast--hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</a></li>
+<li><a href="#8-dynamic-application-security-testing-dast--hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</a></li>
+<li><a href="#9-code-quality--sonarqube--alternative-badge-tokens">9. Code Quality – SonarQube &amp; Alternative Badge Tokens</a></li>
+<li><a href="#10-dependency-security--goldenfix--nexus-iq">10. Dependency Security &amp; GoldenFix – Nexus IQ</a></li>
+<li><a href="#11-deployments-and-disable-nexus-delivery-openshift--vm">11. Deployments and "Disable Nexus Delivery" (OpenShift &amp; VM)</a></li>
+<li><a href="#12-telemetry-dora-metrics-influxdb-and-grafana">12. Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
+<li><a href="#13-complete-devsecops_configyaml-template-with-field-reference">13. Complete devsecops_config.yaml Template with Field Reference</a></li>
+</ul>
+<hr />
+<h2 id="1-overview-and-standalone-model">1. Overview and Standalone Model</h2>
+<p>In the <code>DSOEnhancedWithoutPortal</code> branch, the library operates independently of the management portal:
+- <strong>No Portal Dependency:</strong> The pipeline never polls external portal APIs for configuration.
+- <strong>Configuration as Code:</strong> All pipeline parameters are stored in <code>devsecops_config.yaml</code> (or backward-compatible <code>config.yaml</code>) at the root of your application Git repository.
+- <strong>Embedded Library Defaults:</strong> Global enterprise standards (coverage thresholds, timeouts, InfluxDB telemetry endpoints) are bundled inside the library (<code>defaults.yaml</code>), meaning you only specify settings unique to your application.</p>
+<hr />
+<h2 id="2-the-jenkinsfile-defining-your-pipeline">2. The Jenkinsfile: Defining Your Pipeline</h2>
+<p>The <code>Jenkinsfile</code> in your repository root specifies the services and Jenkins agent labels:</p>
+<pre><code class="language-groovy">@Library('DSOEnhanced@DSOEnhancedWithoutPortal') _
+
+devSecOpsPipeline(
+    projectNames: 'backend-api,web-gui',
+    agentNames: ['linux-rhel8', 'linux-docker']
+)
+</code></pre>
+<h3 id="available-pipeline-entry-points">Available Pipeline Entry Points:</h3>
+<ul>
+<li><code>devSecOpsPipeline</code>: Complete delivery pipeline (Build, Unit Tests, SAST, DAST, SonarQube, Nexus IQ, Delivery, Deployment).</li>
+<li><code>devSecOpsSecurityPipeline</code>: Fast security validation (Build, SAST, SonarQube, Nexus IQ).</li>
+<li><code>devSecOpsNexusIqGoldenFixPipeline</code>: Dedicated automated dependency remediation pipeline.</li>
+</ul>
+<hr />
+<h2 id="3-the-devsecops_configyaml-configuration-file">3. The devsecops_config.yaml Configuration File</h2>
+<p>The <code>devsecops_config.yaml</code> file resides in the root directory of your repository.</p>
+<h3 id="file-evaluation-order">File Evaluation Order:</h3>
+<ul>
+<li>The library looks for <code>devsecops_config.yaml</code> first.</li>
+<li>If not found, it checks for <code>config.yaml</code>.</li>
+<li>The library reads the <code>projects:</code> section where each service of your application is declared.</li>
+</ul>
+<hr />
+<h2 id="4-multi-service-and-multi-repository-bitbucket-support">4. Multi-Service and Multi-Repository Bitbucket Support</h2>
+<p>The standalone pipeline natively supports complex project architectures:</p>
+<h3 id="1-multiple-services-in-one-pipeline-multi-service">1. Multiple Services in One Pipeline (Multi-Service)</h3>
+<ul>
+<li>Declare multiple services under <code>projects:</code> (e.g., <code>backend-api</code> and <code>web-gui</code>).</li>
+<li>Each service can point to <strong>its own independent Bitbucket repository</strong> (<code>scm.bitbucket.repositoryUrl</code>).</li>
+<li>Each service maintains its own target branch (<code>scm.bitbucket.targetBranch</code>) and pull request reviewers list (<code>scm.bitbucket.reviewers</code>).</li>
+</ul>
+<h3 id="2-multi-module-projects">2. Multi-Module Projects</h3>
+<ul>
+<li>Multi-module Maven projects (<code>pom.xml</code>) and Gradle subprojects are automatically discovered and built.</li>
+<li>Version catalogs (<code>gradle/libs.versions.toml</code>, <code>platform/build.gradle</code>) are parsed and updated in a single consolidated Pull Request by GoldenFix.</li>
+</ul>
+<hr />
+<h2 id="5-supported-languages-and-build-tools">5. Supported Languages and Build Tools</h2>
+<p>The pipeline supports all enterprise programming languages and build tools:</p>
+<ul>
+<li><strong>Java / Kotlin / Groovy:</strong></li>
+<li>Build via Maven (<code>tool: 'maven'</code>) or Gradle (<code>tool: 'gradle'</code>).</li>
+<li>Standard command: <code>clean package -DskipTests</code> or <code>clean assemble -x test</code>.</li>
+<li><strong>Node.js / Angular:</strong></li>
+<li>Build via npm (<code>tool: 'npm'</code>).</li>
+<li>Standard command: <code>npm ci &amp;&amp; npm run build --prod</code>.</li>
+<li>Can be run as <strong>Stage 0</strong> before Maven/Gradle backend builds.</li>
+<li><strong>Python:</strong></li>
+<li>Build via pip (<code>tool: 'pip'</code>).</li>
+<li>Command: <code>pip install -r requirements.txt</code>.</li>
+<li><strong>SQL / PL-SQL (Liquibase):</strong></li>
+<li>Automatic detection of database changelogs (<code>detectTool()</code>).</li>
+<li>Command: <code>liquibase update</code>.</li>
+<li>Static code analysis and validation through SonarQube.</li>
+<li><strong>Flutter / Dart:</strong></li>
+<li>Mobile and desktop application packaging with LCOV test coverage generation.</li>
+</ul>
+<hr />
+<h2 id="6-unit-testing-and-multi-report-code-coverage">6. Unit Testing and Multi-Report Code Coverage</h2>
+<ul>
+<li><strong>Automated Multi-Report Discovery:</strong></li>
+<li>The pipeline automatically searches all workspace directories for test reports:<ul>
+<li><strong>JaCoCo XML:</strong> Java, Kotlin, Groovy test coverage reports.</li>
+<li><strong>LCOV (<code>lcov.info</code>):</strong> JavaScript, TypeScript, Angular, Python, Flutter, and Cypress reports.</li>
+</ul>
+</li>
+<li><strong>Node.js &amp; Cypress Unit Testing:</strong></li>
+<li>Dedicated support for Node.js unit and component tests via Cypress (<code>tests.unitTests.cypress</code>).</li>
+<li>Seamless execution of Cypress tests (<code>npx cypress run --component</code> or custom command) within the Node.js environment.</li>
+<li>Ingestion of JUnit XML test results and automatic aggregation of Cypress LCOV coverage data (<code>coverage/lcov.info</code>).</li>
+<li><strong>Per-Module Reporting:</strong></li>
+<li>Every individual report has a dedicated log and report line showing file path, line count, and percentage.</li>
+<li><strong>Project Run Summary:</strong></li>
+<li>Calculates an aggregated average line for the entire project (<code>All services</code>).</li>
+<li><strong>Release Quality Gate:</strong></li>
+<li><code>coverage.minimum: 80</code> enforces code coverage. If the project average is below 80%, the build fails, protecting production.</li>
+</ul>
+<hr />
+<h2 id="7-static-application-security-testing-sast-hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</h2>
+<p>Static security analysis executed in the cloud:</p>
+<ul>
+<li><strong>Parallel Background Scanning:</strong></li>
+<li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
+<li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
+<li><strong>Credentials Configuration:</strong></li>
+<li>Configured per service in the <code>asoc:</code> section:
+    <code>yaml
+    asoc:
+      keyId: 'asoc-key-id-backend'
+      token: 'asoc-secret-id-backend'
+      appId: '10982'</code></li>
+<li><strong>Custom Scan Name:</strong></li>
+<li>Optional <code>sast.scanName</code> defines custom scan naming in ASOC.</li>
+</ul>
+<hr />
+<h2 id="8-dynamic-application-security-testing-dast-hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</h2>
+<p>Runtime security scanning against deployed web applications:</p>
+<pre><code class="language-yaml">dast:
+  targetUrl: 'https://dev-payhub.bbh.com'
+  presenceId: 'presence-internal-bbh-id'
+  credentialsId: 'dast-test-user-creds'
+</code></pre>
+<ul>
+<li><code>presenceId</code> allows secure scanning of internal applications behind the BBH firewall.</li>
+</ul>
+<hr />
+<h2 id="9-code-quality-sonarqube-alternative-badge-tokens">9. Code Quality – SonarQube &amp; Alternative Badge Tokens</h2>
+<p>SonarQube analysis configuration:</p>
+<pre><code class="language-yaml">tools:
+  sonar:
+    installationName: 'BBH-SonarQube'
+    authToken: 'sonar-auth-token-id'
+    # Option 1: Direct raw badge token
+    badgeToken: 'raw-token-from-sonarqube'
+    # Option 2 (Alternative): Jenkins credentials secret
+    badgeCredentialsId: 'jenkins-sonar-badge-secret-id'
+</code></pre>
+<div class="callout callout-tip"><div class="callout-header">TIP</div><div class="callout-body"><p>Provide <strong>either</strong> <code>badgeToken</code> OR <code>badgeCredentialsId</code>. Configuring both is not required.</p></div></div>
+
+<hr />
+<h2 id="10-dependency-security-goldenfix-nexus-iq">10. Dependency Security &amp; GoldenFix – Nexus IQ</h2>
+<ul>
+<li><strong>Nexus IQ:</strong></li>
+<li>Open-source component vulnerability analysis:
+    <code>yaml
+    tools:
+      nexusIq:
+        applicationId: 'payhub-backend-api'</code></li>
+<li><strong>GoldenFix Automated Pull Requests:</strong></li>
+<li>Automatically raises vulnerable dependencies to safe versions:
+    <code>yaml
+    goldenFix:
+      enabled: true
+      pullRequest: true</code></li>
+<li>Creates a dedicated branch and opens a Bitbucket Pull Request with the updated <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, or <code>libs.versions.toml</code>.</li>
+<li><strong>External Version Catalog Repository:</strong></li>
+<li>When version catalogs or BOMs reside in an external Bitbucket repository:
+    <pre><code class="language-yaml">goldenFix:
+  versionCatalogRepo:
+    url: 'ssh://git@bitbucket.bbh.com/shared/version-catalogs.git'
+    credentialsId: 'bitbucket-http-credentials'
+    branch: 'main'
+    path: 'catalogs/libs.versions.toml'</code></pre>
+</li>
+<li>GoldenFix checks out the external repository, upgrades dependency versions, validates changes, and submits the Pull Request directly to the external catalog repository.</li>
+</ul>
+<h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
+<ol>
+<li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling the backend application.</li>
+<li><strong>Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):</strong>
+  <ul>
+    <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>SAST (HCL AppScan):</strong> Queues static application security analysis in the background and retrieves findings.</li>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
+  </ul>
+</li>
+<li><strong>Stage 3: SonarQube (Static Code Analysis &amp; Quality Gate):</strong>
+  <ul>
+    <li>Runs last after Unit tests, SAST, and Nexus IQ have concluded.</li>
+    <li>Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.</li>
+  </ul>
+</li>
+</ol>
+<hr />
+<h2 id="11-deployments-and-disable-nexus-delivery-openshift-vm">11. Deployments and "Disable Nexus Delivery" (OpenShift &amp; VM)</h2>
+<h3 id="skipping-nexus-artifact-publishing">Skipping Nexus Artifact Publishing:</h3>
+<p>If your deployment does not require publishing binaries to Nexus, toggle delivery off:
+- For Virtual Machines (VM): <code>deploy.vm.rd.nexusDeliveryEnabled: false</code>
+- For OpenShift containers: <code>deploy.openshift.rd.nexusDeliveryEnabled: false</code>
+- The pipeline skips artifact upload and suppresses delivery validation errors.</p>
+<h3 id="optional-openshift-qc-region">Optional OpenShift QC Region:</h3>
+<ul>
+<li>The <code>deploy.openshift.rd.regions.qc</code> block is entirely optional. Omitting it will not cause validation errors.</li>
+</ul>
+<hr />
+<h2 id="12-telemetry-dora-metrics-influxdb-and-grafana">12. Telemetry, DORA Metrics, InfluxDB, and Grafana</h2>
+<p>Every stage automatically emits telemetry points to InfluxDB:
+- <strong>DORA Metrics:</strong> Deployment Frequency, Lead Time for Changes, Change Failure Rate, Time to Restore Service (MTTR).
+- <strong>Quality &amp; Duration Metrics:</strong> Build duration, test counts, JaCoCo/LCOV coverage points, vulnerability totals.
+- Visualize results across BBH enterprise Grafana dashboards.</p>
+<hr />
+<h2 id="13-complete-devsecops_configyaml-template-with-field-reference">13. Complete devsecops_config.yaml Template with Field Reference</h2>
+<pre><code class="language-yaml"># ==============================================================================
+# BBH DevSecOps Pipeline Configuration (Standalone / Without Portal)
+# Place this file at repository root: devsecops_config.yaml
+# ==============================================================================
+
+projects:
+  # ----------------------------------------------------------------------------
+  # SERVICE 1: Backend API (Java / Spring Boot with Maven)
+  # ----------------------------------------------------------------------------
+  backend-api:
+    # 1. Source Control Management (Bitbucket)
+    scm:
+      bitbucket:
+        repositoryUrl: 'ssh://git@bitbucket.bbh.com/pay/payhub-backend.git'
+        credentialsId: 'bitbucket-ssh-key'
+        targetBranch: 'main'
+        reviewers: ['john.doe@bbh.com', 'jane.smith@bbh.com']
+
+    # 2. Build Stage
+    build:
+      tool: 'maven'                               # Supported: maven, gradle, npm, pip
+      tasks: 'clean package -DskipTests'          # Build command
+
+    # 3. Unit Tests &amp; Code Coverage
+    unitTests:
+      tasks: 'test'                               # Test execution command
+    coverage:
+      minimum: 80                                 # Minimum required coverage (%)
+      # reportPath: empty = auto-detect JaCoCo XML &amp; LCOV throughout project
+
+    # 4. Static Application Security Testing (HCL AppScan SAST)
+    asoc:
+      keyId: 'asoc-key-id-backend'                # Jenkins credentials ID
+      token: 'asoc-secret-id-backend'             # Jenkins credentials ID
+      appId: '10982'                              # Application ID in HCL ASOC
+    sast:
+      scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
+
+    # 5. Security &amp; Code Quality Tools
+    tools:
+      nexusIq:
+        applicationId: 'payhub-backend-api'       # Exactly ONE app per service
+      sonar:
+        installationName: 'BBH-SonarQube'         # Jenkins SonarQube tool name
+        authToken: 'sonar-auth-token-id'          # Jenkins credentials ID
+        badgeCredentialsId: 'sonar-badge-secret'  # Or use badgeToken: '...'
+
+    # 6. Automated Vulnerability Remediation (GoldenFix)
+    goldenFix:
+      enabled: true                               # Run GoldenFix analysis
+      pullRequest: true                           # Open automated Bitbucket PR
+
+    # 7. Deployment &amp; Delivery
+    deploy:
+      openshift:
+        rd:
+          nexusDeliveryEnabled: false             # false = skip Nexus artifact push
+          appName: 'payhub-backend'
+          namespace: 'payhub-dev'
+          deployment: 'payhub-backend-deployment'
+
+  # ----------------------------------------------------------------------------
+  # SERVICE 2: Web Frontend (Angular / Node.js)
+  # ----------------------------------------------------------------------------
+  web-gui:
+    scm:
+      bitbucket:
+        repositoryUrl: 'ssh://git@bitbucket.bbh.com/pay/payhub-gui.git'
+        credentialsId: 'bitbucket-ssh-key'
+        targetBranch: 'main'
+        reviewers: ['john.doe@bbh.com']
+
+    build:
+      tool: 'npm'
+      tasks: 'npm ci &amp;&amp; npm run build --prod'
+
+    unitTests:
+      tasks: 'npm test -- --watch=false --browsers=ChromeHeadless'
+      cypress:
+        enabled: true                             # Enable Cypress component/unit tests
+        command: 'npx cypress run --component'    # Custom test execution command
+        reportsDir: 'cypress/results'             # Folder containing JUnit XML results
+    coverage:
+      minimum: 80
+
+    asoc:
+      keyId: 'asoc-key-id-gui'
+      token: 'asoc-secret-id-gui'
+      appId: '10983'
+
+    tools:
+      nexusIq:
+        applicationId: 'payhub-web-gui'
+      sonar:
+        installationName: 'BBH-SonarQube'
+        authToken: 'sonar-auth-token-id'
+        badgeToken: 'raw-badge-token-gui'
+
+    goldenFix:
+      enabled: true
+      pullRequest: true
+      versionCatalogRepo:
+        url: 'ssh://git@bitbucket.bbh.com/shared/catalogs.git'
+        credentialsId: 'bitbucket-http-credentials'
+        branch: 'main'
+        path: 'catalogs/libs.versions.toml'
+
+    deploy:
+      openshift:
+        rd:
+          nexusDeliveryEnabled: false
+          appName: 'payhub-gui'
+          namespace: 'payhub-dev'
+          deployment: 'payhub-gui-deployment'
+</code></pre>
+<hr />
+<h3 id="non-technical-field-quick-reference">Non-Technical Field Quick Reference:</h3>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>YAML Key</th>
+<th>Meaning</th>
+<th>Example Value</th>
+<th style="text-align: center;">Required?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>projects.&lt;service&gt;</code></td>
+<td>Identifier name of your component</td>
+<td><code>backend-api</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>scm.bitbucket.repositoryUrl</code></td>
+<td>Git repository SSH URL</td>
+<td><code>ssh://git@bitbucket.bbh.com/...</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>scm.bitbucket.targetBranch</code></td>
+<td>Main branch to build</td>
+<td><code>main</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>build.tool</code></td>
+<td>Compilation tool</td>
+<td><code>maven</code>, <code>gradle</code>, <code>npm</code>, <code>pip</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>build.tasks</code></td>
+<td>Build command string</td>
+<td><code>clean package -DskipTests</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>unitTests.tasks</code></td>
+<td>Test command string</td>
+<td><code>test</code> or <code>npm test</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.enabled</code></td>
+<td>Enable Cypress component tests</td>
+<td><code>true</code> or <code>false</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.command</code></td>
+<td>Custom Cypress command</td>
+<td><code>npx cypress run --component</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>unitTests.cypress.reportsDir</code></td>
+<td>Cypress JUnit reports dir</td>
+<td><code>cypress/results</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>coverage.minimum</code></td>
+<td>Quality gate threshold</td>
+<td><code>80</code></td>
+<td style="text-align: center;"><span class="badge badge-default">DEFAULT 80</span></td>
+</tr>
+<tr>
+<td><code>asoc.keyId</code> &amp; <code>asoc.token</code></td>
+<td>AppScan SAST credentials</td>
+<td><code>asoc-cred-id</code> (from Jenkins)</td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>sast.scanName</code></td>
+<td>ASOC scan display name</td>
+<td><code>PAYHUB-NIGHTLY</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>tools.sonar.authToken</code></td>
+<td>SonarQube authentication secret</td>
+<td><code>sonar-token-id</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>tools.sonar.badgeToken</code></td>
+<td>Sonar badge token (raw)</td>
+<td><code>raw-token-string</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">1 OF 2</span></td>
+</tr>
+<tr>
+<td><code>tools.sonar.badgeCredentialsId</code></td>
+<td>Sonar badge secret in Jenkins</td>
+<td><code>sonar-badge-cred</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">1 OF 2</span></td>
+</tr>
+<tr>
+<td><code>tools.nexusIq.applicationId</code></td>
+<td>Single app ID in Nexus IQ</td>
+<td><code>payhub-backend-api</code></td>
+<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.pullRequest</code></td>
+<td>Auto-create remediation PR</td>
+<td><code>true</code></td>
+<td style="text-align: center;"><span class="badge badge-default">DEFAULT TRUE</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.url</code></td>
+<td>Dedicated catalog repository</td>
+<td><code>ssh://git@bitbucket.bbh.com/...</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.branch</code></td>
+<td>Branch of catalog repository</td>
+<td><code>main</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>goldenFix.versionCatalogRepo.path</code></td>
+<td>Relative path to catalog file</td>
+<td><code>catalogs/libs.versions.toml</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><code>nexusDeliveryEnabled</code></td>
+<td>Toggle Nexus delivery</td>
+<td><code>false</code></td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+</tbody>
+</table></div>
+        </div>
+
+        <footer class="doc-footer">
+          <p>BBH DevSecOps Platform &bull; Technical &amp; User Documentation &bull; Confidential / Internal Use Only</p>
+        </footer>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

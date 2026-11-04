@@ -22,7 +22,7 @@ def nodeBuild(def api) {
             } else if (api.nodeBuildEnabled()) {
                 api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
             } else {
-                api.notRequired(api.databaseService() ? '' : "[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+                api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
             }
         }
     }
@@ -34,7 +34,6 @@ def unitTests(def api) {
             if (api.databaseService()) {
                 api.databaseBuild()
             } else {
-                api.buildArtifact()
                 api.unitTests()
                 api.checkCoverage()
             }
@@ -48,6 +47,13 @@ def buildArtifacts(def api) {
             if (api.databaseService()) {
                 api.notRequired("[BUILD] ${projectName}: a SQL and PL/SQL service has no build artifact for Nexus IQ - not required")
             } else {
+                if (api.nodeBuildNeeded()) {
+                    api.nodeBuild()
+                } else if (api.nodeBuildEnabled()) {
+                    api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
+                } else {
+                    api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+                }
                 api.buildArtifact()
             }
         }
@@ -64,15 +70,17 @@ def dependenciesScan(def api) {
 
 def staticAnalysis(def api) {
     if (!api.parallelScans()) {
+        unitTests(api)
         dependenciesScan(api)
         sast(api)
         sonarQube(api)
         return
     }
     api.scanWhileSastRuns({ sastQueue(api) }, {
+        unitTests(api)
         dependenciesScan(api)
-        sonarQube(api)
     }, { sastResults(api) })
+    sonarQube(api)
 }
 
 def sast(def api) {

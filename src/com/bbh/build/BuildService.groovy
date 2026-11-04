@@ -34,6 +34,10 @@ class BuildService implements Serializable {
                     script.error "[BUILD] Build tool is NOT installed on an agent"
                 }
                 runner.run()
+                if (hasLiquibaseStep(state.cfg.build?.liquibase)) {
+                    script.echo "[BUILD] Running additional Liquibase step for multi-module project"
+                    runLiquibaseBuild()
+                }
                 break
             case 'flutter':
                 script.withCredentials([
@@ -57,6 +61,12 @@ class BuildService implements Serializable {
                     FlutterUtils.initializeFlutter(state.cfg, script)
                     script.sh("flutter build apk --flavor ${flavour} -t lib/main_${flavour}.dart --obfuscate --split-debug-info=build/app/outputs/flutter-apk/debug-info --no-tree-shake-icons --dart-define=CERTIFICATE_PASSWORD=${script.password} --dart-define=MISNAP_LICENSE=${flavorLicense}")
                 }
+                break
+            case ['npm', 'node']:
+                nodeBuild()
+                break
+            case 'liquibase':
+                runLiquibaseBuild()
                 break
             default:
                 script.error "[BUILD] Unknown build tool: ${tool}"
@@ -83,16 +93,110 @@ class BuildService implements Serializable {
                 } else {
                     script.echo "[TEST] Skipping the step because it is not configured"
                 }
+                if (hasLiquibaseStep(state.cfg.tests?.unitTests?.liquibase)) {
+                    script.echo "[TEST] Running additional Liquibase validation/test step for multi-module project"
+                    runLiquibaseTests()
+                }
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
+                break
+
+            case ['npm', 'node']:
+                runNodeTests()
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
                 break
 
             case 'flutter':
                 FlutterUtils.unitTestsFlutter(state.cfg, script)
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
+                break
+
+            case 'liquibase':
+                runLiquibaseTests()
                 break
 
             default:
                 script.error "[TEST] Unknown build tool: ${tool}"
         }
         state.recordUnitTests([durationMs: System.currentTimeMillis() - startMs])
+    }
+
+    boolean isCypressEnabled() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        if (unitTests.cypress?.enabled != null) return BuildUtils.booleanValue(unitTests.cypress.enabled, false)
+        if (state.cfg.build?.node?.cypress?.enabled != null) return BuildUtils.booleanValue(state.cfg.build.node.cypress.enabled, false)
+        if (state.cfg.cypress?.enabled != null) return BuildUtils.booleanValue(state.cfg.cypress.enabled, false)
+        return script.fileExists('cypress.config.js') || script.fileExists('cypress.config.ts') || script.fileExists('cypress.json')
+    }
+
+    void runCypressTests() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        Map cypressCfg = (unitTests.cypress ?: (state.cfg.build?.node?.cypress ?: (state.cfg.cypress ?: [:]))) as Map
+        String dir = (cypressCfg.dir ?: (state.cfg.build?.node?.dir ?: '.')) as String
+        String defaultCmd = 'npx cypress run'
+        String command = (cypressCfg.command ?: cypressCfg.tasks ?: defaultCmd) as String
+        String label = (cypressCfg.label ?: "Cypress: ${command}") as String
+        script.echo "[TEST] Cypress: running ${command} in ${dir ?: 'the workspace'}"
+        try {
+            Map nodeCfg = (state.cfg.build?.node ?: [:]) as Map
+            new NodeBuildRunner(script, os).withNode(nodeCfg) {
+                if (dir && dir != '.') {
+                    script.dir(dir) {
+                        if (os.isWindows()) {
+                            script.bat(label: label, script: command)
+                        } else {
+                            BuildUtils.execSh(script, command, label, false)
+                        }
+                    }
+                } else {
+                    if (os.isWindows()) {
+                        script.bat(label: label, script: command)
+                    } else {
+                        BuildUtils.execSh(script, command, label, false)
+                    }
+                }
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Cypress tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+        }
+        String reportsDir = (cypressCfg.reportsDir ?: 'cypress/results') as String
+        script.junit allowEmptyResults: true, testResults: "${reportsDir}/*.xml, **/cypress/results/*.xml"
+    }
+
+    void runNodeTests() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        List commands = BuildUtils.normalizeTokens(unitTests.commands ?: unitTests.tasks ?: ['npm test'])
+        String dir = (unitTests.dir ?: (state.cfg.sourceDir ?: '.')) as String
+        Map nodeCfg = (state.cfg.build?.node ?: [:]) as Map
+        script.echo "[TEST] Node.js: running ${commands.join(' && ')} in ${dir ?: 'the workspace'}"
+        try {
+            new NodeBuildRunner(script, os).withNode(nodeCfg) {
+                Closure runCommands = {
+                    for (String cmd : commands) {
+                        if (os.isWindows()) {
+                            script.bat(label: "Node.js: ${cmd}", script: cmd)
+                        } else {
+                            BuildUtils.execSh(script, cmd, "Node.js: ${cmd}", false)
+                        }
+                    }
+                }
+                if (dir && dir != '.') {
+                    script.dir(dir) { runCommands() }
+                } else {
+                    runCommands()
+                }
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Node.js unit tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+        }
+        script.junit allowEmptyResults: true, testResults: (unitTests.unitTestResult ?: '**/test-results/*.xml, **/junit.xml') as String
     }
 
     void checkCoverage() {
@@ -106,6 +210,10 @@ class BuildService implements Serializable {
         String classes = CoverageReports.classText(reports, (found.classes ?: []) as List)
         if (classes) script.echo classes
         if (found.missing) {
+            if (tool == 'liquibase') {
+                script.echo "[COVERAGE] Liquibase: skipping coverage requirement (${found.missing})"
+                return
+            }
             policy.missingCoverage(found.missing as String, reports)
             return
         }
@@ -115,6 +223,10 @@ class BuildService implements Serializable {
     void applyCoverage(String tool, List reports, int minLine) {
         Map own = CoverageReports.summary(reports)
         if (!own.counted) {
+            if (tool == 'liquibase') {
+                script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
+                return
+            }
             policy.missingCoverage(CoverageReports.noLines(reports), reports)
             return
         }
@@ -276,6 +388,9 @@ class BuildService implements Serializable {
             return
         } else if (tool == 'maven') {
             reportSurefireTests()
+            return
+        } else if (tool == 'liquibase') {
+            state.recordUnitTests([total: 0, failed: 0, skipped: 0])
             return
         }
 
@@ -652,7 +767,7 @@ class BuildService implements Serializable {
         def cfgTool = state.cfg.buildTool?.trim()
         if (cfgTool) {
             script.echo "Detected tool from config file is ${cfgTool}"
-            return cfgTool
+            return cfgTool.equalsIgnoreCase('liquibase') ? 'liquibase' : cfgTool
         }
         if (script.fileExists('pubspec.yaml'))  {
             script.echo "Detected tool is Flutter"
@@ -666,11 +781,27 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Gradle"
             return 'gradle'
         }
+        if (['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.json', 'changelog.sql',
+             'db/changelog.xml', 'db/changelog.yaml', 'db/changelog.sql', 'db/changelog/db.changelog-master.xml',
+             'db/changelog/db.changelog-master.yaml', 'sql/changelog.xml', 'sql/changelog.sql', 'liquibase/changelog.xml',
+             'src/main/resources/db/changelog/db.changelog-master.xml', 'src/main/resources/db/changelog/db.changelog-master.yaml',
+             'src/main/resources/changelog.xml'].any { String f -> script.fileExists(f) }) {
+            script.echo "Detected tool is Liquibase"
+            return 'liquibase'
+        }
         return 'gradle'
     }
 
     String setupBuildTool() {
         String buildTool = detectTool()
+        if (buildTool == 'liquibase' || buildTool in ['npm', 'node']) {
+            String javaPath = state.cfg?.javaPath
+            if (javaPath) {
+                script.env.JAVA_HOME = javaPath
+                script.env.PATH = "${javaPath}/bin:${script.env.PATH}"
+            }
+            return buildTool
+        }
         boolean hasInstalled = BuildUtils.booleanValue(script.env.HAS_BUILD_TOOL_INSTALLED, false)
         if (hasInstalled) {
             return buildTool
@@ -1095,5 +1226,70 @@ PYEOF
         int covered = parts.size() > 1 ? (parts[1] as int) : 0
         int missed = parts.size() > 2 ? (parts[2] as int) : 0
         return [line: pct, covered: covered, missed: missed, total: covered + missed]
+    }
+
+    @NonCPS
+    boolean hasLiquibaseStep(def rawCfg) {
+        if (!(rawCfg instanceof Map)) return false
+        Map cfg = rawCfg as Map
+        return (cfg.commands || cfg.tasks || cfg.flags) as boolean
+    }
+
+    void runLiquibaseBuild() {
+        Map cfg = ((state.cfg.build?.liquibase) ?: state.cfg.build ?: [:]) as Map
+        runLiquibaseCommand(cfg, ['validate'], 'Liquibase')
+    }
+
+    void runLiquibaseTests() {
+        Map cfg = ((state.cfg.tests?.unitTests?.liquibase) ?: state.cfg.tests?.unitTests ?: [:]) as Map
+        List defaultCmds = cfg.flags ? ['validate'] : []
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: defaultCmds)
+        if (!commands) {
+            script.echo "[TEST] Liquibase: No unit tests or changelog checks configured, skipping"
+            return
+        }
+        try {
+            runLiquibaseCommand(cfg, defaultCmds, 'Liquibase test')
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            policy.warn('Unit tests', "Liquibase test step failed (${e.message ?: e.getClass().getSimpleName()})")
+        }
+    }
+
+    def runLiquibaseCommand(Map cfg, List defaultCommands, String defaultLabelPrefix) {
+        List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: defaultCommands)
+        if (!commands) return null
+        List flags = BuildUtils.normalizeTokens(cfg.flags)
+        List tokens = ['liquibase'] + flags + commands
+        String cmd = os.isWindows()
+                ? tokens.join(' ')
+                : tokens.collect { BuildUtils.shellQuoteIfNeeded(it as String) }.join(' ')
+        String label = (cfg.label ?: "${defaultLabelPrefix}: ${commands.join(' ')}") as String
+        boolean returnStdout = (cfg.returnStdout ?: false) as boolean
+        script.echo "Execute Liquibase Command: ${cmd}"
+        Closure execStep = {
+            if (os.isWindows()) {
+                if (returnStdout) return script.bat(label: label, script: cmd, returnStdout: true).trim()
+                script.bat(label: label, script: cmd)
+                return null
+            }
+            return BuildUtils.execSh(script, cmd, label, returnStdout)
+        }
+        Closure body = {
+            List<String> env = []
+            if (cfg.env instanceof Map && !cfg.env.isEmpty()) {
+                env.addAll(cfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
+            }
+            if (!env) return execStep()
+            return script.withEnv(env) {
+                execStep()
+            }
+        }
+        if (cfg.dir) {
+            return script.dir(cfg.dir as String) {
+                body()
+            }
+        }
+        return body()
     }
 }

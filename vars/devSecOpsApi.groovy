@@ -23,27 +23,29 @@ import com.bbh.scanner.NexusIqGoldenFixSource
 import com.bbh.scm.BitbucketPullRequestPublisher
 import com.bbh.scm.GitSourceRepository
 import com.bbh.report.HtmlReportService
+import com.bbh.report.PortalReportService
 import com.bbh.scanner.AppScanService
 import com.bbh.scanner.NexusIqService
 import com.bbh.scanner.SonarService
 import com.bbh.utils.BuildUtils
 
-@Field PipelineState    _state
-@Field OsHelper         _os
-@Field PolicyEngine     _policy
-@Field ConfigLoader     _config
-@Field BuildService     _build
-@Field AppScanService   _appScan
-@Field SonarService     _sonar
-@Field NexusIqService   _nexusIq
-@Field VmDeployService  _vmDeploy
-@Field OpenshiftService _openshift
-@Field InfluxDbService  _influx
-@Field DatabaseBuild    _database
+@Field PipelineState       _state
+@Field OsHelper            _os
+@Field PolicyEngine        _policy
+@Field ConfigLoader        _config
+@Field BuildService        _build
+@Field AppScanService      _appScan
+@Field SonarService        _sonar
+@Field NexusIqService      _nexusIq
+@Field VmDeployService     _vmDeploy
+@Field OpenshiftService    _openshift
+@Field InfluxDbService     _influx
+@Field PortalReportService _portalReport
+@Field DatabaseBuild       _database
 @Field DatabaseDeployService _databaseDeploy
-@Field Map              _pipelineConfig = [:]
-@Field String           _variant = 'full'
-@Field Boolean          _parallelScans = null
+@Field Map                 _pipelineConfig = [:]
+@Field String              _variant = 'full'
+@Field Boolean             _parallelScans = null
 
 private void _setup() {
     if (_state != null) return
@@ -61,6 +63,7 @@ private void _setup() {
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
+    _portalReport = new PortalReportService(this, _state, _os)
     _database       = new DatabaseBuild(this, _state, _os, _policy, _build)
     _databaseDeploy = new DatabaseDeployService(this, _state, _policy, _database)
 }
@@ -151,7 +154,7 @@ def parallelScans() {
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
     _setup()
     String sast = PolicyEngine.stageNameFor('sast')
-    echo '[STATIC] SAST queues the scan of every service first; Nexus IQ and SonarQube then run while AppScan scans, and SAST reads the results last'
+    echo '[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last'
     String part = 'queue'
     _state.stageStart(sast)
     try {
@@ -168,11 +171,11 @@ def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
         } else {
             _policy.failStage(sast)
         }
-        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Nexus IQ and SonarQube do not run in this build'
+        if (part == 'queue') echo '[STATIC] SAST stopped while it prepared its scans: Unit tests and Nexus IQ do not run in this build'
         throw t
     } finally {
         _state.stageDone(sast)
-        _state.settle([PolicyEngine.stageNameFor('niq'), sast, PolicyEngine.stageNameFor('sca')], [['niq'], ['sast'], ['sonar', 'sca']])
+        _state.settle([PolicyEngine.stageNameFor('unit'), PolicyEngine.stageNameFor('niq'), sast, PolicyEngine.stageNameFor('sca')], [['coverage', 'unit'], ['niq'], ['sast'], ['sonar', 'sca']])
     }
 }
 
@@ -192,6 +195,8 @@ def finishPipeline(Map options = [:]) {
         writeFile file: 'report/pipeline-report.html',
                   text: "<html><head><meta charset='UTF-8'><title>Pipeline Report</title></head><body style='font-family:sans-serif;padding:24px'><h2>Pipeline Report</h2><p>Report could not be generated - check build logs.</p></body></html>"
     }
+    try { sendPortalReport(type) }
+    catch (Throwable t) { echo "[WARN] Could not upload report to portal: ${t.message}" }
     try { echo vulnerabilitySummary() }
     catch (Throwable t) { echo "[WARN] Could not summarise the vulnerabilities: ${t.message}" }
     section('Pipeline finished')
@@ -253,7 +258,7 @@ def dastScan() {
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
-def nodeBuild()           { _setup(); _build.nodeBuild() }
+def nodeBuild()           { _setup(); _state.stageResults['Node.js build'] = 'PASS'; _build.nodeBuild() }
 def buildArtifact()       { _setup(); _build.buildArtifact() }
 def unitTests()           { _setup(); _build.unitTests() }
 def checkCoverage()       { _setup(); _build.checkCoverage() }
@@ -281,8 +286,9 @@ def deployOpenshift(String envName)      { _setup(); _openshift.deploy(envName) 
 def nexusDelivery(String envName)        { _setup(); _openshift.deliverToNexus(envName) }
 def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipeline() }
 
-def generateHtmlReport()              { _setup(); reportService().generate() }
-def feedInfluxDB(String pipelineType) { _setup(); _influx.send(pipelineType) }
+def generateHtmlReport()                       { _setup(); reportService().generate() }
+def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
+def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
 
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }
@@ -306,7 +312,7 @@ def databaseDelivery(String kind)     { _setup(); _databaseDeploy.deliver(kind) 
 def databaseDeploy(String envName)    { _setup(); _databaseDeploy.deploy(envName) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
 def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
-def notRequired(String reason)        { _setup(); if (reason) echo reason; _state.projectNotRequired() }
+def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
 
 def stagePass(String name)                 { _setup(); _state.stagePass(name) }
 def stageFail(String name)                 { _setup(); _state.stageFail(name) }

@@ -48,17 +48,20 @@ class SonarService implements Serializable {
                 if (!scanDatabase(sonarCfg, sonarArgs, installationName as String, credentialsId as String)) return
             } else if (tool == 'flutter') {
                 scanFlutter(sonarCfg, sonarArgs, installationName)
+            } else if (tool == 'liquibase') {
+                scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, projectKey, fullBadges)
             } else {
+                Map runCfg = effectiveSonarCfg(sonarCfg as Map, tool as String)
                 if (credentialsId) {
                     script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
-                        new BuildRunner(script, sonarCfg, tool).run()
+                        new BuildRunner(script, runCfg, tool).run()
                         if (addBadges) {
                             script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
                         }
                     }
                 } else {
                     script.withSonarQubeEnv("${installationName}") {
-                        new BuildRunner(script, sonarCfg, tool).run()
+                        new BuildRunner(script, runCfg, tool).run()
                         if (addBadges) {
                             script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
                         }
@@ -280,5 +283,86 @@ rm -f "\${_TMP}"
                 }
             }
         } catch (e) { script.echo "[SONAR] Could not fetch issue counts: ${e.message}" }
+    }
+
+    private Map effectiveSonarCfg(Map sonarCfg, String tool) {
+        if (!(sonarCfg.liquibase instanceof Map)) return sonarCfg
+        Map liqCfg = sonarCfg.liquibase as Map
+        List extraFlags = []
+        if (liqCfg.sources) {
+            String src = (liqCfg.sources instanceof Collection ? (liqCfg.sources as Collection).join(',') : liqCfg.sources) as String
+            extraFlags << "-Dsonar.sources=${src}".toString()
+        }
+        if (liqCfg.inclusions) {
+            String inc = (liqCfg.inclusions instanceof Collection ? (liqCfg.inclusions as Collection).join(',') : liqCfg.inclusions) as String
+            extraFlags << "-Dsonar.inclusions=${inc}".toString()
+        }
+        if (liqCfg.exclusions) {
+            String exc = (liqCfg.exclusions instanceof Collection ? (liqCfg.exclusions as Collection).join(',') : liqCfg.exclusions) as String
+            extraFlags << "-Dsonar.exclusions=${exc}".toString()
+        }
+        extraFlags.addAll(BuildUtils.normalizeTokens(liqCfg.flags))
+        if (!extraFlags) return sonarCfg
+        Map toolBlock = [:]
+        if (sonarCfg.get(tool) instanceof Map) toolBlock.putAll(sonarCfg.get(tool) as Map)
+        List existingFlags = BuildUtils.normalizeTokens(toolBlock.flags)
+        for (String flag : extraFlags) {
+            String prefix = flag.contains('=') ? flag.substring(0, flag.indexOf('=') + 1) : flag
+            if (!existingFlags.any { (it as String).startsWith(prefix) }) {
+                existingFlags << flag
+            }
+        }
+        toolBlock.flags = existingFlags
+        Map copy = [:]
+        copy.putAll(sonarCfg)
+        copy[tool] = toolBlock
+        return copy
+    }
+
+    private void scanLiquibase(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
+        Map liqCfg = (sonarCfg.liquibase ?: [:]) as Map
+        List extra = BuildUtils.normalizeTokens(liqCfg.commands ?: liqCfg.tasks).findAll { !(it in ['sonar', 'sonarqube', 'sonar:sonar']) } + BuildUtils.normalizeTokens(liqCfg.flags)
+        List args = [] + sonarArgs + extra
+        if (!args.any { (it as String).startsWith('-Dsonar.sources=') }) {
+            def rawSources = liqCfg.sources ?: sonarCfg.sources ?: liqCfg.dir ?: state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.'
+            String sources = (rawSources instanceof Collection ? (rawSources as Collection).join(',') : rawSources) as String
+            args.add("-Dsonar.sources=${sources}".toString())
+        }
+        if (liqCfg.inclusions && !args.any { (it as String).startsWith('-Dsonar.inclusions=') }) {
+            String inc = (liqCfg.inclusions instanceof Collection ? (liqCfg.inclusions as Collection).join(',') : liqCfg.inclusions) as String
+            args.add("-Dsonar.inclusions=${inc}".toString())
+        }
+        if (liqCfg.exclusions && !args.any { (it as String).startsWith('-Dsonar.exclusions=') }) {
+            String exc = (liqCfg.exclusions instanceof Collection ? (liqCfg.exclusions as Collection).join(',') : liqCfg.exclusions) as String
+            args.add("-Dsonar.exclusions=${exc}".toString())
+        }
+        Closure invoke = {
+            runScanner(sonarCfg, args)
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+            }
+        }
+        Closure runBody = {
+            List<String> env = []
+            if (liqCfg.env instanceof Map && !liqCfg.env.isEmpty()) {
+                env.addAll(liqCfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
+            }
+            if (liqCfg.dir) {
+                script.dir(liqCfg.dir as String) {
+                    if (env) script.withEnv(env) { invoke() } else invoke()
+                }
+            } else {
+                if (env) script.withEnv(env) { invoke() } else invoke()
+            }
+        }
+        if (credentialsId) {
+            script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
+                runBody()
+            }
+        } else {
+            script.withSonarQubeEnv("${installationName}") {
+                runBody()
+            }
+        }
     }
 }
