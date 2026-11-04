@@ -70,7 +70,7 @@ class LiquibaseOutput implements Serializable {
                 [['ORA-00955'], 'the object already exists: for a schema that existed before Liquibase, the DBA marks the existing changesets as run with changelog-sync, or the changeset gets a MARK_RAN precondition (chapter 14.8)'],
                 [['ORA-01017'], 'the user or the password of the Jenkins credentials of the target is wrong'],
                 [['ORA-01031'], 'the deploy user lacks a privilege: see the grants in chapter 14.8'],
-                [['ORA-00900', 'ORA-00911', 'ORA-00933'], 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks S1 and S3']
+                [['ORA-00900', 'ORA-00911', 'ORA-00933'], 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks for SQL*Plus commands and "/" lines (chapter 14.4)']
         ]
         String text = reason ?: ''
         List row = rows.find { List r -> (r[0] as List).any { text.contains(it as String) } }

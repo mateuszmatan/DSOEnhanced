@@ -494,9 +494,9 @@ Liquibase command 'validate' was executed successfully.
             ['H8', 'ORA-00955: name is already used by an existing object', 'the object already exists: for a schema that existed before Liquibase, the DBA marks the existing changesets as run with changelog-sync, or the changeset gets a MARK_RAN precondition (chapter 14.8)'],
             ['H9', 'ORA-01017: invalid credential or not authorized; logon denied', 'the user or the password of the Jenkins credentials of the target is wrong'],
             ['H10', 'ORA-01031: insufficient privileges', 'the deploy user lacks a privilege: see the grants in chapter 14.8'],
-            ['H11 ORA-00900', 'ORA-00900: invalid SQL statement', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks S1 and S3'],
-            ['H11 ORA-00911', 'ORA-00911: invalid character', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks S1 and S3'],
-            ['H11 ORA-00933', 'ORA-00933: SQL command not properly ended', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks S1 and S3'],
+            ['H11 ORA-00900', 'ORA-00900: invalid SQL statement', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks for SQL*Plus commands and "/" lines (chapter 14.4)'],
+            ['H11 ORA-00911', 'ORA-00911: invalid character', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks for SQL*Plus commands and "/" lines (chapter 14.4)'],
+            ['H11 ORA-00933', 'ORA-00933: SQL command not properly ended', 'the statement reached Oracle with a SQL*Plus command, a ";" or a split in the wrong place: check splitStatements, endDelimiter and the static checks for SQL*Plus commands and "/" lines (chapter 14.4)'],
             ['none', xml, ''], ['empty', null, '']
     ]
     List hintWrong = mismatches(hintCases) { List c -> harness.run { lo().hint(c[1]) } }
