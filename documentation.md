@@ -240,6 +240,32 @@ Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image 
 
 A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
 
+### Automated Stack Discovery and Smart Auto-Resolve
+
+To remove over 80% of onboarding friction for application teams, `RepoStackAutoResolver` inspects repository workspace files dynamically. Instead of requiring engineers to know compiler versions, Node.js directories, Liquibase flags or OpenShift manifests, missing fields are auto-resolved:
+
+- Maven (`pom.xml`) and Gradle (`build.gradle`) with exact compiler JDK and wrapper versions.
+- Node.js Stage 0 (`package.json`) with detected directory, engine version and test runners (Cypress, Jest).
+- Database changes via Liquibase (`changelog.xml`, `liquibase.properties`).
+- Multi-language support: Kotlin, Python (pip), Dart/Flutter.
+- Target environment auto-detection: OpenShift when container files/manifests exist; virtual machines otherwise.
+- Fully backward compatible: explicit parameters in configuration files always take precedence.
+
+### Bitbucket Pull Request Decoration and Shift-Left Feedback
+
+Developers receive instant, actionable feedback directly in Bitbucket pull requests:
+
+- **Consolidated Static Security PR**: Static analysis combines Nexus IQ GoldenFix safe dependency upgrades, AppScan SAST vulnerability comments, and SonarQube quality findings into a single consolidated Bitbucket Pull Request. SAST findings marked with status `Noise` are automatically excluded, and comments are placed inline on the exact source file and line.
+- **Dedicated DAST PR**: Dynamic security findings from enhanced pipelines create a separate, isolated Pull Request, separating operational defect remediation from source code changes.
+
+### SonarQube Default Configuration, Heuristic Module Discovery and Branch Pinning
+
+When `sonar-project.properties` is omitted from a repository, `SonarService` synthesizes standard BBH enterprise defaults automatically. It detects multi-module structures in Maven and Gradle, assigns language-appropriate source/test directories, and pins `sonar.branch.name` to the active evaluated pipeline branch rather than defaulting to master.
+
+### Continuous Software Assurance Maturity Model (OWASP SAMM v2.0)
+
+The DevSecOps architecture aligns with the OWASP SAMM v2.0 framework across 5 business functions (Governance, Design, Implementation, Verification, Operations), evaluating continuous pipeline execution evidence against maturity benchmarks.
+
 ### Platform support
 
 | Dimension | Supported |
@@ -1618,21 +1644,80 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 | `asoc.keyId` | YES, for every service | Pipeline fails at init without it |
 | `asoc.token` | Recommended | Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like `asoc.keyId` is used |
 | `appId` | YES | Needed for AppScan SAST and DAST |
-| `tools.sonar.projectKey` | Recommended | Without it the analysis still runs, but the report has no SonarQube link, issue counts or badges |
+| `tools.sonar.projectKey` | Auto-resolved | When omitted, automatically synthesizes standard configuration with `com.bbh:<projectName>`, multi-module discovery, and active branch pinning |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
-| `javaPath` or `buildToolAutoSetup: true` | YES (optional for `buildTool: liquibase` when `java` and `liquibase` are on the agent `PATH`) | Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with **JAVA_HOME parameter is not specified** (unless `buildTool: liquibase`) |
+| `javaPath` or `buildToolAutoSetup: true` | Auto-resolved or YES | When auto-resolve is active (default), `buildToolAutoSetup: true` and compiler JDK are inferred from `pom.xml` / `build.gradle`; otherwise required for Gradle/Maven/Flutter |
 | `deploy.vm.dod` | Only if `deployTarget: vm` and you use `devSecOpsPipeline` | The lower test region deployment of the full pipeline uses UrbanCode Deploy |
 | `deploy.vm.rd`, `deploy.vm.qc` | Only if `deployTarget: vm` | SSH deployment of the extended pipeline and of the QC stage |
-| `deploy.openshift.*` | Only if `deployTarget: openshift` | `appName` and `artifactName` are required as well |
+| `deploy.openshift.*` | Only if `deployTarget: openshift` | Auto-detected when container files or manifests are found; `appName` and `artifactName` are required as well |
 | `delivery.maven` | Only if `deployTarget: vm` and `buildTool: maven` | Snapshot upload of the artifact to Nexus |
 | `jenkins.pipeline.extendedPipeline` | Only for `devSecOpsSecurityPipeline` | The job it starts when `RUN_EXTENDED_PIPELINE` is selected; it may be set in any service of the run, the current service first |
 | `scm.bitbucket.url` | Only for GoldenFix | Without it the fixes are listed in the report but no pull request is raised |
 | `scm.bitbucket.credentialsId` | Only for GoldenFix | Needs push rights and permission to create and comment on pull requests |
-| `build.node.enabled` | Only for a Node.js build | `true` adds the Node.js build of stage 0 for the service; every other `build.node` key is optional |
-| `build.node.dir` | Only if `package.json` is not at the repository root | The commands run in the workspace otherwise |
+| `build.node.enabled` | Auto-resolved or YES | Auto-detected when `package.json` is found in repository or frontend folders; `true` adds Stage 0 Node.js build |
+| `build.node.dir` | Auto-resolved | Auto-detected as `.`, `frontend`, `web`, `client`, or `ui` when `package.json` exists |
 | `build.node.installationName` or `build.node.nodePath` | No | Without both, and without an installation in the bundled defaults, the commands use `node` and `npm` on the agent `PATH`; `nodePath` wins over any installation |
 | `goldenFix.versionCatalogs` | No | Only for a shared catalog that GoldenFix does not find by itself, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline) |
+
+### Automated Stack Discovery and Smart Auto-Resolve (RepoStackAutoResolver)
+
+The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding friction by automatically inspecting workspace files at the beginning of each pipeline run. Application teams are not required to look up compiler versions, Gradle wrappers, Node.js directories, Liquibase flags or OpenShift deployment targets.
+
+| Setting / Parameter | YAML Key / Portal Field | Workspace Trigger / Manifest | Resolved Default Value |
+|---|---|---|---|
+| Build Tool | `buildTool` | `pom.xml` | `maven` |
+| Build Tool | `buildTool` | `build.gradle` or `build.gradle.kts` | `gradle` |
+| Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, `liquibase.properties` | `liquibase` |
+| Build Tool | `buildTool` | `pubspec.yaml` | `flutter` |
+| Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | `pip` |
+| Build Tool Auto Setup | `buildToolAutoSetup` | Maven or Gradle build tool detected | `true` |
+| Java Compiler Version | `build.maven.javaVersion` / `build.gradle.javaVersion` | `<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, `<release>` in `pom.xml`; `jvmToolchain`, `sourceCompatibility` in `build.gradle` | Matched JDK version (`17`, `21`, `11`, `8`) |
+| Gradle Wrapper Version | `build.gradle.version` | `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` | Exact Gradle wrapper version (e.g. `8.7`, `7.6`) |
+| Node.js Stage 0 Pre-Build | `build.node.enabled` | `package.json` present in root or frontend subfolder | `true` |
+| Node.js Directory | `build.node.dir` | Detected directory containing `package.json` | `.`, `frontend`, `web`, `client`, or `ui` |
+| Node.js Version | `build.node.version` | `engines.node` in `package.json` (e.g. `>=20.0.0`) | Major version (e.g. `20`) |
+| Cypress Unit Testing | `tests.unitTests.node.cypress` | `cypress` in `devDependencies` or `dependencies` | `true` |
+| Jest Unit Testing | `tests.unitTests.node.jest` | `jest` in `devDependencies` or `dependencies` | `true` |
+| Liquibase Build Command | `build.liquibase.commands` | Liquibase changelog detected | `['updateSQL']` |
+| Liquibase Validate Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']` |
+| Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, or `helm/` | `openshift` (otherwise defaults to `vm`) |
+| SonarQube Project Key | `tools.sonar.projectKey` | Omitted or empty in configuration | `com.bbh:<projectName>` or `com.bbh:<appName>` |
+| SonarQube Language | `sonar.language` | Source code tree inspection (`pubspec.yaml` -&gt; `dart`, `requirements.txt` -&gt; `py`, Kotlin -&gt; `kotlin`, Liquibase -&gt; `sql`, else `java`) | Language identifier |
+| SonarQube Source Paths | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python) |
+| SonarQube Test Paths | `sonar.tests` | Missing `sonar-project.properties` | `src/test/java` (Java), `src/test/kotlin` (Kotlin), `test` (Dart), `tests` (Python) |
+| SonarQube Java Binaries | `sonar.java.binaries` | Build tool classes folder | Maven: `target/classes`; Gradle: `target/classes,build/classes/java/main` |
+| SonarQube Modules | `sonar.modules` | Multi-module Maven (`<module>`) or Gradle (`settings.gradle` `include`) | Comma-separated module names |
+| SonarQube Active Branch | `sonar.branch.name` | Active pipeline execution branch (`CHANGE_BRANCH`, `BRANCH_NAME`, `GIT_BRANCH`) | Evaluated branch name (never defaults to master) |
+
+#### How to use in standalone mode (devsecops_config.yaml)
+
+1. **Default Behaviour**: Auto-resolve is enabled by default (`autoresolve parameters: true`). You can omit build tool details, compiler paths, Node.js directories, and Sonar properties from `devsecops_config.yaml`.
+2. **Minimal Configuration Example**: Application teams need to provide only the application ID and AppScan key ID in `devsecops_config.yaml`:
+
+```yaml
+projects:
+  payment-service:
+    appId: "APP-54321"
+    asoc:
+      keyId: "11111111-2222-3333-4444-555555555555"
+      token: "APPSCAN_KEY_SECRET_CREDENTIAL_ID"
+```
+
+The pipeline automatically resolves the build tool (Maven/Gradle/Liquibase/Flutter/Python), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
+
+1. **Disabling Auto-Resolve**: To mandate strict manual configuration and disable heuristic resolution, set `autoresolve parameters: false`:
+
+```yaml
+projects:
+  payment-service:
+    autoresolve parameters: false
+    buildTool: maven
+    deployTarget: vm
+    appId: "APP-54321"
+    asoc:
+      keyId: "11111111-2222-3333-4444-555555555555"
+```
 
 ## 16. Pipeline Stage Reference
 
