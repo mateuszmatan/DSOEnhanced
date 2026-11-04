@@ -177,6 +177,14 @@ Library pull request #6 and portal pull request #4.
 | **Fail-safe standalone operation** | When `DSO_PORTAL_URL` is omitted or unconfigured, report dispatch is bypassed cleanly without warnings or failures, preserving exact baseline logs for standalone CI/CD environments. |
 | **Interactive portal presentation** | In the DevSecOps Management Portal, the execution report renders inside an interactive card embedding a sandboxed `<iframe>` that preserves all visual badges, status indicators, SVG icons, and clickable outbound links to AppScan, Nexus IQ, SonarQube, artifacts, and Jenkins build consoles. |
 
+## 19. Bitbucket PR Decoration and Shift-Left Feedback (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Consolidated Static Security PR** | Static analysis (Nexus IQ GoldenFix, AppScan SAST, SonarQube) consolidates all findings and remediation changes into a single Bitbucket Pull Request. GoldenFix supplies safe manifest upgrades on branch `GoldenFix-YYYYMMDDHHMM`. AppScan SAST findings (skipping `Noise`) and SonarQube quality and security findings are added as inline line comments on the exact source file and line. |
+| **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
+| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with DevSecOps Management Portal via `/api/dso/bitbucket/pull-requests/decorate`. |
+
 ---
 
 ## Known limitations

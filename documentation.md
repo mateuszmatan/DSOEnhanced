@@ -1883,6 +1883,23 @@ In the **Static analysis** stage the staging copy `appscan-source-staged` (Windo
 
 Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the bundled defaults (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
 
+### Bitbucket Pull Request Decoration and Shift-Left Feedback
+
+To empower developers to review and remediate security defects directly within their daily Bitbucket code review workflows, the pipeline provides automated inline Pull Request decoration:
+
+#### Static Security Pull Request (Single Consolidated PR)
+
+During the static security pipeline, all findings and remediation changes are consolidated into a single Bitbucket Pull Request:
+
+- **Nexus IQ GoldenFix**: Automatically applies safe dependency upgrades to manifests (`pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `pubspec.yaml`) on branch `GoldenFix-YYYYMMDDHHMM`.
+- **HCL AppScan SAST**: Inspects open findings, filters out issues marked with status `Noise`, and decorates the pull request with inline comments on the exact file and line number containing the vulnerability description and actionable remediation advice.
+- **SonarQube**: Fetches open code quality, vulnerability, and bug issues and decorates the pull request with line comments on the specific source lines.
+- **DevSecOps Portal Synchronization**: Posts decoration events and findings to DevSecOps Management Portal (`POST /api/dso/bitbucket/pull-requests/decorate`).
+
+#### DAST Dynamic Security Pull Request (Dedicated PR)
+
+During dynamic security testing (DAST in enhanced pipelines), when policy violations are detected or `dast.createPullRequest: true` is set, a dedicated second Pull Request (`security-dast-<project>`) is opened. This cleanly segregates operational and runtime infrastructure defects (e.g. HTTP headers, SSL/TLS configurations, cookie flags) from source code dependency upgrades and static flaws.
+
 ### Stages 6–10: Delivery and tests
 
 Stage 6 publishes the snapshot artifact and stage 7 deploys to the lower test region. Both always run, even when an earlier stage is orange, so developers always get a build on the lower test region.
