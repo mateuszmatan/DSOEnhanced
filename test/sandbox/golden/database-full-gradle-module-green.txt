@@ -1210,7 +1210,7 @@ archiveArtifacts .dso-db/orders-db/orders-db-341-<stamp>-rd-changes.txt
 deleteDir <tmp>/dso-db/orders-db
 sh 
                 set +e
-                cd 'gui/build/libs'
+                cd 'app/build/libs'
                 find . -type f -name '*.jar' -print -quit | grep -q .
                 echo $?
             
@@ -1507,7 +1507,7 @@ Detected tool from config file is gradle
 [DOD] Publishing 1 component(s) for CertScanner-GUI
 [DOD] Artifact validation passed for component 'CertScanner-GUI-app'.
 [DOD] Publishing component 'CertScanner-GUI-app'
-[DOD] Base directory : gui/build/libs
+[DOD] Base directory : app/build/libs
 [DOD] File pattern   : *.jar
 [DOD] Version        : *.jar_341
 [DOD] Component 'CertScanner-GUI-app' published successfully.

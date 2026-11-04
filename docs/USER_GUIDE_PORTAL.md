@@ -111,6 +111,7 @@ The pipeline supports all standard BBH languages and build tools:
 
 ### SQL and PL/SQL with a database block:
 - A Liquibase service with `database.changelogFile` gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See [chapter 14 of the library documentation](../documentation.html#ch14).
+- The database block is for Oracle. In a repository with an application, the folder of the changelogs is a Liquibase service of its own, listed before the application service; chapter 14 shows three complete repository layouts.
 
 ### Stage 0 Frontend Pre-Build:
 - For full-stack applications where Java/Kotlin packages serve Angular/Node.js assets, Stage 0 compiles the frontend before backend packaging.

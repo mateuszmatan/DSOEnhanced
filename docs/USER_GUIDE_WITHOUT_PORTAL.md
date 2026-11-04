@@ -97,6 +97,7 @@ The pipeline supports all enterprise programming languages and build tools:
   - Automatic detection of database changelogs (`detectTool()`).
   - Command: `liquibase validate` (the default of `build.liquibase`).
   - With `database.changelogFile` the service gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See [chapter 14 of the library documentation](../documentation.html#ch14).
+  - The database block is for Oracle. In a repository with an application, the folder of the changelogs is a Liquibase service of its own, listed before the application service; chapter 14 shows three complete repository layouts.
   - Static code analysis and validation through SonarQube.
 - **Flutter / Dart:**
   - Mobile and desktop application packaging with LCOV test coverage generation.

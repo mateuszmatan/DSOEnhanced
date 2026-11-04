@@ -101,11 +101,12 @@ Closure toolDefaults = { Map d ->
                                    releaseRepository : [id: 'bbh-db-releases', url: 'https://tools.bbh.com/nexus/repository/db-releases']]]
 }
 
+Map buildOutputs = [b: ['app/build/libs': '']]
 Closure runDatabase = { Map spec ->
     Map full = [:] + spec
     List<Map> shells = []
     full.defaults = { Map d -> toolDefaults(d); if (spec.defaults) (spec.defaults as Closure).call(d) }
-    full.files = (layoutFiles(spec.layout as String) as Map) + ((spec.files ?: [:]) as Map)
+    full.files = (layoutFiles(spec.layout as String) as Map) + (buildOutputs[spec.layout] ?: [:]) + ((spec.files ?: [:]) as Map)
     full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString()] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
         shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME]
@@ -660,10 +661,102 @@ doc.eachWithIndex { String line, int i ->
         check("Chapter 14: the console lines of ${console.group(1)} occur in that order in its golden log", shown && inOrder(shown, log), shown.findAll { !log.contains(it) })
     }
 }
-List<String> tree = blockAfter(doc.findIndexOf { it.startsWith('*Layout (a), only PL/SQL.*') })
-check('Chapter 14: every file of the layout (a) tree is a fixture, and its configuration and changelog master are examples',
-        tree && tree.every { new File(fixtures, "layout-a/${it}").file } && ['devsecops_config.yaml', 'db/changelog-master.xml'].every { examples.contains("test/fixtures/database/layout-a/${it}".toString()) },
-        tree.findAll { !new File(fixtures, "layout-a/${it}").file } + examples)
+Yaml yaml = new Yaml()
+Closure projectsOf = { File f -> (yaml.load(f.getText('UTF-8')) as Map).projects as Map }
+Closure copyOf = { Map m -> yaml.load(yaml.dump(m)) as Map }
+Map layoutProjects = ['a', 'b', 'c'].collectEntries { [(it): projectsOf(new File(fixtures, "layout-${it}/devsecops_config.yaml"))] }
+layoutProjects.each { String layout, Map projects ->
+    Map db = projects.values().find { (it as Map).buildTool == 'liquibase' } as Map
+    String master = [db.sourceDir, db.database.searchPath, db.database.changelogFile].findAll { it && it != '.' }.join('/')
+    String marker = "Files of layout (${layout}) ({{test/fixtures/database/layout-${layout}}}):".toString()
+    List<String> tree = doc.contains(marker) ? blockAfter(doc.indexOf(marker)) : []
+    List<String> shown = ['devsecops_config.yaml', master, 'Jenkinsfile'].collect { "test/fixtures/database/layout-${layout}/${it}".toString() }
+    check("Chapter 14: the tree of layout (${layout}) lists every file of the layout once, and its configuration, changelog master and Jenkinsfile are examples",
+            tree && tree.size() == tree.toSet().size() && tree.toSet() == (layoutFiles(layout) as Map).keySet() && examples.containsAll(shown), [tree: tree, missing: shown - examples])
+    String jenkinsfile = new File(fixtures, "layout-${layout}/Jenkinsfile").getText('UTF-8')
+    check("Chapter 14: the Jenkinsfile of layout (${layout}) names the services of its configuration in their order",
+            jenkinsfile.contains("projectNames: '${projects.keySet().join(',')}'".toString()), jenkinsfile)
+}
+
+Map reference = projectsOf(new File(root, 'test/fixtures/CertScanner/config.yaml'))
+Map app = copyOf(reference.gui as Map)
+app.excludedDirs = 'orders-db'
+app.build.node = [enabled: true, dir: 'frontend']
+app.tools.nexusIq.scanPatterns = ['**/app/build/libs/*.jar']
+app.deploy.vm.dod.applications[0].components[0].baseDir = 'app/build/libs'
+Map api = copyOf(reference['backend-api'] as Map)
+api.excludedDirs = 'orders-db'
+api.build.maven.dir = 'api'
+api.build.node = [enabled: true, dir: 'web']
+api.tests.unitTests.maven.dir = 'api'
+api.tests.unitTests.unitTestResult = 'api/target/surefire-reports/*.xml'
+api.tools.sonar.maven.dir = 'api'
+[app, api].each { Map service -> (service.asoc as Map).remove('keySecret'); service.remove('influx') }
+[[layout: 'b', name: 'orders-app', reference: 'gui', expected: app], [layout: 'c', name: 'orders-api', reference: 'backend-api', expected: api]].each { Map c ->
+    Map actual = (layoutProjects[c.layout] as Map)[c.name] as Map
+    check("Chapter 14: ${c.name} of layout (${c.layout}) is ${c.reference} of the reference implementation with the changes that chapter 14 names",
+            actual == c.expected, (actual.keySet() + (c.expected as Map).keySet()).findAll { actual[it] != (c.expected as Map)[it] })
+}
+
+Map globalDefaults = (yaml.load(defaultsText) as Map).defaults as Map
+toolDefaults(globalDefaults)
+Closure merged
+merged = { Map base, Map over ->
+    Map result = [:] + base
+    over.each { k, v -> result[k] = v instanceof Map && result[k] instanceof Map ? merged(result[k] as Map, v as Map) : v }
+    result
+}
+['database-product-config.yaml': 'a', 'database-gradle-product-config.yaml': 'b', 'database-maven-product-config.yaml': 'c'].each { String file, String layout ->
+    Map written = projectsOf(new File(fixtures, "portal/${file}"))
+    Map documented = layoutProjects[layout] as Map
+    check("Chapter 14: the DevSecOps portal writes the services of layout (${layout}) in their order (portal/${file})", (written.keySet() as List) == (documented.keySet() as List), written.keySet())
+    written.each { String name, Map cfg ->
+        Map layoutService = documented[name] as Map
+        if (!layoutService?.database) return
+        List keys = ['appId', 'buildTool', 'sourceDir', 'javaPath', 'buildToolAutoSetup', 'asoc', 'database']
+        Map expected = copyOf(layoutService).subMap(keys)
+        ['snapshotRepository', 'releaseRepository'].each { expected.database.package.remove(it) }
+        check("Chapter 14: the DevSecOps portal writes the database settings of ${name} of layout (${layout}), without the Nexus repositories of the Global Settings",
+                cfg.subMap(keys) == expected, keys.findAll { cfg[it] != expected[it] })
+        List problems = ['full', 'security'].collectMany { String variant ->
+            harness.run { harness.type('com.bbh.utils.DatabaseSettings').problems(name, merged(globalDefaults, cfg), globalDefaults, variant) } as List
+        }
+        check("Chapter 14: the settings that the DevSecOps portal writes for ${name} of layout (${layout}) pass the settings check of the full and security pipelines", !problems, problems)
+    }
+}
+
+String chapter = doc.subList(doc.indexOf('{anchor:ch14}'), doc.indexOf('{anchor:ch15}')).join('\n')
+Closure flatKeys
+flatKeys = { Map m, String prefix -> m.collectMany { k, v -> String key = "${prefix}${k}"; v instanceof Map && k != 'parameters' ? flatKeys(v as Map, "${key}.") : [key] } }
+List<String> settingKeys = ['buildTool', 'sourceDir', 'javaPath', 'buildToolAutoSetup', 'asoc.doCompile', 'build.liquibase.label'] +
+        ['build.liquibase', 'tests.unitTests.liquibase', 'asoc.liquibase'].collectMany { String step -> ['commands', 'flags', 'dir', 'env'].collect { "${step}.${it}".toString() } } +
+        ['sources', 'inclusions', 'exclusions', 'flags', 'dir', 'env'].collect { "tools.sonar.liquibase.${it}".toString() } +
+        ['changelogFile', 'searchPath', 'oracleVersion', 'defaultSchema', 'liquibaseSchema', 'contexts', 'labels', 'parameters', 'requireRollback', 'tag', 'lockWaitMinutes',
+         'compileCheck.enabled', 'compileCheck.recompile', 'compileCheck.ignoreObjects', 'checks.ignoreFiles', 'package.groupId', 'package.artifactId', 'package.nexusDelivery',
+         'package.mvnPath', 'package.snapshotRepository.id', 'package.snapshotRepository.url', 'package.releaseRepository.id', 'package.releaseRepository.url',
+         '<target>.url', '<target>.credentialsId', '<target>.contexts', '<target>.labels', '<target>.defaultSchema', '<target>.liquibaseSchema', '<target>.parameters',
+         '<target>.timeoutMinutes', 'test.reset', 'test.utplsql.enabled', 'test.utplsql.paths', 'test.utplsql.owner', 'test.utplsql.sourcePath', 'test.utplsql.testPath',
+         'test.utplsql.timeoutMinutes'].collect { "database.${it}".toString() } +
+        ['tools.liquibase.home', 'tools.liquibase.url', 'tools.liquibase.sha256', 'tools.liquibase.javaVersion', 'tools.oracleJdbc.path', 'tools.oracleJdbc.url',
+         'tools.oracleJdbc.sha256', 'tools.utplsql.home', 'tools.utplsql.url', 'tools.utplsql.sha256', 'database.allowedTargets', 'database.package.snapshotRepository.id',
+         'database.package.snapshotRepository.url', 'database.package.releaseRepository.id', 'database.package.releaseRepository.url'].collect { "defaults.${it}".toString() } +
+        (layoutProjects.values() + ['database-product-config.yaml', 'database-gradle-product-config.yaml', 'database-maven-product-config.yaml'].collect { projectsOf(new File(fixtures, "portal/${it}")) })
+                .collectMany { Map projects -> projects.values().findAll { (it as Map).database }.collectMany { flatKeys((it as Map).database as Map, 'database.') } }.unique()
+List<String> undocumented = settingKeys.findAll { String key ->
+    !chapter.contains("{{${key}}}") && !chapter.contains("{{${key.replaceFirst(/^database\.(test|rd|qc)\./, 'database.<target>.')}}}")
+}
+check('Chapter 14: every setting of a Liquibase service, of its database block and of the Global Settings is in chapter 14 with its full key', !undocumented, undocumented)
+
+String library = ['src', 'vars'].collectMany { String dir ->
+    List<String> texts = []
+    new File(root, dir).eachFileRecurse(groovy.io.FileType.FILES) { File f -> if (f.name.endsWith('.groovy')) texts << f.getText('UTF-8') }
+    texts
+}.join('\n')
+int messages = doc.indexOf('||Message||Cause||Fix||')
+List<String> fragments = (messages < 0 ? [] : doc.subList(messages + 1, doc.size()).takeWhile { it.startsWith('|') })
+        .collectMany { String row -> (row.tokenize('|')[0] =~ /\*([^*]+)\*/).collect { (it as List)[1] as String } }
+        .collectMany { String text -> text.split(/\.\.\./).collect { it.trim() }.findAll { it } }
+check('Chapter 14: every message of the troubleshooting table occurs in the library', fragments && fragments.every { library.contains(it) }, fragments.findAll { !library.contains(it) })
 
 println()
 println(failures ? "${failures} DATABASE SCENARIO CHECK(S) FAILED" : 'ALL DATABASE SCENARIOS PASSED')

@@ -151,7 +151,7 @@ projects:
             - applicationName: "CertScanner-GUI"
               components:
                 - componentName:       "CertScanner-GUI-app"
-                  baseDir:             "gui/build/libs"
+                  baseDir:             "app/build/libs"
                   fileIncludePatterns: "*.jar"
         rd:
           host:         "rdltaapps1.testbbh.com"

@@ -1,0 +1,118 @@
+projects:
+  orders-db:
+    appId: 6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10
+    buildTool: liquibase
+    sourceDir: orders-db
+    javaPath: /usr/lib/jvm/java-17-openjdk
+    asoc:
+      url: https://bbh.cloud.appscan.com
+      keyId: bbh_6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10
+      token: appscan-orders-key-secret
+    influx:
+      url: http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+      credentialsId: influxdb-token
+      enabled: true
+      project: ORDERSMAVEN-orders-db
+      env: test
+    tools:
+      sonar:
+        serverUrl: https://tools.bbh.com/sonar
+        installationName: SonarQube
+        projectKey: bbh-orders-db
+      nexusIq:
+        serverUrl: https://tools.bbh.com/IQ
+        credentialsId: nexusiqP
+    dast:
+      enabled: false
+    database:
+      changelogFile: changelog-master.yaml
+      package:
+        groupId: com.bbh.orders
+      rd:
+        url: jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD
+        credentialsId: orders-db-rd
+      qc:
+        url: jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_QC
+        credentialsId: orders-db-qc
+    scm:
+      bitbucket:
+        url: https://bitbucket.bbh.com/projects/ORD/repos/orders
+        credentialsId: bitbucket-http-credentials
+        authType: basic
+  orders-api:
+    appId: 6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10
+    buildTool: maven
+    deployTarget: vm
+    sourceDir: .
+    javaPath: /usr/lib/jvm/java-17-openjdk
+    excludedDirs: orders-db
+    asoc:
+      url: https://bbh.cloud.appscan.com
+      keyId: bbh_6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10
+      token: appscan-orders-key-secret
+    influx:
+      url: http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+      credentialsId: influxdb-token
+      enabled: true
+      project: ORDERSMAVEN-orders-api
+      env: test
+    tools:
+      sonar:
+        serverUrl: https://tools.bbh.com/sonar
+        installationName: SonarQube
+      nexusIq:
+        serverUrl: https://tools.bbh.com/IQ
+        credentialsId: nexusiqP
+        application: orders-api
+        scanPatterns:
+        - '**/api/target/*.jar'
+        stage: build
+        failOnNetworkError: false
+    dast:
+      enabled: false
+    build:
+      buildPath: api/target/*.jar
+      maven:
+        goals:
+        - clean
+        - verify
+        dir: api
+      node:
+        enabled: true
+        dir: web
+    delivery:
+      maven:
+        goals:
+        - deploy:deploy-file
+    scm:
+      bitbucket:
+        url: https://bitbucket.bbh.com/projects/ORD/repos/orders
+        credentialsId: bitbucket-http-credentials
+        authType: basic
+    deploy:
+      vm:
+        dod:
+          skipWait: false
+          deployWithSnapshot: true
+          updateSnapshotComp: false
+          includeOnlyDeployVersions: true
+          deployOnlyChanged: false
+          applications:
+          - applicationName: ORDERS
+            components:
+            - componentName: orders-api
+              baseDir: api/target
+              fileIncludePatterns: '*.jar'
+              incrementalVersion: true
+          siteName: deploy.bbh.com
+          deployProcess: tomcat-app-process
+        rd:
+          host: rdltaapps1.testbbh.com
+          user: taadmin
+          deployScript: scripts/deployment/zero-downtime-deployment.sh
+          versionFile: scripts/deployment/version.properties
+        qc:
+          host: qcltaapps1.testbbh.com
+          user: taadmin
+          deployScript: scripts/deployment/zero-downtime-deployment.sh
+          versionFile: scripts/deployment/version.properties
