@@ -2121,7 +2121,7 @@ Every key of the first two tables is a key of the service, under {{projects.<ser
 |{{database.<target>.labels}}, {{database.<target>.defaultSchema}}, {{database.<target>.liquibaseSchema}}|the value of the service|the label filter and the schemas of the target|
 |{{database.<target>.parameters}}|–|changelog parameters of the target, merged over {{database.parameters}}|
 |{{database.<target>.timeoutMinutes}}|{{30}}|the timeout of each online step of the target, from 1 to 240|
-|{{database.test.reset}}|{{false}}|{{true}}: {{drop-all}} on the test schema before the deployment|
+|{{database.test.reset}}|{{false}}|{{true}}: empty the test schema before the deployment: {{drop-all}}, then a drop of the packages, procedures, functions, triggers, types and synonyms, which {{drop-all}} of Liquibase Community leaves|
 |{{database.test.utplsql.enabled}}|{{false}}|run utPLSQL on the test database (14.9)|
 |{{database.test.utplsql.paths}}|the suites of {{database.test.utplsql.owner}}|the utPLSQL paths, such as {{orders_owner:ut_orders}}|
 |{{database.test.utplsql.owner}}|{{database.test.defaultSchema}}, else {{database.defaultSchema}}, else the login schema|the schema whose suites run|
@@ -2285,7 +2285,7 @@ The changesets that ran stay applied: fix the source and run the stage again.
 
 h3. 14.9 Unit tests and coverage with utPLSQL
 
-* *The test target* is a schema of its own per pipeline, with the utPLSQL framework installed. The Unit tests stage deploys the package there with the context {{test}}, so the test packages are deployed too. With {{database.test.reset: true}} the schema is emptied with {{drop-all}} first; without it, changesets of another branch in the test schema are reported.
+* *The test target* is a schema of its own per pipeline, with the utPLSQL framework installed. The Unit tests stage deploys the package there with the context {{test}}, so the test packages are deployed too. With {{database.test.reset: true}} the schema is emptied first: {{drop-all}} removes the tables, views, sequences and the Liquibase tables, and the library then drops the packages, procedures, functions, triggers, types ({{FORCE}}) and synonyms that {{drop-all}} of Liquibase Community leaves; database links, scheduler jobs and queues stay. Without it, changesets of another branch in the test schema are reported.
 * *utPLSQL* runs the suites of {{database.test.utplsql.paths}}, else of {{database.test.utplsql.owner}} (default {{database.test.defaultSchema}}, else {{database.defaultSchema}}), else of the login schema. {{sourcePath}} and {{testPath}} map the reports to the files of the repository.
 * *Reports:* {{utplsql-junit.xml}} (published with {{junit}}), {{utplsql-cobertura.xml}}, {{utplsql-coverage-sonar.xml}} and {{utplsql-sonar-tests.xml}} in {{.dso-db/<service>/}}, archived.
 * *Coverage* is the line coverage of the Cobertura report, checked against the 60 % of the library. A missing report, a report without lines or one that cannot be read turns the stage orange: the required coverage cannot be verified. Failed tests turn the stage orange; tests that cannot run, or no test at all, too.
@@ -2353,7 +2353,7 @@ The messages below are quoted with {{...}} for the parts that change.
 |*No utPLSQL coverage report*, *No coverage report with measured lines*|utPLSQL wrote no coverage, or none for the sources|check {{sourcePath}} and the privileges of 14.9|
 |*the Jenkins credentials ... cannot be used*|an unknown credentials ID|add *Username with password* credentials to the folder of the job|
 |*cannot be passed to*|the user or the password is empty, has a leading or trailing blank, or a character outside printable ASCII|correct the Jenkins credential|
-|*drop-all failed*|{{database.test.reset}} could not empty the test schema|check the privileges of the test user|
+|*drop-all failed*|{{database.test.reset}} could not empty the test schema: {{drop-all}}, or the drop of the code, types and synonyms it leaves, failed|check the privileges of the test user on its schema|
 |*in the test database ... not in this changelog*|another branch shares the test schema|{{database.test.reset: true}}, or one schema per pipeline|
 |*status failed*|Liquibase could not read the target|the reason follows; check the URL, the network and the credential|
 |*update failed after*|a changeset failed; the ones before it stay applied|fix the cause and run the stage again; the library does not roll back|
@@ -2608,7 +2608,7 @@ projects:
         credentialsId: ""            # Jenkins Username with password
         contexts:      "test"
         timeoutMinutes: 30
-        reset:         false         # true: drop-all before the deployment
+        reset:         false         # true: empty the test schema before the deployment
         utplsql:       {enabled: false, paths: "", owner: "", sourcePath: "", testPath: "", timeoutMinutes: 30}
       rd:                            # and qc: the same keys as test, without reset and utplsql; contexts [default: database.contexts]
         url:           ""

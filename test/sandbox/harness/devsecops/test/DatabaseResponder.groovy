@@ -19,6 +19,7 @@ class DatabaseResponder {
             lock       : ['Could not acquire change log lock.  Currently locked by jenkins-agent-07 (10.20.30.40) since 10/30/26, 11:48 PM', ''],
             'ora-00955': ['Migration failed for changeset db/tables/002-create-order-items.sql::002-create-order-items::orders-team:',
                           '     Reason: liquibase.exception.DatabaseException: ORA-00955: name is already used by an existing object\n [Failed SQL: (955) CREATE TABLE order_items (item_id NUMBER(19) NOT NULL)]\n'],
+            'ora-01031': ['ORA-01031: insufficient privileges', 'https://docs.oracle.com/error-help/db/ora-01031/\n'],
             rollback   : ['Liquibase does not support automatic rollback generation for raw sql changes (did you mean to specify keyword "empty" to ignore rolling back this change?)', '']
     ]
 
@@ -224,6 +225,9 @@ class DatabaseResponder {
                 break
             case 'DB: Liquibase drop-all on the test database':
                 reply(0, "All objects dropped from ${database}\n" + done('drop-all'))
+                break
+            case 'DB: drop the code, types and synonyms left on the test database':
+                spec.resetFails ? reply(1, failed(version, 'ora-01031', '')) : reply(0, header(version) + done('execute-sql'))
                 break
             case "DB: Liquibase list-locks on ${target}".toString():
                 reply(0, "Database change log locks for ${database}\n" + (spec.ownLock ? " - jenkins-agent-07#${j.env.DSO_LOCK_ID} (10.20.30.40) at Oct 31, 2026, 10:16:02 AM\n" : ' - No locks\n') + done('list-locks'))

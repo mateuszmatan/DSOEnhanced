@@ -639,6 +639,15 @@ class DatabaseSettings implements Serializable {
     }
 
     @NonCPS
+    static String resetSql(Map target) {
+        String schema = sqlParts(target, [:]).schema as String
+        return "BEGIN\n  FOR o IN (SELECT owner, object_name, object_type FROM all_objects WHERE owner = ${schema} AND object_type IN ('TRIGGER', 'PACKAGE', 'PROCEDURE', 'FUNCTION', 'SYNONYM', 'TYPE')\n" +
+                "            AND object_name NOT LIKE 'BIN\$%' ORDER BY DECODE(object_type, 'TRIGGER', 1, 'TYPE', 3, 2), object_name) LOOP\n    BEGIN\n" +
+                "      EXECUTE IMMEDIATE 'DROP ' || o.object_type || ' \"' || o.owner || '\".\"' || o.object_name || '\"' || CASE o.object_type WHEN 'TYPE' THEN ' FORCE' END;\n" +
+                "    EXCEPTION\n      WHEN OTHERS THEN\n        IF SQLCODE <> -4043 THEN\n          RAISE;\n        END IF;\n    END;\n  END LOOP;\nEND;\n/\n"
+    }
+
+    @NonCPS
     static boolean selectsTest(String filter) {
         return !str(filter) || matches(filter, ['test'])
     }

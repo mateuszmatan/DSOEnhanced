@@ -127,6 +127,13 @@ class DatabaseBuild implements Serializable {
                 if (dropped.status != 0) {
                     fail(c, 'test', startMs, [:], "[DB] ${c.name} test: drop-all failed: ${failure(dropped.text as String)}")
                 }
+                String sql = "${c.dir}/test-reset.sql"
+                script.writeFile(file: sql, text: DatabaseSettings.resetSql(test))
+                Map rest = online(c, test, pkg, [label: 'DB: drop the code, types and synonyms left on the test database', command: 'execute-sql',
+                                                 args: ['--delimiter=/', "--sql-file=${sql}".toString()], out: 'test-reset.out', lock: true])
+                if (rest.status != 0) {
+                    fail(c, 'test', startMs, [:], "[DB] ${c.name} test: drop-all failed: the packages, procedures, functions, triggers, types and synonyms that it leaves could not be dropped: ${failure(rest.text as String)}")
+                }
                 script.echo "[DB] ${c.name} test: removed every object of the test schema before the deployment (database.test.reset)"
             }
             deployTo(c, 'test')

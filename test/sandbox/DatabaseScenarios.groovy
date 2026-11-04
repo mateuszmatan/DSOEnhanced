@@ -109,7 +109,8 @@ Closure runDatabase = { Map spec ->
     full.files = (layoutFiles(spec.layout as String) as Map) + (buildOutputs[spec.layout] ?: [:]) + ((spec.files ?: [:]) as Map)
     full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString()] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
-        shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME]
+        shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME,
+                   sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)]]
         DatabaseResponder.sh(j, a, full)
     }
     full.prepare = { FakeScript j ->
@@ -593,7 +594,13 @@ check('D31: without a lock of this build, no release-locks', !labels(unlocked).c
 Map reset = focused('D32 a reset of the test schema', unit + [result: 'SUCCESS', configure: orders { Map db, Map svc -> (db.test as Map).reset = true }],
         '[DB] orders-db test: removed every object of the test schema before the deployment (database.test.reset)')
 int dropped = labels(reset).indexOf('DB: Liquibase drop-all on the test database')
-check('D32: drop-all runs before the update of the test database', dropped >= 0 && dropped < labels(reset).indexOf('DB: Liquibase update on test'), labels(reset))
+int rest = labels(reset).indexOf('DB: drop the code, types and synonyms left on the test database')
+Map restShell = (reset.shells as List<Map>).find { it.label == 'DB: drop the code, types and synonyms left on the test database' } ?: [:]
+check('D32: drop-all, then the drop of the code, types and synonyms that drop-all leaves, run before the update of the test database',
+        dropped >= 0 && dropped < rest && rest < labels(reset).indexOf('DB: Liquibase update on test') && (restShell.script as String)?.contains("'execute-sql' '--delimiter=/' '--sql-file=/ws@tmp/dso-db/orders-db/test-reset.sql'")
+                && restShell.sql == new File(fixtures, 'test-reset-default.sql').text, [labels(reset), restShell.script])
+focused('D32 the code left by drop-all cannot be dropped', unit + [failedStage: UNIT, resetFails: true, configure: orders { Map db, Map svc -> (db.test as Map).reset = true }],
+        '[DB] orders-db test: drop-all failed: the packages, procedures, functions, triggers, types and synonyms that it leaves could not be dropped: ORA-01031: insufficient privileges - the deploy user lacks a privilege: see the grants in chapter 14.8')
 focused('D32 changesets of another branch in the test database', unit + [result: 'SUCCESS', unexpected: true],
         '[DB] orders-db test: 2 changesets in the test database are not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema')
 

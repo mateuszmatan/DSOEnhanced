@@ -393,11 +393,13 @@ Closure settings = {
             ['compile-check-default.sql', { -> ds().compileCheckSql([:], [recompile: true, ignoreObjects: []]) }],
             ['compile-check-schema.sql', { -> ds().compileCheckSql([defaultSchema: 'orders_owner'], [recompile: true]) }],
             ['compile-check-norecompile.sql', { -> ds().compileCheckSql([:], [recompile: false]) }],
-            ['compile-check-ignore.sql', { -> ds().compileCheckSql([:], [ignoreObjects: ['V_LEGACY_REPORT', 'PKG_OLD']]) }]
+            ['compile-check-ignore.sql', { -> ds().compileCheckSql([:], [ignoreObjects: ['V_LEGACY_REPORT', 'PKG_OLD']]) }],
+            ['test-reset-default.sql', { -> ds().resetSql([:]) }],
+            ['test-reset-schema.sql', { -> ds().resetSql([defaultSchema: 'orders_owner']) }]
     ]
     List sqlWrong = sqlCases.collect { List c -> [c[0], harness.run { (c[1] as Closure).call() }] }.findAll { List r -> r[1] != fixture(r[0] as String) || (r[1] as String).contains('${') }
     String schemaBefore = harness.run { ds().invalidBeforeSql([defaultSchema: 'ORDERS_OWNER'], [ignoreObjects: ['PKG_OLD']]) }
-    check('DatabaseSettings.invalidBeforeSql and compileCheckSql: equal to the fixtures of 8.5 for the default, a schema, no recompile and ignored objects',
+    check('DatabaseSettings.invalidBeforeSql, compileCheckSql and resetSql: equal to the fixtures for the default, a schema, no recompile and ignored objects',
             sqlWrong.isEmpty() && schemaBefore == "SELECT object_type || ' ' || object_name || ' ' || TO_CHAR(last_ddl_time, 'YYYYMMDDHH24MISS') AS INVALID_BEFORE FROM all_objects WHERE owner = 'ORDERS_OWNER' AND status = 'INVALID' AND object_name NOT IN ('PKG_OLD') ORDER BY 1\n/\n",
             sqlWrong + [schemaBefore])
 
