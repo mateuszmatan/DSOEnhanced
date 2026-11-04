@@ -391,7 +391,7 @@ class LiquibaseOutput implements Serializable {
                         && !(named && named.every { (it as Map).delimiter })) {
                     add(2, path, n, "${path} line ${n}: a \"/\" line before the end of the file - one sqlFile deploys one unit: put each unit in its own file, or give the sqlFile endDelimiter=\"\\n/\"".toString())
                 }
-                if (!comment && text ==~ /(?i).*\bIDENTIFIED\s+BY\s+(?!VALUES\b).*/) {
+                if (!comment && text ==~ /(?i).*\bIDENTIFIED\s+BY(\s*|\s+(?!VALUES\b)("[^"']+"|[A-Z][\w#\x24]*|\x24\{).*)/) {
                     add(8, path, n, "${path} line ${n}: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password".toString())
                 }
                 if (changelogFile(path) && text ==~ /(?i).*(<\s*(executeCommand|customChange)\b|^\s*-?\s*(executeCommand|customChange)\s*:|"(executeCommand|customChange)"\s*:).*/) {

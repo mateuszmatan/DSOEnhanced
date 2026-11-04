@@ -706,7 +706,10 @@ Closure staticChecks = {
             'db/code/two.pck'   : 'CREATE OR REPLACE PACKAGE two AS\n  PROCEDURE p;\nEND two;\n/\nCREATE OR REPLACE PACKAGE BODY two AS\n  PROCEDURE p IS BEGIN NULL; END p;\nEND two;\n/\n',
             'db/code/mid.pkb'   : 'CREATE OR REPLACE PACKAGE BODY mid AS\n  PROCEDURE p IS BEGIN NULL; END p;\nEND mid;\n/\nCREATE OR REPLACE PROCEDURE mid_extra IS BEGIN NULL; END;\n',
             'db/code/end.pkb'   : 'CREATE OR REPLACE PACKAGE BODY e AS\n  PROCEDURE p IS BEGIN NULL; END p;\nEND e; /\n',
-            'db/code/user.sql'  : 'CREATE USER app IDENTIFIED BY "secret1";\nALTER USER app IDENTIFIED BY VALUES \'S:ABC\';\nGRANT CONNECT TO ${DSO_USER};\n',
+            'db/code/user.sql'  : 'CREATE USER app IDENTIFIED BY "secret1";\nALTER USER app IDENTIFIED BY VALUES \'S:ABC\';\nGRANT CONNECT TO ${DSO_USER};\n' +
+                    'EXECUTE IMMEDIATE \'ALTER USER \' || p_user || \' IDENTIFIED BY \' || p_pwd;\nEXECUTE IMMEDIATE \'ALTER USER app IDENTIFIED BY :new_pwd\';\n' +
+                    'v_sql := \'CREATE USER \' || p_user || \' IDENTIFIED BY "\' || p_pwd || \'"\';\nEXECUTE IMMEDIATE \'ALTER USER app IDENTIFIED BY Secret2\';\n' +
+                    'ALTER USER app IDENTIFIED BY\n  secret3;\nALTER USER app IDENTIFIED BY ${app_pass};\n',
             'db/code/orphan.prc': 'CREATE OR REPLACE PROCEDURE orphan IS BEGIN NULL; END;\n/\n',
             'db/code/block.sql' : 'BEGIN\n  NULL;\nEND;\n',
             'db/tables/f.sql'   : '--liquibase formatted sql\n--changeset t:f1\nCREATE TABLE f (id NUMBER);\n--changeset t:f2\nCREATE OR REPLACE PROCEDURE f_p IS\nBEGIN\n  NULL;\nEND;\n/\n--changeset t:f3 splitStatements:false stripComments:false\nBEGIN\n  NULL;\nEND;\n/\n'
@@ -723,6 +726,9 @@ Closure staticChecks = {
             'db/changelog.xml: sqlFile code/v.vw has splitStatements="false" and its statement ends with ";" - Oracle refuses that for a view or plain SQL; remove splitStatements="false" or the final ";"',
             'db/code/orphan.prc is in no sqlFile of the changelog - includeAll does not deploy .prc files, so it is never deployed',
             'db/code/user.sql line 1: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
+            'db/code/user.sql line 7: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
+            'db/code/user.sql line 8: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
+            'db/code/user.sql line 10: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
             'db/changelog.xml line 26: executeCommand runs code on the Jenkins agent - the library does not deploy it',
             'db/changelog.xml line 30: ${db_password} names a secret or a variable of the agent - use database.parameters for values that differ between databases',
             'db/code/user.sql line 3: ${DSO_USER} names a secret or a variable of the agent - use database.parameters for values that differ between databases'
@@ -750,7 +756,7 @@ Closure staticChecks = {
     Map real = realFacts('planted', planted, 'db')
     Map none = [ignoreFiles: []]
     List findings = harness.run { [lo().staticFindings(lo().facts(superset(planted)), none), lo().staticFindings(lo().facts(real.text as String), none)] } as List
-    check('LiquibaseOutput.staticFindings: every rule S1-S6 on the planted tree with its exact text, sorted by rule and file, and nothing for the negatives',
+    check('LiquibaseOutput.staticFindings: every rule S1-S6 on the planted tree with its exact text, sorted by rule and file, and nothing for the negatives, such as IDENTIFIED BY with a variable, a bind or a concatenation',
             findings[0] == expected, [(findings[0] as List) - expected, expected - (findings[0] as List)])
     check('LiquibaseOutput.factsAwk and factsScript: the real awk facts give the findings of the full facts (the superset rule)',
             real.status == 0 && findings[1] == findings[0] && (real.text as String).readLines().findAll { it.startsWith('F\t') } == planted.keySet().toList().sort().collect { "F\t${it}".toString() },

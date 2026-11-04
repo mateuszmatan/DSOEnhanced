@@ -2022,7 +2022,7 @@ These rules apply to a changelog that a database block deploys. They follow from
 | a `sqlFile` of a view or plain SQL file with `splitStatements="false"` whose statement ends with `;` | 5 | warning |
 | a `--changeset` of formatted SQL that holds a PL/SQL unit without `splitStatements:false` (or `endDelimiter:`), or without `stripComments:false` | 4 | warning |
 | a PL/SQL or `.vw` file that no `sqlFile` of a changelog deploys | 7 | warning |
-| `IDENTIFIED BY` followed by a password (not `IDENTIFIED BY VALUES`) | 11 | stops the build |
+| `IDENTIFIED BY` followed by a password: a name, a quoted name, a `${...}` or the end of the line (not `IDENTIFIED BY VALUES`, nor a bind, a variable or a concatenation in dynamic SQL) | 11 | stops the build |
 | `executeCommand` or `customChange` in a changelog: it runs code on the Jenkins agent | 11 | stops the build |
 | `${...}` whose name holds `password`, `passwd`, `pwd`, `secret`, `token`, `credential`, `key` or `user`, or starts with `LIQUIBASE_`, `DSO_` or `JENKINS` | 11 | stops the build |
 
