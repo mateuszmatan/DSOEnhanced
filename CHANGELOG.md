@@ -48,3 +48,7 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
   - Support for `tools.sonar.badgeCredentialsId` (Jenkins Secret text credential) as a secure alternative to plain-text `tools.sonar.badgeToken`.
 - **Standalone Library Distribution (`DSOEnhancedWithoutPortal` branch)**:
   - Maintained in parity on `DSOEnhancedWithoutPortal` as a standalone "Version 0" shared library with zero portal integration, operating purely via `Jenkinsfile` (`projectNames`) and `devsecops_config.yaml` / `config.yaml`.
+
+### Fixed
+- **SAST folders of each service**: AppScan prepares the IRX of each service from that service's own `sourceDir`, `includedDirs` and `excludedDirs`. Before, every IRX of a multi-service run used the folders of the last service, so a database folder was never scanned and an application folder could be scanned twice. Products with several services in different folders can see different SAST counts after the upgrade.
+- **SonarQube folder of a Liquibase service with `tools.sonar.liquibase.dir`**: the scanner runs inside that folder with `-Dsonar.sources=.`. Before, it got `-Dsonar.sources=<dir>` inside `<dir>`, a folder that does not exist, so the analysis failed unless `tools.sonar.liquibase.flags` moved `-Dsonar.projectBaseDir`. Remove such a workaround after the upgrade, or set `tools.sonar.liquibase.sources`.
