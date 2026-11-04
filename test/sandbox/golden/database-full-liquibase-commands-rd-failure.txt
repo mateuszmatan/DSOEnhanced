@@ -344,7 +344,7 @@ for i in {1..6}; do
 done
 
 sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-orders-db.html' || true
-sh 'sonar-scanner' -Dsonar.host.url=https://tools.bbh.com/sonar -Dsonar.projectKey=orders-db -Dsonar.sources=db
+sh 'sonar-scanner' -Dsonar.host.url=https://tools.bbh.com/sonar -Dsonar.projectKey=orders-db -Dsonar.branch.name=develop -Dsonar.sources=db
 withCredentials [sonarqube-token]
 sh 
 _TMP=$(mktemp)

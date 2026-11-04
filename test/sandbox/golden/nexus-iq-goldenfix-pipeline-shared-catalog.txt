@@ -240,19 +240,6 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
-withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
-sh set +x
-code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
-rc=$?
-if [ $rc -ne 0 ]; then
-  exit $rc
-fi
-echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
-if [ "$code" -ge 300 ]; then
-  exit 1
-fi
-
-sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html
 publishHTML pipeline-report.html
 cleanWs
@@ -315,7 +302,6 @@ Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
 [INFLUX] 27 metric line(s) for CertScannernexusiq (test), build 64, result UNSTABLE
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
-[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/CertScanner-nexusiq-pipeline build 64
 Vulnerabilities above the policy severity: Nexus IQ critical=2, high=7, medium=10
 -----------------------------------------------------------------
 --- Pipeline finished ---

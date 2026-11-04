@@ -390,6 +390,17 @@ for i in {1..6}; do
 done
 
 sh [ -f '/ws/appscan-report.html' ] && mv '/ws/appscan-report.html' '/ws/appscan-report-orders-db.html' || true
+sh [DB: ask SonarQube for its PL/SQL analyzer] #!/usr/bin/env bash
+set -euo pipefail; set +x
+mkdir -p '<tmp>/dso-db/orders-db'
+DSO_URL="${SONAR_HOST_URL:-}"; [ -n "$DSO_URL" ] || DSO_URL='https://tools.bbh.com/sonar'
+if [ -n "${SONAR_AUTH_TOKEN:-}" ]; then
+  printf 'header = "Authorization: Bearer %s"\n' "$SONAR_AUTH_TOKEN" | curl -fsS --connect-timeout 10 --max-time 30 -K - "$DSO_URL/api/languages/list?ps=0" -o '<tmp>/dso-db/orders-db/sonar-languages.txt'
+else
+  curl -fsS --connect-timeout 10 --max-time 30 "$DSO_URL/api/languages/list?ps=0" -o '<tmp>/dso-db/orders-db/sonar-languages.txt'
+fi
+
+deleteDir <tmp>/dso-db/orders-db
 reportBuild
 deleteDir <tmp>/dso-db/orders-db
 withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false]
@@ -465,7 +476,7 @@ Start queue sast
 [SAST]   Limits: Critical<=0  High<=0  Medium<=0
 ------------------------------------------------------------
 Detected tool from config file is liquibase
-[SONAR] orders-db: no SonarQube project for this service (tools.sonar.projectKey) - SonarQube is not required for SQL and PL/SQL
+[SONAR] orders-db: the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL
 ------------------------------------------------------------
 [STAGE]  SCA (SonarQube)
 [RESULT] NOT_REQUIRED

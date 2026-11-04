@@ -2,6 +2,7 @@ import devsecops.test.DatabaseResponder
 import devsecops.test.FakeCpsScript
 import devsecops.test.FakeScript
 import devsecops.test.FakeTestSummary
+import devsecops.test.PortalFixtures
 import devsecops.test.SandboxHarness
 import devsecops.test.ScenarioRunner
 import org.yaml.snakeyaml.Yaml
@@ -107,7 +108,7 @@ Closure runDatabase = { Map spec ->
     List<Map> shells = []
     full.defaults = { Map d -> toolDefaults(d); if (spec.defaults) (spec.defaults as Closure).call(d) }
     full.files = (layoutFiles(spec.layout as String) as Map) + (buildOutputs[spec.layout] ?: [:]) + ((spec.files ?: [:]) as Map)
-    full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString()] + ((spec.env ?: [:]) as Map)
+    full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString(), DSO_PIPELINE_KEY: PortalFixtures.key(1)] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
         shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME,
                    sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)], timeout: j.timeouts ? j.timeouts[-1] : null,
@@ -271,7 +272,7 @@ List<String> fullSteps = ['DB: check the files of orders-db', 'DB: Liquibase val
             List<String> deploy = ["DB: Liquibase status on ${t}", "DB: invalid objects before the update on ${t}", "DB: Liquibase update on ${t}", "DB: compile check on ${t}",
                                    "DB: Liquibase status after the update on ${t}"].collect { it.toString() }
             t == 'test' ? deploy + ['DB: Liquibase unexpected-changesets on the test database', 'DB: utPLSQL tests on the test database', 'DB: list the files AppScan does not scan for orders-db',
-                                    'DB: publish orders-db-341-<stamp>.zip to Nexus']
+                                    'DB: ask SonarQube for its PL/SQL analyzer', 'DB: publish orders-db-341-<stamp>.zip to Nexus']
                     : deploy + ["DB: Liquibase tag on ${t}".toString()] + (t == 'rd' ? ['DB: publish orders-db-341-<stamp>.zip to Nexus'] : [])
         }
 Closure labels = { Map r -> callsOf(r).findAll { it.startsWith('sh [DB: ') }.collect { it.substring(4, it.indexOf(']')).replaceAll(/\d{8}-\d{6}/, '<stamp>') } }
@@ -552,7 +553,7 @@ Map analysed = focused('D26 SonarQube with SonarSource PL/SQL', unit + [result: 
         '[SONAR] orders-db: the SonarQube server analyses PL/SQL with SonarSource PL/SQL (language plsql)')
 String scanner = callsOf(analysed).find { it.contains("'sonar-scanner' ") } ?: ''
 check('D26: the scanner arguments of a PL/SQL scan, with bdy and the utPLSQL reports, and no token in a recorded call',
-        scanner == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.sources=db' " +
+        scanner == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.sources=db' " +
                 "'-Dsonar.plsql.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy' '-Dsonar.tests=db/test' '-Dsonar.exclusions=db/test/**' " +
                 "'-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'"
                 && stageOf(analysed, SONAR) == 'PASS' && !callsOf(analysed).any { it.contains('fake-sonar-token') }, scanner)
@@ -630,7 +631,7 @@ Map tuned = verify(unit + [name: 'N4 a database block with tools.sonar.liquibase
 }])
 String tunedScan = callsOf(tuned).find { it.contains("'sonar-scanner' ") } ?: ''
 check('N4: the sources, flags and exclusions of tools.sonar.liquibase win, the block adds the test folder to their exclusions, so that no file is a source and a test, and adds only the arguments they leave out',
-        tunedScan == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.plsql.file.suffixes=pks,pkb' '-Dsonar.sources=db/code' " +
+        tunedScan == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.plsql.file.suffixes=pks,pkb' '-Dsonar.sources=db/code' " +
                 "'-Dsonar.exclusions=db/legacy/**,db/test/**' '-Dsonar.tests=db/test' '-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' " +
                 "'-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'", tunedScan)
 [['N5 a utPLSQL coverage report without lines', '<coverage line-rate="0.0" lines-covered="0" lines-valid="0" version="1">\n</coverage>\n'],
@@ -676,7 +677,7 @@ List<String> reportFiles = ['utplsql-coverage-sonar.xml', 'utplsql-sonar-tests.x
 }
 List<String> reportProbes = (blockFolder.j as FakeScript).probeFolders.findAll { it.contains('.dso-db/orders-db/utplsql-') && it.contains('sonar') }
 check('N7: with a database block the scanner runs in tools.sonar.liquibase.dir, and the package folder, the utPLSQL test folder, its exclusion and the utPLSQL reports are given from that folder',
-        blockScan.cwd == 'db' && blockScan.script == "'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.sources=.' " +
+        blockScan.cwd == 'db' && blockScan.script == "'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.sources=.' " +
                 "'-Dsonar.plsql.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy' '-Dsonar.tests=test' '-Dsonar.exclusions=test/**' " +
                 "'-Dsonar.coverageReportPaths=${reportCopies}utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=${reportCopies}utplsql-sonar-tests.xml'"
                 && stageOf(blockFolder, SONAR) == 'PASS', blockScan.script)
