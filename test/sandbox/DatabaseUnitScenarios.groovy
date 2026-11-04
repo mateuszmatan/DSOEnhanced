@@ -140,6 +140,46 @@ Closure basics = {
 }
 basics()
 
+Closure autoResolve = {
+    Closure resolved = { Map files, Map cfg, String name ->
+        FakeScript j = new FakeScript()
+        j.files.putAll(files)
+        harness.run { harness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(j).resolve(cfg, name) } as Map
+    }
+    Map block = baseCfg()
+    Map blockCopy = new Yaml().load(new Yaml().dump(block)) as Map
+    Map files = ['db/changelog.xml': '<databaseChangeLog/>', 'frontend/package.json': '{}']
+    Map withBlock = resolved(files, block, 'orders-db')
+    Map withoutBlock = resolved(files, block.findAll { it.key != 'database' }, 'orders-db')
+    check('RepoStackAutoResolver: a service with a database block gets no build.liquibase and no tests.unitTests.liquibase, and keeps buildTool, database and every other key it has',
+            withBlock.build?.liquibase == null && withBlock.tests?.unitTests?.liquibase == null && withBlock.buildTool == 'liquibase' && withBlock.database == blockCopy.database
+                    && withBlock.findAll { !(it.key in ['build', 'tools']) } == blockCopy && withBlock.tools == [sonar: [projectKey: 'com.bbh:orders-db']] && block == blockCopy,
+            withBlock)
+    check('RepoStackAutoResolver: a Liquibase service without a database block gets updateSQL and validate with the changelog it finds, as on main',
+            withoutBlock.build?.liquibase == [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml']]
+                    && withoutBlock.tests?.unitTests?.liquibase == [commands: ['validate'], flags: ['--changelog-file=db/changelog.xml']],
+            [withoutBlock.build, withoutBlock.tests])
+    Map found = resolved(['changelog.xml': '<databaseChangeLog/>'], [database: [changelogFile: 'changelog.xml']], 'audit-db')
+    Map foundPlain = resolved(['changelog.xml': '<databaseChangeLog/>'], [:], 'audit-db')
+    boolean foundBlock = harness.run { harness.type('com.bbh.utils.BuildUtils').databaseBlock(found) } as boolean
+    check('RepoStackAutoResolver: the detection of Liquibase never switches a database block on: a service with database.changelogFile and no buildTool keeps no buildTool, while one without it becomes liquibase with its steps, as on main',
+            found.buildTool == null && !foundBlock && found.build?.liquibase == null && foundPlain.buildTool == 'liquibase'
+                    && foundPlain.build?.liquibase == [commands: ['updateSQL'], flags: ['--changelog-file=changelog.xml']],
+            [found, foundPlain])
+
+    Map shared = [tools: [sonar: [serverUrl: 'https://tools.bbh.com/sonar']], tests: [maxParallel: 20], build: [gradle: [tasks: ['build']]], flutter: [:]]
+    Map sharedCopy = new Yaml().load(new Yaml().dump(shared)) as Map
+    Map first = resolved([:], [buildTool: 'liquibase'] + shared, 'orders-db')
+    Map second = resolved([:], [buildTool: 'gradle'] + shared, 'orders-app')
+    Map third = resolved([:], [buildTool: 'flutter'] + shared, 'orders-mobile')
+    check('RepoStackAutoResolver: the keys it resolves for one service are written into copies, never into the Global Settings maps the services share, so the next service gets its own SonarQube project and no Liquibase steps',
+            shared == sharedCopy && first.tools == [sonar: [serverUrl: 'https://tools.bbh.com/sonar', projectKey: 'com.bbh:orders-db']]
+                    && second.tools == [sonar: [serverUrl: 'https://tools.bbh.com/sonar', projectKey: 'com.bbh:orders-app']]
+                    && second.build == [gradle: [tasks: ['build']]] && second.tests == [maxParallel: 20] && third.flutter == [platform: 'apk'] && second.flutter == [:],
+            [shared, first.tools, second.tools, second.build, second.tests])
+}
+autoResolve()
+
 Closure validation = {
     String V6 = 'must be an Oracle thin URL: jdbc:oracle:thin:@//host:1521/SERVICE, @host:1521:SID, @tcps://host:2484/SERVICE?ssl_server_dn_match=true or @(DESCRIPTION=...)'
     String V45 = 'is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Global Settings'

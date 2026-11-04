@@ -41,7 +41,7 @@ class RepoStackAutoResolver implements Serializable {
         }
 
         if (isLiquibasePresent()) {
-            cfg.buildTool = 'liquibase'
+            if (!BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) cfg.buildTool = 'liquibase'
             return
         }
 
@@ -111,9 +111,9 @@ class RepoStackAutoResolver implements Serializable {
             }
 
             if (pkgContent.contains('"cypress"')) {
-                Map tests = (cfg.tests ?: [:]) as Map
-                Map unitTests = (tests.unitTests ?: [:]) as Map
-                Map nodeTests = (unitTests.node ?: [:]) as Map
+                Map tests = [:] + ((cfg.tests ?: [:]) as Map)
+                Map unitTests = [:] + ((tests.unitTests ?: [:]) as Map)
+                Map nodeTests = [:] + ((unitTests.node ?: [:]) as Map)
                 if (nodeTests.cypress == null) {
                     nodeTests.cypress = true
                     unitTests.node = nodeTests
@@ -151,19 +151,19 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveLiquibase(Map cfg) {
-        if (cfg.buildTool != 'liquibase') return
+        if (cfg.buildTool != 'liquibase' || BuildUtils.databaseBlock(cfg)) return
 
         String changelog = detectChangelogPath()
-        Map build = (cfg.build ?: [:]) as Map
-        Map liqBuild = (build.liquibase ?: [:]) as Map
+        Map build = [:] + ((cfg.build ?: [:]) as Map)
+        Map liqBuild = [:] + ((build.liquibase ?: [:]) as Map)
         if (!liqBuild.commands) liqBuild.commands = ['updateSQL']
         if (!liqBuild.flags && changelog) liqBuild.flags = ["--changelog-file=${changelog}"]
         build.liquibase = liqBuild
         cfg.build = build
 
-        Map tests = (cfg.tests ?: [:]) as Map
-        Map unitTests = (tests.unitTests ?: [:]) as Map
-        Map liqTests = (unitTests.liquibase ?: [:]) as Map
+        Map tests = [:] + ((cfg.tests ?: [:]) as Map)
+        Map unitTests = [:] + ((tests.unitTests ?: [:]) as Map)
+        Map liqTests = [:] + ((unitTests.liquibase ?: [:]) as Map)
         if (!liqTests.commands) liqTests.commands = ['validate']
         if (!liqTests.flags && changelog) liqTests.flags = ["--changelog-file=${changelog}"]
         unitTests.liquibase = liqTests
@@ -196,7 +196,7 @@ class RepoStackAutoResolver implements Serializable {
 
     private void resolveFlutter(Map cfg) {
         if (cfg.buildTool != 'flutter') return
-        Map fl = (cfg.flutter ?: [:]) as Map
+        Map fl = [:] + ((cfg.flutter ?: [:]) as Map)
         if (!fl.platform) fl.platform = 'apk'
         cfg.flutter = fl
     }
@@ -206,8 +206,8 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveSonar(Map cfg, String serviceName) {
-        Map tools = (cfg.tools ?: [:]) as Map
-        Map sonar = (tools.sonar ?: [:]) as Map
+        Map tools = [:] + ((cfg.tools ?: [:]) as Map)
+        Map sonar = [:] + ((tools.sonar ?: [:]) as Map)
         if (!sonar.projectKey) {
             String pKey = serviceName ?: 'service'
             if (!pKey.startsWith('com.bbh:')) pKey = "com.bbh:${pKey}"

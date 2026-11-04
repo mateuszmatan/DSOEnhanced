@@ -646,6 +646,17 @@ List<String> appSteps = (nextTo.shells as List<Map>).findAll { it.owner == 'orde
 check('N6: the Gradle service runs its Gradle build and then the additional Liquibase step of main',
         (logOf(nextTo) as OwnedList).ownedBy('orders-app').contains('[BUILD] Running additional Liquibase step for multi-module project')
                 && before(appSteps, { it.startsWith('Gradle: ') }, { it == 'Liquibase: updateSQL' }), appSteps)
+Map ownKey = verify(security + [name: 'A1 a Gradle service without tools.sonar.projectKey after a database service without tools', layout: 'b', result: 'SUCCESS', configure: { Map p ->
+    ((((p['orders-app'] as Map).tools as Map).sonar as Map)).remove('projectKey')
+}])
+List<String> issueKeys = (ownKey.shells as List<Map>).findAll { (it.script as String).contains('facets=severities') }.collect { Map sh ->
+    java.util.regex.Matcher key = (sh.script as String) =~ /componentKeys=([^&]+)&/
+    "${sh.owner} ${key.find() ? key.group(1) : ''}".toString()
+}
+List<String> liquibaseSteps = (ownKey.shells as List<Map>).findAll { (it.label as String).startsWith('Liquibase') }.collect { "${it.owner} ${it.label}".toString() }
+check('A1: the auto-resolve gives each service its own SonarQube project (orders-app gets com.bbh:orders-app, not the key it resolved for orders-db), and no service gets the Liquibase steps it resolves for a Liquibase service',
+        issueKeys == ['orders-app com.bbh:orders-app'] && !liquibaseSteps && has(ownKey, '[SONAR] orders-db: the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL'),
+        issueKeys + liquibaseSteps)
 Map folder = verify(security + [name: 'N7 tools.sonar.liquibase.dir without sources', layout: 'a', configure: { Map p ->
     noBlock(p)
     ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [dir: 'db']
