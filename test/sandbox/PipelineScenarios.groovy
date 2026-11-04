@@ -138,7 +138,8 @@ List<Map> portalRules = [
 List<Map> keylessMarks = [
         rule('a run without a key names its settings file in the report header (M25)',
                 /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: [^\n]*?<\/div>/, ''),
-        rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, '')
+        rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, ''),
+        rule('a run without a key has no portal to send the report to', /(?ms)^withEnv \[PORTAL_URL=[^\n]*\n.*?^sh rm -f 'portal_report_[^\n]*\n/, '')
 ]
 List<Map> keylessRules = [bootstrapRule, portalLogRule,
                           rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
@@ -404,8 +405,9 @@ Closure verify = { Map spec ->
                 sameSteps, "compare ${sequential} with ${diffFile}")
         if (!spec.baseline) return
     }
-    File golden = new File(goldenDir, "${slugOf((spec.compare ? name : (spec.golden ?: name)) as String)}.txt")
-    if (System.getenv('RECORD_GOLDEN') == '1') {
+    boolean owner = spec.compare || !spec.golden
+    File golden = new File(goldenDir, "${slugOf((owner ? name : spec.golden) as String)}.txt")
+    if (owner && System.getenv('RECORD_GOLDEN') == '1') {
         golden.parentFile.mkdirs()
         golden.text = actual
         println "      note: golden output recorded at ${golden}"

@@ -1,4 +1,21 @@
 == calls
+node linux-agent
+withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-213, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
+sh [Read the configuration from the DevSecOps portal] #!/bin/sh
+set +x
+umask 077
+mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
+i=0
+for key in $DSO_PORTAL_KEYS; do
+  : > "body-$i"
+  status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
+    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
+  if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
+  printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
+  i=$((i + 1))
+done
+
+deleteDir /ws@tmp/dso-portal-213
 agent linux-agent
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
@@ -731,11 +748,26 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
+withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
+sh set +x
+code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+rc=$?
+if [ $rc -ne 0 ]; then
+  exit $rc
+fi
+echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+if [ "$code" -ge 300 ]; then
+  exit 1
+fi
+
+sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
 publishHTML pipeline-report.html
 cleanWs
 build DevSecOps/CertScanner-extended-pipeline (no wait)
 == log
+[PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
+[PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -871,6 +903,7 @@ Copying blob sha256:5f1c done
 [RELEASE-GATE] State written to release-gate.json (allowed=false)
 [INFLUX] 48 metric line(s) for CertScannersecurity (test), build 213, result UNSTABLE
 [INFLUX] Sending metrics to http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
+[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/CertScanner-security-pipeline build 213
 Vulnerabilities above the policy severity: SAST=3, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---
@@ -926,8 +959,8 @@ coverage_report,project=CertScannersecurity,env=test,module=gui,report=build/rep
 coverage_report,project=CertScannersecurity,env=test,module=backend-api,report=target/site/jacoco/jacoco.xml,tool=jacoco,counted=yes line_pct=84.0,covered=840i,missed=160i,total=1000i <s>
 test_execution,project=CertScannersecurity,env=test,module=gui,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
 test_execution,project=CertScannersecurity,env=test,module=backend-api,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
-build_evidence,project=CertScannersecurity,env=test,module=gui artifact_version="213",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_file="config.yaml" <s>
-build_evidence,project=CertScannersecurity,env=test,module=backend-api artifact_version="213-<stamp>",sonar_quality_gate="ERROR",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_file="config.yaml" <s>
+build_evidence,project=CertScannersecurity,env=test,module=gui artifact_version="213",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
+build_evidence,project=CertScannersecurity,env=test,module=backend-api artifact_version="213-<stamp>",sonar_quality_gate="ERROR",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/213/artifact/appscan-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
 release_gate,project=CertScannersecurity,env=test,allowed=no allowed=0i,blocked=1i,violations=24i,reason="Nexus release and QC deployment blocked: stage 'Unit tests' is WARN (previous pipeline) | stage 'Dependencies scan (Nexus IQ)' is WARN (previous pipeline) | stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN (previous pi" <s>
 goldenfix,project=CertScannersecurity,env=test,module=gui,status=NO_FIXES offered=0i,applied=0i,unresolved=0i,pr_raised=0i,build_check=0i,build_failed=0i <s>
 == report
@@ -954,7 +987,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>UNSTABLE</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/CertScanner-security-pipeline &nbsp;&bull;&nbsp; Build #213</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from config.yaml in the repository</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
