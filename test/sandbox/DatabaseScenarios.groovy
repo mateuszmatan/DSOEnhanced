@@ -623,9 +623,9 @@ Map tuned = verify(unit + [name: 'N4 a database block with tools.sonar.liquibase
     ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [sources: 'db/code', flags: ['-Dsonar.plsql.file.suffixes=pks,pkb'], exclusions: 'db/legacy/**']
 }])
 String tunedScan = callsOf(tuned).find { it.contains("'sonar-scanner' ") } ?: ''
-check('N4: the sources, flags and exclusions of tools.sonar.liquibase win, and the block adds only the arguments they leave out',
+check('N4: the sources, flags and exclusions of tools.sonar.liquibase win, the block adds the test folder to their exclusions, so that no file is a source and a test, and adds only the arguments they leave out',
         tunedScan == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.plsql.file.suffixes=pks,pkb' '-Dsonar.sources=db/code' " +
-                "'-Dsonar.exclusions=db/legacy/**' '-Dsonar.tests=db/test' '-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' " +
+                "'-Dsonar.exclusions=db/legacy/**,db/test/**' '-Dsonar.tests=db/test' '-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' " +
                 "'-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'", tunedScan)
 [['N5 a utPLSQL coverage report without lines', '<coverage line-rate="0.0" lines-covered="0" lines-valid="0" version="1">\n</coverage>\n'],
  ['N5 a utPLSQL coverage report that cannot be read', '<html><body>Bad Gateway</body></html>\n']].each { List c ->

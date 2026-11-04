@@ -337,7 +337,8 @@ rm -f "\${_TMP}"
                           '-Dsonar.tests=': tests, '-Dsonar.exclusions=': tests ? "${tests}/**".toString() : '',
                           '-Dsonar.coverageReportPaths=': script.fileExists("${out}/utplsql-coverage-sonar.xml") ? "${out}/utplsql-coverage-sonar.xml".toString() : '',
                           '-Dsonar.testExecutionReportPaths=': script.fileExists("${out}/utplsql-sonar-tests.xml") ? "${out}/utplsql-sonar-tests.xml".toString() : '']
-            List run = args + missingFlags(args, wanted)
+            List own = testsExcluded(args, tests)
+            List run = own + missingFlags(own, wanted)
             script.withEnv(runner.baseEnv(runner.javaHome(name, state.cfg))) {
                 runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })
             }
@@ -346,6 +347,18 @@ rm -f "\${_TMP}"
             script.dir(dir) {
                 script.deleteDir()
             }
+        }
+    }
+
+    @NonCPS
+    private static List testsExcluded(List args, String tests) {
+        String prefix = '-Dsonar.exclusions='
+        String pattern = "${tests}/**".toString()
+        if (!tests || args.any { (it as String).startsWith('-Dsonar.tests=') }) return args
+        return args.collect { def arg ->
+            String text = arg as String
+            List own = text.startsWith(prefix) ? text.substring(prefix.length()).tokenize(',') : []
+            text.startsWith(prefix) && !own.contains(pattern) ? "${prefix}${(own + [pattern]).join(',')}".toString() : arg
         }
     }
 
