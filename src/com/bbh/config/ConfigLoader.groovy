@@ -2,6 +2,7 @@ package com.bbh.config
 
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.RepoStackAutoResolver
 import com.cloudbees.groovy.cps.NonCPS
 
 class ConfigLoader implements Serializable {
@@ -9,6 +10,7 @@ class ConfigLoader implements Serializable {
     private final def                    script
     private final PipelineState          state
     private final RepositoryConfigReader repositoryReader
+    private final RepoStackAutoResolver  autoResolver
     private String                       variant = ''
     private Map                          repository = [:]
 
@@ -16,6 +18,7 @@ class ConfigLoader implements Serializable {
         this.script           = script
         this.state            = state
         this.repositoryReader = new RepositoryConfigReader(script)
+        this.autoResolver     = new RepoStackAutoResolver(script)
     }
 
     void load(String variant, Map jenkinsfile) {
@@ -67,7 +70,8 @@ class ConfigLoader implements Serializable {
                 if (!projects.containsKey(pName)) {
                     script.error "[INIT] Project '${pName}' not found in ${state.configFile}. Available: ${projects.keySet().join(', ')}"
                 }
-                state.projectsAllCfg[pName] = deepMerge(state.cfgDefaults, projects[pName] as Map)
+                Map merged = deepMerge(state.cfgDefaults, projects[pName] as Map)
+                state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName)
                 appScanKeyId(pName)
             }
             def primaryName = projectNames[0]
@@ -186,7 +190,7 @@ class ConfigLoader implements Serializable {
     }
 
     private String appScanKeyId(String projectName) {
-        String keyId = ((state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
+        String keyId = ((state.projectsAllCfg[projectName]?.sast?.keyId ?: state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
         if (!keyId) script.error "[INIT] asoc.keyId must be set for the service ${projectName} in ${state.settingsPlace()}"
         return keyId
     }

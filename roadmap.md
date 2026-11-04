@@ -193,6 +193,13 @@ Library pull request #6 and portal pull request #4.
 | **Heuristic Source and Module Detection** | Automatically detects project keys (`com.bbh:<projectKey>`), multi-module Maven submodules (`pom.xml`), Gradle submodules (`settings.gradle` / `settings.gradle.kts`), and multi-language source trees (Kotlin, Python, Dart/Flutter, Liquibase SQL) without manual pipeline configuration flags. |
 | **Branch Pinning** | Guarantees that SonarQube scans the active branch evaluated by the DevSecOps pipeline (`sonar.branch.name=${branch}`) rather than defaulting to `master` or `main`. If `sonar-project.properties` already exists in the repository, `sonar.branch.name` is appended if missing. |
 
+## 21. Repo Auto-Discovery / Smart Auto-Resolve and SAST Credential Isolation (2026-11-04)
+
+| Change | Description |
+|--------|-------------|
+| **Pipeline-Level Auto-Resolve** | `RepoStackAutoResolver` auto-resolves unspecified pipeline settings directly during pipeline execution when `autoresolve parameters: true` (default). Inspects workspace files to detect build tools (Maven, Gradle, Liquibase, Flutter, Python/pip), compiler versions, Node.js Stage 0 (`engines.node`, Cypress/Jest runners), OpenShift targets (`Dockerfile`, manifests), and Sonar parameters. Preserves full backward compatibility with explicitly provided YAML/Portal configurations. |
+| **SAST & DAST Credential Isolation** | `AppScanService` isolates SAST credentials (`sast.keyId`/`asoc.keyId`, `sast.token`/`asoc.token`) from DAST credentials (`dast.keyId`, `dast.token`), ensuring SAST REST authentication never attempts or reports DAST credential authentication. |
+
 ---
 
 ## Known limitations

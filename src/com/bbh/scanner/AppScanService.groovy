@@ -44,11 +44,25 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
     }
 
     void cliLogin() {
-        apiLogin()
+        apiLogin('SAST')
     }
 
     private String keySecretCredentialsId() {
-        return (state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
+        return resolveSecretCredentialsId('SAST')
+    }
+
+    private String resolveKeyId(String type) {
+        if (type == 'DAST') {
+            return ((state.cfg.dast?.keyId ?: state.cfg.asoc?.keyId ?: script.env.APPSCAN_KEY_ID ?: '') as String).trim()
+        }
+        return ((state.cfg.sast?.keyId ?: state.cfg.asoc?.keyId ?: script.env.APPSCAN_KEY_ID ?: '') as String).trim()
+    }
+
+    private String resolveSecretCredentialsId(String type) {
+        if (type == 'DAST') {
+            return (state.cfg.dast?.token ?: state.cfg.dast?.credentialsId ?: state.cfg.asoc?.token ?: state.cfg.asoc?.credentialsId ?: script.env.APPSCAN_KEY_ID) as String
+        }
+        return (state.cfg.sast?.token ?: state.cfg.sast?.credentialsId ?: state.cfg.asoc?.token ?: state.cfg.asoc?.credentialsId ?: script.env.APPSCAN_KEY_ID) as String
     }
 
     void resolveSourceDir(String param = null) {
@@ -340,7 +354,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     void queueSast(Map config) {
         script.echo "Start queue sast"
         if (!this.token) {
-            apiLogin()
+            apiLogin('SAST')
         }
         def appId = state.cfg.appId?.trim() ?: (config?.appId ? (config.appId as String).trim() : '')
         if (!appId) script.error "[APPSCAN] appId not configured for the service in ${state.settingsPlace()}"
@@ -403,7 +417,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             while (true) {
                 if (System.currentTimeMillis() - lastLoginTime >= tokenRefreshIntervalMs) {
                     script.echo "[SAST] Refreshing AppScan token..."
-                    apiLogin()
+                    apiLogin('SAST')
                     lastLoginTime = System.currentTimeMillis()
                 }
 
@@ -499,7 +513,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             state.policyStatus['dast'] = 'NOT_REQUIRED'
             return
         }
-        apiLogin()
+        apiLogin('DAST')
         def scanId = dastStartScan()
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-dast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
         script.echo "[DAST] Scan ID: ${scanId}"
@@ -514,23 +528,25 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         countDastVulns()
     }
 
-    void apiLogin() {
-        script.echo "[DAST] Starting API Authentication"
+    void apiLogin(String type = 'DAST') {
+        script.echo "[${type}] Starting API Authentication"
 
+        String keyId = resolveKeyId(type)
+        String credId = resolveSecretCredentialsId(type)
         String response = ''
-        script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: 'APPSCAN_KEY_SECRET')]) {
-            String credentials = "-d \"{\\\"KeyId\\\":\\\"${script.env.APPSCAN_KEY_ID}\\\",\\\"KeySecret\\\":\\\"${script.env.APPSCAN_KEY_SECRET}\\\"}\""
+        script.withCredentials([script.string(credentialsId: credId, variable: 'APPSCAN_KEY_SECRET')]) {
+            String credentials = "-d \"{\\\"KeyId\\\":\\\"${keyId}\\\",\\\"KeySecret\\\":\\\"${script.env.APPSCAN_KEY_SECRET}\\\"}\""
             response = script.sh(
                     script: curlCommand(['-H "Content-Type: application/json"', credentials], appscanApiUrl('Account/ApiKeyLogin')),
                     returnStdout: true
             ).trim()
         }
 
-        this.token = script.readJSON(text: response).Token
+        this.token = script.readJSON(text: response)?.Token
         if (!this.token) {
-            script.error("[DAST] Unable to fetch Bearer Token: ${response}")
+            script.error("[${type}] Unable to fetch Bearer Token: ${response}")
         }
-        script.echo "[DAST] Authenticated successfully."
+        script.echo "[${type}] Authenticated successfully."
     }
 
     String dastStartScan() {
@@ -580,7 +596,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             while (true) {
                 if (System.currentTimeMillis() - lastLoginTime >= tokenRefreshIntervalMs) {
                     script.echo "[DAST] Refreshing AppScan token..."
-                    apiLogin()
+                    apiLogin('DAST')
                     lastLoginTime = System.currentTimeMillis()
                 }
 

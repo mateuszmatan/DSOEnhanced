@@ -159,5 +159,70 @@ check('SonarQube: applies default sonar-project.properties when missing with com
                 && (sonarResult.sonarUrl as String).contains('dashboard?id=com.bbh:my-payment-service'),
         "error=${sonarResult.error} props=${sonarResult.propertiesText} url=${sonarResult.sonarUrl}")
 
+def autoScript = new FakeScript()
+autoScript.files['pom.xml'] = '<project><properties><java.version>17</java.version></properties></project>'
+autoScript.files['frontend/package.json'] = '{"devDependencies": {"cypress": "^13.0.0"}, "engines": {"node": ">=20.0.0"}}'
+autoScript.files['Dockerfile'] = 'FROM registry.access.redhat.com/ubi9/ubi-minimal'
+
+Map autoResult = [:]
+try {
+    harness.run {
+        def resolver = harness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(autoScript)
+        autoResult.resolved = resolver.resolve([:], 'payments')
+        autoResult.overridden = resolver.resolve([buildTool: 'gradle', deployTarget: 'vm'], 'payments')
+        autoResult.disabled = resolver.resolve(['autoresolve parameters': false], 'payments')
+    }
+} catch (Throwable t) {
+    autoResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+
+check('RepoStackAutoResolver: discovers buildTool maven with java 17, node stage0 with cypress, and openshift deployTarget, respecting overrides and autoresolve: false',
+        !autoResult.error && autoResult.resolved
+                && autoResult.resolved.buildTool == 'maven'
+                && autoResult.resolved.buildToolAutoSetup == true
+                && autoResult.resolved.build?.node?.enabled == true
+                && autoResult.resolved.build?.node?.dir == 'frontend'
+                && autoResult.resolved.build?.node?.version == '20'
+                && autoResult.resolved.tests?.unitTests?.node?.cypress == true
+                && autoResult.resolved.deployTarget == 'openshift'
+                && autoResult.resolved.appName == 'payments'
+                && autoResult.resolved.tools?.sonar?.projectKey == 'com.bbh:payments'
+                && autoResult.overridden.buildTool == 'gradle'
+                && autoResult.overridden.deployTarget == 'vm'
+                && autoResult.disabled.buildTool == null,
+        "error=${autoResult.error} resolved=${autoResult.resolved} overridden=${autoResult.overridden} disabled=${autoResult.disabled}")
+
+Map credResult = [:]
+try {
+    harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        state.cfg = [
+                asoc: [keyId: 'asoc-key', token: 'asoc-token'],
+                sast: [keyId: 'sast-key', token: 'sast-token'],
+                dast: [keyId: 'dast-key', token: 'dast-token']
+        ]
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(autoScript)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(autoScript, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(autoScript, state, os, policy)
+        def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(autoScript, state, os, policy, build)
+
+        credResult.sastKey = appScan.resolveKeyId('SAST')
+        credResult.sastSecret = appScan.resolveSecretCredentialsId('SAST')
+        credResult.dastKey = appScan.resolveKeyId('DAST')
+        credResult.dastSecret = appScan.resolveSecretCredentialsId('DAST')
+    }
+} catch (Throwable t) {
+    credResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+
+check('AppScanService: resolveKeyId and resolveSecretCredentialsId isolate SAST credentials from DAST credentials',
+        !credResult.error
+                && credResult.sastKey == 'sast-key'
+                && credResult.sastSecret == 'sast-token'
+                && credResult.dastKey == 'dast-key'
+                && credResult.dastSecret == 'dast-token',
+        "error=${credResult.error} sastKey=${credResult.sastKey} dastKey=${credResult.dastKey}")
+
 println "\n${failures == 0 ? 'ALL STATIC ANALYSIS SCENARIOS PASSED' : failures + ' STATIC ANALYSIS SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
