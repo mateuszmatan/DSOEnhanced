@@ -39,7 +39,7 @@ class SonarService implements Serializable {
         String badgeToken = resolveBadgeToken(sonarCfg)
         state.sonarResults['badgeToken'] = badgeToken
         String branch = resolveBranch()
-        applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
+        if (!BuildUtils.databaseBlock(state.cfg as Map)) applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
         String effectiveProjectKey = projectKey ?: resolveProjectKey(sonarCfg as Map)
         String reportedKey = projectKey ?: effectiveProjectKey
         def sonarArgs = [
@@ -339,12 +339,15 @@ rm -f "\${_TMP}"
             String testPath = ((((s.profiles as Map).test as Map).utplsql as Map).testPath ?: '') as String
             String tests = testPath ? DatabaseSettings.relativeTo(folder, DatabaseSettings.join(s.searchRoot as String, testPath)) : ''
             String out = ".dso-db/${name}"
+            String settings = "${dir}/sonar-project.properties".toString()
             Map wanted = [("-Dsonar.${analyzer}.file.suffixes=".toString()): 'sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy',
                           '-Dsonar.tests=': tests, '-Dsonar.exclusions=': tests ? "${tests}/**".toString() : '',
                           '-Dsonar.coverageReportPaths=': utplsqlReport(out, dir, 'utplsql-coverage-sonar.xml', folder),
-                          '-Dsonar.testExecutionReportPaths=': utplsqlReport(out, dir, 'utplsql-sonar-tests.xml', folder)]
+                          '-Dsonar.testExecutionReportPaths=': utplsqlReport(out, dir, 'utplsql-sonar-tests.xml', folder),
+                          '-Dproject.settings=': settings]
             List own = testsExcluded(args, tests)
             List run = own + missingFlags(own, wanted)
+            if (run.contains("-Dproject.settings=${settings}".toString())) script.writeFile(file: settings, text: '', encoding: 'UTF-8')
             script.withEnv(runner.baseEnv(runner.javaHome(name, state.cfg))) {
                 if (folder == '.') {
                     runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })

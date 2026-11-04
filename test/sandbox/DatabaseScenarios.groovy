@@ -552,10 +552,11 @@ check('D25: dast.enabled on a database service runs the existing DAST path', (lo
 Map analysed = focused('D26 SonarQube with SonarSource PL/SQL', unit + [result: 'SUCCESS', sonarPlsql: 'plsql', configure: sonarKey, env: [SONAR_AUTH_TOKEN: 'fake-sonar-token']],
         '[SONAR] orders-db: the SonarQube server analyses PL/SQL with SonarSource PL/SQL (language plsql)')
 String scanner = callsOf(analysed).find { it.contains("'sonar-scanner' ") } ?: ''
-check('D26: the scanner arguments of a PL/SQL scan, with bdy and the utPLSQL reports, and no token in a recorded call',
+check('D26: the scanner arguments of a PL/SQL scan, with bdy, the utPLSQL reports and the empty settings file of the work folder, and no token in a recorded call',
         scanner == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.sources=db' " +
                 "'-Dsonar.plsql.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy' '-Dsonar.tests=db/test' '-Dsonar.exclusions=db/test/**' " +
-                "'-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'"
+                "'-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml' " +
+                "'-Dproject.settings=/ws@tmp/dso-db/orders-db/sonar-project.properties'"
                 && stageOf(analysed, SONAR) == 'PASS' && !callsOf(analysed).any { it.contains('fake-sonar-token') }, scanner)
 focused('D26 SonarQube without a PL/SQL analyzer', unit + [result: 'SUCCESS', configure: sonarKey],
         '[SONAR] orders-db: the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL')
@@ -633,7 +634,7 @@ String tunedScan = callsOf(tuned).find { it.contains("'sonar-scanner' ") } ?: ''
 check('N4: the sources, flags and exclusions of tools.sonar.liquibase win, the block adds the test folder to their exclusions, so that no file is a source and a test, and adds only the arguments they leave out',
         tunedScan == "sh 'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.plsql.file.suffixes=pks,pkb' '-Dsonar.sources=db/code' " +
                 "'-Dsonar.exclusions=db/legacy/**,db/test/**' '-Dsonar.tests=db/test' '-Dsonar.coverageReportPaths=.dso-db/orders-db/utplsql-coverage-sonar.xml' " +
-                "'-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml'", tunedScan)
+                "'-Dsonar.testExecutionReportPaths=.dso-db/orders-db/utplsql-sonar-tests.xml' '-Dproject.settings=/ws@tmp/dso-db/orders-db/sonar-project.properties'", tunedScan)
 [['N5 a utPLSQL coverage report without lines', '<coverage line-rate="0.0" lines-covered="0" lines-valid="0" version="1">\n</coverage>\n'],
  ['N5 a utPLSQL coverage report that cannot be read', '<html><body>Bad Gateway</body></html>\n']].each { List c ->
     Map r = focused(c[0] as String, unit + [result: 'UNSTABLE', cobertura: c[1]],
@@ -658,6 +659,42 @@ List<String> liquibaseSteps = (ownKey.shells as List<Map>).findAll { (it.label a
 check('A1: the auto-resolve gives each service its own SonarQube project (orders-app gets com.bbh:orders-app, not the key it resolved for orders-db), and no service gets the Liquibase steps it resolves for a Liquibase service',
         issueKeys == ['orders-app com.bbh:orders-app'] && !liquibaseSteps && has(ownKey, '[SONAR] orders-db: the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL'),
         issueKeys + liquibaseSteps)
+String ownSettings = '/ws@tmp/dso-db/orders-db/sonar-project.properties'
+Closure blockScanner = { Map r -> (r.shells as List<Map>).find { it.owner == 'orders-db' && (it.script as String).contains("'sonar-scanner' ") } ?: [:] }
+Map modules = verify(security + [name: 'A2 a database block at the root of a Gradle multi-module build, with a PL/SQL analyzer and a project key', layout: 'b', result: 'SUCCESS',
+                                 sonarPlsql: 'plsql', env: [SONAR_AUTH_TOKEN: 'fake-sonar-token'], configure: sonarKey])
+Map moduleScan = blockScanner(modules)
+Map moduleFiles = (moduleScan.files ?: [:]) as Map
+String appDefaults = (modules.j as FakeScript).files['sonar-project.properties'] ?: ''
+check('A2: the block writes no sonar-project.properties, its scanner runs at the workspace root with an empty settings file of its own work folder, so no generated module settings (sonar.modules=app of settings.gradle) reach it, and orders-app later writes its own defaults',
+        moduleScan.cwd == '' && (moduleScan.script as String)?.contains("'-Dsonar.projectKey=orders-db'") && (moduleScan.script as String).endsWith("'-Dproject.settings=${ownSettings}'".toString())
+                && moduleFiles[ownSettings] == '' && !moduleFiles.keySet().any { it != ownSettings && (it as String).endsWith('sonar-project.properties') }
+                && appDefaults.contains('sonar.projectKey=com.bbh:cert-scanner-gui\n') && appDefaults.contains('sonar.modules=app\n') && stageOf(modules, SONAR) == 'PASS',
+        [moduleScan.cwd, moduleScan.script, moduleFiles.keySet().findAll { (it as String).endsWith('sonar-project.properties') }, appDefaults])
+Map afterApp = verify(security + [name: 'A2 the database block after the Gradle service', layout: 'b', sonarPlsql: 'plsql', env: [SONAR_AUTH_TOKEN: 'fake-sonar-token'],
+                                  configure: { Map p -> sonarKey(p); p.put('orders-db', p.remove('orders-db')) }])
+Map leakScan = blockScanner(afterApp)
+Map leakFiles = (leakScan.files ?: [:]) as Map
+String leaked = (leakFiles['sonar-project.properties'] ?: '') as String
+check('A2: the sonar-project.properties that orders-app wrote at the root before the block, with sonar.modules=app, is left as it is and is not read by the scanner of the block, which reads the empty settings file of its own work folder',
+        leaked.contains('sonar.modules=app\n') && leaked.contains('app.sonar.sources=app/src/main/java\n') && !leaked.contains('orders-db') && leaked == (afterApp.j as FakeScript).files['sonar-project.properties']
+                && leakScan.cwd == '' && (leakScan.script as String)?.endsWith("'-Dproject.settings=${ownSettings}'".toString()) && leakFiles[ownSettings] == '' && stageOf(afterApp, SONAR) == 'PASS',
+        [leakScan.script, leaked])
+Map ownFile = verify(unit + [name: 'A2 a settings file of the block in tools.sonar.liquibase.flags', result: 'SUCCESS', sonarPlsql: 'plsql', env: [SONAR_AUTH_TOKEN: 'fake-sonar-token'],
+                             configure: { Map p ->
+                                 sonarKey(p)
+                                 ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [flags: ['-Dproject.settings=db/sonar-orders.properties']]
+                             }])
+Map ownFileScan = blockScanner(ownFile)
+check('A2: a -Dproject.settings of tools.sonar.liquibase.flags wins: the scanner of the block gets only that file, and the block writes no empty settings file',
+        (ownFileScan.script as String)?.contains("'-Dproject.settings=db/sonar-orders.properties'") && (ownFileScan.script as String).count('-Dproject.settings=') == 1
+                && !((ownFileScan.files ?: [:]) as Map).containsKey(ownSettings) && stageOf(ownFile, SONAR) == 'PASS', ownFileScan.script)
+Map keyless =focused('D26 SonarQube without a project key, with the auto-resolve off', unit + [result: 'SUCCESS', sonarPlsql: 'plsql',
+                                                                                              configure: { Map p -> (p['orders-db'] as Map).put('autoresolve parameters', false) }],
+        '[SONAR] orders-db: no SonarQube project for this service (tools.sonar.projectKey) - SonarQube is not required for SQL and PL/SQL')
+check('D26: without tools.sonar.projectKey the block asks SonarQube nothing and runs no scanner, and SCA (SonarQube) is NOT_REQUIRED',
+        stageOf(keyless, SONAR) == 'NOT_REQUIRED' && !labels(keyless).contains('DB: ask SonarQube for its PL/SQL analyzer') && !callsOf(keyless).any { it.contains("'sonar-scanner' ") },
+        [stageOf(keyless, SONAR), labels(keyless).findAll { it.contains('SonarQube') }])
 Map folder = verify(security + [name: 'N7 tools.sonar.liquibase.dir without sources', layout: 'a', configure: { Map p ->
     noBlock(p)
     ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [dir: 'db']
@@ -679,7 +716,8 @@ List<String> reportProbes = (blockFolder.j as FakeScript).probeFolders.findAll {
 check('N7: with a database block the scanner runs in tools.sonar.liquibase.dir, and the package folder, the utPLSQL test folder, its exclusion and the utPLSQL reports are given from that folder',
         blockScan.cwd == 'db' && blockScan.script == "'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.branch.name=develop' '-Dsonar.sources=.' " +
                 "'-Dsonar.plsql.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy' '-Dsonar.tests=test' '-Dsonar.exclusions=test/**' " +
-                "'-Dsonar.coverageReportPaths=${reportCopies}utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=${reportCopies}utplsql-sonar-tests.xml'"
+                "'-Dsonar.coverageReportPaths=${reportCopies}utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=${reportCopies}utplsql-sonar-tests.xml' " +
+                "'-Dproject.settings=${reportCopies}sonar-project.properties'"
                 && stageOf(blockFolder, SONAR) == 'PASS', blockScan.script)
 check('N7: the utPLSQL reports are checked in the workspace before the scanner enters the folder, and their copies name the files from that folder, where they exist',
         reportProbes && reportProbes.every { it.startsWith('. .dso-db/orders-db/') } && reportFiles == ['code/pkg_orders.pkb', 'test/ut_pkg_orders.pkb']

@@ -106,7 +106,7 @@ The pipeline supports all standard BBH languages and build tools:
 | **Node.js / TypeScript** | npm | `npm run build` | Web backends & BFF services |
 | **Angular** | npm | `npm ci && npm run build --prod` | Client-facing web apps |
 | **Python** | pip / python3 | `pip install -r requirements.txt` | Data analytics & automation |
-| **SQL / PL-SQL** | Liquibase | `liquibase validate` (default) | Oracle & PostgreSQL migrations |
+| **SQL / PL-SQL** | Liquibase | `liquibase updateSQL` (default of the auto-resolve; `validate` with `autoresolve parameters: false`) | Oracle & PostgreSQL migrations |
 | **Flutter / Dart** | flutter / pub | `flutter build` | Mobile & desktop applications |
 
 ### SQL and PL/SQL with a database block:

@@ -148,17 +148,22 @@ Closure autoResolve = {
     }
     Map block = baseCfg()
     Map blockCopy = new Yaml().load(new Yaml().dump(block)) as Map
-    Map files = ['db/changelog.xml': '<databaseChangeLog/>', 'frontend/package.json': '{}']
+    Map files = ['db/changelog.xml': '<databaseChangeLog/>', 'frontend/package.json': '{"engines": {"node": ">=20.0.0"}, "devDependencies": {"cypress": "13.6.0"}}',
+                 'Dockerfile': 'FROM registry.bbh.com/ubi9/openjdk-17\n']
     Map withBlock = resolved(files, block, 'orders-db')
     Map withoutBlock = resolved(files, block.findAll { it.key != 'database' }, 'orders-db')
-    check('RepoStackAutoResolver: a service with a database block gets no build.liquibase and no tests.unitTests.liquibase, and keeps buildTool, database and every other key it has',
-            withBlock.build?.liquibase == null && withBlock.tests?.unitTests?.liquibase == null && withBlock.buildTool == 'liquibase' && withBlock.database == blockCopy.database
-                    && withBlock.findAll { !(it.key in ['build', 'tools']) } == blockCopy && withBlock.tools == [sonar: [projectKey: 'com.bbh:orders-db']] && block == blockCopy,
-            withBlock)
+    Map gradleWithChangelog = resolved(files, [buildTool: 'gradle', database: [changelogFile: 'db/changelog.xml']], 'orders-app')
+    check('RepoStackAutoResolver: a service with a database block keeps every key it has and gets only tools.sonar.projectKey: no build.liquibase, no tests.unitTests.liquibase, no Node.js stage 0 or Cypress switch from frontend/package.json, and no deployTarget or appName from the Dockerfile',
+            withBlock == blockCopy + [tools: [sonar: [projectKey: 'com.bbh:orders-db']]] && block == blockCopy,
+            (withBlock.keySet() + blockCopy.keySet()).findAll { withBlock[it] != blockCopy[it] }.collectEntries { [(it): withBlock[it]] })
     check('RepoStackAutoResolver: a Liquibase service without a database block gets updateSQL and validate with the changelog it finds, as on main',
             withoutBlock.build?.liquibase == [commands: ['updateSQL'], flags: ['--changelog-file=db/changelog.xml']]
                     && withoutBlock.tests?.unitTests?.liquibase == [commands: ['validate'], flags: ['--changelog-file=db/changelog.xml']],
             [withoutBlock.build, withoutBlock.tests])
+    check('RepoStackAutoResolver: a service without a database block, also a Gradle service with database.changelogFile, gets the Node.js stage 0 with its version, the Cypress switch, deployTarget openshift and appName from the repository, as on main',
+            [withoutBlock, gradleWithChangelog].every { Map r -> r.build?.node == [enabled: true, dir: 'frontend', version: '20'] && r.tests?.unitTests?.node == [cypress: true] && r.deployTarget == 'openshift' }
+                    && withoutBlock.appName == 'orders-db' && gradleWithChangelog.appName == 'orders-app',
+            [withoutBlock.build?.node, withoutBlock.tests?.unitTests?.node, withoutBlock.deployTarget, withoutBlock.appName, gradleWithChangelog])
     Map found = resolved(['changelog.xml': '<databaseChangeLog/>'], [database: [changelogFile: 'changelog.xml']], 'audit-db')
     Map foundPlain = resolved(['changelog.xml': '<databaseChangeLog/>'], [:], 'audit-db')
     boolean foundBlock = harness.run { harness.type('com.bbh.utils.BuildUtils').databaseBlock(found) } as boolean

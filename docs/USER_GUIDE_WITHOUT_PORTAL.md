@@ -94,8 +94,8 @@ The pipeline supports all enterprise programming languages and build tools:
   - Build via pip (`tool: 'pip'`).
   - Command: `pip install -r requirements.txt`.
 - **SQL / PL-SQL (Liquibase):**
-  - Automatic detection of database changelogs (`detectTool()`).
-  - Command: `liquibase validate` (the default of `build.liquibase`).
+  - Automatic detection of database changelogs when `buildTool` is empty. With the auto-resolve of the settings on (the default), the Liquibase files are checked before `pom.xml` and `build.gradle`, so set `buildTool` explicitly for a Maven or Gradle application that ships a Liquibase changelog (for example a Spring Boot application with `src/main/resources/db/changelog/db.changelog-master.xml`); with `autoresolve parameters: false`, `detectTool()` checks them after Flutter, Maven and Gradle.
+  - Command: `liquibase updateSQL` in Build artifact and `liquibase validate` in Unit tests, both with `--changelog-file=` and the changelog found in the repository, when the auto-resolve fills them (the default); with `autoresolve parameters: false`, `liquibase validate` with the flags of `build.liquibase` when it sets no command. A service with a database block gets no command from the auto-resolve: it runs `build.liquibase` and `tests.unitTests.liquibase` only when it sets them (`validate` when it sets only flags).
   - With `database.changelogFile` the service gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See [chapter 14 of the library documentation](../documentation.html#ch14).
   - The database block is for Oracle. In a repository with an application, the folder of the changelogs is a Liquibase service of its own, listed before the application service; chapter 14 shows three complete repository layouts.
   - Static code analysis and validation through SonarQube.

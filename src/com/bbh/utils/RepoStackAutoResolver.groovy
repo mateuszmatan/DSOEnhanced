@@ -79,6 +79,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveNodeStage0(Map cfg) {
+        if (BuildUtils.databaseBlock(cfg)) return
         Map build = (cfg.build ?: [:]) as Map
         Map node = (build.node ?: [:]) as Map
         if (node.enabled != null) return
@@ -138,6 +139,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveDeployTarget(Map cfg, String serviceName) {
+        if (BuildUtils.databaseBlock(cfg)) return
         String existing = ((cfg.deployTarget ?: '') as String).trim()
         if (existing) return
 
