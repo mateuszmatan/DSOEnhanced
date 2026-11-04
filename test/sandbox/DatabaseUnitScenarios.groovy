@@ -144,6 +144,7 @@ Closure validation = {
     String V6 = 'must be an Oracle thin URL: jdbc:oracle:thin:@//host:1521/SERVICE, @host:1521:SID, @tcps://host:2484/SERVICE?ssl_server_dn_match=true or @(DESCRIPTION=...)'
     String V45 = 'is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Global Settings'
     String V37 = 'which must start with a lower-case letter and hold only lower-case letters, digits, "_" and "." (at most 64), and at most 50 names'
+    String V38 = 'which looks like a secret or a variable of the agent: a name must not hold password, passwd, pwd, secret, token, credential, key or user, nor start with liquibase_, dso_ or jenkins; changelog parameters are written into the package, so keep secrets in Jenkins credentials'
     String V39 = 'must be printable ASCII of at most 500 characters, without a leading or trailing blank and without "${"'
     String sha = 'a' * 64
     List<List> cases = [
@@ -233,7 +234,10 @@ Closure validation = {
             ['V37 51 names', { Map cfg, Map db -> db.parameters = (1..51).collectEntries { ["p${it}".toString(), 'v'] } }, 'full', allowAll,
              ["database.parameters holds the name p51, ${V37}".toString()]],
             ['V38 a secret parameter', { Map cfg, Map db -> db.parameters = [db_password: 'x'] }, 'full', allowAll,
-             ['database.parameters holds the name db_password, which looks like a secret: changelog parameters are written into the package; keep secrets in Jenkins credentials']],
+             ["database.parameters holds the name db_password, ${V38}".toString()]],
+            ['V38 the names that the static checks refuse', { Map cfg, Map db -> db.parameters = [app_user: 'orders_app', api_key: 'k']; db.rd.parameters = [dso_host: 'h'] }, 'full', allowAll,
+             ["database.parameters holds the name app_user, ${V38}".toString(), "database.parameters holds the name api_key, ${V38}".toString(),
+              "database.rd.parameters holds the name dso_host, ${V38}".toString()]],
             ['V39 parameter values', { Map cfg, Map db -> db.qc.parameters = [app_role: ' orders_qc_role']; db.rd.parameters = [app_role: 'a${b}', note: 'a$b'] }, 'full', allowAll,
              ["database.rd.parameters app_role ${V39}".toString(), "database.qc.parameters app_role ${V39}".toString()]],
             ['V40 a target timeout', { Map cfg, Map db -> db.rd.timeoutMinutes = 241 }, 'full', allowAll, ['database.rd.timeoutMinutes 241 must be a whole number from 1 to 240']],
@@ -730,8 +734,8 @@ Closure staticChecks = {
             'db/code/user.sql line 8: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
             'db/code/user.sql line 10: a password is written in the source (IDENTIFIED BY) - it would go into the package, Nexus and the review SQL; use IDENTIFIED EXTERNALLY or GLOBALLY, or let the DBA set the password',
             'db/changelog.xml line 26: executeCommand runs code on the Jenkins agent - the library does not deploy it',
-            'db/changelog.xml line 30: ${db_password} names a secret or a variable of the agent - use database.parameters for values that differ between databases',
-            'db/code/user.sql line 3: ${DSO_USER} names a secret or a variable of the agent - use database.parameters for values that differ between databases'
+            'db/changelog.xml line 30: ${db_password} names a secret or a variable of the agent - use database.parameters for values that differ between databases, with a name that holds no password, passwd, pwd, secret, token, credential, key or user and does not start with LIQUIBASE_, DSO_ or JENKINS',
+            'db/code/user.sql line 3: ${DSO_USER} names a secret or a variable of the agent - use database.parameters for values that differ between databases, with a name that holds no password, passwd, pwd, secret, token, credential, key or user and does not start with LIQUIBASE_, DSO_ or JENKINS'
     ]
     Closure superset = { Map tree ->
         List paths = tree.keySet().toList().sort()

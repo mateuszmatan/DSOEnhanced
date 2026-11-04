@@ -2078,7 +2078,7 @@ Every key of the first two tables is a key of the service, under `projects.<serv
 | `database.liquibaseSchema` | – | `--liquibase-schema-name`: the schema of `DATABASECHANGELOG` and `DATABASECHANGELOGLOCK` |
 | `database.contexts` | `!test` | the context filter of RD, QC and the review SQL |
 | `database.labels` | – | the label filter of RD, QC and the review SQL |
-| `database.parameters` | – | changelog parameters, at most 50, written `${name}` in the changelog; a name that looks like a secret is refused |
+| `database.parameters` | – | changelog parameters, at most 50, written `${name}` in the changelog; a name that holds `password`, `passwd`, `pwd`, `secret`, `token`, `credential`, `key` or `user`, or starts with `liquibase_`, `dso_` or `jenkins`, is refused, as by the static checks of 14.4: use a name such as `app_role` or `app_schema` |
 | `database.requireRollback` | `false` | `true`: the Build artifact stage writes the rollback SQL, and a changeset without a rollback turns it orange |
 | `database.tag` | `true` | tag RD and QC with `<artifactId>-<version>` when a changeset ran |
 | `database.lockWaitMinutes` | `5` | how long Liquibase waits for its lock, from 0 to 60 |

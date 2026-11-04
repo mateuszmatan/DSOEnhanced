@@ -399,8 +399,8 @@ class LiquibaseOutput implements Serializable {
                     add(9, path, n, "${path} line ${n}: ${kind} runs code on the Jenkins agent - the library does not deploy it".toString())
                 }
                 for (String name : LiquibaseOutput.placeholders(text)) {
-                    if (DatabaseSettings.isSecretName(name) || name ==~ '(?i).*(key|user(name)?).*' || ['LIQUIBASE_', 'DSO_', 'JENKINS'].any { name.toUpperCase().startsWith(it as String) }) {
-                        add(9, path, n, "${path} line ${n}: \${${name}} names a secret or a variable of the agent - use database.parameters for values that differ between databases".toString())
+                    if (DatabaseSettings.isSecretName(name)) {
+                        add(9, path, n, "${path} line ${n}: \${${name}} names a secret or a variable of the agent - use database.parameters for values that differ between databases, with a name that holds no password, passwd, pwd, secret, token, credential, key or user and does not start with LIQUIBASE_, DSO_ or JENKINS".toString())
                     }
                 }
             }

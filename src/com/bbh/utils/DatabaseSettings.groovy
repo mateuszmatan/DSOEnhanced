@@ -58,7 +58,8 @@ class DatabaseSettings implements Serializable {
 
     @NonCPS
     static boolean isSecretName(String value) {
-        return value ==~ /(?i).*(password|passwd|pwd|secret|token|credential).*/
+        String name = value ?: ''
+        return name ==~ /(?i).*(password|passwd|pwd|secret|token|credential|key|user).*/ || ['LIQUIBASE_', 'DSO_', 'JENKINS'].any { name.toUpperCase().startsWith(it as String) }
     }
 
     @NonCPS
@@ -205,7 +206,7 @@ class DatabaseSettings implements Serializable {
             if (count == 51 || !(name ==~ /[a-z][a-z0-9_.]{0,63}/)) {
                 add(found, 37, "${key} holds the name ${name}, which must start with a lower-case letter and hold only lower-case letters, digits, \"_\" and \".\" (at most 64), and at most 50 names".toString())
             } else if (isSecretName(name)) {
-                add(found, 38, "${key} holds the name ${name}, which looks like a secret: changelog parameters are written into the package; keep secrets in Jenkins credentials".toString())
+                add(found, 38, "${key} holds the name ${name}, which looks like a secret or a variable of the agent: a name must not hold password, passwd, pwd, secret, token, credential, key or user, nor start with liquibase_, dso_ or jenkins; changelog parameters are written into the package, so keep secrets in Jenkins credentials".toString())
             }
             if (!(value ==~ /([\x21-\x7e]([\x20-\x7e]{0,498}[\x21-\x7e])?)?/) || value.contains('${')) {
                 add(found, 39, "${key} ${name} must be printable ASCII of at most 500 characters, without a leading or trailing blank and without \"\${\"".toString())
