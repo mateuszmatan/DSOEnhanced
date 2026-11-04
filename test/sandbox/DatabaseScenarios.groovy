@@ -558,7 +558,7 @@ check('D26: the scanner arguments of a PL/SQL scan, with bdy and the utPLSQL rep
 focused('D26 SonarQube without a PL/SQL analyzer', unit + [result: 'SUCCESS', configure: sonarKey],
         '[SONAR] orders-db: the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL')
 focused('D26 SonarQube does not answer', unit + [result: 'SUCCESS', sonarDown: true, configure: sonarKey],
-        '[SONAR] orders-db: the SonarQube server did not list its languages - SonarQube is not required for SQL and PL/SQL; set tools.sonar.authToken when the server needs a login')
+        '[SONAR] orders-db: the SonarQube server did not list its languages (curl exit code 22) - SonarQube is not required for SQL and PL/SQL; when the server needs a login, give the SonarQube installation in Jenkins a token or set tools.sonar.credentialsId')
 
 Map own = focused('D27 extended without Nexus delivery, with a static check finding', extended + [layout: 'a', result: 'UNSTABLE', delivery: null,
                                                                                               files: ['db/code/orders_purge.prc': staticTree['db/code/orders_purge.prc']],

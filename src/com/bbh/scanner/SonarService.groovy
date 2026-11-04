@@ -325,7 +325,7 @@ rm -f "\${_TMP}"
             String analyzer = status == 0 && script.fileExists(languages) ? LiquibaseOutput.sonarLanguages(script.readFile(languages) as String).analyzer : ''
             if (!analyzer) {
                 databaseNotRequired(status != 0
-                        ? 'the SonarQube server did not list its languages - SonarQube is not required for SQL and PL/SQL; set tools.sonar.authToken when the server needs a login'
+                        ? "the SonarQube server did not list its languages (curl exit code ${status}) - SonarQube is not required for SQL and PL/SQL; when the server needs a login, give the SonarQube installation in Jenkins a token or set tools.sonar.credentialsId".toString()
                         : 'the SonarQube server has no PL/SQL analyzer (no language plsql or plsqlopen) - SonarQube is not required for SQL and PL/SQL')
                 return false
             }

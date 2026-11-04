@@ -2279,7 +2279,7 @@ The changesets that ran stay applied: fix the source and run the stage again.
 
 ### 14.10 SonarQube
 
-PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, the library asks the server (`api/languages/list`): the language `plsql` is SonarSource PL/SQL, `plsqlopen` the ZPA plugin **(not run)**. Without `tools.sonar.projectKey`, without a PL/SQL analyzer or when the server does not answer, SonarQube is **not required** for the service, with the reason in the console; set `tools.sonar.authToken` when the server needs a login for the language list.
+PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, the library asks the server (`api/languages/list`): the language `plsql` is SonarSource PL/SQL, `plsqlopen` the ZPA plugin **(not run)**. Without `tools.sonar.projectKey`, without a PL/SQL analyzer or when the server does not answer, SonarQube is **not required** for the service, with the reason and the exit code of `curl` in the console. The language list is read with the token of the analysis: that of the SonarQube installation in Jenkins, or of `tools.sonar.credentialsId`; `tools.sonar.authToken` is only for the issue counts of the report.
 
 `sonar-scanner` gets the arguments of `tools.sonar.liquibase`, and the block adds only what they leave out: `-Dsonar.sources` (the package folder), `-Dsonar.<analyzer>.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy`, `-Dsonar.tests` (the utPLSQL `testPath`), `-Dsonar.exclusions` of the test folder, and the utPLSQL coverage and test execution reports. When the block sets `-Dsonar.tests`, it also adds the test folder to `-Dsonar.exclusions` of `tools.sonar.liquibase`, so that no file is both a source and a test. With a block every argument is quoted; without a block the arguments are passed to the shell as they are, so a value must not hold a blank.
 
@@ -2355,6 +2355,7 @@ The messages below are quoted with `...` for the parts that change.
 | **the security pipeline delivered no version**, **could not be fetched** | no delivered zip | run the security pipeline; check Nexus and the Maven settings of the agent |
 | **Maven is not installed on agent** | Maven missing | `database.package.mvnPath` or `build.maven.mvnPath` |
 | **SonarQube is not required for SQL and PL/SQL** | no project key or no PL/SQL analyzer | set `tools.sonar.projectKey` and use a server that analyses PL/SQL |
+| **did not list its languages** | the language request of 14.10 failed: no route to the server, a wrong URL, or a server that needs a login and got no token | check the `curl` exit code; give the SonarQube installation in Jenkins a token, or set `tools.sonar.credentialsId` |
 | **The Nexus IQ GoldenFix pipeline would scan nothing** | a run of database services only | run the pipeline for a service with a Nexus IQ application |
 | **No UrbanCode Deploy applications are configured** | a Liquibase service without a block and without deployment settings in the full pipeline | use the security or SAST pipeline, add the deployment settings, or add a database block (14.1) |
 | every changeset runs again | the identity changed | restore the path or `logicalFilePath`; never `changelog-sync` without the DBA |
@@ -2507,7 +2508,7 @@ projects:
         projectKey:       ""         # unique project key in SonarQube
         serverUrl:        "https://tools.bbh.com/sonar"
         installationName: "SonarQube"  # SonarQube installation registered in Jenkins
-        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis
+        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis and, with a database block, the language list
         authToken:        ""         # Jenkins Secret text credential for the issue counts the report queries
         badgeCredentialsId: ""       # Jenkins Secret text credential with the badge token, wins over badgeToken
         badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
