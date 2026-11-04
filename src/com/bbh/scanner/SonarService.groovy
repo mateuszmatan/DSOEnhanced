@@ -256,6 +256,7 @@ rm -f "\${_TMP}"
         Map liqCfg = (sonarCfg.liquibase ?: [:]) as Map
         boolean block = BuildUtils.databaseBlock(state.cfg)
         Map s = block ? DatabaseSettings.resolve(state.currentProjectName, state.cfg) : [:]
+        String folder = block ? DatabaseSettings.join(DatabaseSettings.str(liqCfg.dir), '.') : '.'
         if (block) {
             state.vulnCounts.sca = [critical: 0, high: 0, medium: 0, low: 0]
             if (!projectKey) {
@@ -266,7 +267,7 @@ rm -f "\${_TMP}"
         List extra = BuildUtils.normalizeTokens(liqCfg.commands ?: liqCfg.tasks).findAll { !(it in ['sonar', 'sonarqube', 'sonar:sonar']) } + BuildUtils.normalizeTokens(liqCfg.flags)
         List args = [] + sonarArgs + extra
         if (!args.any { (it as String).startsWith('-Dsonar.sources=') }) {
-            def rawSources = liqCfg.sources ?: sonarCfg.sources ?: (block ? DatabaseSettings.join(s.searchRoot as String, s.packageFolder as String) : '') ?:
+            def rawSources = liqCfg.sources ?: sonarCfg.sources ?: (block ? DatabaseSettings.relativeTo(folder, DatabaseSettings.join(s.searchRoot as String, s.packageFolder as String)) : '') ?:
                     (liqCfg.dir ? '.' : state.cfg.build?.liquibase?.dir ?: state.cfg.sourceDir ?: '.')
             String sources = (rawSources instanceof Collection ? (rawSources as Collection).join(',') : rawSources) as String
             args.add("-Dsonar.sources=${sources}".toString())
@@ -282,7 +283,7 @@ rm -f "\${_TMP}"
         boolean scanned = true
         Closure invoke = {
             if (block) {
-                scanned = scanDatabase(sonarCfg, args, s, sonarUrl)
+                scanned = scanDatabase(sonarCfg, args, s, sonarUrl, folder)
             } else {
                 runScanner(sonarCfg, args)
             }
@@ -295,7 +296,7 @@ rm -f "\${_TMP}"
             if (liqCfg.env instanceof Map && !liqCfg.env.isEmpty()) {
                 env.addAll(liqCfg.env.collect { k, v -> "${k}=${v}".toString() } as List<String>)
             }
-            if (liqCfg.dir) {
+            if (liqCfg.dir && folder == '.') {
                 script.dir(liqCfg.dir as String) {
                     if (env) script.withEnv(env) { invoke() } else invoke()
                 }
@@ -315,7 +316,7 @@ rm -f "\${_TMP}"
         return scanned
     }
 
-    private boolean scanDatabase(Map sonarCfg, List args, Map s, String sonarUrl) {
+    private boolean scanDatabase(Map sonarCfg, List args, Map s, String sonarUrl, String folder) {
         String name = state.currentProjectName
         LiquibaseRunner runner = new LiquibaseRunner(script, state, os, build)
         String dir = runner.workDir(name)
@@ -331,16 +332,22 @@ rm -f "\${_TMP}"
             }
             script.echo "[SONAR] ${name}: the SonarQube server analyses PL/SQL with ${analyzer == 'plsql' ? 'SonarSource PL/SQL' : 'the ZPA plugin'} (language ${analyzer})"
             String testPath = ((((s.profiles as Map).test as Map).utplsql as Map).testPath ?: '') as String
-            String tests = testPath ? DatabaseSettings.join(s.searchRoot as String, testPath) : ''
+            String tests = testPath ? DatabaseSettings.relativeTo(folder, DatabaseSettings.join(s.searchRoot as String, testPath)) : ''
             String out = ".dso-db/${name}"
             Map wanted = [("-Dsonar.${analyzer}.file.suffixes=".toString()): 'sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy',
                           '-Dsonar.tests=': tests, '-Dsonar.exclusions=': tests ? "${tests}/**".toString() : '',
-                          '-Dsonar.coverageReportPaths=': script.fileExists("${out}/utplsql-coverage-sonar.xml") ? "${out}/utplsql-coverage-sonar.xml".toString() : '',
-                          '-Dsonar.testExecutionReportPaths=': script.fileExists("${out}/utplsql-sonar-tests.xml") ? "${out}/utplsql-sonar-tests.xml".toString() : '']
+                          '-Dsonar.coverageReportPaths=': utplsqlReport(out, dir, 'utplsql-coverage-sonar.xml', folder),
+                          '-Dsonar.testExecutionReportPaths=': utplsqlReport(out, dir, 'utplsql-sonar-tests.xml', folder)]
             List own = testsExcluded(args, tests)
             List run = own + missingFlags(own, wanted)
             script.withEnv(runner.baseEnv(runner.javaHome(name, state.cfg))) {
-                runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })
+                if (folder == '.') {
+                    runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })
+                } else {
+                    script.dir(folder) {
+                        runScanner(sonarCfg, run.collect { BuildUtils.shellQuoteIfNeeded(it as String) })
+                    }
+                }
             }
             return true
         } finally {
@@ -348,6 +355,16 @@ rm -f "\${_TMP}"
                 script.deleteDir()
             }
         }
+    }
+
+    private String utplsqlReport(String out, String dir, String report, String folder) {
+        String path = "${out}/${report}".toString()
+        if (!script.fileExists(path)) return ''
+        if (folder == '.') return path
+        String copy = "${dir}/${report}".toString()
+        String text = script.readFile(file: path, encoding: 'UTF-8') as String
+        script.writeFile(file: copy, text: LiquibaseOutput.sonarReportIn(text, folder), encoding: 'UTF-8')
+        return copy
     }
 
     @NonCPS

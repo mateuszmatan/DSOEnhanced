@@ -110,7 +110,8 @@ Closure runDatabase = { Map spec ->
     full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString()] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
         shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME,
-                   sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)], timeout: j.timeouts ? j.timeouts[-1] : null]
+                   sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)], timeout: j.timeouts ? j.timeouts[-1] : null,
+                   files: ((a.script ?: '') as String).contains("'sonar-scanner' ") ? [:] + j.files : null]
         DatabaseResponder.sh(j, a, full)
     }
     full.prepare = { FakeScript j ->
@@ -652,6 +653,32 @@ Map folder = verify(security + [name: 'N7 tools.sonar.liquibase.dir without sour
 Map inDir = (folder.shells as List<Map>).find { (it.script as String).contains("'sonar-scanner' ") }
 check('N7: with tools.sonar.liquibase.dir and no sources the scanner runs in that folder with -Dsonar.sources=., not the folder twice',
         inDir?.cwd == 'db' && (inDir.script as String).tokenize(' ').contains('-Dsonar.sources=.'), inDir)
+Map blockFolder = verify(unit + [name: 'N7 tools.sonar.liquibase.dir with a database block', result: 'SUCCESS', sonarPlsql: 'plsql', env: [SONAR_AUTH_TOKEN: 'fake-sonar-token'], configure: { Map p ->
+    sonarKey(p)
+    ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [dir: 'db']
+}])
+Map blockScan = (blockFolder.shells as List<Map>).find { (it.script as String).contains("'sonar-scanner' ") } ?: [:]
+String reportCopies = '/ws@tmp/dso-db/orders-db/'
+Map scanFiles = (blockScan.files ?: [:]) as Map
+List<String> reportFiles = ['utplsql-coverage-sonar.xml', 'utplsql-sonar-tests.xml'].collectMany { String report ->
+    (((scanFiles[reportCopies + report] ?: '') as String) =~ /<file path="([^"]+)"/).collect { (it as List)[1] as String }
+}
+List<String> reportProbes = (blockFolder.j as FakeScript).probeFolders.findAll { it.contains('.dso-db/orders-db/utplsql-') && it.contains('sonar') }
+check('N7: with a database block the scanner runs in tools.sonar.liquibase.dir, and the package folder, the utPLSQL test folder, its exclusion and the utPLSQL reports are given from that folder',
+        blockScan.cwd == 'db' && blockScan.script == "'sonar-scanner' '-Dsonar.host.url=https://tools.bbh.com/sonar' '-Dsonar.projectKey=orders-db' '-Dsonar.sources=.' " +
+                "'-Dsonar.plsql.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy' '-Dsonar.tests=test' '-Dsonar.exclusions=test/**' " +
+                "'-Dsonar.coverageReportPaths=${reportCopies}utplsql-coverage-sonar.xml' '-Dsonar.testExecutionReportPaths=${reportCopies}utplsql-sonar-tests.xml'"
+                && stageOf(blockFolder, SONAR) == 'PASS', blockScan.script)
+check('N7: the utPLSQL reports are checked in the workspace before the scanner enters the folder, and their copies name the files from that folder, where they exist',
+        reportProbes && reportProbes.every { it.startsWith('. .dso-db/orders-db/') } && reportFiles == ['code/pkg_orders.pkb', 'test/ut_pkg_orders.pkb']
+                && reportFiles.every { (layoutFiles('a') as Map).containsKey("db/${it}".toString()) }, [reportProbes, reportFiles])
+Map outside = focused('N7 tools.sonar.liquibase.dir without the package folder and the test folder', unit + [failedStage: MONITOR, configure: { Map p ->
+    sonarKey(p)
+    ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [dir: 'db/code']
+}], '[DB] orders-db: tools.sonar.liquibase.dir db/code does not hold the package folder db: sonar-scanner runs in that folder, and SonarQube analyses only the files under it: set tools.sonar.liquibase.dir to a folder that holds the package folder and the utPLSQL test folder, or remove it')
+check('N7: the settings check also names the utPLSQL test folder outside tools.sonar.liquibase.dir, counts both problems, and no scanner runs',
+        has(outside, '[DB] orders-db: tools.sonar.liquibase.dir db/code does not hold the utPLSQL test folder db/test (database.test.utplsql.testPath): sonar-scanner runs in that folder, and SonarQube analyses only the files under it: set tools.sonar.liquibase.dir to a folder that holds the package folder and the utPLSQL test folder, or remove it')
+                && errorOf(outside).contains(' have 2 problems, listed above') && !callsOf(outside).any { it.contains("'sonar-scanner' ") }, errorOf(outside))
 focused('N8 a database block without a changelog', plsql + [failedStage: MONITOR, configure: dropTargets(['test', 'rd', 'qc', 'changelogFile'])],
         '[DB] orders-db: database.changelogFile is required for the database block; without it the service runs the Liquibase commands of build.liquibase only')
 

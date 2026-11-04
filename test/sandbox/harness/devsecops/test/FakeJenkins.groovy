@@ -117,6 +117,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     FakeEnv env = new FakeEnv()
     List<String> calls = []
     List<String> probes = []
+    List<String> probeFolders = []
     Map params = [:]
     FakeBuild currentBuild = new FakeBuild()
     Map scm = [:]
@@ -194,6 +195,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     boolean isUnix() { steps.containsKey('isUnix') ? step('isUnix', [:]) as boolean : unix }
     boolean fileExists(Object path) {
         probes << "fileExists ${norm(path)}".toString()
+        probeFolders << "${cwd ?: '.'} ${norm(path)}".toString()
         return files.containsKey(norm(path))
     }
     String readFile(Object arg) {

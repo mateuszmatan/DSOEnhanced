@@ -124,7 +124,7 @@ class DatabaseSettings implements Serializable {
     @NonCPS
     static List<String> ordered(Map found) {
         List<String> texts = []
-        for (int id = 1; id <= 45; id++) {
+        for (int id = 1; id <= 46; id++) {
             texts.addAll((found[id] ?: []) as List)
         }
         return texts
@@ -261,7 +261,8 @@ class DatabaseSettings implements Serializable {
                 add(found, 35, "database.changelogFile ${changelog} has no folder and the search root is the repository root: put the changelog in a folder, or set database.searchPath or sourceDir to the folder of the changelog".toString())
             }
         }
-        for (List entry : [['sourceDir', cfg?.sourceDir], ['database.searchPath', db.searchPath]]) {
+        String sonarDir = str(map(map(map(cfg?.tools).sonar).liquibase).dir)
+        for (List entry : [['sourceDir', cfg?.sourceDir], ['database.searchPath', db.searchPath], ['tools.sonar.liquibase.dir', sonarDir]]) {
             String value = str(entry[1])
             if (value && value != '.' && !isPath(value)) {
                 add(found, 3, "${entry[0]} ${value} must be \".\" or a relative path inside the repository, without \"..\"".toString())
@@ -341,6 +342,19 @@ class DatabaseSettings implements Serializable {
             }
         }
         rangeProblem(found, 20, 'database.test.utplsql.timeoutMinutes', utplsql.timeoutMinutes, 1, 240, 'must be a whole number from 1 to 240')
+        if (changelog && sonarDir && isPath(sonarDir)) {
+            String folder = join(sonarDir, '.')
+            String sources = join(s.searchRoot as String, s.packageFolder as String)
+            String testPath = str(utplsql.testPath)
+            String tests = testPath ? join(s.searchRoot as String, testPath) : ''
+            String why = 'sonar-scanner runs in that folder, and SonarQube analyses only the files under it: set tools.sonar.liquibase.dir to a folder that holds the package folder and the utPLSQL test folder, or remove it'
+            if (!relativeTo(folder, sources)) {
+                add(found, 46, "tools.sonar.liquibase.dir ${sonarDir} does not hold the package folder ${sources}: ${why}".toString())
+            }
+            if (tests && !relativeTo(folder, tests)) {
+                add(found, 46, "tools.sonar.liquibase.dir ${sonarDir} does not hold the utPLSQL test folder ${tests} (database.test.utplsql.testPath): ${why}".toString())
+            }
+        }
         Map pkg = s.package as Map
         List repositories = pkg.nexusDelivery ? deliveryRepositories(variant) : []
         if (repositories && !pkg.groupId) {
@@ -450,6 +464,13 @@ class DatabaseSettings implements Serializable {
             }
         }
         return parts ? parts.join('/') : '.'
+    }
+
+    @NonCPS
+    static String relativeTo(String folder, String path) {
+        if (folder == '.' || !folder) return path
+        if (path == folder) return '.'
+        return path.startsWith(folder + '/') ? path.substring(folder.length() + 1) : ''
     }
 
     @NonCPS

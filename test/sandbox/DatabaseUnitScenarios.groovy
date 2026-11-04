@@ -146,6 +146,8 @@ Closure validation = {
     String V37 = 'which must start with a lower-case letter and hold only lower-case letters, digits, "_" and "." (at most 64), and at most 50 names'
     String V38 = 'which looks like a secret or a variable of the agent: a name must not hold password, passwd, pwd, secret, token, credential, key or user, nor start with liquibase_, dso_ or jenkins; changelog parameters are written into the package, so keep secrets in Jenkins credentials'
     String V39 = 'must be printable ASCII of at most 500 characters, without a leading or trailing blank and without "${"'
+    String V46 = 'sonar-scanner runs in that folder, and SonarQube analyses only the files under it: set tools.sonar.liquibase.dir to a folder that holds the package folder and the utPLSQL test folder, or remove it'
+    Closure sonarDir = { Map cfg, String dir -> cfg.tools = [sonar: [projectKey: 'orders-db', liquibase: [dir: dir]]] }
     String sha = 'a' * 64
     List<List> cases = [
             ['the layout a settings', { Map cfg, Map db -> }, 'full', allowAll, []],
@@ -156,6 +158,8 @@ Closure validation = {
              ['sourceDir ../other must be "." or a relative path inside the repository, without ".."']],
             ['V3 an absolute searchPath', { Map cfg, Map db -> db.searchPath = '/db' }, 'full', allowAll,
              ['database.searchPath /db must be "." or a relative path inside the repository, without ".."']],
+            ['V3 a SonarQube folder outside', { Map cfg, Map db -> sonarDir(cfg, '../db') }, 'full', allowAll,
+             ['tools.sonar.liquibase.dir ../db must be "." or a relative path inside the repository, without ".."']],
             ['V4 a changelog of another type', { Map cfg, Map db -> db.changelogFile = 'db/changelog-master.txt' }, 'full', allowAll,
              ['database.changelogFile db/changelog-master.txt must end with .xml, .yaml, .yml, .json or .sql']],
             ['V5 a user in the URL', { Map cfg, Map db -> db.rd.url = 'jdbc:oracle:thin:scott/tiger@//rd-db.bbh.com:1521/ORDERS_RD' }, 'full', allowAll,
@@ -246,6 +250,15 @@ Closure validation = {
              ['database.package.mvnPath maven must be an absolute path of a Maven installation']],
             ['V45 no allowed targets', { Map cfg, Map db -> }, 'full', [:],
              ["database.test.url ${V45}".toString(), "database.rd.url ${V45}".toString(), "database.qc.url ${V45}".toString()]],
+            ['V46 a SonarQube folder inside the package folder', { Map cfg, Map db -> sonarDir(cfg, 'db/code') }, 'sast', allowAll,
+             ["tools.sonar.liquibase.dir db/code does not hold the package folder db: ${V46}".toString(),
+              "tools.sonar.liquibase.dir db/code does not hold the utPLSQL test folder db/test (database.test.utplsql.testPath): ${V46}".toString()]],
+            ['V46 a test folder outside the SonarQube folder', { Map cfg, Map db -> sonarDir(cfg, './db'); db.test.utplsql.testPath = 'tests/db' }, 'full', allowAll,
+             ["tools.sonar.liquibase.dir ./db does not hold the utPLSQL test folder tests/db (database.test.utplsql.testPath): ${V46}".toString()]],
+            ['V46 a SonarQube folder that holds the package folder and the test folder', { Map cfg, Map db -> sonarDir(cfg, 'db') }, 'full', allowAll, []],
+            ['V46 a SonarQube folder that holds the folders of a search path', { Map cfg, Map db -> cfg.sourceDir = 'orders-db'; db.searchPath = 'src/main/resources'; sonarDir(cfg, 'orders-db/src') },
+             'full', allowAll, []],
+            ['V46 the repository root', { Map cfg, Map db -> sonarDir(cfg, '.') }, 'full', allowAll, []],
             ['host globs', { Map cfg, Map db -> }, 'full', [database: [allowedTargets: ['*.bbh.com']]], []],
             ['the V order', { Map cfg, Map db -> db.oracleVersion = '19c'; db.changelogFile = 'db/changelog-master.txt' }, 'full', allowAll,
              ['database.changelogFile db/changelog-master.txt must end with .xml, .yaml, .yml, .json or .sql',
@@ -256,7 +269,7 @@ Closure validation = {
         (c[1] as Closure).call(cfg, cfg.database as Map)
         harness.run { ds().problems('orders-db', cfg, c[3] as Map, c[2] as String) }
     }
-    check('DatabaseSettings.problems: each of V1-V41, V44 and V45 with its text, the variant of 4.4, and the cases that are fine', wrong.isEmpty(), wrong)
+    check('DatabaseSettings.problems: each of V1-V41 and V44-V46 with its text, the variant of 4.4, and the cases that are fine', wrong.isEmpty(), wrong)
 
     List<List> globalCases = [
             ['no Global Settings', [:], []],
@@ -321,9 +334,12 @@ Closure settings = {
     List folderCases = [['db/changelog-master.xml', 'db'], ['orders/db/changelog.yaml', 'orders'], ['changelog.xml', ''], ['', '']]
     List folderWrong = mismatches(folderCases) { List c -> harness.run { ds().packageFolder(c[0]) } }
     String offline = harness.run { ds().offlineUrl('19.0', '/ws@tmp/dso-db/a b/x+y%z&w=v.csv') }
-    check('DatabaseSettings.join, packageFolder and offlineUrl: "." parts dropped, ".." resolved, the first folder of the changelog, and %, +, &, = and blanks encoded',
-            joinWrong.isEmpty() && folderWrong.isEmpty() && offline == 'offline:oracle?version=19.0&changeLogFile=/ws@tmp/dso-db/a%20b/x%2By%25z%26w%3Dv.csv',
-            joinWrong + folderWrong + [offline])
+    List relativeCases = [['.', 'db/test', 'db/test'], ['db', 'db', '.'], ['db', 'db/test', 'test'], ['orders-db', 'orders-db/src/main/resources/db', 'src/main/resources/db'],
+                          ['db/code', 'db', ''], ['db', 'dbx/test', ''], ['db', 'test', '']]
+    List relativeWrong = mismatches(relativeCases) { List c -> harness.run { ds().relativeTo(c[0], c[1]) } }
+    check('DatabaseSettings.join, packageFolder, relativeTo and offlineUrl: "." parts dropped, ".." resolved, the first folder of the changelog, a path from a folder or empty outside it, and %, +, &, = and blanks encoded',
+            joinWrong.isEmpty() && folderWrong.isEmpty() && relativeWrong.isEmpty() && offline == 'offline:oracle?version=19.0&changeLogFile=/ws@tmp/dso-db/a%20b/x%2By%25z%26w%3Dv.csv',
+            joinWrong + folderWrong + relativeWrong + [offline])
 
     String descriptor = '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST=a.rd.bbh.com)(PORT=2484))(CONNECT_DATA=(SERVICE_NAME=ORDERS)))'
     String list = '(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=rd-db1.bbh.com)(PORT=1521))(ADDRESS=(PROTOCOL=TCP)(HOST=rd-db2.bbh.com)(PORT=1521)))(CONNECT_DATA=(SID=ORCL)))'
@@ -627,6 +643,10 @@ Total change sets:           10
     } as List
     check('LiquibaseOutput.cobertura and sonarLanguages: a constructed Cobertura file, a broken one, and the PL/SQL analyzers',
             coverage == [[parsed: true, covered: 40, valid: 50], [parsed: false, covered: 0, valid: 0], [parsed: false, covered: 0, valid: 0], 'plsql', 'plsqlopen', ''], coverage)
+    String sonarReport = '<coverage version="1">\n<file path="db/code/pkg_orders.pkb">\n<lineToCover lineNumber="3" covered="true"/>\n</file>\n<file path="dbx/code/a.pkb">\n</file>\n<file path="other/db/b.pkb">\n</file>\n</coverage>\n'
+    List moved = harness.run { [lo().sonarReportIn(sonarReport, 'db'), lo().sonarReportIn(sonarReport, 'db/code'), lo().sonarReportIn('', 'db')] } as List
+    check('LiquibaseOutput.sonarReportIn: the files of a utPLSQL SonarQube report under the folder are named from it, and the other files and an empty report stay as they are',
+            moved == [sonarReport.replace('<file path="db/code/', '<file path="code/'), sonarReport.replace('<file path="db/code/', '<file path="'), ''], moved)
 
     String yamlChangelog = '''databaseChangeLog:
   - changeSet:

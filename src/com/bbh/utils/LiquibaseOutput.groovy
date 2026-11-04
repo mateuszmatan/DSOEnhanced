@@ -229,6 +229,11 @@ class LiquibaseOutput implements Serializable {
     }
 
     @NonCPS
+    static String sonarReportIn(String xml, String folder) {
+        return (xml ?: '').replace("<file path=\"${folder}/".toString(), '<file path="')
+    }
+
+    @NonCPS
     static Map facts(String text) {
         List files = []
         Map lines = [:]

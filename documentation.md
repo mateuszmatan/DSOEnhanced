@@ -2061,8 +2061,8 @@ Every key of the first two tables is a key of the service, under `projects.<serv
 | `tests.unitTests.liquibase.flags`, `tests.unitTests.liquibase.dir`, `tests.unitTests.liquibase.env` | – | as for `build.liquibase` |
 | `asoc.liquibase.commands`, `asoc.liquibase.flags`, `asoc.liquibase.dir`, `asoc.liquibase.env` | the map of `build.liquibase` | the Liquibase command that runs before AppScan prepares the IRX |
 | `asoc.doCompile` | `true` | `false`: no Liquibase command before the IRX |
-| `tools.sonar.liquibase.dir` | – | the folder `sonar-scanner` runs in |
-| `tools.sonar.liquibase.sources` | `tools.sonar.sources`; else, with a block, the package folder under the search root; else `.` when `tools.sonar.liquibase.dir` is set; else `build.liquibase.dir`, else `sourceDir` | `-Dsonar.sources` |
+| `tools.sonar.liquibase.dir` | – | the folder `sonar-scanner` runs in; with a block, `.` or a relative path inside the repository that holds the package folder and the utPLSQL test folder, from which the block gives its folders and reports (14.10) |
+| `tools.sonar.liquibase.sources` | `tools.sonar.sources`; else, with a block, the package folder under the search root, from `tools.sonar.liquibase.dir` when it is set; else `.` when `tools.sonar.liquibase.dir` is set; else `build.liquibase.dir`, else `sourceDir` | `-Dsonar.sources`, read from `tools.sonar.liquibase.dir` when it is set |
 | `tools.sonar.liquibase.inclusions`, `tools.sonar.liquibase.exclusions` | – | `-Dsonar.inclusions` and `-Dsonar.exclusions` |
 | `tools.sonar.liquibase.flags` | – | more `sonar-scanner` arguments, for example `-Dsonar.plsql.file.suffixes=sql,pks,pkb`; an argument of these keys wins over the same argument of the block |
 | `tools.sonar.liquibase.env` | – | environment variables of the scanner |
@@ -2285,6 +2285,8 @@ PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, 
 
 `sonar-scanner` gets the arguments of `tools.sonar.liquibase`, and the block adds only what they leave out: `-Dsonar.sources` (the package folder), `-Dsonar.<analyzer>.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy`, `-Dsonar.tests` (the utPLSQL `testPath`), `-Dsonar.exclusions` of the test folder, and the utPLSQL coverage and test execution reports. When the block sets `-Dsonar.tests`, it also adds the test folder to `-Dsonar.exclusions` of `tools.sonar.liquibase`, so that no file is both a source and a test. With a block every argument is quoted; without a block the arguments are passed to the shell as they are, so a value must not hold a blank.
 
+With `tools.sonar.liquibase.dir` the scanner runs in that folder, and SonarQube analyses only the files under it. The settings check therefore refuses a block whose package folder or utPLSQL test folder lies outside it, and the block gives every path it adds from that folder: in layout (a) with `dir: db`, `-Dsonar.sources=.`, `-Dsonar.tests=test` and `-Dsonar.exclusions=test/**`. utPLSQL names the files of its reports from the workspace (`db/code/pkg_orders.pkb`), so the block checks the reports in `.dso-db/<service>/` before the scanner enters the folder and gives the scanner copies in the work folder of the step, in which the file paths start below that folder (`code/pkg_orders.pkb`). The arguments of `tools.sonar.liquibase`, `sources` among them, are given as they are and are read from that folder too.
+
 ### 14.11 Credentials and safety
 
 For the steps of the database block:
@@ -2361,6 +2363,7 @@ The messages below are quoted with `...` for the parts that change.
 | **the security pipeline delivered no version**, **could not be fetched** | no delivered zip | run the security pipeline; check Nexus and the Maven settings of the agent |
 | **Maven is not installed on agent** | Maven missing | `database.package.mvnPath` or `build.maven.mvnPath` |
 | **SonarQube is not required for SQL and PL/SQL** | no project key or no PL/SQL analyzer | set `tools.sonar.projectKey` and use a server that analyses PL/SQL |
+| **tools.sonar.liquibase.dir ... does not hold the package folder**, **does not hold the utPLSQL test folder** | `sonar-scanner` runs in `tools.sonar.liquibase.dir`, and SonarQube analyses only the files under it (14.10) | set `tools.sonar.liquibase.dir` to a folder that holds the package folder and the `testPath` of utPLSQL, or remove it |
 | **did not list its languages** | the language request of 14.10 failed: no route to the server, a wrong URL, or a server that needs a login and got no token | check the `curl` exit code; give the SonarQube installation in Jenkins a token, or set `tools.sonar.credentialsId` |
 | **The Nexus IQ GoldenFix pipeline would scan nothing** | a run of database services only | run the pipeline for a service with a Nexus IQ application |
 | **No UrbanCode Deploy applications are configured** | a Liquibase service without a block and without deployment settings in the full pipeline | use the security or SAST pipeline, add the deployment settings, or add a database block (14.1) |
