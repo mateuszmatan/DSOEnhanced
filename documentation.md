@@ -1250,6 +1250,8 @@ File `Jenkinsfile` (`test/fixtures/database/layout-a/Jenkinsfile`):
 devSecOpsPipeline(projectNames: 'orders-db', agentNames: ['linux-agent'])
 ```
 
+**Without a key** the Global Settings do not come from the portal but from `resources/com/bbh/devsecops/defaults.yaml` of the library release (chapter 4). This release ships it without allowed databases, tools and Nexus repositories for database packages, so the file above stops in Monitor source changes with **defaults.database.allowedTargets is empty**. Use a pipeline key, or, without one, leave out `test`, `rd` and `qc`, put Liquibase on the `PATH` of the agent or set `tools.liquibase` and `tools.oracleJdbc` under the service, and set `database.package.snapshotRepository` and `database.package.releaseRepository` under the service, or `database.package.nexusDelivery: false`, as chapter 7 of the portal guide shows. The pipelines then validate, package and deliver the changes, and deploy them nowhere.
+
 The master changelog deploys the tables through `includeAll` and every code object through a `sqlFile` changeset of its own (14.4):
 
 File `db/changelog-master.xml` (`test/fixtures/database/layout-a/db/changelog-master.xml`):
@@ -2107,7 +2109,7 @@ Every key of the first two tables is a key of the service, under `projects.<serv
 
 There is no production target: `database.prod`, `database.production`, `database.prd` and `database.live` are refused. With a block, `deployTarget` and `deploy` are not used, and a `database.allowedTargets` of the service is ignored with a line in the console.
 
-**The Global Settings** (`defaults.*`), which the DevSecOps team fills in the DevSecOps portal on the Library defaults page, section **Liquibase database changes**:
+**The Global Settings** (`defaults.*`), which the DevSecOps team fills in the DevSecOps portal on the Library defaults page, section **Liquibase database changes**; a run without a key reads them from `defaults.yaml` of the library release instead (chapter 4):
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -2285,11 +2287,15 @@ PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, 
 
 ### 14.11 Credentials and safety
 
+For the steps of the database block:
+
 - The settings, the log, the report and the archive hold Jenkins credentials IDs only.
 - The password reaches Liquibase through a properties file of mode 0600 that exists only during the step, and utPLSQL through an argument file of mode 0600; never through the environment, a command line or a system property, so a changelog cannot read it as a parameter. Every output line passes a mask.
 - A JDBC URL with a user or a password is refused. A changeset with a password, `executeCommand` or `customChange` stops the build.
 - `liquibase.properties` of the repository is never read and never packaged; every inherited `LIQUIBASE_*` variable is unset, and Liquibase analytics are off.
 - `allowedTargets` is a guard; the control is that no Jenkins folder holds production credentials.
+
+The Liquibase commands of `build.liquibase`, `tests.unitTests.liquibase` and `asoc.liquibase`, and the scanner arguments of `tools.sonar.liquibase`, run as without a block, also next to one: the console shows their whole command line, and Liquibase reads the `liquibase.properties` of their folder and the `LIQUIBASE_*` variables of the agent. Their flags, that file and those variables must never hold a password, or a URL with one; the steps of the block need none of them.
 
 ### 14.12 Report and metrics
 
@@ -2324,7 +2330,7 @@ The messages below are quoted with `...` for the parts that change.
 | **The SQL and PL/SQL settings in ... listed above: fix them** | wrong settings | each line above names the key; fix it in the portal or in `devsecops_config.yaml` |
 | **database.changelogFile is required for the database block** | a `database` block without a changelog | set `database.changelogFile`, or remove the block to run only the commands of `build.liquibase` |
 | **database.changelogFile is set, but buildTool is ...** | a changelog on a Gradle, Maven or Flutter service | give the changelog its own Liquibase service, or use `build.liquibase` |
-| **... which defaults.database.allowedTargets does not allow**, **allowedTargets is empty** | the database is not allowed | the DevSecOps team adds it to the Global Settings |
+| **... which defaults.database.allowedTargets does not allow**, **allowedTargets is empty** | the database is not allowed | the DevSecOps team adds it to the Global Settings, or, for a run without a key, to `defaults.yaml` of the library release (14.3, layout (a)) |
 | **database.allowedTargets is a Global Setting** | the service sets `database.allowedTargets` | remove it; the DevSecOps team keeps the list |
 | **comes after ... in the list of services** | the database service is not first | list it first |
 | **No Liquibase CLI on agent**, **No utPLSQL-cli on agent**, **does not exist on agent** | a tool is missing | install it, or set `home`, `path`, or `url` with `sha256` |
