@@ -23,7 +23,20 @@ class NexusIqService implements Serializable {
         String niqStage  = policy.scannerStageName('niq')
         state.nexusIqResults = [:]
         def niqCfg       = state.cfg.tools?.nexusIq ?: [:]
-        Map<String, Map> apps = normalize(niqCfg) as Map<String, Map>
+        Map<String, Map> apps = (normalize(niqCfg) ?: [:]) as Map<String, Map>
+        List<String> appNames = apps ? apps.keySet().toList() : []
+        if (appNames && appNames.every { state.nexusIqScansByApp.containsKey(it) }) {
+            Map prior = state.nexusIqScansByApp[appNames[0]] as Map
+            script.echo "[DEP-SCAN] ${state.currentProjectName}: Nexus IQ application(s) '${appNames.join(', ')}' already evaluated by service '${prior.serviceName}' - reusing results"
+            state.nexusIqResults = [:] + (prior.nexusIqResults ?: [:])
+            if (prior.vulnCounts) {
+                state.vulnCounts['niq'] = [:] + (prior.vulnCounts as Map)
+            }
+            String st = (prior.status ?: 'PASS') as String
+            state.recordNexusIq(st)
+            state.recordScan('niq', st)
+            return
+        }
 
         def violMsg        = ''
         List<Map> scanRefs = []
@@ -100,6 +113,15 @@ class NexusIqService implements Serializable {
                 state.policyStatus['iast']     = 'WARN'
                 state.recordNexusIq('WARN')
                 state.recordScan('niq', 'WARN')
+                if (appNames) {
+                    Map cacheEntry = [
+                        serviceName   : state.currentProjectName,
+                        nexusIqResults: [:] + (state.nexusIqResults ?: [:]),
+                        vulnCounts    : [:] + ((state.vulnCounts?.niq ?: [:]) as Map),
+                        status        : 'WARN'
+                    ]
+                    for (String appName : appNames) state.nexusIqScansByApp[appName] = cacheEntry
+                }
                 if (goldenFix != null) {
                     try {
                         goldenFix.remediate(scanRefs)
@@ -116,6 +138,15 @@ class NexusIqService implements Serializable {
                 state.policyStatus['iast']     = 'PASS'
                 state.recordNexusIq('PASS')
                 state.recordScan('niq', 'PASS')
+                if (appNames) {
+                    Map cacheEntry = [
+                        serviceName   : state.currentProjectName,
+                        nexusIqResults: [:] + (state.nexusIqResults ?: [:]),
+                        vulnCounts    : [:] + ((state.vulnCounts?.niq ?: [:]) as Map),
+                        status        : 'PASS'
+                    ]
+                    for (String appName : appNames) state.nexusIqScansByApp[appName] = cacheEntry
+                }
                 script.echo "[DEP-SCAN] Policy satisfied."
             }
         } catch (ex) {
@@ -124,17 +155,30 @@ class NexusIqService implements Serializable {
             state.policyStatus['iast']     = 'WARN'
             state.recordNexusIq('WARN')
             state.recordScan('niq', 'WARN')
+            if (appNames) {
+                Map cacheEntry = [
+                    serviceName   : state.currentProjectName,
+                    nexusIqResults: [:] + (state.nexusIqResults ?: [:]),
+                    vulnCounts    : [:] + ((state.vulnCounts?.niq ?: [:]) as Map),
+                    status        : 'WARN'
+                ]
+                for (String appName : appNames) state.nexusIqScansByApp[appName] = cacheEntry
+            }
             policy.warn(niqStage, "Nexus IQ scan could not be completed: ${reason}.")
         }
     }
 
     private Map<String, Object> normalize(def niqCfg) {
+        if (!niqCfg) return [:]
         def app = niqCfg.application
 
         if (app instanceof String) {
             return [(app): niqCfg]
         }
-        return app as Map<String, Object>
+        if (app instanceof Map) {
+            return app as Map<String, Object>
+        }
+        return [:]
     }
 
     @NonCPS
