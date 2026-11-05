@@ -98,9 +98,9 @@ echo "[INFO] AppScan CLI login succeeded."
 
     private String resolveSecretCredentialsId(String type) {
         if (type == 'DAST') {
-            return (state.cfg.dast?.token ?: state.cfg.dast?.credentialsId ?: state.cfg.asoc?.token ?: state.cfg.asoc?.credentialsId ?: script.env.APPSCAN_KEY_ID) as String
+            return (state.cfg.dast?.token ?: state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
         }
-        return (state.cfg.sast?.token ?: state.cfg.sast?.credentialsId ?: state.cfg.asoc?.token ?: state.cfg.asoc?.credentialsId ?: script.env.APPSCAN_KEY_ID) as String
+        return (state.cfg.sast?.token ?: state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
     }
 
     void resolveSourceDir(String param = null) {
