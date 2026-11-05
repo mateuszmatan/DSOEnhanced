@@ -26,8 +26,10 @@ class SecurityPullRequestService implements Serializable {
     Map settings() {
         Map scmCfg = (state.cfg?.scm?.bitbucket ?: [:]) as Map
         Map prCfg = (state.cfg?.pullRequestDecoration ?: state.cfg?.securityPullRequest ?: [:]) as Map
-        boolean enabled = prCfg.containsKey('enabled') ? BuildUtils.booleanValue(prCfg.enabled, true)
-                : BuildUtils.booleanValue(scmCfg.decoratePullRequests, true)
+        Map pr = (state.goldenFixPullRequest ?: [:]) as Map
+        boolean explicit = prCfg.containsKey('enabled') ? BuildUtils.booleanValue(prCfg.enabled, false)
+                : BuildUtils.booleanValue(scmCfg.decoratePullRequests, false)
+        boolean enabled = (pr.url ? true : explicit) && (scmCfg.url || scmCfg.cloneUrl) ? true : false
         return [scm             : scmCfg,
                 enabled         : enabled && (scmCfg.url || scmCfg.cloneUrl) ? true : false,
                 findingsPrs     : BuildUtils.booleanValue(prCfg.createFindingsPullRequest, true),

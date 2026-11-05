@@ -42,9 +42,9 @@ class SonarService implements Serializable {
         String effectiveProjectKey = projectKey ?: resolveProjectKey(sonarCfg as Map)
         String reportedKey = projectKey ?: effectiveProjectKey
         boolean pluginRun = (tool in ['gradle', 'maven']) && hasPluginCommands(sonarCfg as Map, tool as String)
-        boolean scannerRun = !(tool in ['flutter', 'liquibase']) && !pluginRun && !BuildUtils.databaseBlock(state.cfg as Map)
-        if (scannerRun) applyDefaultSonarProperties(sonarCfg as Map, tool as String, effectiveProjectKey)
-        script.echo "[SONAR] Project ${effectiveProjectKey}${branch ? ', branch ' + branch : ', main branch'}${scannerRun ? ' - SonarScanner CLI' : (pluginRun ? ' - ' + tool + ' plugin' : '')}"
+        boolean mavenPluginRun = tool == 'maven' && hasPluginCommands(sonarCfg as Map, 'maven')
+        boolean scannerRun = !(tool in ['flutter', 'liquibase']) && !mavenPluginRun && !BuildUtils.databaseBlock(state.cfg as Map)
+        if (scannerRun) applyDefaultSonarProperties(sonarCfg as Map, tool as String, resolveProjectKey(sonarCfg as Map))
         boolean passKey = !pluginRun || autoResolvedKey()
         def sonarArgs = [
             "-Dsonar.host.url=${sonarUrl}",
@@ -515,6 +515,18 @@ echo "$b"
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
         }
+        List<String> excluded = []
+        if (state.cfg?.excludedDirs) excluded.addAll(BuildUtils.normalizeTokens(state.cfg.excludedDirs))
+        for (def entry : (state.projectsAllCfg ?: [:]).entrySet()) {
+            Map p = (entry.value instanceof Map) ? (entry.value as Map) : [:]
+            if (BuildUtils.databaseBlock(p)) {
+                String dir = (p.sourceDir ?: p.database?.searchPath ?: entry.key) as String
+                if (dir) excluded << dir
+            }
+        }
+        if (excluded) {
+            modules.removeAll { String m -> excluded.any { String ex -> m == ex || m.startsWith("${ex}/") } }
+        }
         Map dirsByModule = [:]
         List<String> roots = modules ? modules : ['']
         for (String m : roots) {
@@ -606,8 +618,9 @@ echo "$b"
                 String id = m.replace('/', '_')
                 Map d = (dirsByModule[m] ?: [:]) as Map
                 if (id != m) lines << "${id}.sonar.projectBaseDir=${m}".toString()
-                lines << "${id}.sonar.sources=${sourcesOf(lang, d)}".toString()
-                lines << "${id}.sonar.tests=${testsOf(lang, d)}".toString()
+                String prefix = gradle ? (m ? "${m}/" : '') : ''
+                lines << "${id}.sonar.sources=${prefix}${sourcesOf(lang, d)}".toString()
+                lines << "${id}.sonar.tests=${prefix}${testsOf(lang, d)}".toString()
             }
         }
         return lines.join('\n') + '\n'
@@ -644,11 +657,9 @@ echo "$b"
     void applyDefaultSonarProperties(Map sonarCfg, String tool, String projectKey) {
         String dir = ((sonarCfg?.dir ?: '') as String).trim()
         if (script.fileExists('sonar-project.properties') || (dir && script.fileExists("${dir}/sonar-project.properties"))) {
-            script.echo '[SONAR] sonar-project.properties of the repository is used'
             return
         }
         String content = defaultProperties(detectLayout(tool), projectKey)
         script.writeFile file: 'sonar-project.properties', text: content
-        script.echo "[SONAR] No sonar-project.properties in the repository - the library defaults are used:\n${content}"
     }
 }

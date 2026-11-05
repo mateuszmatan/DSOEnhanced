@@ -186,7 +186,19 @@ class ScenarioRunner {
                 rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
                 rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
                 rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
-                        /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF')
+                        /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF'),
+                rule('the auto-resolve logs what it filled in for each service (autoresolveParameters)', /(?m)^\[AUTO\] .*\n/, ''),
+                rule('SonarQube logs the project, the branch and how it is analysed', /(?m)^\[SONAR\] (Project|sonar-project\.properties|No sonar-project\.properties) .*\n/, ''),
+                rule('the SonarQube Gradle and Maven plugins scan the branch of the build', / '-Dsonar\.branch\.name=[^']*'/, ''),
+                rule('pull request decoration looks for the pull request of the branch and reads its comments',
+                        /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[Bitbucket: (find open pull request|comments of pull request [^\]]*)\] .*?\n\n/, ''),
+                rule('the static and DAST findings pull requests are prepared in their own worktree',
+                        /(?ms)^sh \[GoldenFix: prepare worktree security-(dast|static)-[^\]]*\].*?^git worktree prune 2>\/dev\/null \|\| true\n\n/, ''),
+                rule('the SonarQube issue counts are those of the branch of the build', /(api\/issues\/search\?componentKeys=[^&"']*)&branch=[^&"']*/, '$1'),
+                rule('pull request decoration reads the open SonarQube issues of the branch',
+                        /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[SonarQube: open issues of the analysed branch\] .*?\n\n/, ''),
+                rule('a SonarQube that does not answer the issue search is logged', /(?m)^\[error\] \[HTTP\] SonarQube: open issues of the analysed branch.*\n/, ''),
+                rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, '')
         ]
     }
 

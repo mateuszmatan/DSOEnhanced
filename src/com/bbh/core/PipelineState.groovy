@@ -57,6 +57,7 @@ class PipelineState implements Serializable {
     Map goldenFixPullRequestsByRepo = [:]
     Map projectsDatabase = [:]
     Map databaseTools    = [:]
+    Map sastScansByAppId = [:]
 
     @NonCPS
     String settingsPlace() {

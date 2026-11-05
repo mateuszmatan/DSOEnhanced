@@ -103,6 +103,11 @@ echo "[INFO] AppScan CLI login succeeded."
         return (state.cfg.sast?.token ?: state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
     }
 
+    String resolveAppId(Map config = null) {
+        String id = ((state.cfg?.appId ?: state.cfg?.sast?.appId ?: state.cfg?.asoc?.appId ?: config?.appId ?: '') as String).trim()
+        return id
+    }
+
     void resolveSourceDir(String param = null) {
         def resolved = (param ?: state.cfg.sourceDir?.trim() ?: '.').trim()
         if (!resolved || resolved == '.') resolved = script.env.WORKSPACE
@@ -114,6 +119,17 @@ echo "[INFO] AppScan CLI login succeeded."
     }
 
     void generateIrx(int timeoutMin = 120) {
+        String appId = resolveAppId()
+        if (appId) {
+            if (state.sastScansByAppId.containsKey(appId)) {
+                String primary = (state.sastScansByAppId[appId].primaryProject ?: '') as String
+                if (primary && primary != state.currentProjectName) {
+                    script.echo "[SAST] ${state.currentProjectName}: shares AppScan application ID '${appId}' with '${primary}' - skipping duplicate IRX generation"
+                    return
+                }
+            }
+            state.sastScansByAppId[appId] = [primaryProject: state.currentProjectName, scanName: (script.env.APPSCAN_SCAN_NAME ?: '').trim(), completed: false, counts: null]
+        }
         if (!script.env.APPSCAN_SOURCE_DIR_RESOLVED?.trim()) script.error "APPSCAN_SOURCE_DIR_RESOLVED not set"
         boolean database = BuildUtils.databaseBlock(state.cfg)
         boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true)
@@ -393,11 +409,33 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void queueSast(Map config) {
         script.echo "Start queue sast"
+        String appId = resolveAppId(config)
+        if (appId && state.sastScansByAppId.containsKey(appId)) {
+            Map scanInfo = (state.sastScansByAppId[appId] ?: [:]) as Map
+            String primary = (scanInfo.primaryProject ?: '') as String
+            if (primary && primary != state.currentProjectName) {
+                String existingScanId = (scanInfo.scanId ?: '') as String
+                if (existingScanId) {
+                    script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: existingScanId
+                }
+                script.echo "[SAST] ${state.currentProjectName}: shares AppScan application ID '${appId}' with '${primary}' - reusing scan ID '${existingScanId}'"
+                return
+            }
+        }
         String defaultName = "${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast"
         String scanName = ((state.cfg.sast?.scanName ?: '') as String).trim()
         def scanId = queueAnalysis(scanName ? BuildUtils.scanName(scanName) : defaultName, defaultName,
                 "${script.env.WORKSPACE}/${script.env.APPSCAN_SCAN_NAME ?: 'my-project'}.irx", config)
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
+        if (appId) {
+            Map record = (state.sastScansByAppId[appId] ?: [:]) as Map
+            record.primaryProject = state.currentProjectName
+            record.scanId = scanId
+            record.scanName = (script.env.APPSCAN_SCAN_NAME ?: '').trim()
+            record.completed = false
+            record.counts = null
+            state.sastScansByAppId[appId] = record
+        }
     }
 
     private void databaseSources() {
@@ -418,16 +456,48 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     }
 
     void waitSast() {
+        String appId = resolveAppId()
+        if (appId && state.sastScansByAppId.containsKey(appId)) {
+            Map scanInfo = (state.sastScansByAppId[appId] ?: [:]) as Map
+            if (scanInfo.completed) {
+                script.echo "[SAST] ${state.currentProjectName}: scan for application ID '${appId}' already completed - skipping wait"
+                return
+            }
+        }
         pollScan('sast', (state.cfgDefaults.sast?.pollTimeoutMin ?: 50) as int, (state.cfgDefaults.sast?.pollIntervalSec ?: 30) as int)
+        if (appId && state.sastScansByAppId.containsKey(appId)) {
+            state.sastScansByAppId[appId].completed = true
+        }
     }
 
     void downloadSastReports() {
+        String appId = resolveAppId()
+        if (appId && state.sastScansByAppId.containsKey(appId)) {
+            Map scanInfo = (state.sastScansByAppId[appId] ?: [:]) as Map
+            String primary = (scanInfo.primaryProject ?: '') as String
+            String primaryScanName = (scanInfo.scanName ?: '') as String
+            if (primary && primary != state.currentProjectName) {
+                String srcReport = "${script.env.WORKSPACE}/appscan-report-${primaryScanName}.html"
+                def dest = "${script.env.WORKSPACE}/appscan-report-${script.env.APPSCAN_SCAN_NAME}.html"
+                if (script.fileExists(srcReport)) {
+                    copyReportFile(srcReport, dest)
+                }
+                Map counts = (scanInfo.counts ?: [critical: 0, high: 0, medium: 0, low: 0]) as Map
+                state.vulnCounts.sast = counts
+                state.recordVulns('sast', counts)
+                script.echo "[SAST] ${state.currentProjectName}: shares AppScan application ID '${appId}' with '${primary}' - reusing report and findings"
+                return
+            }
+        }
         def dest = "${script.env.WORKSPACE}/appscan-report-${script.env.APPSCAN_SCAN_NAME}.html"
         getReports('sast', dest)
         if (script.fileExists(dest)) {
             def counts = parseHtmlCounts(dest, 'sast')
             state.vulnCounts.sast = counts
             state.recordVulns('sast', counts)
+            if (appId && state.sastScansByAppId.containsKey(appId)) {
+                state.sastScansByAppId[appId].counts = counts
+            }
         } else {
             if (BuildUtils.databaseBlock(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
@@ -661,6 +731,11 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
     private void renameReportFile(String src, String dst) {
         if (os.isWindows()) script.powershell "if (Test-Path '${src}') { Move-Item '${src}' '${dst}' -Force }"
         else script.sh "[ -f '${src}' ] && mv '${src}' '${dst}' || true"
+    }
+
+    private void copyReportFile(String src, String dst) {
+        if (os.isWindows()) script.powershell "if (Test-Path '${src}') { Copy-Item '${src}' '${dst}' -Force }"
+        else script.sh "[ -f '${src}' ] && cp '${src}' '${dst}' || true"
     }
 
     void countDastVulns() {

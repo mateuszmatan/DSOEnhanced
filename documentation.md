@@ -2820,7 +2820,7 @@ The Global Settings checkbox **Run Nexus IQ and SonarQube while AppScan scans** 
 |---|---|---|
 | `asoc.keyId` | YES, for every service | Pipeline fails at init without it |
 | `asoc.token` | Recommended | Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like `asoc.keyId` is used |
-| `appId` | YES | Needed for AppScan SAST and DAST |
+| `appId` | YES | Needed for AppScan SAST and DAST. When multiple services share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings. |
 | `tools.sonar.projectKey` | Auto-resolved | When omitted, automatically synthesizes standard configuration with `com.bbh:<projectName>`, multi-module discovery, and active branch pinning |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
@@ -2920,6 +2920,10 @@ projects:
 1. **AppScan REST API SAST (DSOEnhancedAppScanApiOnly branch)**:
 
 On the `DSOEnhancedAppScanApiOnly` branch, SAST is executed directly via HCL AppScan REST API v4 (`/api/v4/FileUpload`, `/api/v4/Scans/Sast`, `/api/v4/Reports/Security/Scan/{id}`) instead of local CLI binaries. SAST credentials (`sast.keyId`, `sast.token`) are completely isolated from DAST credentials (`dast.keyId`, `dast.token`). Vulnerabilities marked with status `Noise` are automatically filtered out and excluded from policy enforcement counters.
+
+1. **SAST Deduplication by AppScan Application ID**:
+
+When multiple services in `devsecops_config.yaml`, `config.yaml`, or portal configuration share the same `appId`, the SAST scan is executed only once. The primary service prepares the IRX and queues the scan, while subsequent services skip duplicate preparation, track the existing scan, and automatically reuse the downloaded findings and HTML report.
 
 ## 17. Pipeline Stage Reference
 
