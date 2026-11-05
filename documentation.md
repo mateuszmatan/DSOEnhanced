@@ -1643,7 +1643,7 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 |---|---|---|
 | `asoc.keyId` | YES, for every service | Pipeline fails at init without it |
 | `asoc.token` | Recommended | Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like `asoc.keyId` is used |
-| `appId` | YES | Needed for AppScan SAST and DAST |
+| `appId` | YES | Needed for AppScan SAST and DAST. When multiple services share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings. |
 | `tools.sonar.projectKey` | Auto-resolved | When omitted, automatically synthesizes standard configuration with `com.bbh:<projectName>`, multi-module discovery, and active branch pinning |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
