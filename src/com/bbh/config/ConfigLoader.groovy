@@ -151,6 +151,7 @@ class ConfigLoader implements Serializable {
         }
 
         script.env.APPSCAN_KEY_ID = appScanKeyId(state.currentProjectName)
+        validateCrossServiceRepositories(projectNames as List)
         List databases = (projectNames as List).findAll { BuildUtils.databaseBlock(state.projectsAllCfg[it] as Map) }
         if (variant == 'nexusiq' && databases && databases.size() == (projectNames as List).size()) {
             script.error "[INIT] The Nexus IQ GoldenFix pipeline would scan nothing: ${databases.join(', ')} ${databases.size() == 1 ? 'is' : 'are'} SQL and PL/SQL service(s), which have no dependency components; run it for a service with a Nexus IQ application"
@@ -160,6 +161,43 @@ class ConfigLoader implements Serializable {
 
         applyPolicy()
         script.echo "[INIT] OS: ${script.env.OS_TYPE ?: 'linux'}"
+    }
+
+    private void validateCrossServiceRepositories(List projectNames) {
+        if (!projectNames || projectNames.size() < 2) return
+        for (int i = 0; i < projectNames.size(); i++) {
+            def nameA = projectNames[i]
+            Map cfgA = (state.projectsAllCfg[nameA] ?: [:]) as Map
+            String repoA = BuildUtils.normalizeRepositoryUrl(cfgA.scm)
+            String sastA = BuildUtils.resolveAppId(cfgA)
+            String sonarA = BuildUtils.resolveSonarProjectKey(cfgA)
+            List<String> niqA = BuildUtils.resolveNexusIqApplications(cfgA)
+
+            for (int j = i + 1; j < projectNames.size(); j++) {
+                def nameB = projectNames[j]
+                Map cfgB = (state.projectsAllCfg[nameB] ?: [:]) as Map
+                String repoB = BuildUtils.normalizeRepositoryUrl(cfgB.scm)
+                boolean diffRepo = !repoA.isEmpty() && !repoB.isEmpty() && !repoA.equalsIgnoreCase(repoB)
+                if (diffRepo) {
+                    String sastB = BuildUtils.resolveAppId(cfgB)
+                    if (sastA && sastB && sastA.equalsIgnoreCase(sastB)) {
+                        script.error "[INIT] Services '${nameA}' and '${nameB}' belong to different Bitbucket repositories ('${repoA}' vs '${repoB}') and cannot share AppScan application ID '${sastA}'"
+                    }
+                    String sonarB = BuildUtils.resolveSonarProjectKey(cfgB)
+                    if (sonarA && sonarB && sonarA.equalsIgnoreCase(sonarB)) {
+                        script.error "[INIT] Services '${nameA}' and '${nameB}' belong to different Bitbucket repositories ('${repoA}' vs '${repoB}') and cannot share SonarQube project key '${sonarA}'"
+                    }
+                    List<String> niqB = BuildUtils.resolveNexusIqApplications(cfgB)
+                    for (String appA : niqA) {
+                        for (String appB : niqB) {
+                            if (appA.equalsIgnoreCase(appB)) {
+                                script.error "[INIT] Services '${nameA}' and '${nameB}' belong to different Bitbucket repositories ('${repoA}' vs '${repoB}') and cannot share Nexus IQ application '${appA}'"
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private void overlayRunState(Map projects, String job) {

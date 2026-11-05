@@ -11,6 +11,7 @@ def monitorSources(def api, Map options = [:]) {
             copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json', selector: lastSuccessful())
         }
         api.initialize()
+        api.checkoutAdditionalRepositories()
     }
 }
 

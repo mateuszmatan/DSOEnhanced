@@ -2834,9 +2834,9 @@ h3. Which fields are required
 ||Field||Required||Notes||
 |{{asoc.keyId}}|YES, for every service|Pipeline fails at init without it|
 |{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like {{asoc.keyId}} is used|
-|{{appId}}|YES|Needed for AppScan SAST and DAST. When multiple services share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings.|
-|{{tools.sonar.projectKey}}|Auto-resolved|When omitted, automatically synthesizes standard configuration with {{com.bbh:<projectName>}}, multi-module discovery, and active branch pinning|
-|{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
+|{{appId}}|YES|Needed for AppScan SAST and DAST. When multiple services within the same repository share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings.|
+|{{tools.sonar.projectKey}}|Auto-resolved|When omitted, automatically synthesizes standard configuration with {{com.bbh:<projectName>}}, multi-module discovery, and active branch pinning. When multiple services within the same repository share the same projectKey, analysis executes once and results are reused.|
+|{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it. When multiple services within the same repository share the same application, evaluation executes once and results are reused.|
 |{{dast.targetUrl}}|Only if {{dast.enabled: true}}|Pipeline fails at DAST stage without it|
 |{{javaPath}} or {{buildToolAutoSetup: true}}|Auto-resolved or YES for Gradle/Maven/Flutter; optional for Liquibase; required (or {{buildToolAutoSetup}}) with a database block|When auto-resolve is active (default), {{buildToolAutoSetup: true}} and the compiler JDK are automatically inferred from {{pom.xml}} / {{build.gradle}}; otherwise required for Gradle/Maven/Flutter: without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified* for Java builds. Auto-resolve sets neither for {{buildTool: liquibase}}: an explicit {{javaPath}} is exported as {{JAVA_HOME}} when set, and omitted otherwise|
 |{{deploy.vm.dod}}|Only if {{deployTarget: vm}} and you use {{devSecOpsPipeline}}|The lower test region deployment of the full pipeline uses UrbanCode Deploy|
@@ -2924,8 +2924,15 @@ projects:
 {code}
 # *AppScan REST API SAST (DSOEnhancedAppScanApiOnly branch)*:
 On the {{DSOEnhancedAppScanApiOnly}} branch, SAST is executed directly via HCL AppScan REST API v4 ({{/api/v4/FileUpload}}, {{/api/v4/Scans/Sast}}, {{/api/v4/Reports/Security/Scan/{id}}}) instead of local CLI binaries. SAST credentials ({{sast.keyId}}, {{sast.token}}) are completely isolated from DAST credentials ({{dast.keyId}}, {{dast.token}}). Vulnerabilities marked with status {{Noise}} are automatically filtered out and excluded from policy enforcement counters.
-# *SAST Deduplication by AppScan Application ID*:
-When multiple services in {{devsecops_config.yaml}}, {{config.yaml}}, or portal configuration share the same {{appId}}, the SAST scan is executed only once. The primary service prepares the IRX and queues the scan, while subsequent services skip duplicate preparation, track the existing scan, and automatically reuse the downloaded findings and HTML report.
+# *Scan Deduplication (SAST, SonarQube, Nexus IQ)*:
+When multiple services within the same repository (such as multi-module monorepos or shared codebases) in {{devsecops_config.yaml}}, {{config.yaml}}, or portal configuration share the same identifier:
+* *SAST (AppScan)*: When services share {{appId}}, the SAST scan executes only once. The primary service prepares the IRX and queues the scan; subsequent services skip duplicate preparation and queueing, track the active scan, and automatically reuse the findings and report.
+* *SonarQube*: When services share {{tools.sonar.projectKey}} (or {{sonar.projectKey}}), SonarQube analysis executes only once for the primary service. Subsequent services reuse the analysis results, Quality Gate status, vulnerability and hotspot metrics, and report badges.
+* *Nexus IQ*: When services share {{tools.nexusIq.application}} (or {{nexusIq.application}}), the policy evaluation executes only once. Subsequent services reuse the policy evaluation results, component counts, severity breakdown, and report links.
+# *Multi-Repository and Cross-Repository Isolation*:
+Products can configure services residing in separate Bitbucket repositories (even across different Bitbucket projects) with distinct repository URLs ({{scm.bitbucket.url}} or {{scm.url}}), or services residing in a shared repository (monorepo).
+* *Cross-Repository Isolation Rule*: When two services point to different Bitbucket repositories ({{!repoA.equals(repoB)}}), they must not share AppScan {{appId}}, SonarQube {{projectKey}}, or Nexus IQ {{application}}. The pipeline and portal validate this rule and fail fast with an explanatory error if a scan identifier is reused across separate repositories.
+* *Multi-Repository Checkout*: In multi-repo product pipelines, secondary repositories with distinct URLs are automatically cloned and checked out into their respective service working directories during the pipeline monitor phase.
 
 ----
 

@@ -58,6 +58,8 @@ class PipelineState implements Serializable {
     Map projectsDatabase = [:]
     Map databaseTools    = [:]
     Map sastScansByAppId = [:]
+    Map sonarScansByProjectKey = [:]
+    Map nexusIqScansByApp      = [:]
 
     @NonCPS
     String settingsPlace() {
