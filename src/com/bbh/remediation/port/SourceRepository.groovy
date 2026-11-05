@@ -20,5 +20,5 @@ interface SourceRepository extends Serializable {
 
     String resolveCurrentBranch()
 
-    String prepareExternalRepository(String url, String branch, String credentialsId)
+    String prepareExternalRepository(String url, String branch, String credentialsId, String authType)
 }

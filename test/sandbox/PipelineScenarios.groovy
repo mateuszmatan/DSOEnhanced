@@ -298,9 +298,24 @@ List<Map> keylessRules = [bootstrapRule, portalLogRule,
                           rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
                           headerRule] + keylessMarks
 
+List<Map> stackRules = [
+        rule('the auto-resolve logs what it filled in for each service (autoresolveParameters)', /(?m)^\[AUTO\] .*\n/, ''),
+        rule('SonarQube logs the project, the branch and how it is analysed', /(?m)^\[SONAR\] (Project|sonar-project\.properties|No sonar-project\.properties) .*\n/, ''),
+        rule('the SonarQube Gradle and Maven plugins scan the branch of the build', / '-Dsonar\.branch\.name=[^']*'/, ''),
+        rule('pull request decoration looks for the pull request of the branch and reads its comments',
+                /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[Bitbucket: (find open pull request|comments of pull request [^\]]*)\] .*?\n\n/, ''),
+        rule('the static and DAST findings pull requests are prepared in their own worktree',
+                /(?ms)^sh \[GoldenFix: prepare worktree security-(dast|static)-[^\]]*\].*?^git worktree prune 2>\/dev\/null \|\| true\n\n/, ''),
+        rule('the SonarQube issue counts are those of the branch of the build', /(api\/issues\/search\?componentKeys=[^&"']*)&branch=[^&"']*/, '$1'),
+        rule('pull request decoration reads the open SonarQube issues of the branch',
+                /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[SonarQube: open issues of the analysed branch\] .*?\n\n/, ''),
+        rule('a SonarQube that does not answer the issue search is logged', /(?m)^\[error\] \[HTTP\] SonarQube: open issues of the analysed branch.*\n/, ''),
+        rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, '')
+]
+
 Closure normalise = { String text, List<Map> rules ->
     String out = text
-    rules.each { Map r -> out = (r.apply as Closure).call(out) as String }
+    (stackRules + rules).each { Map r -> out = (r.apply as Closure).call(out) as String }
     return out
 }
 

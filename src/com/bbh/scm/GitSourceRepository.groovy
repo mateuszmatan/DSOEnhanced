@@ -133,17 +133,34 @@ git worktree prune 2>/dev/null || true
         return branch == 'HEAD' ? '' : branch
     }
 
-    String prepareExternalRepository(String url, String branch, String credentialsId) {
+    String prepareExternalRepository(String url, String branch, String credentialsId, String authType) {
         String root = workspaceRoot()
         String base = "${script.env.WORKSPACE_TMP ?: root + '@tmp'}/version-catalogs"
-        String dir  = "${base}/${branch ?: 'main'}"
+        String dir  = "${base}/repository-${System.currentTimeMillis()}"
         String targetBranch = branch ?: 'main'
-        script.sh(label: 'GoldenFix: prepare external version catalog repository', script: """#!/bin/bash
-set -euo pipefail
-rm -rf '${q(dir)}'
-mkdir -p '${q(base)}'
-git clone --depth 1 -b '${q(targetBranch)}' '${q(url)}' '${q(dir)}' 2>/dev/null || git clone --depth 1 '${q(url)}' '${q(dir)}'
-""")
+        script.sh(label: 'GoldenFix: prepare the shared version catalog folder', script: "mkdir -p '${q(base)}' && rm -rf '${q(dir)}'")
+        String target = "clone -q --depth 1 -b '${q(targetBranch)}' '${q(url)}' '${q(dir)}'"
+        script.echo "[GOLDENFIX] Cloning the shared version catalog repository ${sanitizeUrl(url)} (branch ${targetBranch})"
+        int status = 0
+        if (isSshUrl(url) && credentialsId) {
+            script.sshagent([credentialsId]) { status = runGit(base, '', target, '') }
+        } else if (isSshUrl(url) || !credentialsId) {
+            status = runGit(base, '', target, '')
+        } else if (((authType ?: 'basic') as String).toLowerCase() in ['bearer', 'token']) {
+            script.withCredentials([script.string(credentialsId: credentialsId, variable: 'GF_GIT_TOKEN')]) {
+                status = url.contains('bitbucket.org')
+                        ? runGit(base, credentialHelper('x-token-auth', '${GF_GIT_TOKEN}'), target, '')
+                        : runGit(base, '', target, bearerHeaderEnv('GF_GIT_TOKEN'))
+            }
+        } else {
+            script.withCredentials([script.usernamePassword(credentialsId: credentialsId, usernameVariable: 'GF_GIT_USER', passwordVariable: 'GF_GIT_PASS')]) {
+                status = runGit(base, credentialHelper('${GF_GIT_USER}', '${GF_GIT_PASS}'), target, '')
+            }
+        }
+        if (status != 0) {
+            String output = script.sh(returnStdout: true, script: "cat '${q(base)}.push.log' 2>/dev/null || true; rm -f '${q(base)}.push.log'") as String
+            script.error("[GOLDENFIX] git clone of ${sanitizeUrl(url)} (branch ${targetBranch}) failed (exit code ${status}): ${(output ?: '').readLines().findAll { it.trim() }.takeRight(3).join(' ')}")
+        }
         return dir
     }
 

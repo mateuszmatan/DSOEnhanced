@@ -58,6 +58,7 @@ class GoldenFixService implements DependencyRemediation {
         ]
         try {
             execute(cfg, scanRefs ?: [], result)
+            if (result.fixes) remediateSharedCatalog(cfg, result.fixes as List<Map>, scanRefs ?: [], result)
         } catch (Throwable e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             result.status  = 'ERROR'
@@ -316,26 +317,6 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
         List<String> listed = CatalogDiscovery.listed(cfg.versionCatalogs)
-        Map vcRepo = (cfg.versionCatalogRepo ?: (cfg.versionCatalogRepository ?: (cfg.goldenFix?.versionCatalogRepo ?: (cfg.goldenFix?.versionCatalogRepository ?: [:])))) as Map
-        if (vcRepo && (vcRepo.url || vcRepo.repositoryUrl)) {
-            String repoUrl = (vcRepo.url ?: vcRepo.repositoryUrl) as String
-            String catalogBranch = (vcRepo.branch ?: (vcRepo.targetBranch ?: 'main')) as String
-            String catalogPath = (vcRepo.path ?: 'gradle/libs.versions.toml') as String
-            script.echo "[GOLDENFIX] Using separate version catalog repository: ${repoUrl} (branch: ${catalogBranch}, path: ${catalogPath})"
-            String extDir = prepareExternalCatalog(repoUrl, catalogBranch, (vcRepo.credentialsId ?: '') as String)
-            if (extDir) {
-                String catalogFile = catalogPath.startsWith('/') ? catalogPath.substring(1) : catalogPath
-                try {
-                    String catalogText = repository.readText(extDir, catalogFile)
-                    if (catalogText) {
-                        texts[catalogFile] = catalogText
-                        if (!listed.contains(catalogFile)) listed << catalogFile
-                    }
-                } catch (Throwable t) {
-                    script.echo "[GOLDENFIX] Note: version catalog file ${catalogFile} in ${repoUrl}: ${t.message}"
-                }
-            }
-        }
         for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
         List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
@@ -343,12 +324,83 @@ class GoldenFixService implements DependencyRemediation {
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
     }
 
-    private String prepareExternalCatalog(String url, String branch, String credentialsId) {
+    @NonCPS
+    static Map sharedCatalogRepository(Map cfg) {
+        def raw = cfg?.versionCatalogRepo ?: cfg?.versionCatalogRepository
+        if (!(raw instanceof Map)) return [:]
+        Map vc = raw as Map
+        String url = ((vc.url ?: vc.repositoryUrl ?: '') as String).trim()
+        if (!url) return [:]
+        def paths = vc.paths ?: vc.path
+        List<String> listed = []
+        if (paths instanceof Collection) {
+            for (def p : (paths as Collection)) if ((p ?: '').toString().trim()) listed << p.toString().trim().replaceFirst('^/+', '')
+        } else if ((paths ?: '').toString().trim()) {
+            for (String p : paths.toString().split(',')) if (p.trim()) listed << p.trim().replaceFirst('^/+', '')
+        }
+        return [url          : url,
+                branch       : ((vc.branch ?: vc.targetBranch ?: 'main') as String).trim(),
+                paths        : listed,
+                credentialsId: ((vc.credentialsId ?: '') as String).trim(),
+                authType     : ((vc.authType ?: 'basic') as String).trim(),
+                reviewers    : (vc.reviewers instanceof List) ? vc.reviewers : []]
+    }
+
+    private void remediateSharedCatalog(Map cfg, List<Map> fixes, List<Map> scanRefs, Map result) {
+        Map vc = sharedCatalogRepository(cfg)
+        if (!vc) return
+        if (!script.isUnix()) return
+        Map scmCfg = [url: vc.url, credentialsId: vc.credentialsId, authType: vc.authType, targetBranch: vc.branch, reviewers: vc.reviewers]
+        String repoKey = normalizeRepoKey(vc.url as String)
+        Map known = (state.goldenFixPullRequestsByRepo?.get(repoKey) ?: [:]) as Map
+        if (known.url) {
+            result.catalogPrUrl = known.url
+            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: already raised in ${known.url}".toString()]
+            return
+        }
+        String title = "GoldenFix-catalog-${timestamp(cfg.timeZone as String)}".toString()
+        script.echo "[GOLDENFIX] Shared version catalog repository ${vc.url} (branch ${vc.branch}${vc.paths ? ', files ' + (vc.paths as List).join(', ') : ''})"
+        String dir = ''
         try {
-            return repository.prepareExternalRepository(url, branch, credentialsId)
+            dir = repository.prepareExternalRepository(vc.url as String, vc.branch as String, vc.credentialsId as String, vc.authType as String)
+            script.sh "cd '${BuildUtils.escapeForSingleQuotes(dir)}' && git checkout -q -b '${BuildUtils.escapeForSingleQuotes(title)}'"
+            Map applied = applyFixes(dir, fixes, (cfg + [versionCatalogs: vc.paths]) as Map, true)
+            List<Map> changes = (applied.changes ?: []) as List<Map>
+            if (!applied.files) {
+                result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: no file declares the vulnerable versions".toString()]
+                script.echo "[GOLDENFIX] The shared version catalog repository declares none of the vulnerable versions"
+                return
+            }
+            String commitId = repository.commit(dir, applied.files as List<String>, commitMessage(title, changes, scanRefs),
+                    [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
+            if (!commitId) return
+            Map repoInfo = publisher.repositoryInfo(scmCfg)
+            repository.push(dir, title, [url: repoInfo.cloneUrl ?: vc.url, credentialsId: vc.credentialsId, authType: vc.authType, cloud: repoInfo.cloud])
+            Map created = publisher.createPullRequest(scmCfg, [
+                    title       : title,
+                    description : pullRequestDescription(title, changes, applied.unresolved as List, scanRefs, buildContext(), [], false),
+                    sourceBranch: title,
+                    targetBranch: vc.branch
+            ])
+            if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
+            state.goldenFixPullRequestsByRepo[repoKey] = [title: title, branch: title, targetBranch: vc.branch, url: created.url, id: created.id, raised: changes]
+            result.catalogPrUrl = created.url
+            result.changes = ((result.changes ?: []) as List) + changes
+            result.unresolved = withoutCovered((result.unresolved ?: []) as List<Map>, changes)
+            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog pull request: ${created.url}".toString()]
+            if (!(result.status in ['PR_CREATED', 'PR_UPDATED'])) {
+                result.status = 'PR_CREATED'
+                result.prUrl = created.url
+                result.prTitle = title
+                result.message = "GoldenFix pull request ${title} raised in the shared version catalog repository: ${created.url}".toString()
+            }
+            script.echo "[GOLDENFIX] Shared version catalog pull request raised: ${created.url}"
         } catch (Throwable t) {
-            script.echo "[GOLDENFIX] Warning: could not clone external version catalog repository ${url}: ${t.message}"
-            return null
+            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: ${t.message ?: t.getClass().getSimpleName()}".toString()]
+            script.echo "[GOLDENFIX] Shared version catalog repository skipped: ${t.message ?: t.getClass().getSimpleName()}"
+        } finally {
+            if (dir) script.sh "rm -rf '${BuildUtils.escapeForSingleQuotes(dir)}'"
         }
     }
 

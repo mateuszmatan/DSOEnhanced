@@ -455,8 +455,8 @@ Map noPatterns = changed(backend, [type: 'nexusiq'])
 String unscannedError = nexusIqInit('nexusiq', [noApplication, noPatterns])
 String fullError = nexusIqInit('full', [changed(noApplication, [type: 'full'])])
 String completeError = nexusIqInit('nexusiq', [changed(gui, [type: 'nexusiq']), changed(backend, [type: 'nexusiq'])])
-check('Nexus IQ GoldenFix pipeline: a service it would not scan stops the build at the start, the other pipelines and complete services are not affected',
-        unscannedError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui, backend-api: set tools.nexusIq.application and its scanPatterns for the service in the DevSecOps portal'
+check('Nexus IQ GoldenFix pipeline: a service without a Nexus IQ application stops the build at the start, a service without scan patterns gets them from the auto-resolve, the other pipelines and complete services are not affected',
+        unscannedError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui: set tools.nexusIq.application and its scanPatterns for the service in the DevSecOps portal'
                 && !fullError && !completeError,
         "${unscannedError} | ${fullError} | ${completeError}")
 
@@ -615,7 +615,7 @@ Map unscannedFile = fromFile('nexusiq', agents, ['devsecops_config.yaml': config
     (((p['backend-api'] as Map).tools as Map).nexusIq as Map).scanPatterns = []
 }])
 check('the Nexus IQ GoldenFix pipeline without a key names the file for a service it would not scan',
-        unscannedFile.initError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui, backend-api: set tools.nexusIq.application and its scanPatterns for the service in devsecops_config.yaml',
+        unscannedFile.initError == '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for gui: set tools.nexusIq.application and its scanPatterns for the service in devsecops_config.yaml',
         unscannedFile.initError)
 
 Map extendedFile = agents + [projectNames: 'gui,backend-api', securityPipeline: securityJob]

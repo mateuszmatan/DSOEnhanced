@@ -136,7 +136,9 @@ class ConfigLoader implements Serializable {
                             : "[INIT] Project '${pName}' is not configured by the pipeline keys of this run. Available: ${projects.keySet().join(', ')}")
                 }
                 Map merged = deepMerge(state.cfgDefaults, projects[pName] as Map)
-                state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName)
+                Map auto = autoResolver.resolve(state.cfgDefaults, projects[pName] as Map, merged, pName as String)
+                state.projectsAllCfg[pName] = auto.cfg
+                state.projectsAutoResolved[pName] = auto.resolved
                 appScanKeyId(pName)
             }
             def primaryName = projectNames[0]
