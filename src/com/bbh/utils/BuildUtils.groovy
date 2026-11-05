@@ -164,4 +164,53 @@ class BuildUtils implements Serializable {
     static String normalizeBranch(String branch) {
         return (branch ?: '').trim().replaceFirst('^(refs/remotes/origin/|refs/heads/|origin/)', '')
     }
+
+    @NonCPS
+    static String normalizeRepositoryUrl(def scm) {
+        String raw = ''
+        if (scm instanceof Map) {
+            raw = (scm.bitbucket?.url ?: scm.url ?: '') as String
+        } else if (scm instanceof String) {
+            raw = scm
+        }
+        String u = (raw ?: '').trim().toLowerCase()
+        if (u.endsWith('.git')) {
+            u = u.substring(0, u.length() - 4)
+        }
+        while (u.endsWith('/')) {
+            u = u.substring(0, u.length() - 1)
+        }
+        return u
+    }
+
+    @NonCPS
+    static String resolveAppId(Map cfg) {
+        return ((cfg?.appId ?: cfg?.asoc?.appId ?: cfg?.sast?.appId ?: '') as String).trim()
+    }
+
+    @NonCPS
+    static String resolveSonarProjectKey(Map cfg) {
+        return ((cfg?.tools?.sonar?.projectKey ?: cfg?.sonar?.projectKey ?: '') as String).trim()
+    }
+
+    @NonCPS
+    static List<String> resolveNexusIqApplications(Map cfg) {
+        List<String> apps = []
+        if (cfg?.tools?.nexusIq?.application) {
+            apps << (cfg.tools.nexusIq.application as String).trim()
+        }
+        if (cfg?.tools?.nexusIq?.applications instanceof List) {
+            for (def item : cfg.tools.nexusIq.applications) {
+                if (item instanceof Map && item.application) {
+                    apps << (item.application as String).trim()
+                } else if (item instanceof String && item.trim()) {
+                    apps << item.trim()
+                }
+            }
+        }
+        if (cfg?.nexusIq?.application) {
+            apps << (cfg.nexusIq.application as String).trim()
+        }
+        return apps.findAll { it }.unique()
+    }
 }

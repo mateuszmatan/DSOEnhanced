@@ -38,6 +38,18 @@ class SonarService implements Serializable {
         applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
         String effectiveProjectKey = projectKey ?: resolveProjectKey(sonarCfg as Map)
         String reportedKey = projectKey ?: effectiveProjectKey
+        if (effectiveProjectKey && state.sonarScansByProjectKey.containsKey(effectiveProjectKey)) {
+            Map prior = state.sonarScansByProjectKey[effectiveProjectKey] as Map
+            script.echo "[SONAR] ${state.currentProjectName}: SonarQube analysis for projectKey '${effectiveProjectKey}' was already executed by service '${prior.serviceName}' - reusing results"
+            state.sonarResults = [:] + (prior.sonarResults ?: [:])
+            if (prior.vulnCounts) {
+                state.vulnCounts['sonar'] = [:] + (prior.vulnCounts as Map)
+            }
+            String st = (prior.status ?: 'PASS') as String
+            state.recordSonar(st)
+            state.recordScan('sonar', st)
+            return
+        }
         def sonarArgs = [
             "-Dsonar.host.url=${sonarUrl}",
             effectiveProjectKey ? "-Dsonar.projectKey=${effectiveProjectKey}"    : null,
@@ -78,6 +90,14 @@ class SonarService implements Serializable {
             state.policyStatus['sonar']  = 'WARN'
             state.recordSonar('WARN')
             state.recordScan('sonar', 'WARN')
+            if (effectiveProjectKey) {
+                state.sonarScansByProjectKey[effectiveProjectKey] = [
+                    serviceName : state.currentProjectName,
+                    sonarResults: [:] + (state.sonarResults ?: [:]),
+                    vulnCounts  : [:] + ((state.vulnCounts?.sonar ?: [:]) as Map),
+                    status      : 'WARN'
+                ]
+            }
             state.stageWarn('SCA (SonarQube)')
             state.stageError('SCA (SonarQube)', scaFailReason)
             script.unstable(scaFailReason)
@@ -87,6 +107,14 @@ class SonarService implements Serializable {
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
+        if (effectiveProjectKey) {
+            state.sonarScansByProjectKey[effectiveProjectKey] = [
+                serviceName : state.currentProjectName,
+                sonarResults: [:] + (state.sonarResults ?: [:]),
+                vulnCounts  : [:] + ((state.vulnCounts?.sonar ?: [:]) as Map),
+                status      : state.sonarResults['status'] ?: 'PASS'
+            ]
+        }
     }
 
     private String resolveBadgeToken(Map sonarCfg) {

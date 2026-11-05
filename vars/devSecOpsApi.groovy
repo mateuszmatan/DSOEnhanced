@@ -136,6 +136,43 @@ def eachProject(Closure body) {
     }
 }
 
+def checkoutAdditionalRepositories() {
+    _setup()
+    def projectNames = _config.resolveProjectNames()
+    if (!projectNames || projectNames.size() < 2) return
+    String primaryRepo = ''
+    for (def name : projectNames) {
+        Map cfg = (_state.projectsAllCfg[name] ?: [:]) as Map
+        String dir = (cfg.sourceDir ?: '') as String
+        if (dir == '.' || dir == '' || !primaryRepo) {
+            String repo = BuildUtils.normalizeRepositoryUrl(cfg.scm)
+            if (repo) {
+                primaryRepo = repo
+                if (dir == '.' || dir == '') break
+            }
+        }
+    }
+    for (int i = 0; i < projectNames.size(); i++) {
+        def pName = projectNames[i]
+        Map pCfg = (_state.projectsAllCfg[pName] ?: [:]) as Map
+        String serviceRepo = BuildUtils.normalizeRepositoryUrl(pCfg?.scm)
+        String targetDir = (pCfg.sourceDir ?: pName) as String
+        if (targetDir != '.' && serviceRepo && primaryRepo && !serviceRepo.equalsIgnoreCase(primaryRepo)) {
+            String rawUrl = ((pCfg.scm instanceof Map ? (pCfg.scm.bitbucket?.url ?: pCfg.scm.url) : pCfg.scm) ?: '') as String
+            String credId = (pCfg.scm instanceof Map ? (pCfg.scm.bitbucket?.credentialsId ?: pCfg.scm.credentialsId) : '') as String
+            String branch = (pCfg.scm instanceof Map ? (pCfg.scm.bitbucket?.targetBranch ?: pCfg.scm.targetBranch ?: pCfg.scm.branch) : '') as String
+            echo "[SCM] Checking out repository '${rawUrl}' for service '${pName}' into '${targetDir}'"
+            dir(targetDir) {
+                if (credId) {
+                    git url: rawUrl, branch: branch ?: 'master', credentialsId: credId
+                } else {
+                    git url: rawUrl, branch: branch ?: 'master'
+                }
+            }
+        }
+    }
+}
+
 def parallelScans() {
     _setup()
     if (_parallelScans == null) {
