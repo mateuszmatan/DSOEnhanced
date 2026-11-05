@@ -224,5 +224,82 @@ check('AppScanService: resolveKeyId and resolveSecretCredentialsId isolate SAST 
                 && credResult.dastSecret == 'dast-token',
         "error=${credResult.error} sastKey=${credResult.sastKey} dastKey=${credResult.dastKey}")
 
+Map dedupResult = [:]
+try {
+    FakeScript sc = new FakeScript(unix: true)
+    sc.env.vars.putAll([
+            WORKSPACE: '/ws',
+            APPSCAN_LOG_DIR: '/ws/logs',
+            APPSCAN_HOME_DIR: '/ws/home',
+            APPSCAN_BIN_DIR: '/ws/bin',
+            APPSCAN_TOOLS_DIR: '/ws/tools',
+            APPSCAN_SCAN_NAME: 'service1',
+            APPSCAN_SOURCE_DIR_RESOLVED: '/ws/src1'
+    ])
+    sc.files['appscan-report-service1.html'] = '<!doctype html><html><body><h3>Summary of security issues</h3><table><tr><td>Critical severity issues:</td><td>1</td></tr><tr><td>High severity issues:</td><td>2</td></tr><tr><td>Medium severity issues:</td><td>3</td></tr><tr><td>Low severity issues:</td><td>4</td></tr><tr><td>Total security issues:</td><td>10</td></tr></table></body></html>'
+    sc.files['service1.irx'] = 'dummy-irx'
+    sc.files['logs/appscan.cmd'] = '/ws/bin/appscan.sh'
+    sc.files['logs/proxy.pass'] = 'pass'
+    sc.files['home/.appscan/appscan.properties'] = 'server.url=https://bbh.cloud.appscan.com'
+    sc.shHandler = { Map a ->
+        String cmd = a.script as String
+        if (cmd?.contains('FileUpload')) {
+            return '{"FileId": "file-1234"}'
+        }
+        if (cmd?.contains('Scans/Sast')) {
+            return '{"Id": "12345678-1234-1234-1234-123456789012"}'
+        }
+        if (cmd?.contains('Reports/Security/Scan')) {
+            return '{"Id": "report-1234"}'
+        }
+        if (cmd?.contains('Reports/report-1234')) {
+            return '{"Status": "Ready"}'
+        }
+        return ''
+    }
+    harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(sc)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(sc, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(sc, state, os, policy)
+        def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(sc, state, os, policy, build)
+
+        state.currentProjectName = 'service1'
+        state.cfg = [appId: 'shared-app-uuid', asoc: [doCompile: false, keyId: 'k', token: 't']]
+        appScan.generateIrx()
+        state.sastScansByAppId['shared-app-uuid'].scanId = '12345678-1234-1234-1234-123456789012'
+        sc.files['logs/scan-sast-service1.id'] = '12345678-1234-1234-1234-123456789012'
+        state.sastScansByAppId['shared-app-uuid'].completed = true
+        state.sastScansByAppId['shared-app-uuid'].counts = [critical: 1, high: 2, medium: 3, low: 4]
+        dedupResult.service1Counts = [critical: 1, high: 2, medium: 3, low: 4]
+
+        sc.env.vars.APPSCAN_SCAN_NAME = 'service2'
+        sc.env.vars.APPSCAN_SOURCE_DIR_RESOLVED = '/ws/src2'
+        state.currentProjectName = 'service2'
+        state.cfg = [appId: 'shared-app-uuid', asoc: [doCompile: false, keyId: 'k', token: 't']]
+        appScan.generateIrx()
+        appScan.queueSast([:])
+        appScan.waitSast()
+        appScan.downloadSastReports()
+        dedupResult.service2Counts = state.vulnCounts.sast
+        dedupResult.echoes = sc.log
+        dedupResult.service2Id = sc.files['logs/scan-sast-service2.id']
+    }
+} catch (Throwable t) {
+    dedupResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+
+check('AppScanService: deduplicates SAST scan when services share the same AppScan appId',
+        !dedupResult.error
+                && dedupResult.service1Counts == [critical: 1, high: 2, medium: 3, low: 4]
+                && dedupResult.service2Counts == [critical: 1, high: 2, medium: 3, low: 4]
+                && dedupResult.service2Id == '12345678-1234-1234-1234-123456789012'
+                && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - skipping duplicate IRX generation") }
+                && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - reusing scan ID") }
+                && dedupResult.echoes.any { it.contains("scan for application ID 'shared-app-uuid' already completed - skipping wait") }
+                && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - reusing report and findings") },
+        "error=${dedupResult.error} echoes=${dedupResult.echoes}")
+
 println "\n${failures == 0 ? 'ALL STATIC ANALYSIS SCENARIOS PASSED' : failures + ' STATIC ANALYSIS SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)
