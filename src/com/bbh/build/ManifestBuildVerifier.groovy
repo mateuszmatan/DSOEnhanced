@@ -38,18 +38,53 @@ class ManifestBuildVerifier implements BuildVerifier {
     private Map run(String dir, Map check, int timeoutMin, Map node) {
         try {
             int status = 1
+            String targetDir = "${dir}${check.subDir ? '/' + check.subDir : ''}".toString()
             script.timeout(time: timeoutMin, unit: 'MINUTES') {
-                status = inNodeEnvironment(check.name == 'npm' ? node : null) { script.sh(label: "GoldenFix: pre-check ${check.name}", returnStatus: true, script: """#!/bin/bash
+                status = inNodeEnvironment(check.name == 'npm' ? node : null) {
+                    if (!script.isUnix()) {
+                        return runWindows(targetDir, check)
+                    }
+                    return script.sh(label: "GoldenFix: pre-check ${check.name}", returnStatus: true, script: """#!/bin/bash
 set +e
 cd '${BuildUtils.escapeForSingleQuotes(dir)}${check.subDir ? '/' + BuildUtils.escapeForSingleQuotes(check.subDir as String) : ''}' || exit 1
 ${check.command}
-""") } as int
+""")
+                } as int
             }
             return [name: check.name, command: check.command, ok: status == 0, log: "exit code ${status}".toString()]
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             return [name: check.name, command: check.command, ok: false, log: (e.message ?: e.getClass().getSimpleName()) as String]
         }
+    }
+
+    private int runWindows(String targetDir, Map check) {
+        String command = check.overrideCommand ? (check.overrideCommand as String) : windowsPrecheckCommand(check)
+        String out = script.powershell(label: "GoldenFix: pre-check ${check.name}", returnStdout: true, script: """
+\$ErrorActionPreference = 'Continue'
+Set-Location -Path '${BuildUtils.psSingleQuote(targetDir)}'
+if (-not \$?) { Write-Output 'DEVSECOPS_EXIT=1'; exit 0 }
+${command}
+Write-Output "DEVSECOPS_EXIT=\$LASTEXITCODE"
+""") as String
+        def m = (out ?: '') =~ /DEVSECOPS_EXIT=(-?\d+)/
+        return m.find() ? m.group(1).toInteger() : 1
+    }
+
+    @NonCPS
+    private static String windowsPrecheckCommand(Map check) {
+        String kind = check.name as String
+        String file = (check.file ?: '') as String
+        if (kind == 'nuget') {
+            if (file.equalsIgnoreCase('packages.config')) {
+                return "nuget restore '${BuildUtils.psSingleQuote(file)}' -NonInteractive\nif (\$LASTEXITCODE -eq 0) { msbuild /t:Build /nologo /v:minimal }"
+            }
+            return "if (Test-Path 'packages.config') { nuget restore -NonInteractive }\n" +
+                    "if (Get-Command MSBuild.exe -ErrorAction SilentlyContinue) { " +
+                    (file.toLowerCase().endsWith('.props') ? 'MSBuild.exe /t:Restore,Build /nologo /v:minimal' : "nuget restore '${BuildUtils.psSingleQuote(file)}' -NonInteractive; MSBuild.exe '${BuildUtils.psSingleQuote(file)}' /t:Build /nologo /v:minimal") +
+                    " } else { dotnet build --no-incremental" + (file.toLowerCase().endsWith('.props') ? '' : " '${BuildUtils.psSingleQuote(file)}'") + " }"
+        }
+        return check.command as String
     }
 
     private def inNodeEnvironment(Map node, Closure body) {
@@ -83,9 +118,9 @@ ${check.command}
                 if (kind == 'maven' && shared && root == path && name != 'pom.xml') command += " -f '${BuildUtils.escapeForSingleQuotes(name)}'"
                 String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
                 if (kind == 'npm' && !override && lockFiles?.contains(lock)) {
-                    checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock]]
+                    checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock], file: name, overrideCommand: override]
                 } else {
-                    checks << [name: kind, command: command, subDir: subDir]
+                    checks << [name: kind, command: command, subDir: subDir, file: name, overrideCommand: override]
                 }
             }
         }
@@ -108,6 +143,8 @@ ${check.command}
         if (name == 'package.json') return 'npm'
         if (name == 'pyproject.toml' || (name.startsWith('requirements') && name.endsWith('.txt')) || (name.startsWith('constraints') && name.endsWith('.txt'))) return 'pip'
         if (name == 'pubspec.yaml' || name == 'pubspec.yml') return 'pub'
+        String low = (name ?: '').toLowerCase()
+        if (low.endsWith('.csproj') || low.endsWith('.fsproj') || low.endsWith('.vbproj') || low.endsWith('.props') || low == 'packages.config') return 'nuget'
         return ''
     }
 
@@ -118,6 +155,12 @@ ${check.command}
         if (kind == 'npm') return '[ -f package-lock.json ] && npm ci --ignore-scripts || npm install --ignore-scripts'
         if (kind == 'pip') return name == 'pyproject.toml' ? 'python3 -m pip install --dry-run .' : "python3 -m pip install --dry-run -r '${name}'".toString()
         if (kind == 'pub') return '[ -f pubspec.yaml ] && flutter pub get || dart pub get'
+        if (kind == 'nuget') {
+            String low = (name ?: '').toLowerCase()
+            if (low == 'packages.config') return "nuget restore '${BuildUtils.escapeForSingleQuotes(name)}' -NonInteractive"
+            if (low.endsWith('.props')) return 'dotnet build --no-incremental'
+            return "dotnet build --no-incremental '${BuildUtils.escapeForSingleQuotes(name)}'".toString()
+        }
         return ''
     }
 

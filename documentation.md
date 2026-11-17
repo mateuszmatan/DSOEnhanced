@@ -6,7 +6,7 @@ Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delive
 
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
-> **Note:** **This is the `DSOEnhancedAppScanApiOnly` branch, DevSecOps REST API SAST release.** A pipeline is configured by its `Jenkinsfile` and `devsecops_config.yaml` without portal dependency. Static Application Security Testing (SAST) is invoked via direct HCL AppScan on Cloud REST API calls (upload, start, poll, download) matching DAST, supporting TLS certificate verification skipping (`insecureTls: true`), proxy tunnel integration, and automatic exclusion of vulnerabilities with `Noise` status. The `main` branch of the repository is the release with the DevSecOps portal.
+> **Note:** **This is the `DSOEnhancedWithoutPortal` branch, DevSecOps version 0.** A pipeline is configured by its `Jenkinsfile` and the `devsecops_config.yaml` of its repository only, with the global settings that the library bundles. The `main` branch of the repository is the release with the DevSecOps portal. The features of `main` are carried over to this branch.
 
 ## Contents
 
@@ -95,6 +95,45 @@ After all stages, the library always:
 - Archives the HTML reports, the DAST PDF report and the release gate verdict (`release-gate.json`) as build artifacts
 - Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#21-monitoring-and-metrics)
 
+### Quick Reference Index
+
+### 1. Supported Technologies, Languages, Build Tools & Catalogs
+
+The library reads `devsecops_config.yaml` (or `config.yaml` for full backward compatibility). When `buildTool`, `deployTarget`, or tool-specific sub-parameters (such as `build.dotnet.mode`, `tests.unitTests.dotnet.runner`, or `coverageTool`) are omitted, `RepoStackAutoResolver` automatically detects them from the repository. If an invalid or unrecognized value is configured, the pipeline logs a `[WARN]` message and falls back to the auto-detected setting.
+
+| Technology / Stack | Languages | Build Tool (`buildTool`) | Auto-Detection Triggers | Unit Tests & Coverage | SonarQube Scanner | GoldenFix & Version Catalogs | SAST Inline PR Comments |
+|---|---|---|---|---|---|---|---|
+| Java / Enterprise JVM | Java, Kotlin, Groovy | `maven` (alias `mvn`) | `pom.xml` | Surefire/Failsafe JUnit XML + JaCoCo XML | `mvn sonar:sonar` | `pom.xml`, parent POMs, BOM imports, `<properties>` | `.java`, `.kt`, `.groovy`, `.jsp`, `.xml`, `.properties` |
+| JVM / Spring / Kotlin / Android | Java, Kotlin, Groovy | `gradle` (alias `gradlew`), `android` | `build.gradle`, `build.gradle.kts`, `gradle-wrapper.properties`, `AndroidManifest.xml` | Gradle Test JUnit XML + JaCoCo / Kover XML | `./gradlew sonarqube` | `build.gradle(.kts)`, `gradle.properties`, `gradle/libs.versions.toml`, `settings.gradle(.kts)`, `java-platform`, `buildSrc` | `.java`, `.kt`, `.kts`, `.groovy`, `.xml`, `.gradle` |
+| C# and .NET (.NET Framework 4.x, .NET Core, .NET 6/7/8/9+) | C#, F#, VB.NET, ASP.NET / Razor | `dotnet` (aliases `csharp`, `c#`, `net`, `fsharp`, `vbnet`), `msbuild` (aliases `vs`, `netfx`) | `*.sln`, `*.csproj`, `*.fsproj`, `*.vbproj`, `global.json`, `Directory.Packages.props`, `Directory.Build.props`, `packages.config`, `build.cake`, `.nuke` | Modes: `auto`, `dotnet`, `msbuild`, `hybrid`, `cake`, `nuke`. Runners: `dotnet test`, `vstest.console.exe`, `MSTest.exe`, `nunit3-console.exe`, `xunit.console.exe` (`.trx` / XML). Coverage: Cobertura (Coverlet/`XPlat Code Coverage`), OpenCover, dotCover | `SonarScanner.MSBuild.exe` / `dotnet sonarscanner` (or `sonar-scanner` with `useGenericScanner: true`) | `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, custom `.props`, `packages.config` | `.cs`, `.fs`, `.vb`, `.cshtml`, `.razor`, `.aspx`, `.config`, `.csproj`, `.props` |
+| Node.js / Frontend SPA (Angular, React, Vue) | JavaScript, TypeScript, HTML, CSS/SCSS | `npm` (aliases `node`, `nodejs`, `yarn`, `pnpm`, `angular`, `react`, `vue`) or Stage 0 `build.node.enabled: true` | `package.json`, `angular.json` (root or `frontend/`, `web/`, `client/`, `ui/`) | Jest / Karma / Vitest / Cypress + LCOV (`lcov.info`) / Cobertura / Clover | `sonar-scanner` with `-Dsonar.javascript.lcov.reportPaths` & `-Dsonar.typescript.lcov.reportPaths` | `package.json`, `package-lock.json`, `overrides`, `resolutions` | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.vue`, `.svelte`, `.html`, `.css`, `.scss`, `.json` |
+| Python | Python | `pip` (aliases `python`, `poetry`, `pipenv`) | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | `pytest` / `unittest` JUnit XML + `coverage.xml` (Cobertura) / `lcov.info` | `sonar-scanner` with `-Dsonar.python.coverage.reportPaths=coverage.xml` | `requirements.txt`, `requirements/*.txt`, `constraints.txt` | `.py`, `.pyw` |
+| Flutter / Dart (Mobile & Web) | Dart | `flutter` (alias `dart`) | `pubspec.yaml` | `flutter test --coverage` (`test_report.json` + `lcov.info` / `total_lcov.info`) | `sonar-scanner` (generic coverage XML + `dart analyze` issues or Flutter plugin) | `pubspec.yaml` | `.dart`, `.yaml`, `.yml` |
+| iOS / macOS | Swift, Objective-C, C/C++ | `ios` (aliases `xcode`, `swift`, `cocoapods`) | `Podfile`, `Package.swift`, `*.xcodeproj`, `*.xcworkspace` | `xcodebuild test` / `swift test` | `sonar-scanner` with Swift/Objective-C sources | CocoaPods / SwiftPM manifests | `.swift`, `.m`, `.mm`, `.h`, `.hpp`, `.c`, `.cpp` |
+| Database / SQL & PL/SQL | SQL, PL/SQL, T-SQL, XML/YAML changelogs | `liquibase` (aliases `sql`, `plsql`) or combined block on Maven/Gradle service | `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.sql`, `db/changelog/db.changelog-master.xml` | `liquibase validate` (coverage gate automatically marked `NOT_REQUIRED` for standalone SQL) | `sonar-scanner` with `-Dsonar.sources`, `inclusions`, `exclusions`, and PL/SQL suffixes | JDBC/extension JARs scanned via Nexus IQ | `.sql`, `.pls`, `.pks`, `.pkb`, `.plb`, `.prc`, `.fnc`, `.trg`, `.xml`, `.yaml` |
+
+### 2. Requirements per Stage and Security / Quality Tool
+
+| Capability / Stage | Required Configuration (`devsecops_config.yaml` / `config.yaml`) | Agent / Environment Prerequisites | What the Stage Produces & Enforces |
+|---|---|---|---|
+| **Build & Unit Tests** (Stages 0 & 2) | Optional `buildTool` (auto-detected if omitted or invalid). Optional `build.<tool>`, `tests.unitTests.<tool>`, `coverage.minLine` (default `75`% in bundled defaults, `60`% fallback) | Matching compiler/SDK on agent: JDK (`javaPath` or auto-detected), Gradle/Maven, .NET SDK or Visual Studio BuildTools (`MSBuild.exe`, `NuGet.exe`, `vstest.console.exe`, `OpenCover.Console.exe`), Node.js/npm, Python/pip, Flutter, or Liquibase | Compiles artifact, runs unit tests, aggregates all JaCoCo, LCOV, Cobertura, and OpenCover reports, and checks line coverage against the threshold |
+| **Dependencies Scan — Nexus IQ & GoldenFix** (Stage 3) | `tools.nexusIq.application` (or `applications`), `tools.nexusIq.credentialsId`, `tools.nexusIq.scanPatterns`. For GoldenFix PRs: `goldenFix.enabled: true` and `scm.bitbucket.url` + `credentialsId` | Jenkins Nexus Platform Plugin (`nexusPolicyEvaluation`), `git`, and `curl` / `curl.exe` for Nexus IQ remediation REST API and Bitbucket PR API | Evaluates open-source dependencies against Nexus IQ policy, runs GoldenFix pre-check build in an isolated Git worktree, upgrades manifests/version catalogs, and opens/updates a Bitbucket Pull Request |
+| **SAST — HCL AppScan** (Stage 4) | `appId` (or `asoc.appId`), `asoc.keyId`, `asoc.token` (Jenkins credentials ID) or `asoc.keySecret`. Optional `asoc.doCompile`, `asoc.<tool>`, `sast.sourceFolders`, `sast.excludedFolders` | HCL AppScan SAClientUtil (installed automatically from `SA_LINUX_URL` / `SA_WIN_URL` or pre-installed at `appscanPath`), outbound access (or proxy) to `bbh.cloud.appscan.com` | Compiles sources (when `doCompile: true`), generates `.irx` package, queues scan in HCL AppScan, downloads HTML report, enforces severity policy, and posts inline PR comments on vulnerable files/lines |
+| **SCA — SonarQube** (Stage 5) | `tools.sonar.projectKey` (auto-generated as `com.bbh:<service>` if omitted), `tools.sonar.installationName`, `tools.sonar.authToken` / `credentialsId` | SonarQube Scanner for Jenkins (`withSonarQubeEnv`), plus `SonarScanner.MSBuild.exe` / `dotnet-sonarscanner` for .NET or `sonar-scanner` for Flutter/Liquibase/Python/Node/iOS | Executes static code quality & security hotspot analysis, fetches blocker/critical/major/minor counts via REST API, enforces policy, and posts inline PR comments |
+| **Artifact Delivery & Deployment** (Stages 6, 7, 12, 13) | `deployTarget`: `openshift` or `vm` (auto-detected from `Dockerfile` / `openshift` / `k8s` / `helm` if omitted). `deploy.openshift.<rd\|qc>` or `deploy.vm.<rd\|qc\|dod>`, optional `delivery.<maven\|gradle\|nuget>` | For OpenShift: `oc`, `skopeo`, cluster credentials. For VM: SSH credentials or UrbanCode Deploy (DOD) plugin. For NuGet: `nuget.exe` or `dotnet` | Publishes snapshot/release artifacts or container images to Nexus and deploys to RD (lower environment) and QC (higher environment, gated by `release-gate.json`) |
+| **Functional & Performance Tests** (Stages 8, 9, 10) | `tests.regression.jobs` (or `urls`), `tests.smoke.jobs` (or `urls`), `tests.performance.jobs` (or `urls`), optional `tokenCredentialsId` and `maxParallel` | Local Jenkins jobs or Parameterized Remote Trigger plugin for remote Jenkins URLs | Triggers downstream test jobs in parallel batches, collects build status and duration, and records results in HTML report and InfluxDB |
+| **DAST — HCL AppScan** (Stage 11) | `dast.enabled: true`, `dast.targetUrl`, `dast.scanName` (or `dast.scanFile`), `asoc.keyId` / `dast.keyId` | Running application in RD reachable at `dast.targetUrl` (via optional `dast.presenceId` tunnel) | Runs dynamic runtime security scan against `targetUrl`, downloads HTML and PDF reports, enforces DAST policy, and opens a DAST findings Pull Request if violations exist |
+
+### 3. Breakdown per Pipeline Type
+
+| Pipeline Entry Point | Stages Executed | Required Sections in `devsecops_config.yaml` / `config.yaml` | Artifacts & Pull Requests Produced |
+|---|---|---|---|
+| `devSecOpsPipeline` **(Full Pipeline)** | All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy) | `asoc.keyId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast` (`buildTool` and `deployTarget` auto-resolved if omitted) | `report/pipeline-report.html`, `appscan-report*.html`, `appscan-dast-report*.pdf`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR |
+| `devSecOpsSecurityPipeline` **(Security Pipeline)** | Static & snapshot stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot); optionally triggers `extendedPipeline` | `asoc.keyId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>.rd` (`buildTool` and `deployTarget` auto-resolved if omitted) | `report/pipeline-report.html`, `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments) |
+| `devSecOpsExtendedPipeline` **(Extended Pipeline)** | Dynamic & release stages: 1 (Monitor + copy `pipeline-config.yaml` & `release-gate.json` from `securityPipeline`), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy) | `asoc.keyId`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast`; Jenkinsfile passes `securityPipeline: '<job>'` (or runs standalone) | `report/pipeline-report.html`, `appscan-dast-report*.html/.pdf`, `pipeline-config.yaml`, `release-gate.json`, DAST PR |
+| `devSecOpsSASTScanningPipeline` **(SAST-Only Pipeline)** | Stages: 1 (Monitor), 0 (Node.js optional when `asoc.doCompile: true` on Linux), 4 (AppScan SAST) | `appId`, `asoc.keyId`, `asoc.token` / `keySecret` (and `build.<tool>` / `asoc.<tool>` when `asoc.doCompile: true`) | `report/pipeline-report.html` (SAST-only view), `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json` |
+| `devSecOpsNexusIqGoldenFixPipeline` **(Nexus IQ + GoldenFix Pipeline)** | Stages: 1 (Monitor), 0 (Node.js optional), 2 (Build artifact), 3 (Nexus IQ scan + GoldenFix remediation & PR) | `tools.nexusIq.application` + `scanPatterns`, `goldenFix`, `scm.bitbucket` (`buildTool` auto-resolved if omitted) | `report/pipeline-report.html` (Nexus IQ + GoldenFix view), `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR |
+
 ## 2. Benefits of DevSecOps at BBH
 
 This chapter states the business case for operating application delivery through the shared DevSecOps pipeline rather than through pipelines maintained independently by each application team. The figures quoted are published industry benchmarks, cited for order of magnitude; they are not measurements of BBH systems. Section [Monitoring and Metrics](#21-monitoring-and-metrics) describes how the equivalent figures are measured for BBH applications once the pipeline is in operation.
@@ -173,7 +212,7 @@ This provides:
 |---|---|
 | IBM, `Cost of a Data Breach Report 2025` | Global average breach cost USD 4.44 million; United States average USD 10.22 million; mean time to identify and contain 241 days |
 | Verizon, `2025 Data Breach Investigations Report` | Exploitation of vulnerabilities as initial access vector in 20% of breaches, a 34% year-on-year increase; third-party involvement in 30% of breaches |
-| DORA (DevOps Research and Assessment), `2024 State of DevOps Report` | Elite performer benchmarks for deployment frequency, lead time for change, change failure rate and failed deployment recovery time |
+| Google Cloud / DORA, `2024 State of DevOps Report` | Elite performer benchmarks for deployment frequency, lead time for change, change failure rate and failed deployment recovery time |
 | IBM Systems Sciences Institute defect cost model | Relative cost of defect correction by development phase; widely cited, multipliers vary between studies |
 
 ## 3. DevSecOps Library Features
@@ -197,11 +236,11 @@ Every stage runs on every build. A stage that breaks the policy is marked **oran
 | Scan | Tool | Capabilities |
 |---|---|---|
 | Dependency / SCA | Sonatype Nexus IQ | Policy evaluation of the whole dependency tree, per severity counts, a link to the composition report, and automated remediation pull requests |
-| SAST | HCL AppScan on Cloud | IRX generation on the agent, file upload and scan execution via REST API v4, polling until the scan finishes, HTML and PDF report archived, link to the AppScan console; vulnerabilities with Noise status are strictly excluded |
-| DAST | HCL AppScan on Cloud | Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived; vulnerabilities with Noise status are strictly excluded |
+| SAST | HCL AppScan on Cloud | IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report archived, link to the AppScan console |
+| DAST | HCL AppScan on Cloud | Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived |
 | Code quality | SonarQube | Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report |
 
-The severity counts the pipeline reports are the ones printed in the tool's own report (excluding any issues with Noise status), and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
+The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
 - When `staticAnalysis.parallel` is switched on, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 
@@ -220,8 +259,8 @@ The gate collects every verdict of the run and blocks the release artifact and t
 When Nexus IQ reports a policy violation the library prepares the upgrade itself and opens a pull request for review. It never merges anything.
 
 - Only **direct dependencies** are touched; transitive ones are upgraded by upgrading whatever pulls them in.
-- Manifests are updated across the whole source tree: `pom.xml`, `build.gradle`/`.kts`, `gradle.properties`, Gradle version catalogs, `package.json` (with its `overrides` and `resolutions`), `requirements*.txt`, `pyproject.toml` and `pubspec.yaml`.
-- **Shared version catalogs are raised once.** In a repository that holds several services, a version that a shared catalog defines is raised in the catalog, consistently for every service that uses it: a Gradle version catalog, the catalog of `settings.gradle`, a build file that other builds apply, a `java-platform` module, or a Maven parent or BOM pom. A declaration of the same dependency outside the catalog is raised to the same version and named in the pull request, so that a reviewer can move it into the catalog.
+- Manifests are updated across the whole source tree: `pom.xml`, `build.gradle`/`.kts`, `gradle.properties`, Gradle version catalogs, `package.json` (with its `overrides` and `resolutions`), `requirements*.txt`, `pyproject.toml`, `pubspec.yaml`, and NuGet / .NET manifests (`*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, and `packages.config`).
+- **Shared version catalogs are raised once.** In a repository that holds several services, a version that a shared catalog defines is raised in the catalog, consistently for every service that uses it: a Gradle version catalog, the catalog of `settings.gradle`, a build file that other builds apply, a `java-platform` module, a Maven parent or BOM pom, or a .NET `Directory.Packages.props` / `Directory.Build.props`. A declaration of the same dependency outside the catalog is raised to the same version and named in the pull request, so that a reviewer can move it into the catalog.
 - The version is chosen by two rules: **only the patch version may change**, and of those the **newest one without known vulnerabilities** wins.
 - Before anything is proposed the project is **built with the new versions**: every changed manifest in its own folder, and a shared catalog in every build that uses it. A failing build lowers the versions and retries, and if nothing builds, no pull request is opened.
 - The services of one build that share a repository share one pull request. Each later service adds its upgrades to it and says so in a comment.
@@ -230,7 +269,7 @@ The Nexus IQ GoldenFix pipeline runs the dependency scan and this remediation on
 
 ### Build, test and delivery
 
-Gradle, Maven and Flutter builds with the project's own tasks. An optional Node.js build runs the npm commands of a frontend first, as stage 0, so that the Gradle or Maven build can package its output. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it, and container images built and copied to Nexus for OpenShift projects.
+Gradle, Maven, C#/.NET (classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` on Windows or `dotnet` SDK CLI on Windows/Linux), Liquibase and Flutter builds with the project's own tasks. An optional Node.js build runs the npm commands of a frontend first, as stage 0, so that the Gradle or Maven build can package its output. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it (including NuGet push for .NET and Maven/Gradle publish), and container images built and copied to Nexus for OpenShift projects.
 
 ### Deployment
 
@@ -238,16 +277,17 @@ Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image 
 
 ### Reporting and metrics
 
-A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
+A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report (JaCoCo XML, Cobertura XML, OpenCover XML, LCOV), SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
 
 ### Automated Stack Discovery and Smart Auto-Resolve
 
 To remove over 80% of onboarding friction for application teams, `RepoStackAutoResolver` inspects repository workspace files dynamically. Instead of requiring engineers to know compiler versions, Node.js directories, Liquibase flags or OpenShift manifests, missing fields are auto-resolved:
 
 - Maven (`pom.xml`) and Gradle (`build.gradle`) with exact compiler JDK and wrapper versions.
+- C# and .NET solutions and projects (`*.sln`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, `packages.config`, `global.json`).
 - Node.js Stage 0 (`package.json`) with detected directory, engine version and test runners (Cypress, Jest).
 - Database changes via Liquibase (`changelog.xml`, `liquibase.properties`).
-- Multi-language support: Kotlin, Python (pip), Dart/Flutter.
+- Multi-language support: C# / .NET, Kotlin, Python (pip), Dart/Flutter.
 - Target environment auto-detection: OpenShift when container files/manifests exist; virtual machines otherwise.
 - Fully backward compatible: explicit parameters in configuration files always take precedence.
 
@@ -260,7 +300,7 @@ Developers receive instant, actionable feedback directly in Bitbucket pull reque
 
 ### SonarQube Default Configuration, Heuristic Module Discovery and Branch Pinning
 
-When `sonar-project.properties` is omitted from a repository, `SonarService` synthesizes standard BBH enterprise defaults automatically. It detects multi-module structures in Maven and Gradle, assigns language-appropriate source/test directories, and pins `sonar.branch.name` to the active evaluated pipeline branch rather than defaulting to master.
+When `sonar-project.properties` is omitted from a repository, `SonarService` synthesizes standard BBH enterprise defaults automatically. It detects multi-module structures in Maven and Gradle, assigns language-appropriate source/test directories (including `SonarScanner.MSBuild.exe` begin/build/end or `dotnet sonarscanner` with Cobertura/OpenCover/VSTest reports for C#/.NET), and pins `sonar.branch.name` to the active evaluated pipeline branch rather than defaulting to master.
 
 ### Continuous Software Assurance Maturity Model (OWASP SAMM v2.0)
 
@@ -270,14 +310,14 @@ The DevSecOps architecture aligns with the OWASP SAMM v2.0 framework across 5 bu
 
 | Dimension | Supported |
 |---|---|
-| Agent operating system | Linux, macOS and Windows; the library detects the agent and uses the right shell |
-| Build tools | Gradle, Maven, Flutter; Node.js with npm as an optional stage 0 before Gradle or Maven |
-| Dependency ecosystems for remediation | Maven, npm, PyPI, Dart/Flutter pub |
-| Shared version catalogs for remediation | Inside the repository: Gradle version catalogs (`*.versions.toml`, the files `settings.gradle` imports and its catalog DSL), Gradle build files named by `apply from`, `java-platform` modules, and Maven parent and BOM poms |
+| Agent operating system | Linux, macOS and Windows; the library detects the agent and uses bash or PowerShell cleanly |
+| Build tools | Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), Liquibase, Flutter; Node.js with npm as an optional stage 0 before Gradle or Maven |
+| Dependency ecosystems for remediation | Maven, npm, PyPI, NuGet, Dart/Flutter pub |
+| Shared version catalogs for remediation | Inside the repository: Gradle version catalogs (`*.versions.toml`, the files `settings.gradle` imports and its catalog DSL), Gradle build files named by `apply from`, `java-platform` modules, Maven parent and BOM poms, and .NET `Directory.Packages.props` / `Directory.Build.props` |
 | Projects per build | One or many, each with its own configuration, scans, coverage and report rows |
-| Source control | Git; Bitbucket for GoldenFix pull requests |
+| Source control | Git; Bitbucket for GoldenFix and security pull requests |
 
-GoldenFix remediation needs a Linux or macOS agent. Everything else runs on Windows agents as well.
+All pipeline stages, including GoldenFix dependency remediation and SAST IRX generation, run natively on both Linux/macOS agents and Windows Jenkins agents.
 
 ### Script security
 
@@ -397,15 +437,15 @@ Compared with release b815d55 of the library, which read `config.yaml` and `reso
 Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
 
 - **Git repository accessible from Jenkins.** The project must live in a Git repository that the Jenkins controller can clone. The `Jenkinsfile` must be committed at the repository root and pushed to the branch configured in the Jenkins job. `devsecops_config.yaml`, or the former `config.yaml`, is committed at the root as well.
-- **Supported build tool: Gradle, Maven, or Flutter.** The codebase must use one of the three supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository. The build tool is either set for the service in `devsecops_config.yaml` (`buildTool`) or auto-detected.
+- **Supported build tool: Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), Liquibase, or Flutter.** The codebase must use one of the supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository; for C#/.NET on Windows, classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` works out of the box (with `dotnet` SDK CLI available via `useDotnetCli: true` or on Linux). The build tool is either set for the service in `devsecops_config.yaml` (`buildTool`) or auto-detected by `RepoStackAutoResolver`.
 - **Optional: a frontend that npm builds first.** When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first (`build.node.enabled: true`). It needs the folder of the `package.json` (`build.node.dir`) and, for the default command `npm ci`, a committed `package-lock.json`. The frontend build must write its output outside `build/` and `target/`, because the `clean` task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting](#23-troubleshooting-guide). Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
-- **Code must compile successfully.** The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus repositories.
-- **Unit tests with JaCoCo coverage (Gradle/Maven) or lcov (Flutter).** The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the defaults that the library bundles only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs `flutter test --coverage` in the main package and in each tested plugin and module, and reads the `coverage/lcov.info` of each.
-- **A JDK on the agent, named in the configuration.** Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, the Unit tests stage stops with **JAVA_HOME parameter is not specified**, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`.
+- **Code must compile successfully.** The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven` / `asoc.dotnet`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus or NuGet repositories.
+- **Unit tests with JaCoCo (Gradle/Maven), Cobertura/OpenCover (C#/.NET), or LCOV (Flutter/JS/Python) coverage.** The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. For C#/.NET, `vstest.console.exe` + `OpenCover.Console.exe` (or `dotnet test --collect:"XPlat Code Coverage"`) produces OpenCover/Cobertura XML coverage and `.trx` test results automatically parsed by the pipeline. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the defaults that the library bundles only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs `flutter test --coverage` in the main package and in each tested plugin and module, and reads the `coverage/lcov.info` of each.
+- **A JDK on the agent, named in the configuration (not required for C#/.NET or Liquibase).** Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, Java/Gradle/Maven/Flutter Unit tests stop with **JAVA_HOME parameter is not specified**, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`. Services with `buildTool: dotnet` or `msbuild` never require `JAVA_HOME`.
 - **HCL AppScan on Cloud (ASoC) application registered.** The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from ASoC for every service: the key ID is set for the service in `devsecops_config.yaml` (`asoc.keyId`), the key secret stays in a Jenkins **Secret text** credential named in `asoc.token`. Both SAST and DAST scans are uploaded to this application with the key of the service.
 - **SonarQube project registered.** A project must exist in SonarQube with a unique `projectKey`. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins **Secret text** credential named in `badgeCredentialsId`, or the token itself in `badgeToken`. The SonarQube server must be reachable from the Jenkins agent.
-- **Nexus IQ application registered.** The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs) must match the `scanPatterns` configured for the service in `devsecops_config.yaml`. The Nexus IQ server must be reachable from the Jenkins agent.
-- **Build artifacts produced in expected locations.** Gradle projects must produce artifacts under `build/libs/`. Maven projects under `target/`. These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the `package-lock.json` of its frontend folder scanned, see [the stage reference](#16-pipeline-stage-reference).
+- **Nexus IQ application registered.** The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs, DLLs, `*.nupkg`, `packages.config`, `*.csproj`, `Directory.Packages.props`) must match the `scanPatterns` configured for the service in `devsecops_config.yaml`. The Nexus IQ server must be reachable from the Jenkins agent.
+- **Build artifacts produced in expected locations.** Gradle projects produce artifacts under `build/libs/`, Maven projects under `target/`, and .NET projects under `bin/Release/` (or `build.dotnet.publishDir` / `packages.config` for NuGet dependency scanning). These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the `package-lock.json` of its frontend folder scanned, see [the stage reference](#16-pipeline-stage-reference).
 - **Several services in one repository.** The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names all of them in `projectNames` and whose `devsecops_config.yaml` holds the settings of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline).
 - **Deployment script and version file (VM deployment over SSH).** For SSH deployment, the repository must contain a zero-downtime deployment shell script and a `version.properties` file with an `APP_VERSION=<version>` entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
 - **UrbanCode Deploy application (VM deployment in `devSecOpsPipeline`).** The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so `deploy.vm.dod` must name the site, the application and at least one component. The UrbanCode Deploy plugin (`UCDeployPublisher`) and the configured site must exist in Jenkins.
@@ -568,6 +608,8 @@ The pipeline fails the dependency stage if the application does not exist in Nex
 4. **Write down the project key and the credential ID.** They go into `devsecops_config.yaml` as `tools.sonar.projectKey` and `tools.sonar.authToken`.
 
 **Flutter applications:** SonarQube Community has no Dart analyser and the library does not need one. It converts the coverage report and the `dart analyze` findings into the generic import formats SonarQube accepts for any language. No additional component is required; create the project as described above.
+
+**C# and .NET applications:** Create the SonarQube project manually with its `projectKey` and credential ID. For classic MSBuild projects on Windows agents, the library wraps the build with `SonarScanner.MSBuild.exe begin` / `end`; for `dotnet` SDK CLI projects (`useDotnetCli: true`), it uses `dotnet sonarscanner begin` / `end`. When your SonarQube server uses Scanner for .NET in solution mode, `Coverage` (OpenCover / Visual Studio Coverage XML) and VSTest (`*.trx`) reports are automatically passed via `/d:sonar.cs.opencover.reportsPaths`, `/d:sonar.cs.vscoveragexml.reportsPaths`, and `/d:sonar.cs.vstest.reportsPaths`.
 
 ### HCL AppScan — SAST
 
@@ -1340,7 +1382,7 @@ projects:
       enabled:                true
       onlyDirectDependencies: true
       minThreatLevel:         2      # 2+ medium, 4+ high, 8+ critical
-      ecosystems:             [maven, npm, pypi]   # supported: maven, npm, pypi, pub; a Flutter service adds pub
+      ecosystems:             [maven, npm, pypi, nuget]   # supported: maven, npm, pypi, nuget, pub; a Flutter service adds pub
       goldenVersionTypes:            # Nexus IQ remediation types taken as they are (the Golden Version)
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
@@ -1350,12 +1392,13 @@ projects:
         maxAttempts:    3            # version sets tried; each failed build lowers every proposed version; the build with the Nexus IQ
                                      # version instead of a catalog version comes on top
         timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
-        commands:                    # replaces the default check of one ecosystem; runs with bash in the folder of the check
+        commands:                    # replaces the default check of one ecosystem; runs in the folder of the check
           maven:  ""                 # [default: mvn -B -q -DskipTests compile]
           gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
           npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
           pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
           pub:    ""                 # [default: flutter pub get, or dart pub get]
+          nuget:  ""                 # [default on Windows: nuget restore & MSBuild.exe (else dotnet build); on Linux: dotnet build --no-incremental or nuget restore]
       commitAuthorName:       "DevSecOps GoldenFix"
       commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
@@ -1570,7 +1613,7 @@ defaults:                            # merged under every service of the run
     enabled:                true
     onlyDirectDependencies: true
     minThreatLevel:         2        # 2+ medium, 4+ high, 8+ critical
-    ecosystems:             [maven, npm, pypi]
+    ecosystems:             [maven, npm, pypi, nuget]
     goldenVersionTypes:
       - recommended-non-breaking-with-dependencies
       - recommended-non-breaking
@@ -1584,6 +1627,7 @@ defaults:                            # merged under every service of the run
         npm:    ""
         pip:    ""
         pub:    ""
+        nuget:  ""
     commitAuthorName:  "DevSecOps GoldenFix"
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""            # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default
@@ -1635,7 +1679,7 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 - An absent key means one after another. The production bundled defaults leave the key out, so nothing changes until a service, the bundled defaults or the environment turns it on.
 - A service of `devsecops_config.yaml` or `config.yaml` sets `staticAnalysis.parallel: true` or `false` for itself, and a `defaults.staticAnalysis.parallel` of the bundled defaults is merged under every service. One service with `false` or without the key keeps the whole run one after another, so every service of the run needs `true`.
 - The environment variable `DSO_STATIC_ANALYSIS_PARALLEL` decides first: `true` or `false`, whatever the settings say. The library reads it once per run, on the agent, when Jenkins decides whether to run the **Static analysis** stage. It therefore counts when it is set in **Manage Jenkins → System → Global properties → Environment variables**, in the environment variables of the agent's node properties, or in the top-level `environment` block of a custom Jenkinsfile ([the API reference](#20-programmatic-api-reference)). A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build; the library calls no step such as `withFolderProperties`.
-- On a Linux or macOS agent, a service whose SAST compile is not its build command (`asoc.gradle` or `asoc.maven` differs from `build.gradle` or `build.maven`, and `asoc.doCompile` is not `false`) keeps the run one after another, also when the environment variable is `true`, because Nexus IQ must evaluate only files the build command built. The whole block is compared, so other flags, environment variables or folders count too. The console names those services: "\[STATIC\] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another". On Windows the IRX step compiles nothing, so the rule does not apply there.
+- On a Linux or macOS agent, a service whose SAST compile is not its build command (`asoc.gradle`, `asoc.maven`, or `asoc.dotnet` differs from `build.gradle`, `build.maven`, or `build.dotnet`, and `asoc.doCompile` is not `false`) keeps the run one after another, also when the environment variable is `true`, because Nexus IQ must evaluate only files the build command built. The whole block is compared, so other flags, environment variables or folders count too. The console names those services: "\[STATIC\] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another". On Windows the IRX step compiles nothing for Java unless pre-compile is triggered (or compiles .NET pre-IRX when enabled), so inspect your agent mode accordingly.
 
 ### Which fields are required
 
@@ -1643,15 +1687,16 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 |---|---|---|
 | `asoc.keyId` | YES, for every service | Pipeline fails at init without it |
 | `asoc.token` | Recommended | Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like `asoc.keyId` is used |
-| `appId` | YES | Needed for AppScan SAST and DAST. When multiple services share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings. |
-| `tools.sonar.projectKey` | Auto-resolved | When omitted, automatically synthesizes standard configuration with `com.bbh:<projectName>`, multi-module discovery, and active branch pinning |
+| `appId` | YES | Needed for AppScan SAST and DAST |
+| `tools.sonar.projectKey` | Auto-resolved / Recommended | When auto-resolve is enabled (default), automatically synthesizes `com.bbh:<projectName>` |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
-| `javaPath` or `buildToolAutoSetup: true` | Auto-resolved or YES | When auto-resolve is active (default), `buildToolAutoSetup: true` and compiler JDK are inferred from `pom.xml` / `build.gradle`; otherwise required for Gradle/Maven/Flutter |
+| `javaPath` or `buildToolAutoSetup: true` | Auto-resolved or YES (not required for `dotnet` / `msbuild` or standalone `liquibase`) | When auto-resolve is active (default), `buildToolAutoSetup: true` is inferred from `pom.xml` / `build.gradle`. Not required for C# / .NET (`dotnet` / `msbuild`) or `buildTool: liquibase` when tools are on `PATH`; Java/Gradle/Maven/Flutter builds stop with **JAVA_HOME parameter is not specified** without one of them |
 | `deploy.vm.dod` | Only if `deployTarget: vm` and you use `devSecOpsPipeline` | The lower test region deployment of the full pipeline uses UrbanCode Deploy |
 | `deploy.vm.rd`, `deploy.vm.qc` | Only if `deployTarget: vm` | SSH deployment of the extended pipeline and of the QC stage |
 | `deploy.openshift.*` | Only if `deployTarget: openshift` | Auto-detected when container files or manifests are found; `appName` and `artifactName` are required as well |
 | `delivery.maven` | Only if `deployTarget: vm` and `buildTool: maven` | Snapshot upload of the artifact to Nexus |
+| `delivery.nuget` | Only if `buildTool: dotnet` / `msbuild` and publishing `*.nupkg` to Nexus | NuGet package push via `nuget.exe push` or `dotnet nuget push` |
 | `jenkins.pipeline.extendedPipeline` | Only for `devSecOpsSecurityPipeline` | The job it starts when `RUN_EXTENDED_PIPELINE` is selected; it may be set in any service of the run, the current service first |
 | `scm.bitbucket.url` | Only for GoldenFix | Without it the fixes are listed in the report but no pull request is raised |
 | `scm.bitbucket.credentialsId` | Only for GoldenFix | Needs push rights and permission to create and comment on pull requests |
@@ -1662,15 +1707,16 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 
 ### Automated Stack Discovery and Smart Auto-Resolve (RepoStackAutoResolver)
 
-The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding friction by automatically inspecting workspace files at the beginning of each pipeline run. Application teams are not required to look up compiler versions, Gradle wrappers, Node.js directories, Liquibase flags or OpenShift deployment targets.
+The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding friction by automatically inspecting workspace files at the beginning of each pipeline run. Application teams are not required to look up compiler versions, Gradle wrappers, .NET solutions, Node.js directories, Liquibase flags or OpenShift deployment targets.
 
-| Setting / Parameter | YAML Key / Portal Field | Workspace Trigger / Manifest | Resolved Default Value |
+| Setting / Parameter | YAML Key | Workspace Trigger / Manifest | Resolved Default Value |
 |---|---|---|---|
-| Build Tool | `buildTool` | `pom.xml` | `maven` |
-| Build Tool | `buildTool` | `build.gradle` or `build.gradle.kts` | `gradle` |
-| Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, `liquibase.properties` | `liquibase` |
 | Build Tool | `buildTool` | `pubspec.yaml` | `flutter` |
-| Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | `pip` |
+| Build Tool | `buildTool` | `pom.xml` | `maven` |
+| Build Tool | `buildTool` | `build.gradle`, `build.gradle.kts`, or `gradle/wrapper/gradle-wrapper.properties` | `gradle` |
+| Build Tool | `buildTool` | `*.sln`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, `packages.config`, or `global.json` | `dotnet` |
+| Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, or `liquibase.properties` | `liquibase` |
+| Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, or `Pipfile` | `pip` |
 | Build Tool Auto Setup | `buildToolAutoSetup` | Maven or Gradle build tool detected | `true` |
 | Java Compiler Version | `build.maven.javaVersion` / `build.gradle.javaVersion` | `<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, `<release>` in `pom.xml`; `jvmToolchain`, `sourceCompatibility` in `build.gradle` | Matched JDK version (`17`, `21`, `11`, `8`) |
 | Gradle Wrapper Version | `build.gradle.version` | `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` | Exact Gradle wrapper version (e.g. `8.7`, `7.6`) |
@@ -1683,8 +1729,8 @@ The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding f
 | Liquibase Validate Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']` |
 | Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, or `helm/` | `openshift` (otherwise defaults to `vm`) |
 | SonarQube Project Key | `tools.sonar.projectKey` | Omitted or empty in configuration | `com.bbh:<projectName>` or `com.bbh:<appName>` |
-| SonarQube Language | `sonar.language` | Source code tree inspection (`pubspec.yaml` -&gt; `dart`, `requirements.txt` -&gt; `py`, Kotlin -&gt; `kotlin`, Liquibase -&gt; `sql`, else `java`) | Language identifier |
-| SonarQube Source Paths | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python) |
+| SonarQube Language | `sonar.language` | Source code tree inspection (`pubspec.yaml` -&gt; `dart`, `requirements.txt` -&gt; `py`, C#/.NET -&gt; `cs`, Kotlin -&gt; `kotlin`, Liquibase -&gt; `sql`, else `java`) | Language identifier |
+| SonarQube Source Paths | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python / .NET generic) |
 | SonarQube Test Paths | `sonar.tests` | Missing `sonar-project.properties` | `src/test/java` (Java), `src/test/kotlin` (Kotlin), `test` (Dart), `tests` (Python) |
 | SonarQube Java Binaries | `sonar.java.binaries` | Build tool classes folder | Maven: `target/classes`; Gradle: `target/classes,build/classes/java/main` |
 | SonarQube Modules | `sonar.modules` | Multi-module Maven (`<module>`) or Gradle (`settings.gradle` `include`) | Comma-separated module names |
@@ -1704,7 +1750,7 @@ projects:
       token: "APPSCAN_KEY_SECRET_CREDENTIAL_ID"
 ```
 
-The pipeline automatically resolves the build tool (Maven/Gradle/Liquibase/Flutter/Python), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
+The pipeline automatically resolves the build tool (Maven / Gradle / C#.NET / Liquibase / Flutter / Python), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
 
 1. **Disabling Auto-Resolve**: To mandate strict manual configuration and disable heuristic resolution, set `autoresolve parameters: false`:
 
@@ -1770,7 +1816,7 @@ Its effect on the later stages:
 Performs, once per project:
 
 - Builds the artifact with the command of the `build` section
-- Runs the unit tests with the command of `tests.unitTests`, then reads every JaCoCo and LCOV coverage report of the project (see **Coverage reports** below)
+- Runs the unit tests with the command of `tests.unitTests` (including Visual Studio `.trx` / JUnit XML reporting for C#/.NET), then reads every JaCoCo, Cobertura, OpenCover and LCOV coverage report of the project (see **Coverage reports** below)
 - Compares the line coverage of that project, the mean of its reports, with `coverage.minLine` of the bundled defaults (60 %)
 
 The stage never fails the pipeline. Below the required value the stage turns **orange**, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always `coverage.minLine` of the bundled defaults, so a library release that changes it changes both the check and the report.
@@ -1779,11 +1825,11 @@ The stage never fails the pipeline. Below the required value the stage turns **o
 
 Where the pipeline looks:
 
-1. When `coverage.reportPath` is set, the reports it names count, and only those, so a frontend report must be named as well. It holds one path, several paths one per line or separated by commas, or a YAML list, relative to the workspace; `*` matches within a folder or file name, `?` one character and `**` any number of folders, for example `**/build/reports/jacoco/test/*.xml`. When none of them exists, the pipeline searches as if it were empty. Leave it empty unless the search takes the wrong reports.
-2. Otherwise the pipeline searches the folders in which the service is tested and every folder below them, such as `build`, `target`, `release` and the folders of the modules: the folder of the unit test command (`tests.unitTests.gradle.dir` or `tests.unitTests.maven.dir`), otherwise the folder of the build command (`build.gradle.dir` or `build.maven.dir`), otherwise the source folder (`sourceDir`), otherwise the workspace; and, with the Node.js build, the folder of its `package.json` (`build.node.dir`, the workspace by default). The folders of the other services of the build are left out. When these folders hold no report and none of them is the workspace, the whole workspace is searched the same way.
-3. A JaCoCo report is an XML file that holds a JaCoCo report and has `jacoco` in its path, such as `jacoco.xml` or `jacocoTestReport.xml`, or lies under `reports/coverage` (Android) or `reports/kover` (Kover). An LCOV report is a file ending in `.info` or `.lcov`, such as `lcov.info`, that starts with an LCOV record. An LCOV report whose source files are mostly Dart files is shown as Flutter.
+1. When `coverage.reportPath` is set, the reports it names count, and only those, so a frontend report must be named as well. It holds one path, several paths one per line or separated by commas, or a YAML list, relative to the workspace; `*` matches within a folder or file name, `?` one character and `**` any number of folders, for example `**/build/reports/jacoco/test/*.xml` or `**/TestResults/**/coverage.cobertura.xml`. When none of them exists, the pipeline searches as if it were empty. Leave it empty unless the search takes the wrong reports.
+2. Otherwise the pipeline searches the folders in which the service is tested and every folder below them, such as `build`, `target`, `release`, `TestResults` and the folders of the modules: the folder of the unit test command (`tests.unitTests.gradle.dir`, `tests.unitTests.maven.dir`, or `tests.unitTests.dotnet.dir`), otherwise the folder of the build command (`build.gradle.dir`, `build.maven.dir`, or `build.dotnet.dir`), otherwise the source folder (`sourceDir`), otherwise the workspace; and, with the Node.js build, the folder of its `package.json` (`build.node.dir`, the workspace by default). The folders of the other services of the build are left out. When these folders hold no report and none of them is the workspace, the whole workspace is searched the same way.
+3. A JaCoCo report is an XML file that holds a JaCoCo report and has `jacoco` in its path, such as `jacoco.xml` or `jacocoTestReport.xml`, or lies under `reports/coverage` (Android) or `reports/kover` (Kover). A Cobertura report is a `coverage.cobertura.xml` / `*cobertura*.xml` / `coverage.xml` file (or under `TestResults` / `coverage`) with root `<coverage>` and `line-rate` / `lines-valid` attributes or `<line>` elements; an OpenCover report is a `coverage.opencover.xml` / `*opencover*.xml` file with root `<CoverageSession>` and `<Summary numSequencePoints=... visitedSequencePoints=... />`. An LCOV report is a file ending in `.info` or `.lcov`, such as `lcov.info`, that starts with an LCOV record. An LCOV report whose source files are mostly Dart files is shown as Flutter.
 4. Tool and dependency folders are never searched (`.git`, `node_modules`, `.gradle`, `.m2`, `.dart_tool`, `.pub-cache`, `.symlinks`, `Pods`, `.angular`, `.next`, `.yarn`, `.cache`, `venv`, `__pycache__` and the like), nor are `DevSecOpsJenkinsLibrary`, `appscan-source-staged`, `.appscan-logs`, `.scannerwork` and the Jenkins folders whose name ends in `@tmp`, `@script` or `@libs`.
-5. Services that are tested in the same folder each take the reports of their own build tool: a JaCoCo report below a `target` folder belongs to a Maven service, one below a `build` folder to a Gradle service, a Dart LCOV report to a Flutter service and any other LCOV report to a service with the Node.js build. A report that no service of the folder owns, or that two of them own, counts for each of them, and its row says `also counted for` the others. A service that names its reports in `coverage.reportPath` counts only those, so a row names it only for a report it names. When its paths name no report, it searches like the others, but the rows of the others do not name it. Give such services their own test folders, or name their reports in `coverage.reportPath`.
+5. Services that are tested in the same folder each take the reports of their own build tool: a JaCoCo report below a `target` folder belongs to a Maven service, one below a `build` folder to a Gradle service, a Cobertura or OpenCover report to a `dotnet` / `msbuild` service, a Dart LCOV report to a Flutter service and any other LCOV report to a service with the Node.js build. A report that no service of the folder owns, or that two of them own, counts for each of them, and its row says `also counted for` the others. A service that names its reports in `coverage.reportPath` counts only those, so a row names it only for a report it names. When its paths name no report, it searches like the others, but the rows of the others do not name it. Give such services their own test folders, or name their reports in `coverage.reportPath`.
 
 Which reports count:
 
@@ -1803,7 +1849,7 @@ How the values are computed:
 
 Frontend tests: an LCOV report counts when the unit test step writes it, for example through a task of the Node plugin of the Gradle build or the `frontend-maven-plugin` of the Maven build that runs `ng test --code-coverage`. Do not add the frontend tests to the commands of the Node.js build: those run in every pipeline, also before SAST, Nexus IQ GoldenFix and the release delivery, and a failing command stops the pipeline.
 
-The search is one `python3` step per service on Linux and macOS agents. When `python3` is missing, or the search step fails or takes longer than 15 minutes, the log says so and the pipeline reads the reports as before: the paths of `coverage.reportPath` (with `findFiles` for a pattern), otherwise `total_lcov.info` for Flutter or the usual JaCoCo paths of the build tool, then every `jacoco.xml` of the workspace; see **Coverage report detection** in section 18. A JaCoCo report still needs `python3` there, as before. Windows agents always read the reports this way, and the class listing of a JaCoCo report still runs `sh` and `python3` on them, as before.
+The search is one `python3` step per service on Linux and macOS agents. When `python3` is missing, or the search step fails or takes longer than 15 minutes, the log says so and the pipeline reads the reports via fallback: the paths of `coverage.reportPath` (with `findFiles` for a pattern), otherwise `total_lcov.info` for Flutter, the usual Cobertura/OpenCover paths for `dotnet`/`msbuild` (`**/coverage.cobertura.xml`, `**/coverage.opencover.xml`, `TestResults/coverage.cobertura.xml`), or the usual JaCoCo paths of the build tool, then every matching XML report of the workspace; see **Coverage report detection** in section 18. On Windows agents the fallback uses PowerShell `[xml]` parsing natively for JaCoCo, Cobertura, and OpenCover reports without requiring `python3`.
 
 A compilation error of the artifact build is a real failure and stops the pipeline, because nothing can be scanned or deployed without an artifact.
 
@@ -1865,12 +1911,13 @@ GoldenFix takes the name of a pub component from `coordinates.name`, or from `co
 
 #### Step 2: the manifests
 
-GoldenFix searches the whole source tree of the repository, multi-module projects included, and skips the folders of `goldenFix.excludeDirs` (by default `node_modules`, `target`, `build`, `dist`, virtualenvs and the like). It updates:
+GoldenFix searches the whole source tree of the repository, multi-module projects included, and skips the folders of `goldenFix.excludeDirs` (by default `node_modules`, `target`, `build`, `dist`, virtualenvs and the like, plus `obj`, `packages`, `TestResults` when NuGet fixes apply). It updates:
 
 - **Maven:** `pom.xml` dependencies and dependencyManagement, and the `<properties>` they reference, in every `pom.xml` of the repository that defines a property of that name. A parent pom of the repository is therefore covered; a parent or BOM resolved from Nexus is not.
 - **Gradle:** `build.gradle`, `build.gradle.kts` and `gradle.properties`: inline coordinates, `ext`, `extra` and `val` version variables, `ext` map literals such as `ext.versions = [jackson: '2.13.4']`, and rich versions (`strictly`, `require`, `prefer`) in the Groovy and the Kotlin DSL; in `settings.gradle` and `settings.gradle.kts` only the catalogs of the `versionCatalogs` block, so a `buildscript` classpath or a plugin version there stays as it is; and the catalogs described under **Shared version catalogs** below.
 - **npm:** `package.json` dependencies, devDependencies, peerDependencies and optionalDependencies (range operator preserved), and the entries of `overrides` (npm) and `resolutions` (yarn) that pin the package itself; a nested override is left alone.
 - **pip:** `requirements*.txt`, `constraints*.txt`, `pyproject.toml` (PEP 621 and Poetry)
+- **NuGet (C# / .NET):** SDK-style project files (`*.csproj`, `*.fsproj`, `*.vbproj`) with `<PackageReference>` attributes (`Version` / `VersionOverride`) or nested `<Version>` elements, Central Package Management (`Directory.Packages.props` `<PackageVersion>`), shared MSBuild props (`Directory.Build.props`), MSBuild `<PropertyGroup>` `$(PropName)` property references resolved across project and props files, and legacy `packages.config` (`<package id="..." version="..." />`)
 - **Flutter:** `pubspec.yaml` dependencies and dev_dependencies (the `^` constraint is preserved); the Android and iOS parts of a Flutter app are covered by the Gradle and Maven manifests
 
 A version is only written when the manifest declares a plain version that is lower than the target. Ranges, hash-pinned requirements, dynamic versions and versions managed by a BOM are listed under "not applied automatically", with the reason, instead.
@@ -1926,6 +1973,9 @@ GoldenFix builds the project with the new versions before it proposes anything, 
 | `package.json` | Its own folder. When a `package-lock.json` lies next to it and `goldenFix.verify.commands.npm` is not set, `npm install --package-lock-only --ignore-scripts` refreshes the lock file first | `npm ci --ignore-scripts`, or `npm install --ignore-scripts` without a lock file |
 | `requirements*.txt`, `constraints*.txt` | Its own folder | `python3 -m pip install --dry-run -r <file>` |
 | `pyproject.toml` | Its own folder | `python3 -m pip install --dry-run .` |
+| `*.csproj`, `*.fsproj`, `*.vbproj` | Its own folder | On Windows: `nuget restore` & `MSBuild.exe <file> /t:Build /nologo /v:minimal` (falls back to `dotnet build --no-incremental <file>`); on Linux: `dotnet build --no-incremental <file>` |
+| `Directory.Packages.props`, `Directory.Build.props` | Its own folder | On Windows: `MSBuild.exe /t:Restore,Build /nologo /v:minimal` (else `dotnet build --no-incremental`); on Linux: `dotnet build --no-incremental` |
+| `packages.config` | Its own folder | On Windows: `nuget restore <file> -NonInteractive` & `msbuild /t:Build /nologo /v:minimal`; on Linux: `nuget restore <file> -NonInteractive` |
 | `pubspec.yaml` | Its own folder | `flutter pub get` (or `dart pub get`) |
 
 A refreshed `package-lock.json` is committed with the change, the notes say `<folder>/package-lock.json refreshed`, and the lock file note of the pull request leaves `package-lock.json` out. While `build.node.enabled` is true for the service, the npm check, the refresh included, runs with the Node.js, the registry or `.npmrc` and the environment of its Node.js build (stage 0); otherwise with the `npm` of the agent.
@@ -1970,20 +2020,21 @@ Runs the SonarQube analysis and waits for the quality gate. It then queries the 
 
 #### Automatic SonarQube Default Configuration and Branch Analysis
 
-When a repository does not include an explicit `sonar-project.properties` file, the pipeline automatically generates and applies enterprise default configuration before invoking SonarQube:
+When a repository does not include an explicit `sonar-project.properties` file, the pipeline automatically generates and applies enterprise default configuration before invoking SonarQube (or runs the Scanner for .NET `begin`/build/`end` workflow when `buildTool` is `dotnet` / `msbuild`):
 
 - **Default properties**:
   - `sonar.java.binaries=target/classes` (augmented with `build/classes/java/main` for Gradle builds)
   - `sonar.java.coveragePlugin=jacoco`
-  - `sonar.language=java` (or detected language: `kotlin`, `dart`, `py`, `sql`)
+  - `sonar.language=java` (or detected language: `cs`, `kotlin`, `dart`, `py`, `sql`)
   - `sonar.jacoco.reportPaths=target/jacoco.exec`
   - `sonar.junit.reportPaths=target/surefire-reports`
   - `sonar.projectKey=com.bbh:<resolvedKey>` (prefixed with `com.bbh:` if not present)
-  - `sonar.sources=src/main/java` (or detected sources: `lib`, `db`, `src/main/kotlin`, `src`)
+  - `sonar.sources=src/main/java` (or detected sources: `lib`, `db`, `src/main/kotlin`, `src`, `.`)
   - `sonar.sourceEncoding=UTF-8`
   - `sonar.tests=src/test/java` (or detected test suites)
   - `sonar.dynamicAnalysis=reuseReports`
   - `sonar.modules=<detected modules>` (automatically detected from `pom.xml` module elements or `settings.gradle` includes)
+  - **.NET Scanner parameters**: `SonarScanner.MSBuild.exe` / `dotnet sonarscanner` automatically attaches `/d:sonar.cs.opencover.reportsPaths`, `/d:sonar.cs.vscoveragexml.reportsPaths`, and `/d:sonar.cs.vstest.reportsPaths` when reports exist.
 - **Branch-specific scanning**: SonarQube always analyzes the active pipeline branch (`CHANGE_BRANCH` in Pull Request builds, or normalized `BRANCH_NAME` / `GIT_BRANCH`) via `sonar.branch.name=${branch}`, ensuring scans never fall back to `master` or `main`.
 
 ### Bitbucket Pull Request Decoration and Shift-Left Feedback
@@ -1994,10 +2045,9 @@ To empower developers to review and remediate security defects directly within t
 
 During the static security pipeline, all findings and remediation changes are consolidated into a single Bitbucket Pull Request:
 
-- **Nexus IQ GoldenFix**: Automatically applies safe dependency upgrades to manifests (`pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `pubspec.yaml`) on branch `GoldenFix-YYYYMMDDHHMM`.
+- **Nexus IQ GoldenFix**: Automatically applies safe dependency upgrades to manifests (`pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `pubspec.yaml`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, and `packages.config`) on branch `GoldenFix-YYYYMMDDHHMM`.
 - **HCL AppScan SAST**: Inspects open findings, filters out issues marked with status `Noise`, and decorates the pull request with inline comments on the exact file and line number containing the vulnerability description and actionable remediation advice.
 - **SonarQube**: Fetches open code quality, vulnerability, and bug issues and decorates the pull request with line comments on the specific source lines.
-- **DevSecOps Portal Synchronization**: Posts decoration events and findings to DevSecOps Management Portal (`POST /api/dso/bitbucket/pull-requests/decorate`).
 
 #### DAST Dynamic Security Pull Request (Dedicated PR)
 
@@ -2078,17 +2128,106 @@ The required coverage is shown in the report exactly as configured in the bundle
 |---|---|---|---|---|
 | Gradle | `./gradlew` + `build.gradle.tasks` and `flags` | `./gradlew` + `tests.unitTests.gradle.tasks` | JaCoCo XML and LCOV | `./gradlew publish` |
 | Maven | `mvn` + `build.maven.goals` and `flags` | `mvn` + `tests.unitTests.maven.goals` | JaCoCo XML and LCOV | `mvn deploy` |
+| C# and .NET (`dotnet` / `msbuild`) | Windows default: `NuGet.exe restore` & `MSBuild.exe`; CLI/Linux: `dotnet restore/build/publish` | Windows default: `vstest.console.exe` (+ optional `OpenCover.Console.exe`) with `.trx`; CLI/Linux: `dotnet test` | Cobertura XML and OpenCover XML | `nuget.exe push` / `dotnet nuget push` |
 | Flutter | `flutter build <platform>` | `flutter test --coverage --concurrency=32 --reporter expanded` in the main package and in each of `tests.subplugins` and `tests.submodules` | LCOV of each package | Nexus upload of the APK/IPA |
 | Liquibase (SQL / PL/SQL) | `liquibase` + `build.liquibase.commands` and `flags` | `liquibase` + `tests.unitTests.liquibase.commands` (or changelog validation) | – (database migrations skipped from coverage gate) | – (or delivery via Nexus) |
 | Node.js (stage 0, optional) | `build.node.commands`, by default `npm ci` and `npm run build` | – | – | – (the Gradle or Maven build packages the output) |
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, including under `db/`, `sql/`, `liquibase/`, or `src/main/resources/db/changelog/`).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` / `Directory.Packages.props` / `packages.config` → C#/.NET `dotnet`, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, `requirements.txt` / `pyproject.toml` / `setup.py` / `Pipfile` → Python).
 
 Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
 
-The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK. For a standalone `buildTool: liquibase` service, `javaPath` is optional when `java` and `liquibase` are already available on the agent `PATH`.
+The JDK comes from `javaPath` of the project, which the library exports as `JAVA_HOME` and prepends to `PATH`. With `buildToolAutoSetup: true` the library instead reads the required Java version from `pom.xml` or `build.gradle` and searches the agent for a matching JDK. For `buildTool: dotnet` / `msbuild` and standalone `buildTool: liquibase` services, `javaPath` is never required.
 
 A failing unit test run does not stop the pipeline: the stage turns orange, the coverage of the reports that were produced is still checked, and the release gate blocks the Nexus release and the QC deployment.
+
+### C# and .NET (Auto-Detection, Classic MSBuild + NuGet, .NET SDK CLI, Hybrid, Cake & NUKE)
+
+The library provides full first-class support for C#, F#, and VB.NET applications across .NET Framework 4.x, .NET Core, and .NET 6–9+ on **Windows Jenkins agents** as well as cross-platform SDK builds on Linux agents:
+
+- **Smart Auto-Detection & Validation (`mode: auto` by default):**
+
+When `build.dotnet.mode` (or `useDotnetCli`) is omitted in `devsecops_config.yaml` or `config.yaml`, `DotnetBuildRunner` and `RepoStackAutoResolver` automatically inspect the project files and agent environment: \*\* **`dotnet` (SDK CLI mode):** selected automatically on Linux agents, or on Windows when SDK-style project files (`<Project Sdk="...">` targeting `net5.0`+ / `netcoreapp` / `netstandard`), `global.json`, or `Directory.Packages.props` are present without legacy .NET Framework projects or explicit MSBuild/OpenCover flags. \*\* **`msbuild` (Classic Windows toolchain):** selected automatically on Windows when `packages.config`, `<TargetFrameworkVersion>v4.*`, `net48` / `net4*`, non-SDK `.csproj` files, or explicit MSBuild/VSTest/OpenCover settings (`msbuildPath`, `vstestPath`, `opencover: true`, `sonarScannerMsbuildPath`) are present, or when `buildTool: msbuild` is set. \*\* **`hybrid` (Mixed solutions):** selected automatically on Windows when a solution combines both legacy .NET Framework (`packages.config` / `net4*`) and modern SDK-style (`net6.0`+ / `net8.0`) projects, or when `build.dotnet.mode: hybrid` is set. Runs `dotnet restore` + `NuGet.exe restore`, compiles with `MSBuild.exe`, and executes both `vstest.console.exe` and `dotnet test`. \*\* **`cake` and `nuke` build automation:** selected when `build.cake` or `.nuke` is present (or `mode: cake` / `mode: nuke`), invoking `dotnet cake` or `build.cmd` / `./build.sh` / `nuke`. \*\* **Invalid parameter fallback:** if an unrecognized value is provided for `buildTool`, `build.dotnet.mode`, `useDotnetCli`, `tests.unitTests.dotnet.runner`, or `coverageTool`, the pipeline logs a `[WARN]` message and falls back to the auto-detected default.
+
+- **Classic Windows MSBuild toolchain (`mode: msbuild`):**
+
+\*\* **Build (Stage 2):** runs `NuGet.exe restore` (with optional `build.dotnet.nugetConfig`) followed by `MSBuild.exe` with `build.dotnet.solution` (auto-detecting `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` when omitted), `build.dotnet.configuration` (default `Release`), optional `platform`, and `flags`. Executable paths can be pinned with `nugetPath` and `msbuildPath` or resolved from the agent `PATH`. \*\* **Unit tests & Coverage (Stage 2):** supports `runner: vstest` (`vstest.console.exe`, default for `msbuild` mode), `mstest` (`MSTest.exe`), `nunit` (`nunit3-console.exe`), `xunit` (`xunit.console.exe`), or `dotnet` (`dotnet test`), and coverage collection via `coverageTool: opencover` (`OpenCover.Console.exe`), `dotcover` (`dotCover.exe`), `cobertura` (`/Collect:"XPlat Code Coverage"`), or `none`. Visual Studio `.trx` files are parsed natively via PowerShell into unit-test metrics without Python, and Cobertura/OpenCover XML reports are checked against the coverage gate.
+
+- **.NET SDK CLI mode (`mode: dotnet` or `useDotnetCli: true`):**
+
+\*\* **Build (Stage 2):** executes `dotnet restore`, `dotnet build --configuration Release --no-restore`, optional `dotnet pack` (`pack: true`), and optional `dotnet publish` (`publish: true`, `publishDir`). \*\* **Unit tests & Coverage (Stage 2):** runs `dotnet test --configuration Release --logger trx --collect:"XPlat Code Coverage"` (Coverlet) producing `*.trx` and `coverage.cobertura.xml` (or wraps with OpenCover/dotCover when `coverageTool: opencover` / `dotcover`).
+
+- **SAST (Stage 4):** on Windows and Linux agents, when `asoc.doCompile` is not `false`, pre-compiles using `asoc.dotnet` (falling back to `build.dotnet`), stages sources cleanly with `robocopy` / `rsync` excluding `obj`, `packages`, `TestResults`, and `.git` (retaining `bin` binaries needed by .NET IRX extraction), and invokes `appscan.bat prepare`.
+- **SonarQube SCA (Stage 5):** runs the Scanner for .NET three-step workflow (`SonarScanner.MSBuild.exe begin` -&gt; build -&gt; `SonarScanner.MSBuild.exe end`, or `dotnet sonarscanner` in CLI mode) inside `withSonarQubeEnv`, automatically attaching OpenCover, VS Coverage XML, dotCover, VSTest `.trx`, NUnit, xUnit, and VB.NET report parameters when matching reports exist.
+- **Nexus IQ GoldenFix, Version Catalogs & Release Publish:** remediates NuGet vulnerabilities in `*.csproj`, `*.fsproj`, `*.vbproj`, central version catalogs (`Directory.Packages.props`, `Directory.Build.props`, and custom `.props` files), and `packages.config` natively on Windows or Linux agents; release delivery supports `delivery.nuget` (`nuget.exe push` / `dotnet nuget push`).
+
+Example C# / .NET Windows classic MSBuild and SDK CLI configurations in `examples/DotNetApp/devsecops_config.yaml`:
+
+```yaml
+projects:
+  orders-framework-api:
+    appId:        "33333333-4444-5555-6666-777777777777"
+    buildTool:    dotnet
+    deployTarget: vm
+    asoc:
+      keyId:     "bbh_orders_api_key"
+      token:     "orders-api-asoc-secret"
+      doCompile: true
+    build:
+      buildPath: "src/Orders.Api/bin/Release/**/*.dll"
+      dotnet:
+        solution:      "OrdersSolution.sln"
+        configuration: "Release"
+        platform:      "Any CPU"
+        nugetPath:     "C:\\tools\\nuget\\nuget.exe"
+        msbuildPath:   "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe"
+    tests:
+      unitTests:
+        unitTestResult: "**/TestResults/*.trx"
+        dotnet:
+          vstestPath:     "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\Extensions\\TestPlatform\\vstest.console.exe"
+          opencoverPath:  "C:\\tools\\opencover\\OpenCover.Console.exe"
+          testAssemblies: ["tests/Orders.Tests/bin/Release/Orders.Tests.dll"]
+    tools:
+      sonar:
+        projectName:             "Orders Framework API"
+        projectKey:              "com.bbh.orders:orders-framework-api"
+        authToken:               "sonar-auth-token"
+        sonarScannerMsbuildPath: "C:\\tools\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe"
+      nexusIq:
+        application:  "OrdersFrameworkAPI"
+        scanPatterns: ["src/Orders.Api/bin/Release/**", "**/packages.config"]
+    goldenFix:
+      enabled:    true
+      ecosystems: [nuget, npm]
+    delivery:
+      nuget:
+        source:         "https://tools.bbh.com/nexus/repository/nuget-hosted/"
+        credentialsId:  "nexus-nuget-api-key"
+        packagePattern: "**/*.nupkg"
+
+  billing-dotnet8-worker:
+    appId:     "44444444-5555-6666-7777-888888888888"
+    buildTool: dotnet
+    build:
+      buildPath: "src/Billing.Worker/bin/Release/net8.0/publish/**"
+      dotnet:
+        useDotnetCli: true
+        solution:     "src/Billing.Worker/Billing.Worker.csproj"
+        publish:      true
+        publishDir:   "src/Billing.Worker/bin/Release/net8.0/publish"
+    tests:
+      unitTests:
+        dotnet:
+          useDotnetCli: true
+          coverlet:     true
+    tools:
+      sonar:
+        projectKey: "com.bbh.orders:billing-dotnet8-worker"
+        authToken:  "sonar-auth-token"
+        dotnet:
+          useDotnetCli: true
+```
 
 ### SQL and PL/SQL with Liquibase (single-module and multi-module)
 
@@ -2230,12 +2369,12 @@ The GoldenFix pre-check runs in a git worktree of its own, without the output of
 
 ### Coverage report detection
 
-On Linux and macOS agents every JaCoCo and LCOV report of the service counts, as described under **Coverage reports** in Stage 2. On Windows agents, on agents without `python3` and when the search step fails, the pipeline reads, in order:
+On Linux and macOS agents every JaCoCo, Cobertura, OpenCover and LCOV report of the service counts, as described under **Coverage reports** in Stage 2. On Windows agents, on agents without `python3` and when the search step fails, the pipeline reads, in order:
 
 1. the paths of `coverage.reportPath` of the service that exist, a pattern (`*`, `?`, `**`) through `findFiles`, each file once;
 2. Flutter: `total_lcov.info`;
-3. Gradle: the first of `build/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/jacocoTestReport.xml` that exists; Maven: the first of `target/site/jacoco/jacoco.xml` and `target/jacoco/jacoco.xml`;
-4. every `jacoco.xml` of the workspace.
+3. Gradle: the first of `build/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/jacocoTestReport.xml` that exists; Maven: the first of `target/site/jacoco/jacoco.xml` and `target/jacoco/jacoco.xml`; C# / .NET (`dotnet` / `msbuild`): `**/coverage.cobertura.xml`, `**/coverage.opencover.xml`, `coverage.cobertura.xml`, `coverage.opencover.xml`, `TestResults/coverage.cobertura.xml`;
+4. every matching coverage XML report of the workspace (`coverage.cobertura.xml`, `coverage.opencover.xml`, `*cobertura*.xml`, `*opencover*.xml` for .NET; `jacoco.xml` for Java). On Windows agents, JaCoCo, Cobertura and OpenCover XML reports are parsed natively using PowerShell `[xml]` without requiring `python3`.
 
 ## 19. Supported Deployment Targets
 
@@ -2494,15 +2633,6 @@ A bucket keeps the data for its retention period, and the cumulative "since the 
 ### Dashboards
 
 [Grafana dashboards and queries](#22-grafana-dashboard-query-reference) holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` continue to work; the stage panels of `devSecOpsDashboard` show the Build artifact stage of the Nexus IQ GoldenFix pipeline as `Build` and the Node.js build as `Node.js`, with the sort key of `Download sources`.
-
-### Pipeline Report Delivery to DevSecOps Management Portal
-
-At the conclusion of each pipeline execution, `com.bbh.report.PortalReportService` transmits the execution status and the complete `report/pipeline-report.html` file to the DevSecOps Management Portal via `POST /api/dso/reports`.
-
-- **Target endpoint:** `${DSO_PORTAL_URL}/api/dso/reports` (or `portal.url` in service / default settings).
-- **Payload structure:** JSON containing `pipelineKey`, `job`, `build`, `result`, `branch`, `commit`, `durationSeconds`, `stagesTotal`, `passed`, `warned`, `failed`, `blocked`, `skipped`, and the complete `reportHtml` document.
-- **Resilience:** When `DSO_PORTAL_URL` is not configured, report upload is silently bypassed without warning or failure, preserving full compatibility for standalone Jenkins installations.
-- **Portal rendering:** Inside the DevSecOps Management Portal, the execution report is displayed in an interactive card featuring responsive iframe sandboxing, preserving all original styling, stage outcome badges, vulnerability tables, and links to remote Jenkins jobs, artifacts, SonarQube, Nexus IQ, and AppScan reports.
 
 ## 22. Grafana Dashboard Query Reference
 
@@ -3302,7 +3432,7 @@ All jobs are executed even when some fail, and at most `tests.maxParallel` run a
 | `The Nexus IQ GoldenFix pipeline would scan nothing` | The service has no Nexus IQ application or no scan patterns in the file the message names, `devsecops_config.yaml` or `config.yaml`. Set both under `tools.nexusIq`. |
 | SAST fails while connecting, or times out | The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this. |
 | Nexus IQ reports the application does not exist | `tools.nexusIq.application` does not match an application in Nexus IQ. |
-| Coverage shows `not measured` | No JaCoCo or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a JaCoCo XML or LCOV report, or point `coverage.reportPath` at it. |
+| Coverage shows `not measured` | No JaCoCo, Cobertura, OpenCover or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a supported coverage report, or point `coverage.reportPath` at it. |
 | A coverage report is marked `not counted` | It is a copy of another report, combines other reports, has no lines or cannot be read; the row names the reason. To count other reports, name them in `coverage.reportPath`. |
 | A coverage report says `also counted for` another service | The services are tested in the same folder, and the report belongs to no build tool of them, or to the build tool of both, so it counts for each. A service that names its reports in `coverage.reportPath` is named only for those reports; when its paths name no report, it searches like the others and is not named. Set the folder of the unit test command or of the Node.js build of each service, or name the reports of each in `coverage.reportPath`. |
 | The coverage of a service changed after the library update | The service has more than one report (modules, a frontend LCOV report, an integration test report, an older report under `release`), and its coverage is now their mean; a Flutter service is measured per package. The log and the card list them; set `coverage.reportPath` to the reports that should count, for Flutter `total_lcov.info`. |
@@ -3360,13 +3490,13 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | `test/checks/docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence`; the check regenerates it when it is not |
 | `test/checks/docs-md.sh` | `documentation.md` is the Markdown rendering of `documentation.confluence`; the check regenerates it when it is not |
 | compilation | `src` and `vars` compile with the sandbox compiler configuration |
-| `test/coverage/scan-scenarios.sh` | The scan script of `CoverageReports`, run with `python3 -I` on report trees: services that share a folder, modules with release folders, copies, aggregates and their rest, patterns, Android, Kover, Flutter and LCOV variants, non-ASCII names, the SHA-1 of each report, a report of another service skipped before it is read, the time limit, the class listing of the earlier reader and 400 module reports |
-| `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml`; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a `resolutions` block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a `strictly` or `require` range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores `./` in listed paths, reads a listed pom with another name and builds it with `mvn -f`, also with a Maven command of `goldenFix.verify.commands`, resolves `from files(..)` and `$rootDir` imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in `buildSrc` only for a holder it can declare and records an escaping `Error` as `ERROR`; it refreshes a `package-lock.json` (not in front of an npm command of `goldenFix.verify.commands`), raises npm `overrides` and `resolutions`, tells a branch that exists from a push a hook declines and names pub components; the `package-lock.json` pattern of a Node.js build names its folder without `./`; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the `goldenfix` point carries `pr_url` and `pr_title` only when a pull request was raised; eight service level pipelines produce the demo reports |
-| `test/sandbox/CoverageScenarios.groovy` | `checkCoverage`, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of `coverage.reportPath`, a copy of the report of another service, the fallbacks without `python3` or after a failed scan, Windows, and one real `sh` run of the scan step |
-| `test/sandbox/StaticAnalysisScenarios.groovy` | The switch of the static scan order (the environment variable first, then `staticAnalysis.parallel` of every service), the services whose SAST compile differs from their build command, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
+| `test/coverage/scan-scenarios.sh` | The scan script of `CoverageReports`, run with `python3 -I` on report trees: services that share a folder, modules with release folders, copies, aggregates and their rest, patterns, Android, Kover, Cobertura, OpenCover, Flutter and LCOV variants, non-ASCII names, the SHA-1 of each report, a report of another service skipped before it is read, the time limit, the class listing of the earlier reader and 400 module reports |
+| `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt`, `pubspec.yaml`, `*.csproj`, `Directory.Packages.props` and `packages.config`; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a `resolutions` block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a `strictly` or `require` range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores `./` in listed paths, reads a listed pom with another name and builds it with `mvn -f`, also with a Maven command of `goldenFix.verify.commands`, resolves `from files(..)` and `$rootDir` imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in `buildSrc` only for a holder it can declare and records an escaping `Error` as `ERROR`; it refreshes a `package-lock.json` (not in front of an npm command of `goldenFix.verify.commands`), raises npm `overrides` and `resolutions`, tells a branch that exists from a push a hook declines and names pub components; C#/.NET classic Windows MSBuild/NuGet/VSTest+OpenCover/TRX and CLI builds, Windows GoldenFix + PowerShell git/Bitbucket PR + HTML report rendering, NuGet publish, Windows DOD file check and OpenShift `publishDir`; the `package-lock.json` pattern of a Node.js build names its folder without `./`; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the `goldenfix` point carries `pr_url` and `pr_title` only when a pull request was raised; eight service level pipelines produce the demo reports |
+| `test/sandbox/CoverageScenarios.groovy` | `checkCoverage`, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of `coverage.reportPath`, a copy of the report of another service, the fallbacks without `python3` or after a failed scan, C#/.NET Cobertura and OpenCover XML on Linux and Windows, and real `sh` runs of the scan step |
+| `test/sandbox/StaticAnalysisScenarios.groovy` | The switch of the static scan order (the environment variable first, then `staticAnalysis.parallel` of every service), the services whose SAST compile differs from their build command (`asoc.gradle`, `asoc.maven`, `asoc.dotnet`), C#/.NET auto-resolve, SonarQube (`SonarScanner.MSBuild.exe` / `dotnet sonarscanner`) and Windows SAST IRX staging, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
 | `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs. Every run reads a repository file: it plants `devsecops_config.yaml` or `config.yaml` in the workspace, takes the defaults of the run as the bundled resource and gives the entry point `projectNames`, `agentNames` and, for the extended pipeline, `securityPipeline`; the runs cover both file names, both files at once, a Jenkinsfile without `projectNames` and another `appId` in a `config.yaml` that is not read. The eleven golden runs of the first four entry points, recorded at release b815d55, are unchanged byte for byte and are compared after declared rules for what this release adds: the run-state file `pipeline-config.yaml`, the `build_evidence` and unit `test_execution` points, the InfluxDB line count, the settings line of the report header and `config_file`. The golden runs of the Nexus IQ GoldenFix pipeline (green, orange, build failure, the shared catalog run of two services) and `full-pipeline-orange-parallel-scans.txt` were recorded again for this branch; before they were committed, a one-off comparison proved that each new file equals the file recorded on `main` with the steps and lines of the key read removed and the lines that name the settings file added. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. Four twins of the green and orange full and security runs run Nexus IQ and SonarQube while AppScan scans and give the release gate, the metrics and the report of their golden file and its steps in the new order, which the orange full twin also pins in its own golden file; focused runs cover the compile fallback, the environment override, a service that opts out, a SAST failure before and after its scans are queued, GoldenFix and the AppScan settings per service |
 | `test/sandbox/ConfigScenarios.groovy` | The configuration of a run: `projectNames` as a string or a list, `securityPipeline`, a Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also empty, which stops with its message and runs nothing, a Jenkinsfile without `agentNames`, `DSO_REQUIRE_PIPELINE_KEY=true`, which changes nothing, `configure()` twice and `initialize()` without `configure()`, each of the two file names, the file errors and their messages; the `platform:` section of the bundled defaults, which changes the iOS build agent, the OIS host, the Flutter snapshot repository and the tool environment, with an environment variable that wins over `platform.environment`; the InfluxDB settings of the primary service and the upload on Linux and Windows; the build token of remote test jobs (`tokenCredentialsId`); the extended handoff; and the Nexus IQ GoldenFix entry point, which names its own call and stops at the start for a service it would not scan |
-| `test/sandbox/CompatibilityScenarios.groovy` | The loader of release b815d55 and the loader of this release produce the same configuration, exactly, from `devsecops_config.yaml` and from `config.yaml` over the same defaults (`devsecops_config.yaml` first when both exist); the production bundled defaults have the structure the library reads, with an optional `platform:` map, and can be applied; `examples/CertScanner/devsecops_config.yaml` loads |
+| `test/sandbox/CompatibilityScenarios.groovy` | The loader of release b815d55 and the loader of this release produce the same configuration, exactly, from `devsecops_config.yaml` and from `config.yaml` over the same defaults (`devsecops_config.yaml` first when both exist); the production bundled defaults have the structure the library reads, with an optional `platform:` map, and can be applied; `examples/CertScanner/devsecops_config.yaml` and `examples/DotNetApp/devsecops_config.yaml` load |
 
 The sandbox tests execute the library inside `GroovySandbox.runInSandbox` with the real `script-security` whitelists and a fake Jenkins (`test/sandbox/harness`), so a rejected signature, an invalid closure or a missing method fails the test run instead of a customer build.
 

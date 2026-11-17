@@ -19,8 +19,12 @@ class CoverageReports implements Serializable {
     @NonCPS
     static Map folders(Map cfg, String tool) {
         Map c = cfg ?: [:]
-        String kind = ((c.buildTool ?: '') as String).trim() ?: tool
-        def dir = [((c.tests?.unitTests ?: [:]) as Map)[kind]?.dir, ((c.build ?: [:]) as Map)[kind]?.dir, c.sourceDir].find { (it ?: '').toString().trim() }
+        String rawKind = ((c.buildTool ?: '') as String).trim() ?: tool
+        String kind = BuildUtils.isDotnetTool(rawKind) ? 'dotnet' : rawKind
+        Map uCfg = (c.tests?.unitTests ?: [:]) as Map
+        Map bCfg = (c.build ?: [:]) as Map
+        def dir = [uCfg[rawKind]?.dir, uCfg.dotnet?.dir, uCfg.msbuild?.dir,
+                   bCfg[rawKind]?.dir, bCfg.dotnet?.dir, bCfg.msbuild?.dir, c.sourceDir].find { (it ?: '').toString().trim() }
         Map result = [(CoverageReports.folderOf(dir)): [kind]]
         if (BuildUtils.nodeBuildEnabled(c)) {
             String node = CoverageReports.folderOf(c.build?.node?.dir)
@@ -167,7 +171,7 @@ class CoverageReports implements Serializable {
                 : code.startsWith('copy:') ? "a copy of ${code.substring(5)}".toString()
                 : code.startsWith('aggregate:') ? "it combines ${code.substring(10)} other reports".toString()
                 : ''
-        String rest = code.startsWith('rest:') ? "only its ${code.substring(5)} ${kind == 'jacoco' ? 'classes' : 'files'} that no other report holds".toString() : ''
+        String rest = code.startsWith('rest:') ? "only its ${code.substring(5)} ${kind in ['jacoco', 'cobertura', 'opencover'] ? 'classes' : 'files'} that no other report holds".toString() : ''
         return [kind: kind, tool: CoverageReports.toolName(kind), path: path, covered: covered, missed: total - covered, total: total,
                 line: total ? CoverageReports.round1(covered * 1000.0 / total) : null, counted: !reason, reason: reason,
                 detail: [rest, reason ? '' : also].findAll { it }.join('; '), sha: sha]
@@ -175,7 +179,7 @@ class CoverageReports implements Serializable {
 
     @NonCPS
     static String toolName(String kind) {
-        return ([jacoco: 'JaCoCo', lcov: 'LCOV', flutter: 'Flutter'][kind] ?: kind) as String
+        return ([jacoco: 'JaCoCo', lcov: 'LCOV', flutter: 'Flutter', cobertura: 'Cobertura', opencover: 'OpenCover'][kind] ?: kind) as String
     }
 
     @NonCPS
@@ -216,14 +220,23 @@ class CoverageReports implements Serializable {
 
     @NonCPS
     static String kindsOf(List reports) {
-        return (reports ?: []).findAll { (it as Map).counted }.collect { it.kind == 'jacoco' ? 'jacoco' : 'lcov' }.unique().join('+')
+        return (reports ?: []).findAll { (it as Map).counted }.collect { it.kind in ['jacoco', 'cobertura', 'opencover'] ? it.kind : 'lcov' }.unique().join('+')
+    }
+
+    @NonCPS
+    static boolean hasDotnet(Map search) {
+        return ((search?.parts ?: []) as List).any { def part ->
+            List tools = (((part as Map).own ?: []) as List) + (((part as Map).others ?: []) as List)
+            tools.any { BuildUtils.isDotnetTool(it as String) }
+        }
     }
 
     @NonCPS
     static String searchLine(Map search, String lead) {
         List names = (search.shared as Map).keySet() as List
         String shared = names ? "; ${names.join(', ')} ${names.size() == 1 ? 'uses' : 'use'} the same folder: each service takes the reports of its own build tool" : ''
-        return "[COVERAGE] ${lead} ${CoverageReports.where(search)} for JaCoCo and LCOV reports${shared}".toString()
+        String formats = hasDotnet(search) ? 'JaCoCo, Cobertura, OpenCover and LCOV reports' : 'JaCoCo and LCOV reports'
+        return "[COVERAGE] ${lead} ${CoverageReports.where(search)} for ${formats}${shared}".toString()
     }
 
     @NonCPS
@@ -239,7 +252,8 @@ class CoverageReports implements Serializable {
 
     @NonCPS
     static String noReport(Map search, String place) {
-        return "No JaCoCo or LCOV coverage report found in ${CoverageReports.where(search)}, set coverage.reportPath for the service in ${place} to point at it".toString()
+        String formats = hasDotnet(search) ? 'Cobertura, OpenCover, JaCoCo or LCOV' : 'JaCoCo or LCOV'
+        return "No ${formats} coverage report found in ${CoverageReports.where(search)}, set coverage.reportPath for the service in ${place} to point at it".toString()
     }
 
     @NonCPS
@@ -261,7 +275,7 @@ class CoverageReports implements Serializable {
 
     @NonCPS
     static String classText(List reports, List classes) {
-        if (!(reports ?: []).any { (it as Map).counted && it.kind == 'jacoco' }) return ''
+        if (!(reports ?: []).any { (it as Map).counted && it.kind in ['jacoco', 'cobertura', 'opencover'] }) return ''
         return (['Class coverage: '] + (classes ?: []) + ['=========================']).join('\n')
     }
 
@@ -275,9 +289,9 @@ SKIP = {'.git', '.svn', '.hg', 'node_modules', 'bower_components', 'jspm_package
         '.pub-cache', '.pub', '.fvm', '.symlinks', '.plugin_symlinks', 'Pods', '.angular', '.nx', '.next', '.nuxt',
         '.yarn', '.pnpm-store', '.npm', '.cache', '.turbo', '.parcel-cache', '.idea', '.kotlin', 'venv', '.venv',
         '__pycache__', '.tox', 'site-packages', '.scannerwork', '.sonar', 'appscan-source-staged', '.appscan-logs',
-        'DevSecOpsJenkinsLibrary'}
+        'DevSecOpsJenkinsLibrary', 'obj', '.vs'}
 COPIES = {'total_lcov.info', 'main_lcov.info', 'plugins_lcov.info', 'modules_lcov.info', 'lcov.base.info'}
-XML = ('jacoco', '/reports/coverage/', '/reports/kover/')
+XML = ('jacoco', 'cobertura', 'opencover', 'coverage.xml', '/testresults/', '/reports/coverage/', '/reports/kover/', '/coverage/')
 
 
 def norm(path):
@@ -375,6 +389,79 @@ def jacoco(data):
     return {'kind': 'jacoco', 'covered': covered, 'total': covered + missed, 'lines': lines, 'listing': listing}
 
 
+def cobertura(data):
+    head = data[:2048]
+    if b'<coverage' not in head:
+        return None
+    root = ET.fromstring(data)
+    if root.tag != 'coverage':
+        return None
+    lines, listing = {}, {}
+    for cls in root.iter('class'):
+        name = cls.get('name', '') or cls.get('filename', '')
+        fn = cls.get('filename', '')
+        seen_ln = {}
+        for ln in cls.findall('./lines/line') or cls.iter('line'):
+            num = ln.get('number', '')
+            hits = int(float(ln.get('hits', 0) or 0))
+            if num:
+                seen_ln[num] = max(seen_ln.get(num, 0), hits)
+        c = sum(1 for h in seen_ln.values() if h > 0)
+        t = len(seen_ln)
+        if t > 0:
+            key = (fn + ':' + name) if fn else name
+            lines[key] = (c, t)
+            pct = round(c * 100.0 / t, 1)
+            listing[key] = ('Package: , Class: %s, Coverage: %s, Missed: %d, Covered: %d'
+                            % (name, pct, t - c, c))
+    lv = int(root.get('lines-valid', 0) or 0)
+    lc = int(root.get('lines-covered', 0) or 0)
+    covered = lc if lv > 0 else sum(v[0] for v in lines.values())
+    total = lv if lv > 0 else sum(v[1] for v in lines.values())
+    return {'kind': 'cobertura', 'covered': covered, 'total': total, 'lines': lines, 'listing': listing}
+
+
+def opencover(data):
+    head = data[:2048]
+    if b'<CoverageSession' not in head:
+        return None
+    root = ET.fromstring(data)
+    if root.tag != 'CoverageSession':
+        return None
+    lines, listing = {}, {}
+    for mod in root.findall('./Modules/Module'):
+        if mod.get('skippedDueTo'):
+            continue
+        for cls in mod.findall('./Classes/Class'):
+            fn = cls.findtext('FullName') or ''
+            if not fn or '<' in fn:
+                continue
+            pts = {}
+            for sp in cls.findall('./Methods/Method/SequencePoints/SequencePoint'):
+                key = sp.get('sl', '') + ':' + sp.get('sc', '')
+                vc = int(sp.get('vc', 0) or 0)
+                pts[key] = max(pts.get(key, 0), vc)
+            c = sum(1 for v in pts.values() if v > 0)
+            t = len(pts)
+            if t > 0:
+                lines[fn] = (c, t)
+                pct = round(c * 100.0 / t, 1)
+                listing[fn] = ('Package: , Class: %s, Coverage: %s, Missed: %d, Covered: %d'
+                                % (fn, pct, t - c, c))
+    covered = sum(v[0] for v in lines.values())
+    total = sum(v[1] for v in lines.values())
+    if total == 0:
+        sm = root.find('Summary')
+        if sm is not None:
+            total = int(sm.get('numSequencePoints', 0) or 0)
+            covered = int(sm.get('visitedSequencePoints', 0) or 0)
+    return {'kind': 'opencover', 'covered': covered, 'total': total, 'lines': lines, 'listing': listing}
+
+
+def xml_report(data):
+    return jacoco(data) or cobertura(data) or opencover(data)
+
+
 def package_of(path):
     parts = path.split('/')[:-1]
     if 'coverage' in parts:
@@ -428,7 +515,7 @@ def read(path, xml):
     try:
         with open(path, 'rb') as f:
             data = f.read()
-        report = jacoco(data) if xml else lcov(data, path)
+        report = xml_report(data) if xml else lcov(data, path)
         if report:
             report['sha'] = hashlib.sha1(data).hexdigest()
         return report
@@ -441,6 +528,8 @@ def builder(path, top):
     for part in reversed(below(path, top).split('/')[:-1]):
         if part in ('target', 'build'):
             return 'maven' if part == 'target' else 'gradle'
+        if part.lower() == 'testresults':
+            return 'dotnet'
     return 'none'
 
 
@@ -461,7 +550,18 @@ def part(o, seen):
         report = read(path, xml)
         if report is None:
             continue
-        kind = kind or ('flutter' if report['kind'] == 'flutter' else 'node')
+        if xml and kind == 'none' and report['kind'] in ('cobertura', 'opencover'):
+            kind = 'dotnet'
+            if not pattern and kind in others and kind not in own:
+                continue
+        if xml and kind in ('dotnet', 'none') and report['kind'] == 'jacoco':
+            owner = kind
+        else:
+            owner = kind if (not xml or kind != 'none') else ''
+        if xml:
+            kind = owner or ('dotnet' if report['kind'] in ('cobertura', 'opencover') else 'none')
+        else:
+            kind = 'flutter' if report['kind'] == 'flutter' else 'node'
         if not pattern and kind in others and kind not in own:
             continue
         seen.add(path)
@@ -479,7 +579,7 @@ def scan(parts):
 
 
 def judge(reports):
-    family = lambda r: r['kind'] == 'jacoco'
+    family = lambda r: r['kind'] if r['kind'] in ('jacoco', 'cobertura', 'opencover') else 'lcov'
     kept = []
     for r in sorted(reports, key=lambda r: (r['path'].count('/'), len(r['path']), r['path'])):
         if r['note']:
@@ -498,7 +598,7 @@ def judge(reports):
                 parts.append(s)
         if len(parts) > 1:
             r['note'] = 'aggregate:%d' % len(parts)
-    held = {True: set(), False: set()}
+    held = {'jacoco': set(), 'cobertura': set(), 'opencover': set(), 'lcov': set()}
     for k in kept:
         if not k['note']:
             held[family(k)] |= k['set']

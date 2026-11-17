@@ -174,6 +174,26 @@ List templateKeys = keyPaths(((template.projects as Map).values() as List)[0] as
 List missing = ((yaml.load(exampleText) as Map).projects as Map).values().collectMany { keyPaths(it as Map, '') }.unique() - templateKeys
 check('devsecops_config.yaml.template names every key the example sets', !missing && (template.projects as Map).keySet().toList() == ['my-app'], missing)
 
+String dotnetJenkinsfile = new File(root, 'examples/DotNetApp/Jenkinsfile').getText('UTF-8')
+String dotnetNames = (dotnetJenkinsfile =~ /projectNames:\s*'([^']+)'/)[0][1]
+String dotnetText = new File(root, 'examples/DotNetApp/devsecops_config.yaml').getText('UTF-8')
+Map dotnetExample = runRepo('full', [projectNames: dotnetNames, agentNames: ['win-agent']], ['devsecops_config.yaml': dotnetText], true)
+String templateUncommented = new File(root, 'devsecops_config.yaml.template').readLines().collect { String line ->
+    line.replaceFirst(/^(\s*)#\s?([a-zA-Z0-9_.-]+:)/, '$1$2')
+}.join('\n')
+Map templateAll = yaml.load(templateUncommented) as Map
+List templateAllKeys = keyPaths(((templateAll.projects as Map).values() as List)[0] as Map, '')
+List dotnetKeys = ((yaml.load(dotnetText) as Map).projects as Map).values().collectMany { keyPaths(it as Map, '') }.unique()
+List dotnetUndocumented = dotnetKeys.findAll { String kp ->
+    String k = kp.tokenize('.').last()
+    !(kp in templateAllKeys) && !templateUncommented.contains("${k}:")
+}
+check("the example examples/DotNetApp/devsecops_config.yaml loads with the services of examples/DotNetApp/Jenkinsfile (${dotnetNames}) and the bundled defaults",
+        !dotnetExample.error && (dotnetExample.order as List) == dotnetNames.tokenize(',') && (dotnetExample.runState as Map).keySet() == dotnetNames.tokenize(',') as Set
+                && (dotnetExample.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && dotnetUndocumented.isEmpty(),
+        [dotnetExample.error, dotnetExample.order, (dotnetExample.runState as Map)?.keySet(), dotnetUndocumented, dotnetExample.log])
+
 Map neither = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], [:])
 check('A\' neither file: the Monitor stage stops with a message that names both files and the example to start from',
         neither.error == "[INIT] Neither devsecops_config.yaml nor config.yaml is at the root of the repository: commit devsecops_config.yaml with a projects: section " +

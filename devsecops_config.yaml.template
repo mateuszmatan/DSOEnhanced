@@ -11,11 +11,11 @@ projects:
   my-app:                            # the service name given in projectNames
 
     appId:        ""                 # HCL AppScan application ID (UUID)
-    buildTool:    gradle             # gradle | maven | flutter | liquibase  [default: gradle]
+    buildTool:    gradle             # gradle | maven | flutter | liquibase | dotnet | msbuild  [default: gradle]
     deployTarget: vm                 # vm | openshift            [default: vm]
     sourceDir:    "."                # source root for IRX generation [default: .]
-    javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME)
-    appscanPath:  ""                 # Windows agents only (required there): path of appscan.bat below the workspace, e.g. /.appscan-tools/<SAClientUtil folder>/bin/appscan.bat
+    javaPath:     ""                 # JDK used for the build and the tests (exported as JAVA_HOME; not required for dotnet/msbuild or liquibase)
+    appscanPath:  ""                 # Windows agents only: path of appscan.bat below the workspace, e.g. /.appscan-tools/<SAClientUtil folder>/bin/appscan.bat (optional when appscanSetup downloads SAClientUtil)
     buildToolAutoSetup: false        # true: detect the required Java version from pom.xml / build.gradle instead
     includedDirs: ""                 # optional: comma separated folders to scan (SAST)
     excludedDirs: ""                 # optional: comma separated folders to skip (SAST)
@@ -34,13 +34,14 @@ projects:
       useAppScanConfig: false        # true: use appscan-config.xml from the repository
       # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another on Linux/macOS
       # maven:  {goals: ['compile']}                   # optional SAST compile instead of build.maven; never 'clean', which deletes target/ before the Nexus delivery
+      # dotnet: {solution: '', configuration: 'Release'}   # optional SAST compile override for C#/.NET instead of build.dotnet
 
     sast:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
 
     staticAnalysis:
       parallel: false                # true for every service of the run: Nexus IQ and SonarQube run while AppScan scans
-                                     # (on Linux/macOS only when asoc.gradle/asoc.maven is absent or equal to build)
+                                     # (on Linux/macOS only when asoc.gradle/asoc.maven/asoc.dotnet is absent or equal to build)
                                      # [default: false; the environment variable DSO_STATIC_ANALYSIS_PARALLEL decides first]
 
     influx:                          # InfluxDB DORA metrics (optional)
@@ -52,7 +53,7 @@ projects:
       token:     ""                  # the token itself, read only without credentialsId; prefer credentialsId
 
     coverage:
-      reportPath: ""                 # usually empty: every JaCoCo XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
+      reportPath: ""                 # usually empty: every JaCoCo XML, Cobertura XML, OpenCover XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
                                      # the required line coverage comes from the library defaults and cannot be set here
 
     tools:
@@ -71,6 +72,13 @@ projects:
           tasks: ['sonarqube']
         maven:                       # the analysis command of a Maven service (goals, flags, mvnPath, env as in build.maven)
           goals: ['sonar:sonar']
+        # sonarScannerMsbuildPath: ""  # C#/.NET (Windows classic default): path to SonarScanner.MSBuild.exe [default: SonarScanner.MSBuild.exe on PATH]
+        # dotnetMode: ""               # C#/.NET: 'msbuild' (default on Windows) | 'dotnet' (dotnet sonarscanner CLI override / Linux default)
+        # useGenericScanner: false     # C#/.NET: true runs standalone sonar-scanner instead of SonarScanner for .NET (begin/build/end)
+        # opencoverPaths: ""           # C#/.NET: OpenCover XML path(s) for sonar.cs.opencover.reportsPaths (auto-discovered when omitted)
+        # vstestPaths: ""              # C#/.NET: TRX test report path(s) for sonar.cs.vstest.reportsPaths (auto-discovered when omitted)
+        # dotnet:                      # C#/.NET: optional overrides (useDotnetCli, beginArgs, endArgs, dotnetPath, solution)
+        #   useDotnetCli: false
         sonarScannerVersion: ""      # Flutter: the sonar-scanner-cli-<version> tool of Jenkins [default: sonar-scanner on the PATH]
         sonarQubeEnv:
           installationName: ""       # Flutter: SonarQube installation [default: installationName]
@@ -84,7 +92,7 @@ projects:
         application:        ""       # application public ID in Nexus IQ (required with scanPatterns for devSecOpsNexusIqGoldenFixPipeline)
         serverUrl:          "https://tools.bbh.com/IQ"
         credentialsId:      "nexusiqP"
-        scanPatterns:       []       # list of Ant patterns, e.g. ["**/build/libs/*.jar"]
+        scanPatterns:       []       # list of Ant patterns, e.g. ["**/build/libs/*.jar"] or ["**/bin/Release/**", "**/packages.config"]
         stage:              "build"
         failOnNetworkError: false
 
@@ -94,7 +102,7 @@ projects:
       presenceId: ""                 # AppScan Presence ID (for internal networks, optional)
 
     build:                           # how the artifact is built (stage 2)
-      buildPath: ""                  # artifact path or glob, e.g. "build/libs/*.jar" or "target/*.jar"
+      buildPath: ""                  # artifact path or glob, e.g. "build/libs/*.jar", "target/*.jar", or "bin/Release/**/*.dll"
       # credentialsId: ['<certificate password>', '<prod licence>', '<test licence>']   # Flutter only: three Jenkins Secret text IDs
       gradle:
         tasks:  ['clean', 'build']
@@ -107,6 +115,25 @@ projects:
         mvnPath:  ""                 # Maven installation directory; empty uses ./mvnw when present, otherwise mvn
         env:
           MAVEN_OPTS: "-Xms512m -Xmx1g"
+      # dotnet:                      # C#/.NET (auto-detected mode when omitted; invalid values log [WARN] and fall back to auto-detection)
+      #   mode:          "auto"      # "auto" | "dotnet" ("cli", "sdk") | "msbuild" ("classic", "vs") | "hybrid" | "cake" | "nuke"
+      #   useDotnetCli:  false       # optional boolean shorthand: true -> "dotnet", false -> "msbuild"
+      #   solution:      ""          # optional .sln or .csproj/.fsproj/.vbproj path [default: auto-detected *.sln / *.csproj]
+      #   configuration: "Release"   # MSBuild / dotnet configuration [default: Release]
+      #   platform:      ""          # optional MSBuild platform, e.g. "Any CPU", "x64"
+      #   restore:       true        # run `nuget restore` / `dotnet restore` before build [default: true]
+      #   nugetConfig:   ""          # optional path to NuGet.config
+      #   nugetPath:     ""          # Windows: optional folder or full path to nuget.exe
+      #   msbuildPath:   ""          # Windows: optional folder or full path to MSBuild.exe
+      #   dotnetPath:    ""          # optional folder or full path to dotnet CLI
+      #   pack:          false       # run `dotnet pack` after build
+      #   publish:       false       # run deploy/publish output step after build
+      #   publishDir:    ""          # optional publish destination folder
+      #   restoreFlags:  []          # extra restore flags
+      #   flags:         []          # extra MSBuild / dotnet build flags
+      #   commands:      []          # optional custom build commands replacing default restore+build
+      #   dir:           ""          # optional working subdirectory
+      #   env: {}                    # optional environment variables
       # liquibase:                   # Liquibase (SQL / PL/SQL) build command
       #   commands: ['updateSQL']
       #   flags:    ['--changelog-file=src/main/resources/changelog.xml']
@@ -129,6 +156,10 @@ projects:
         goals: ['deploy:deploy-file']
         flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
                 '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+      # nuget:                       # C#/.NET NuGet package push (nuget.exe push / dotnet nuget push)
+      #   source:         ""         # Nexus NuGet hosted repository URL
+      #   credentialsId:  ""         # Jenkins Secret text credential holding NuGet API key
+      #   packagePattern: "**/*.nupkg"
       # group:    ""                 # Flutter only: groupId of the APK and IPA upload
       # artifact: ""                 # Flutter only: artifactId, -android or -ios is appended
       # plugin:   "deploy:deploy-file"   # Flutter only: the Maven goal of the upload
@@ -151,7 +182,7 @@ projects:
       enabled:                true
       onlyDirectDependencies: true
       minThreatLevel:         2      # 2+ medium, 4+ high, 8+ critical
-      ecosystems:             [maven, npm, pypi]   # supported: maven, npm, pypi, pub; a Flutter service lists pub here
+      ecosystems:             [maven, npm, pypi, nuget]   # supported: maven, npm, pypi, pub, nuget; a Flutter service lists pub here
       goldenVersionTypes:            # Nexus IQ remediation types taken as they are (the Golden Version)
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
@@ -160,12 +191,13 @@ projects:
         enabled:        true         # false: no pre-check, the pull request is raised unverified
         maxAttempts:    3            # version sets tried; each failed build lowers every proposed version
         timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
-        commands:                    # replaces the default check of one ecosystem; runs with bash in the folder of the check
+        commands:                    # replaces the default check of one ecosystem; runs with bash or PowerShell (Windows) in the folder of the check
           maven:  ""                 # [default: mvn -B -q -DskipTests compile]
           gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
           npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
           pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
           pub:    ""                 # [default: flutter pub get, or dart pub get]
+          nuget:  ""                 # [default: nuget restore & MSBuild /t:Build (Windows) or dotnet build --no-incremental]
       commitAuthorName:       "DevSecOps GoldenFix"
       commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
@@ -179,10 +211,24 @@ projects:
           tasks: ['test', 'jacocoTestReport']
         maven:
           goals: ['test', 'jacoco:report']
+        # dotnet:                    # C#/.NET unit tests (auto-detected runner and coverage tool when omitted; invalid values log [WARN] and fall back)
+        #   runner:         "auto"   # "auto" | "dotnet" | "vstest" | "mstest" | "nunit" | "xunit" | "hybrid"
+        #   coverageTool:   "auto"   # "auto" | "cobertura" ("coverlet", "xplat") | "opencover" | "dotcover" | "none"
+        #   useDotnetCli:   false    # true: run `dotnet test --collect:"XPlat Code Coverage"`
+        #   vstestPath:     ""       # Windows: path to vstest.console.exe
+        #   mstestPath:     ""       # Windows: path to MSTest.exe
+        #   nunitPath:      ""       # path to nunit3-console.exe
+        #   xunitPath:      ""       # path to xunit.console.exe
+        #   opencoverPath:  ""       # Windows: path to OpenCover.Console.exe (collects coverage.opencover.xml)
+        #   dotcoverPath:   ""       # path to dotCover.exe
+        #   coverlet:       true     # dotnet CLI: collect XPlat Code Coverage (Cobertura XML)
+        #   testAssemblies: []       # Windows classic MSBuild: explicit test DLL paths/globs [default: auto-discovers **/*Tests.dll]
+        #   commands:       []       # optional custom test commands
+        #   flags:          []
         # liquibase:
         #   commands: ['validate']
         #   flags:    ['--changelog-file=src/main/resources/changelog.xml']
-        unitTestResult:    ""        # JUnit results pattern [default: **/build/test-results/test/*.xml]
+        unitTestResult:    ""        # JUnit XML or .NET TRX results pattern [default: **/build/test-results/test/*.xml or **/TestResults/*.trx]
         rootDir:           "."       # Maven: root of the module scan for surefire reports
         reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
         allowEmptyResults: false     # Maven: accept a module without test results

@@ -70,8 +70,9 @@ class ConfigLoader implements Serializable {
                 if (!projects.containsKey(pName)) {
                     script.error "[INIT] Project '${pName}' not found in ${state.configFile}. Available: ${projects.keySet().join(', ')}"
                 }
-                Map merged = deepMerge(state.cfgDefaults, projects[pName] as Map)
-                state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName)
+                Map rawProj = (projects[pName] ?: [:]) as Map
+                Map merged = deepMerge(state.cfgDefaults, rawProj)
+                state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName, rawProj)
                 appScanKeyId(pName)
             }
             def primaryName = projectNames[0]
@@ -225,6 +226,18 @@ class ConfigLoader implements Serializable {
         script.env.CURRENT_PROJECT_NAME = projectName
         script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
         script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
+    }
+
+    void refreshAutoResolvedConfig(String projectName, String targetDir = '') {
+        Map projects = loadedProjects()
+        Map rawProj = (projects[projectName] ?: state.projectsAllCfg[projectName] ?: [:]) as Map
+        Map current = (state.projectsAllCfg[projectName] ?: [:]) as Map
+        if (targetDir && (!current.sourceDir || current.sourceDir == '.')) {
+            current = [:] + current + [sourceDir: targetDir]
+        }
+        Map updated = autoResolver.resolve(current, projectName, rawProj)
+        state.projectsAllCfg[projectName] = updated
+        if (state.currentProjectName == projectName) state.cfg = updated
     }
 
     private String appScanKeyId(String projectName) {

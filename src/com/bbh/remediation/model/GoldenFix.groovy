@@ -6,7 +6,7 @@ class GoldenFix implements Serializable {
 
     @NonCPS
     static List<String> supportedEcosystems() {
-        return ['maven', 'npm', 'pypi', 'pub']
+        return ['maven', 'npm', 'pypi', 'pub', 'nuget']
     }
 
     @NonCPS
@@ -40,10 +40,11 @@ class GoldenFix implements Serializable {
     @NonCPS
     static String key(String ecosystem, String group, String name) {
         switch (ecosystem) {
-            case 'pypi': return "pypi:${normalizePypiName(name)}".toString()
-            case 'npm':  return "npm:${(name ?: '').toLowerCase()}".toString()
-            case 'pub':  return "pub:${(name ?: '').toLowerCase()}".toString()
-            default:     return "maven:${group ?: ''}:${name ?: ''}".toString()
+            case 'pypi':  return "pypi:${normalizePypiName(name)}".toString()
+            case 'npm':   return "npm:${(name ?: '').toLowerCase()}".toString()
+            case 'pub':   return "pub:${(name ?: '').toLowerCase()}".toString()
+            case 'nuget': return "nuget:${(name ?: '').toLowerCase()}".toString()
+            default:      return "maven:${group ?: ''}:${name ?: ''}".toString()
         }
     }
 

@@ -279,8 +279,9 @@ Map<String, String> manifests = [
         'gui/build.gradle'      : 'dependencies {\n    implementation "io.netty:netty-codec-http:${nettyVersion}"\n}\n',
         'gradle.properties'     : 'nettyVersion=4.1.86.Final\n',
         'web/package.json'      : '{\n  "dependencies": {\n    "lodash": "^4.17.15"\n  }\n}\n',
-        'tools/requirements.txt': 'requests==2.25.1\nurllib3==1.26.5\n',
-        'mobile/pubspec.yaml'   : 'name: cert_scanner\nversion: 1.4.0\n\ndependencies:\n  flutter:\n    sdk: flutter\n  http: ^0.13.4\n  intl: 0.17.0\n'
+        'tools/requirements.txt'        : 'requests==2.25.1\nurllib3==1.26.5\n',
+        'mobile/pubspec.yaml'           : 'name: cert_scanner\nversion: 1.4.0\n\ndependencies:\n  flutter:\n    sdk: flutter\n  http: ^0.13.4\n  intl: 0.17.0\n',
+        'src/Orders.Api/Orders.Api.csproj': '<Project Sdk="Microsoft.NET.Sdk.Web">\n  <ItemGroup>\n    <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />\n  </ItemGroup>\n</Project>\n'
 ]
 Map gfResult = [:]
 Map gfFiles = [:]
@@ -296,7 +297,8 @@ try {
                 goldenFix.create('maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final', 'next-no-violations', '', 4, true, app),
                 goldenFix.create('npm', '', 'lodash', '4.17.15', '4.17.21', 'next-no-violations', '', 4, true, app),
                 goldenFix.create('pypi', '', 'requests', '2.25.1', '2.32.3', 'next-no-violations', '', 4, true, app),
-                goldenFix.create('pub', '', 'http', '0.13.4', '0.13.6', 'next-no-violations', '', 4, true, app)
+                goldenFix.create('pub', '', 'http', '0.13.4', '0.13.6', 'next-no-violations', '', 4, true, app),
+                goldenFix.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'next-no-violations', '', 4, true, app)
         ]
         def state = gfHarness.type('com.bbh.core.PipelineState').newInstance()
         state.currentProjectName = 'gui'
@@ -305,7 +307,7 @@ try {
         def repository = gfHarness.type('com.bbh.fixture.InMemorySourceRepository').newInstance([manifests] as Object[])
         def source = gfHarness.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
         def publisher = gfHarness.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
-        List updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater'].collect {
+        List updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater', 'NugetUpdater'].collect {
             gfHarness.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
         }
         def service = gfHarness.type('com.bbh.remediation.GoldenFixService').newInstance(gfScript, state, source, repository, publisher, updaters)
@@ -541,8 +543,9 @@ check('GoldenFix: pip requirement upgraded, other pins untouched', (gfFiles['too
 check('GoldenFix: Flutter pubspec dependency upgraded keeping the caret', (gfFiles['mobile/pubspec.yaml'] ?: '').contains('http: ^0.13.6')
         && (gfFiles['mobile/pubspec.yaml'] ?: '').contains('intl: 0.17.0') && (gfFiles['mobile/pubspec.yaml'] ?: '').contains('version: 1.4.0'),
         gfFiles['mobile/pubspec.yaml'])
+check('GoldenFix: NuGet PackageReference upgraded in .csproj', (gfFiles['src/Orders.Api/Orders.Api.csproj'] ?: '').contains('Version="12.0.3"'), gfFiles['src/Orders.Api/Orders.Api.csproj'])
 check('GoldenFix: pull request description lists every upgrade and how the version was chosen', gfPrs
-        && (((gfPrs[0] as Map).description ?: '') as String).count('| `') >= 6
+        && (((gfPrs[0] as Map).description ?: '') as String).count('| `') >= 7
         && (((gfPrs[0] as Map).description ?: '') as String).contains('Nexus IQ Golden Version'),
         gfPrs ? (gfPrs[0] as Map).description : 'no pull request')
 
@@ -2006,6 +2009,587 @@ ${cards.toString()}</div>
 </html>
 """
 
+verifyDotnetScenarios(srcDir, stubDir, fixturesDir, check)
+verifyMultiRepoStaticFlowScenarios(srcDir, stubDir, fixturesDir, check)
+
 println "\n${failures == 0 ? 'ALL SANDBOX SCENARIOS PASSED' : failures + ' SANDBOX SCENARIO CHECK(S) FAILED'}"
 println "Reports written to ${reportsDir}"
 System.exit(failures == 0 ? 0 : 1)
+
+void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure check) {
+    Map dotnetE2e = [errors: []]
+    try {
+        SandboxHarness dnHarness = new SandboxHarness(srcDir, stubDir, fixturesDir)
+
+        FakeScript winBuildScript = new FakeScript(unix: false)
+        winBuildScript.env.vars.putAll([WORKSPACE: 'C:/ws/orders', JOB_NAME: 'Orders/WinBuild', BUILD_NUMBER: '42', BUILD_URL: 'https://jenkins.bbh.com/job/Orders/42/'])
+        winBuildScript.files['Orders.sln'] = 'Microsoft Visual Studio Solution File'
+        winBuildScript.files['bin/Orders.Tests.dll'] = 'dll'
+        winBuildScript.files['TestResults/run.trx'] = '<TestRun/>'
+        winBuildScript.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains('SelectSingleNode') && cmd.contains('Counters')) return '18,2,1'
+            return a.returnStdout ? '' : (a.returnStatus ? 0 : null)
+        }
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(winBuildScript)
+            os.detect()
+            def policy = dnHarness.type('com.bbh.core.PolicyEngine').newInstance(winBuildScript, state, os)
+            def build = dnHarness.type('com.bbh.build.BuildService').newInstance(winBuildScript, state, os, policy)
+            state.currentProjectName = 'orders-api'
+            state.cfg = [
+                    buildTool: 'dotnet',
+                    build    : [dotnet: [solution: 'Orders.sln', configuration: 'Release', platform: 'Any CPU', nugetPath: 'C:\\tools\\nuget.exe', msbuildPath: 'C:\\msbuild\\MSBuild.exe']],
+                    tests    : [unitTests: [unitTestResult: '**/TestResults/*.trx', dotnet: [vstestPath: 'C:\\vstest\\vstest.console.exe', opencoverPath: 'C:\\opencover\\OpenCover.Console.exe', testAssemblies: ['bin/Orders.Tests.dll']]]]
+            ]
+            build.buildArtifact()
+            build.unitTests()
+            build.reportUnitTests()
+            dotnetE2e.winUnitTests = state.projectsUnitTests['orders-api']
+        }
+
+        FakeScript cliBuildScript = new FakeScript(unix: true)
+        cliBuildScript.env.vars.putAll([WORKSPACE: '/ws/billing', JOB_NAME: 'Billing/CliBuild', BUILD_NUMBER: '43', BUILD_URL: 'https://jenkins.bbh.com/job/Billing/43/'])
+        cliBuildScript.files['Billing.csproj'] = '<Project Sdk="Microsoft.NET.Sdk"/>'
+        cliBuildScript.files['TestResults/unit.trx'] = '<TestRun/>'
+        cliBuildScript.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains('ElementTree') && cmd.contains('Counters')) return '10,0,1'
+            if (cmd.contains('uname')) return 'Linux'
+            return a.returnStdout ? '' : (a.returnStatus ? 0 : null)
+        }
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(cliBuildScript)
+            os.detect()
+            def policy = dnHarness.type('com.bbh.core.PolicyEngine').newInstance(cliBuildScript, state, os)
+            def build = dnHarness.type('com.bbh.build.BuildService').newInstance(cliBuildScript, state, os, policy)
+            state.currentProjectName = 'billing'
+            state.cfg = [
+                    buildTool: 'dotnet',
+                    build    : [dotnet: [useDotnetCli: true, solution: 'Billing.csproj', configuration: 'Release', publish: true, publishDir: 'out/pub']],
+                    tests    : [unitTests: [dotnet: [useDotnetCli: true, coverlet: true]]]
+            ]
+            build.buildArtifact()
+            build.unitTests()
+            build.reportUnitTests()
+            dotnetE2e.cliUnitTests = state.projectsUnitTests['billing']
+        }
+
+        Map nugetResults = dnHarness.run {
+            def gf = dnHarness.type('com.bbh.remediation.model.GoldenFix')
+            def updater = dnHarness.type('com.bbh.remediation.updater.NugetUpdater').newInstance()
+            List fixes = [
+                    gf.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'recommended-non-breaking', '', 8, true, 'app'),
+                    gf.create('nuget', '', 'Serilog', '2.10.0', '2.12.0', 'next-no-violations', '', 4, true, 'app'),
+                    gf.create('nuget', '', 'Dapper', '2.0.90', '2.0.123', 'next-no-violations', '', 4, true, 'app'),
+                    gf.create('nuget', '', 'AutoMapper', '10.1.1', '10.1.1-preview', 'next-no-violations', '', 4, true, 'app'),
+                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.15.0', 'next-no-violations', '', 4, true, 'app')
+            ]
+            String csprojSrc = '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <NewtonsoftVer>12.0.1</NewtonsoftVer>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftVer)" />\n    <PackageReference Include="Serilog">\n      <Version>2.10.0</Version>\n    </PackageReference>\n    <PackageReference Include="AutoMapper" Version="[10.*,11.0)" />\n  </ItemGroup>\n</Project>\n'
+            Map rCsproj = updater.updateDeclarations('src/Orders.Api/Orders.Api.csproj', csprojSrc, fixes)
+            Map rCsprojProps = updater.updateProperties('src/Orders.Api/Orders.Api.csproj', rCsproj.content as String, rCsproj.properties as List)
+            rCsproj = [:] + rCsproj + [content: rCsprojProps.content]
+            Map rProps = updater.updateDeclarations('Directory.Packages.props',
+                    '<Project>\n  <ItemGroup>\n    <PackageVersion Include="Dapper" Version="2.0.90" />\n  </ItemGroup>\n</Project>\n',
+                    fixes)
+            Map rPkgCfg = updater.updateDeclarations('LegacyApp/packages.config',
+                    '<?xml version="1.0" encoding="utf-8"?>\n<packages>\n  <package id="RestSharp" version="106.11.7" targetFramework="net48" />\n</packages>\n',
+                    fixes)
+            [csproj: rCsproj, props: rProps, pkgcfg: rPkgCfg]
+        } as Map
+        dotnetE2e.nuget = nugetResults
+
+        FakeScript winGfScript = new FakeScript(unix: false)
+        winGfScript.env.vars.putAll([WORKSPACE: 'C:/ws', WORKSPACE_TMP: 'C:/ws@tmp', JOB_NAME: 'Orders/Orders-nexusiq', BUILD_NUMBER: '99',
+                                     BUILD_URL: 'https://jenkins.bbh.com/job/Orders/99/', GIT_BRANCH: 'origin/develop'])
+        String csprojPath = 'C:/ws@tmp/goldenfix/GoldenFix-202609191405/src/Orders.Api/Orders.Api.csproj'
+        winGfScript.files[csprojPath] = '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Newtonsoft.Json" Version="12.0.1" /></ItemGroup></Project>'
+        String pkgCfgPath = 'C:/ws@tmp/goldenfix/GoldenFix-202609191405/LegacyApp/packages.config'
+        winGfScript.files[pkgCfgPath] = '<packages><package id="RestSharp" version="106.11.7" targetFramework="net48" /></packages>'
+        winGfScript.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains("Get-Date -Format 'yyyyMMddHHmm'")) return '202609191405'
+            if (cmd.contains('GoldenFix: find dependency manifests') || cmd.contains('$pats = @(')) return 'src/Orders.Api/Orders.Api.csproj\nLegacyApp/packages.config'
+            if (cmd.contains('git -C') && cmd.contains('remote get-url origin')) return 'https://bitbucket.bbh.com/projects/ORD/repos/orders.git'
+            if (cmd.contains('git rev-parse HEAD')) return 'deadbeef1234'
+            if (cmd.contains('DEVSECOPS_EXIT=')) return 'DEVSECOPS_EXIT=0'
+            if (cmd.contains('pull-requests') && cmd.contains('curl.exe')) return '{"id":901,"links":{"self":[{"href":"https://bitbucket.bbh.com/projects/ORD/repos/orders/pull-requests/901"}]}}\n201'
+            if (cmd.contains('git ') && cmd.contains('ls-remote') && cmd.contains('curl.exe')) return '{"id":901}\n200'
+            return ''
+        }
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(winGfScript)
+            os.detect()
+            def policy = dnHarness.type('com.bbh.core.PolicyEngine').newInstance(winGfScript, state, os)
+            def gf = dnHarness.type('com.bbh.remediation.model.GoldenFix')
+            List fixes = [
+                    gf.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'recommended-non-breaking', '', 8, true, 'OrdersApp'),
+                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.15.0', 'next-no-violations', '', 4, true, 'OrdersApp')
+            ]
+            state.currentProjectName = 'orders-api'
+            state.cfgDefaults = [sast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], sca: [maxCritical: 0, maxHigh: 0, maxMedium: 0],
+                                 dast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], tools: [nexusIq: [maxCritical: 0, maxHigh: 0, maxMedium: 0]]]
+            state.cfg = [
+                    buildTool: 'dotnet',
+                    tools    : [sonar: [projectName: 'Orders API', projectKey: 'com.bbh.orders:orders-api']],
+                    goldenFix: [enabled: true, ecosystems: ['nuget'], verify: [enabled: true, maxAttempts: 2, timeoutMinutes: 10]],
+                    scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders', credentialsId: 'bb-creds', targetBranch: 'develop']]
+            ]
+            state.projectsAllCfg = ['orders-api': state.cfg]
+            def repo = dnHarness.type('com.bbh.scm.GitSourceRepository').newInstance(winGfScript)
+            def pub = dnHarness.type('com.bbh.scm.BitbucketPullRequestPublisher').newInstance(winGfScript)
+            def verifier = dnHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(winGfScript)
+            def source = dnHarness.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
+            List updaters = [dnHarness.type('com.bbh.remediation.updater.NugetUpdater').newInstance()]
+            def svc = dnHarness.type('com.bbh.remediation.GoldenFixService').newInstance(winGfScript, state, source, repo, pub, updaters, verifier)
+            svc.remediate([[application: 'OrdersApp', serverUrl: 'https://tools.bbh.com/IQ', scanId: 'b' * 32, reportUrl: 'https://tools.bbh.com/IQ/report']])
+            dotnetE2e.winGfResult = state.projectsGoldenFix['orders-api']
+
+            state.stageResults['Unit tests'] = 'PASS'
+            state.projectsUnitTests['orders-api'] = [total: 21, failed: 0, skipped: 1, durationMs: 5000L]
+            state.projectsCoverage['orders-api'] = [enabled: true, line: 85.0d, covered: 17, missed: 3, total: 20, minRequired: 60,
+                                                    reports: [[kind: 'cobertura', tool: 'Cobertura', path: 'TestResults/coverage.cobertura.xml', line: 90.0d, covered: 9, missed: 1, total: 10, counted: true],
+                                                              [kind: 'opencover', tool: 'OpenCover', path: 'coverage.opencover.xml', line: 80.0d, covered: 8, missed: 2, total: 10, counted: true]]]
+            state.coverage = [enabled: true, line: 85.0d, covered: 17, missed: 3, total: 20, minRequired: 60]
+            state.projectsSonarResults['orders-api'] = [status: 'PASS', url: 'https://tools.bbh.com/sonar/dashboard?id=com.bbh.orders:orders-api']
+            dnHarness.type('com.bbh.report.HtmlReportService').newInstance(winGfScript, state, os, policy, 'security').generate()
+            dotnetE2e.winReportHtml = winGfScript.files['report/pipeline-report.html']
+        }
+
+        FakeScript deployWinScript = new FakeScript(unix: false)
+        deployWinScript.env.vars.putAll([WORKSPACE: 'C:/ws', BUILD_NUMBER: '44'])
+        deployWinScript.files['dist/Orders.1.0.0.nupkg'] = 'nupkg'
+        deployWinScript.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains('Get-ChildItem') && cmd.contains("Write-Output '0'")) return '0'
+            return ''
+        }
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(deployWinScript)
+            os.detect()
+            def vm = dnHarness.type('com.bbh.deploy.VmDeployService').newInstance(deployWinScript, state, os)
+            state.currentProjectName = 'orders-api'
+            state.cfg = [
+                    buildTool: 'dotnet',
+                    delivery : [nuget: [source: 'https://tools.bbh.com/nexus/repository/nuget-hosted/', credentialsId: 'nuget-key', packagePattern: '**/*.nupkg']],
+                    deploy   : [vm: [dod: [siteName: 'deploy.bbh.com', deployProcess: 'iis', applications: [[applicationName: 'Orders', components: [[componentName: 'OrdersPkg', baseDir: 'dist', fileIncludePatterns: '*.nupkg']]]]]]]
+            ]
+            vm.pushToNexus('orders-api')
+            vm.verifyComponentFiles('OrdersPkg', 'dist', '*.nupkg')
+            state.cfg.build = [dotnet: [useDotnetCli: true]]
+            vm.pushToNexus('orders-api')
+        }
+
+        FakeScript ocpScript = new FakeScript(unix: true)
+        ocpScript.env.vars.putAll([WORKSPACE: '/ws', BUILD_NUMBER: '55'])
+        ocpScript.files['pipeline-config.yaml'] = 'projects: {}\n'
+        ocpScript.shHandler = { Map a -> a.returnStdout ? 'Linux' : null }
+        ocpScript.steps['withCluster'] = null
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            state.currentProjectName = 'billing'
+            state.cfg = [
+                    buildTool   : 'dotnet',
+                    appName     : 'billing-worker',
+                    artifactName: 'Billing.Worker.dll',
+                    build       : [buildPath: '', dotnet: [publishDir: 'out/publish']],
+                    deploy      : [openshift: [rd: [dockerFilePath: 'Dockerfile', buildContext: 'ctx', projectBuildR: 'bld', projectTargetR: 'tgt', imageStream: 'is', buildConfigPath: 'bc.yaml']]]
+            ]
+            def ocp = dnHarness.type('com.bbh.deploy.OpenshiftService').newInstance(ocpScript, state)
+            try { ocp.buildDockerImage('billing') } catch (Throwable ignored) {}
+        }
+
+        FakeScript winSecPrScript = new FakeScript(unix: false)
+        winSecPrScript.env.vars.putAll([WORKSPACE: 'C:/ws', BUILD_NUMBER: '44', APPSCAN_SCAN_NAME: 'orders-sast'])
+        winSecPrScript.files['appscan-report-orders-sast.html'] = '''<div>
+            Issue ID: 101 Severity: High Status: Open Issue Type: SQL Injection File: C:\\ws\\sast_directory\\src\\Orders.Api\\Program.cs Line: 18 Remediation: Parameterize SQL
+            Issue ID: 102 Severity: Critical Status: New Issue Type: Command Injection Source File: appscan-source-staged/src/main/java/com/bbh/Service.java Line: 42 Remediation: Validate args
+            Issue ID: 103 Severity: High Status: Open Issue Type: Path Traversal Location: src/main/kotlin/com/bbh/FileCtrl.kt:33 Remediation: Canonicalize path
+            Issue ID: 104 Severity: Medium Status: Open Issue Type: SSRF File: app/worker.py Line: 12 Remediation: Allowlist hosts
+            Issue ID: 105 Severity: High Status: Open Issue Type: DOM XSS File: frontend/src/app/orders.component.ts Line: 77 Remediation: Sanitize HTML
+            Issue ID: 106 Severity: Medium Status: Open Issue Type: Insecure Storage File: lib/main.dart Line: 19 Remediation: Use Keychain
+            Issue ID: 107 Severity: High Status: Open Issue Type: Dynamic SQL File: db/plsql/pkg_orders.pkb Line: 64 Remediation: Use bind variables
+        </div>'''
+        winSecPrScript.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains('/api/issues/search')) {
+                return '{"issues":[{"component":"ord:mod:src/Orders.Api/Program.cs","line":24,"severity":"CRITICAL","rule":"csharpsquid:S2077","message":"Format SQL safely"}]}\n200'
+            }
+            if (cmd.contains('git -C') && cmd.contains('remote get-url origin')) return 'https://bitbucket.bbh.com/projects/ORD/repos/orders.git'
+            if (cmd.contains('git rev-parse')) return 'develop'
+            if (cmd.contains('DEVSECOPS_EXIT=')) return 'DEVSECOPS_EXIT=0'
+            if (cmd.contains('state=OPEN')) return '{"values":[]}\n200'
+            if (cmd.contains('pull-requests') && cmd.contains('curl.exe') && !cmd.contains('/comments')) {
+                return '{"id":902,"links":{"self":[{"href":"https://bitbucket.bbh.com/projects/ORD/repos/orders/pull-requests/902"}]}}\n201'
+            }
+            return '{"id":1}\n201'
+        }
+        dnHarness.run {
+            def state = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            state.currentProjectName = 'orders-api'
+            state.cfg = [
+                    buildTool: 'dotnet',
+                    scm: [bitbucket: [url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders', credentialsId: 'bb-creds', targetBranch: 'develop', decoratePullRequests: true]],
+                    tools: [sonar: [projectKey: 'ord', serverUrl: 'https://tools.bbh.com/sonar', authToken: 'sonar-tok']]
+            ]
+            state.policyStatus['sast'] = 'FAIL'
+            state.policyStatus['sonar'] = 'FAIL'
+            state.policyStatus['dast'] = 'FAIL'
+            state.vulnCounts['dast'] = [critical: 0, high: 1, medium: 0, low: 0]
+            state.projectsGoldenFix['orders-api'] = [
+                    status: 'PR_CREATED',
+                    changes: [[file: 'src/Orders.Api/Orders.Api.csproj', component: 'Newtonsoft.Json', from: '12.0.1', to: '12.0.3']]
+            ]
+            def repo = dnHarness.type('com.bbh.scm.GitSourceRepository').newInstance(winSecPrScript)
+            def pub = dnHarness.type('com.bbh.scm.BitbucketPullRequestPublisher').newInstance(winSecPrScript)
+            def svc = dnHarness.type('com.bbh.remediation.SecurityPullRequestService').newInstance(winSecPrScript, state, pub, repo)
+            svc.publishStaticSecurityPullRequest()
+            svc.publishDastPullRequest()
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(winSecPrScript)
+            os.detect()
+            def policy = dnHarness.type('com.bbh.core.PolicyEngine').newInstance(winSecPrScript, state, os)
+            dnHarness.type('com.bbh.report.HtmlReportService').newInstance(winSecPrScript, state, os, policy, 'security').generate()
+        }
+
+        FakeScript autoWinScript = new FakeScript(unix: false)
+        autoWinScript.files.putAll([
+                'Billing.csproj': '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>',
+                'Dockerfile'    : 'FROM mcr.microsoft.com/dotnet/aspnet:8.0'
+        ])
+        dnHarness.run {
+            def resolver = dnHarness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(autoWinScript)
+            dotnetE2e.warnResolved = resolver.resolve([
+                    buildTool   : 'invalid-build-tool',
+                    deployTarget: 'invalid-deploy-target',
+                    build       : [dotnet: [mode: 'invalid-mode', coverageTool: 'invalid-cov']],
+                    tests       : [unitTests: [dotnet: [runner: 'invalid-runner', coverageTool: 'invalid-cov']]]
+            ], 'billing-svc')
+
+            def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(autoWinScript)
+            os.detect()
+            def runner = dnHarness.type('com.bbh.build.DotnetBuildRunner').newInstance(autoWinScript, os, dotnetE2e.warnResolved as Map)
+            runner.build(null, 'dotnet')
+            runner.test('dotnet')
+
+            autoWinScript.files['packages.config'] = '<packages/>'
+            autoWinScript.files['bin/Legacy.Tests.dll'] = 'dll'
+            def hybridRunner = dnHarness.type('com.bbh.build.DotnetBuildRunner').newInstance(autoWinScript, os, [buildTool: 'dotnet'])
+            dotnetE2e.hybridMode = hybridRunner.resolveMode([:], [:], 'dotnet')
+            hybridRunner.build([runner: 'nunit', coverageTool: 'dotcover'], 'dotnet')
+            hybridRunner.test('dotnet')
+            runner.build([mode: 'cake'], 'dotnet')
+        }
+        dotnetE2e.autoWinLog = autoWinScript.log
+        dotnetE2e.autoWinCalls = autoWinScript.calls
+
+        dotnetE2e.winBuildCalls = winBuildScript.calls
+        dotnetE2e.cliBuildCalls = cliBuildScript.calls
+        dotnetE2e.winGfCalls = winGfScript.calls
+        dotnetE2e.winGfFiles = winGfScript.files
+        dotnetE2e.deployCalls = deployWinScript.calls
+        dotnetE2e.ocpCalls = ocpScript.calls
+        dotnetE2e.secPrCalls = winSecPrScript.calls
+        dotnetE2e.secPrFiles = winSecPrScript.files
+    } catch (Throwable t) {
+        (dotnetE2e.errors as List) << (SandboxHarness.rejectionOf(t) ?: t.toString())
+    }
+
+    check('C#/.NET Windows classic build & VSTest+OpenCover+TRX and CLI build & test work inside sandbox',
+            (dotnetE2e.errors as List).isEmpty()
+                    && (dotnetE2e.winBuildCalls as List<String>).any { it.startsWith('bat ') && it.contains('nuget.exe restore Orders.sln') }
+                    && (dotnetE2e.winBuildCalls as List<String>).any { it.startsWith('bat ') && it.contains('MSBuild.exe Orders.sln') && it.contains('/p:Configuration=Release') }
+                    && (dotnetE2e.winBuildCalls as List<String>).any { it.startsWith('bat ') && it.contains('OpenCover.Console.exe') && it.contains('vstest.console.exe') && it.contains('/Logger:trx') }
+                    && (dotnetE2e.winBuildCalls as List<String>).any { it.startsWith('powershell ') && it.contains('SelectSingleNode') }
+                    && (dotnetE2e.winUnitTests as Map)?.subMap(['total', 'failed', 'skipped']) == [total: 21, failed: 2, skipped: 1]
+                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'restore' 'Billing.csproj'") }
+                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'build' 'Billing.csproj' '--configuration' 'Release' '--no-restore'") }
+                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'publish' 'Billing.csproj' '--configuration' 'Release' '--no-build' '-o' 'out/pub'") }
+                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'test' 'Billing.csproj' '--configuration' 'Release'") && it.contains("'--collect' 'XPlat Code Coverage'") }
+                    && (dotnetE2e.cliUnitTests as Map)?.subMap(['total', 'failed', 'skipped']) == [total: 11, failed: 0, skipped: 1],
+            dotnetE2e)
+
+    Map nugetRes = (dotnetE2e.nuget ?: [:]) as Map
+    check('NugetUpdater updates .csproj (MSBuild property + nested Version), Directory.Packages.props, and packages.config and skips ranges',
+            ((nugetRes.csproj as Map)?.content as String)?.contains('<NewtonsoftVer>12.0.3</NewtonsoftVer>')
+                    && ((nugetRes.csproj as Map)?.content as String)?.contains('<Version>2.12.0</Version>')
+                    && ((nugetRes.csproj as Map)?.notes as List)?.any { (it as Map).reason?.toString()?.contains('range') }
+                    && ((nugetRes.props as Map)?.content as String)?.contains('<PackageVersion Include="Dapper" Version="2.0.123" />')
+                    && ((nugetRes.pkgcfg as Map)?.content as String)?.contains('version="106.15.0"'),
+            nugetRes)
+
+    String winHtml = (dotnetE2e.winReportHtml ?: '') as String
+    Map winGf = (dotnetE2e.winGfResult ?: [:]) as Map
+    check('C#/.NET Windows GoldenFix pre-checks, pushes, opens Bitbucket PR and renders Cobertura/OpenCover/GoldenFix in HTML report',
+            winGf.status == 'PR_CREATED' && winGf.verified == true && winGf.prUrl == 'https://bitbucket.bbh.com/projects/ORD/repos/orders/pull-requests/901'
+                    && (dotnetE2e.winGfCalls as List<String>).any { it.startsWith('powershell [GoldenFix: prepare worktree') }
+                    && (dotnetE2e.winGfCalls as List<String>).any { it.startsWith('powershell [GoldenFix: pre-check nuget]') && it.contains('MSBuild.exe') }
+                    && (dotnetE2e.winGfCalls as List<String>).any { it.startsWith('powershell [GoldenFix: git push]') && it.contains('GIT_CONFIG_COUNT') }
+                    && (dotnetE2e.winGfCalls as List<String>).any { it.startsWith('powershell [Bitbucket: create pull request') && it.contains('curl.exe') }
+                    && winHtml.contains('Cobertura') && winHtml.contains('OpenCover') && winHtml.contains('85.0%')
+                    && winHtml.contains('GoldenFix-202609191405') && winHtml.contains('Orders.Api.csproj') && winHtml.contains('RestSharp'),
+            [winGf, dotnetE2e.winGfCalls])
+
+    check('C#/.NET NuGet publish, Windows DOD PowerShell validation, and OpenShift publishDir work inside sandbox',
+            (dotnetE2e.deployCalls as List<String>).any { it.startsWith('powershell ') && it.contains('nuget.exe push') && it.contains('-ApiKey $env:NUGET_API_KEY') }
+                    && (dotnetE2e.deployCalls as List<String>).any { it.startsWith('powershell ') && it.contains('dotnet nuget push') }
+                    && (dotnetE2e.deployCalls as List<String>).any { it.startsWith('powershell ') && it.contains('Get-ChildItem') }
+                    && (dotnetE2e.ocpCalls as List<String>).any { it.contains('ls out/publish/Billing.Worker.dll') },
+            [dotnetE2e.deployCalls, dotnetE2e.ocpCalls])
+
+    Map secPrFiles = (dotnetE2e.secPrFiles ?: [:]) as Map
+    List<String> secPrCalls = (dotnetE2e.secPrCalls ?: []) as List<String>
+    String staticReportMd = (secPrFiles['C:/ws@tmp/goldenfix/security-static-orders-api/security/static-security-report.md'] ?: '') as String
+    String dastReportMd = (secPrFiles['C:/ws@tmp/goldenfix/security-dast-orders-api/security/dast-findings.md'] ?: '') as String
+    String secPrReportHtml = (secPrFiles['report/pipeline-report.html'] ?: '') as String
+    check('SecurityPullRequestService publishes static and DAST security PRs with NuGet GoldenFix and multi-language SAST/Sonar inline comments',
+            staticReportMd.contains('`Newtonsoft.Json`: upgraded `12.0.1` -> `12.0.3` in `src/Orders.Api/Orders.Api.csproj`')
+                    && staticReportMd.contains('**[HIGH]** `src/Orders.Api/Program.cs:18` - SQL Injection: Parameterize SQL')
+                    && staticReportMd.contains('**[CRITICAL]** `src/main/java/com/bbh/Service.java:42` - Command Injection')
+                    && staticReportMd.contains('**[HIGH]** `src/main/kotlin/com/bbh/FileCtrl.kt:33` - Path Traversal')
+                    && staticReportMd.contains('**[MEDIUM]** `app/worker.py:12` - SSRF')
+                    && staticReportMd.contains('**[HIGH]** `frontend/src/app/orders.component.ts:77` - DOM XSS')
+                    && staticReportMd.contains('**[MEDIUM]** `lib/main.dart:19` - Insecure Storage')
+                    && staticReportMd.contains('**[HIGH]** `db/plsql/pkg_orders.pkb:64` - Dynamic SQL')
+                    && staticReportMd.contains('**[CRITICAL]** `src/Orders.Api/Program.cs:24` - Format SQL safely')
+                    && dastReportMd.contains('# HCL AppScan DAST Dynamic Security Report')
+                    && secPrReportHtml.contains('SAST Inline Comments on Pull Request')
+                    && secPrReportHtml.contains('src/Orders.Api/Program.cs:18')
+                    && secPrReportHtml.contains('Suggested solution:')
+                    && secPrCalls.count { it.startsWith('powershell [Bitbucket: line comment on pull request 902]') } == 8,
+            [staticReportMd, dastReportMd, secPrReportHtml, secPrCalls])
+
+    Map warnResolved = (dotnetE2e.warnResolved ?: [:]) as Map
+    List<String> autoWinLog = (dotnetE2e.autoWinLog ?: []) as List<String>
+    List<String> autoWinCalls = (dotnetE2e.autoWinCalls ?: []) as List<String>
+    check('C#/.NET auto-detection, hybrid and Cake modes, and [WARN] fallback on invalid config parameters work inside sandbox',
+            warnResolved.buildTool == 'dotnet' && warnResolved.deployTarget == 'openshift'
+                    && (warnResolved.build as Map)?.dotnet?.mode == 'dotnet'
+                    && dotnetE2e.hybridMode == 'hybrid'
+                    && autoWinLog.any { it.contains("[WARN] Invalid buildTool 'invalid-build-tool'") && it.contains("Falling back to auto-detected buildTool 'dotnet'") }
+                    && autoWinLog.any { it.contains("[WARN] Invalid deployTarget 'invalid-deploy-target'") && it.contains("Falling back to auto-detected deployTarget 'openshift'") }
+                    && autoWinLog.any { it.contains("[WARN] Invalid .NET build mode 'invalid-mode'") && it.contains("Falling back to auto-detected mode 'dotnet'") }
+                    && autoWinLog.any { it.contains("[WARN] Invalid .NET test runner 'invalid-runner'") }
+                    && autoWinLog.any { it.contains("[WARN] Invalid .NET coverageTool 'invalid-cov'") }
+                    && autoWinCalls.any { it.startsWith('bat [dotnet build]') && it.contains('dotnet.exe build Billing.csproj') }
+                    && autoWinCalls.any { it.startsWith('bat [NuGet restore]') && it.contains('nuget.exe restore Billing.csproj') }
+                    && autoWinCalls.any { it.startsWith('bat [MSBuild Build]') && it.contains('MSBuild.exe Billing.csproj') }
+                    && autoWinCalls.any { it.startsWith('bat [Cake Build]') && it.contains('dotnet.exe cake build.cake') },
+            [warnResolved, dotnetE2e.hybridMode, autoWinLog, autoWinCalls])
+}
+
+void verifyMultiRepoStaticFlowScenarios(File srcDir, File stubDir, File fixturesDir, Closure check) {
+    Map mr = [errors: []]
+    List<Map> commentPayloads = []
+    try {
+        SandboxHarness h = new SandboxHarness(srcDir, stubDir, fixturesDir)
+        FakeScript s = new FakeScript(unix: true)
+        s.resources['com/bbh/devsecops/defaults.yaml'] = new File(srcDir.parentFile, 'resources/com/bbh/devsecops/defaults.yaml').text
+        s.env.vars.putAll([
+                WORKSPACE   : '/ws/multi',
+                JOB_NAME    : 'MultiModule-Sec',
+                BUILD_NUMBER: '77',
+                BUILD_URL   : 'https://jenkins.bbh.com/job/MultiModule-Sec/77/',
+                JAVA_HOME   : '/opt/java17'
+        ])
+        s.files['devsecops_config.yaml'] = '''
+appId: "multi"
+projects:
+  core-java:
+    sourceDir: "."
+    scm:
+      bitbucket:
+        url: "https://bitbucket.bbh.com/projects/CORE/repos/core-platform"
+        credentialsId: "bb-creds"
+        targetBranch: "main"
+        decoratePullRequests: true
+    asoc:
+      keyId: "asoc-core"
+      scanName: "core-sast"
+    tools:
+      sonar:
+        projectKey: "core-key"
+        serverUrl: "https://tools.bbh.com/sonar"
+        authToken: "sonar-tok"
+        badgeToken: "badge-core"
+    tests:
+      unitTests:
+        gradle:
+          tasks: "test"
+  orders-dotnet:
+    sourceDir: "orders-dotnet"
+    scm:
+      bitbucket:
+        url: "https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet"
+        credentialsId: "bb-creds"
+        targetBranch: "develop"
+        decoratePullRequests: true
+    asoc:
+      keyId: "asoc-ord"
+      scanName: "orders-sast"
+    tools:
+      sonar:
+        projectKey: "orders-key"
+        serverUrl: "https://tools.bbh.com/sonar"
+        authToken: "sonar-tok"
+        badgeToken: "badge-ord"
+    tests:
+      unitTests:
+        unitTestResult: "orders-dotnet/TestResults/*.trx"
+'''
+        s.files['build.gradle'] = 'plugins { id "java" }'
+        s.files['gradlew'] = '#!/bin/sh\nexit 0'
+        s.files['build/test-results/test/TEST-Core.xml'] = '<testsuite tests="1"/>'
+        s.files['build/reports/jacoco/test/jacocoTestReport.xml'] = '<report name="core"><counter type="LINE" missed="37" covered="163"/></report>'
+        s.files['appscan-report-core-sast.html'] = '''<html><body>
+            <div class="issue">
+                <div class="name">Severity:</div><div class="value"><span>High</span></div>
+                <div class="name">Status:</div><div class="value">Open</div>
+                <div class="name">Issue Type:</div><div class="value">SQL Injection</div>
+                <div class="name">Location:</div><div class="value">src/main/java/com/bbh/CoreApi.java</div>
+                <div class="name">Line:</div><div class="value">29</div>
+                <div class="name">Fix Recommendation:</div><div class="value">Use PreparedStatement parameters.</div>
+            </div>
+        </body></html>'''
+        s.files['appscan-report-orders-sast.html'] = '''<div>
+            Issue ID: 501 Severity: Critical Status: Open Issue Type: Hardcoded Secret File: orders-dotnet/src/Orders.Api/Controller.cs Line: 44 Remediation: Move secret to vault
+        </div>'''
+        s.shHandler = { Map a ->
+            String cmd = String.valueOf(a.script ?: '')
+            if (cmd.contains('/comments') && cmd.contains('@')) {
+                def m = cmd =~ /@'([^']+)'/
+                if (m.find()) {
+                    String fname = m.group(1).tokenize('/').last()
+                    String body = s.files.find { k, v -> k.toString().endsWith(fname) }?.value?.toString() ?: ''
+                    commentPayloads << [cmd: cmd, body: body]
+                }
+            }
+            if (cmd.contains('git -C') && cmd.contains('rev-parse --show-toplevel')) {
+                return cmd.contains('/ws/multi/orders-dotnet') ? '/ws/multi/orders-dotnet' : '/ws/multi'
+            }
+            if (a.returnStatus) return 0
+            if (cmd.contains('/api/issues/search')) {
+                if (cmd.contains('orders-key')) {
+                    return '{"issues":[{"component":"orders-key:orders-dotnet/src/Orders.Api/Controller.cs","line":51,"severity":"MAJOR","rule":"csharpsquid:S1075","message":"Avoid hardcoded URI"}]}\n200'
+                }
+                return '{"issues":[]}\n200'
+            }
+            if (cmd.contains('api/project_analyses') || cmd.contains('api/measures')) {
+                return '{"component":{"measures":[{"metric":"violations","value":"1"}]},"total":0}\n200'
+            }
+            if (a.label == 'Coverage: find and read the reports') {
+                if (cmd.contains("--root 'orders-dotnet'")) {
+                    return "S\t0\nR\tcobertura\torders-dotnet/coverage.cobertura.xml\t70\t80\t\tdotnet\tabc123"
+                }
+                return "S\t0\nR\tjacoco\tbuild/reports/jacoco/test/jacocoTestReport.xml\t163\t200\t\tgradle\tdef456"
+            }
+            if (cmd.contains('Counters') && cmd.contains('PYEOF')) return '14,1,2'
+            return '{"id":88}\n201'
+        }
+
+        h.run {
+            def state = h.type('com.bbh.core.PipelineState').newInstance()
+            def os = h.type('com.bbh.core.OsHelper').newInstance(s)
+            os.detect()
+            def policy = h.type('com.bbh.core.PolicyEngine').newInstance(s, state, os)
+            def config = h.type('com.bbh.config.ConfigLoader').newInstance(s, state)
+            def build = h.type('com.bbh.build.BuildService').newInstance(s, state, os, policy)
+            def sonar = h.type('com.bbh.scanner.SonarService').newInstance(s, state, os, build)
+            def repo = h.type('com.bbh.scm.GitSourceRepository').newInstance(s, state)
+            def pub = h.type('com.bbh.scm.BitbucketPullRequestPublisher').newInstance(s)
+            def secPr = h.type('com.bbh.remediation.SecurityPullRequestService').newInstance(s, state, pub, repo)
+            def report = h.type('com.bbh.report.HtmlReportService').newInstance(s, state, os, policy, 'security')
+
+            config.load('security', [projectNames: 'core-java,orders-dotnet', agentNames: ['lin001']])
+            config.initialize()
+            mr.initialDotnetTool = state.projectsAllCfg['orders-dotnet']?.buildTool
+
+            s.files['orders-dotnet/.git/HEAD'] = 'ref: refs/heads/develop'
+            s.files['orders-dotnet/Orders.csproj'] = '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'
+            s.files['orders-dotnet/Dockerfile'] = 'FROM mcr.microsoft.com/dotnet/aspnet:8.0'
+            s.files['orders-dotnet/TestResults/orders.trx'] = '<TestRun/>'
+            s.files['orders-dotnet/coverage.cobertura.xml'] = '<coverage/>'
+
+            config.refreshAutoResolvedConfig('orders-dotnet', 'orders-dotnet')
+            mr.refreshedDotnetCfg = state.projectsAllCfg['orders-dotnet']
+
+            state.stageStart('Build artifact')
+            state.stageDone('Build artifact')
+
+            config.switchProject('core-java')
+            build.unitTests()
+            build.checkCoverage()
+            state.recordScan('sast', 'FAIL', 'appscan-report-core-sast.html')
+            state.projectsVulnCounts['core-java']['sast'] = [critical: 0, high: 1, medium: 0, low: 0]
+            state.nexusIqResults = [url: 'https://niq.bbh.com/core', fix_url: 'https://niq.bbh.com/core/fix', critical: 0, high: 1, medium: 0]
+            state.recordNexusIq('WARN')
+            state.recordGoldenFix([status: 'PR_CREATED', prId: '701', prUrl: 'https://bitbucket.bbh.com/projects/CORE/repos/core-platform/pull-requests/701', prTitle: 'GoldenFix core-java', branch: 'goldenfix-core', targetBranch: 'main', changes: [[file: 'gradle/libs.versions.toml', component: 'jackson', from: '2.13.0', to: '2.16.0']]])
+            state.goldenFixPullRequestsByRepo['bitbucket.bbh.com/projects/core/repos/core-platform'] = [id: '701', url: 'https://bitbucket.bbh.com/projects/CORE/repos/core-platform/pull-requests/701', title: 'GoldenFix core-java', branch: 'goldenfix-core', targetBranch: 'main']
+
+            config.switchProject('orders-dotnet')
+            build.unitTests()
+            state.recordScan('sast', 'FAIL', 'appscan-report-orders-sast.html')
+            state.projectsVulnCounts['orders-dotnet']['sast'] = [critical: 1, high: 0, medium: 0, low: 0]
+            state.nexusIqResults = [url: 'https://niq.bbh.com/orders', fix_url: 'https://niq.bbh.com/orders/fix', critical: 1, high: 0, medium: 0]
+            state.recordNexusIq('FAIL')
+            state.recordGoldenFix([status: 'PR_CREATED', prId: '702', prUrl: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702', prTitle: 'GoldenFix orders-dotnet', branch: 'goldenfix-orders', targetBranch: 'develop', changes: [[file: 'Orders.csproj', component: 'Newtonsoft.Json', from: '12.0.1', to: '13.0.3']]])
+            state.goldenFixPullRequestsByRepo['bitbucket.bbh.com/projects/ord/repos/orders-dotnet'] = [id: '702', url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702', title: 'GoldenFix orders-dotnet', branch: 'goldenfix-orders', targetBranch: 'develop']
+
+            config.switchProject('core-java')
+            sonar.scan()
+            mr.coreRepoRoot = repo.prepareWorkingCopy('gf-check-core')
+            config.switchProject('orders-dotnet')
+            sonar.scan()
+            mr.ordersRepoRoot = repo.prepareWorkingCopy('gf-check-orders')
+
+            secPr.publishStaticSecurityPullRequest()
+            report.generate()
+
+            mr.unitTests = state.projectsUnitTests
+            mr.coverage = state.projectsCoverage
+            mr.goldenFix = state.projectsGoldenFix
+            mr.html = s.files['report/pipeline-report.html']
+        }
+        mr.calls = s.calls
+        mr.log = s.log
+    } catch (Throwable t) {
+        StringWriter sw = new StringWriter()
+        t.printStackTrace(new PrintWriter(sw))
+        (mr.errors as List) << (SandboxHarness.rejectionOf(t) ?: sw.toString().readLines().findAll { it.contains('com.bbh') || !it.startsWith('\tat ') }.take(8).join(' | '))
+    }
+
+    Map rCfg = (mr.refreshedDotnetCfg ?: [:]) as Map
+    Map uTests = (mr.unitTests ?: [:]) as Map
+    Map covMap = (mr.coverage ?: [:]) as Map
+    Map gfMap = (mr.goldenFix ?: [:]) as Map
+    String html = (mr.html ?: '') as String
+    List<String> calls = (mr.calls ?: []) as List<String>
+    List<String> logs = (mr.log ?: []) as List<String>
+
+    Map asserts = [
+            noErrors        : (mr.errors as List).isEmpty(),
+            preCheckoutTool : mr.initialDotnetTool == 'gradle',
+            refreshedTool   : rCfg.buildTool == 'dotnet' && rCfg.deployTarget == 'openshift',
+            coreTests       : (uTests['core-java'] as Map)?.subMap(['total', 'failed', 'skipped']) == [total: 214, failed: 0, skipped: 3],
+            ordersTests     : (uTests['orders-dotnet'] as Map)?.subMap(['total', 'failed', 'skipped']) == [total: 17, failed: 1, skipped: 2],
+            coreCov         : ((covMap['core-java'] as Map)?.line as Double) == 81.5d,
+            ordersCov       : ((covMap['orders-dotnet'] as Map)?.line as Double) == 87.5d,
+            sonarCovLog     : logs.any { it.contains('[SONAR] orders-dotnet: Code coverage was not calculated in unit tests - calculating coverage in SonarQube stage') },
+            ordersGitRoot   : calls.any { it.contains('/ws/multi/orders-dotnet') },
+            pr701Comment    : commentPayloads.any { Map p -> (p.cmd as String).contains('/pull-requests/701/comments') && (p.body as String).contains('src/main/java/com/bbh/CoreApi.java') && (p.body as String).contains('Use PreparedStatement parameters.') },
+            pr702Comment    : commentPayloads.any { Map p -> (p.cmd as String).contains('/pull-requests/702/comments') && (p.body as String).contains('"src/Orders.Api/Controller.cs"') && !(p.body as String).contains('orders-dotnet/src/Orders.Api/Controller.cs') && (p.body as String).contains('Move secret to vault') },
+            sastCommentsMap : !((gfMap['core-java'] as Map)?.sastComments ?: []).isEmpty() && !((gfMap['orders-dotnet'] as Map)?.sastComments ?: []).isEmpty(),
+            htmlUnitCard    : html.contains('Unit Tests') && html.contains('All modules summary'),
+            htmlCovCard     : html.contains('Code Coverage') && html.contains('All services'),
+            htmlSastReports : html.contains('appscan-report-core-sast.html') && html.contains('appscan-report-orders-sast.html'),
+            htmlSonarBadges : html.contains('SonarQube Metrics - core-java') && html.contains('SonarQube Metrics - orders-dotnet'),
+            htmlNiqGfPrSast : html.contains('https://niq.bbh.com/core/fix') && html.contains('https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702') && html.contains('SAST Inline Comments on Pull Request') && html.contains('src/main/java/com/bbh/CoreApi.java:29') && html.contains('src/Orders.Api/Controller.cs:44')
+    ]
+    check('Multi-repo + multi-module static security pipeline auto-detects post-checkout, computes missing coverage in Sonar, comments SAST per repo root, and renders full report',
+            !asserts.values().contains(false),
+            [failed: asserts.findAll { k, v -> !v }.keySet(), errors: mr.errors, uTests: uTests, cov: covMap, comments: commentPayloads])
+}
+

@@ -2,6 +2,7 @@ package com.bbh.scanner
 
 import com.bbh.build.BuildRunner
 import com.bbh.build.BuildService
+import com.bbh.build.DotnetBuildRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
@@ -49,7 +50,7 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
             script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: "APPSCAN_KEY_SECRET")]) {
                 if (os.isWindows()) {
-                    def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
+                    def appscanPath = windowsAppscanPath()
                     script.powershell """
 \$ErrorActionPreference = 'Stop'
 \$env:HOME        = \$env:APPSCAN_HOME_DIR
@@ -144,9 +145,32 @@ echo "[INFO] AppScan CLI login succeeded."
                     "APPSCAN_OPTS=${proxyOpts()}"
             ]) {
                 if (os.isWindows()) {
-                    def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
-                    def modulesRaw = state.cfg?.includedDirs ?: ''
-                    def modules = modulesRaw.split(',').collect { "'${it.trim()}'" }.join(',')
+                    String tool = build.detectTool()
+                    boolean isDotnet = BuildUtils.isDotnetTool(tool)
+                    if (doCompile && isDotnet) {
+                        Map dotnetOverride = DotnetBuildRunner.toolCfg(state.cfg.asoc as Map, tool)
+                        new DotnetBuildRunner(script, os, state.cfg).build(dotnetOverride ?: null, tool)
+                    }
+                    def appscanPath = windowsAppscanPath()
+                    def modulesRaw = (state.cfg?.includedDirs ?: '') as String
+                    boolean hasIncluded = modulesRaw.trim() != ''
+                    def modules = hasIncluded ? modulesRaw.split(',').collect { "'${it.trim()}'" }.join(',') : ''
+                    String xdList = isDotnet
+                            ? 'sast_directory .git obj packages TestResults .appscan-tools .appscan-logs .appscan-home .appscan-bin .scannerwork .sonar node_modules DevSecOpsJenkinsLibrary'
+                            : 'test test_utils Tests'
+                    String copyBlock = hasIncluded ? """
+foreach (\$folder in ${modules}){
+    \$srcPath = "\$env:APPSCAN_SOURCE_DIR_RUNTIME\\\$folder"
+    \$targetPath = "\$sastDirectory\\\$folder"
+    if (Test-Path \$srcPath){
+        robocopy "\$srcPath" "\$targetPath" /E /XD ${xdList} /MT:16 /NFL /NDL /NJH /NP /NS
+    }
+}""" : """
+robocopy "\$env:APPSCAN_SOURCE_DIR_RUNTIME" "\$sastDirectory" /E /XD ${xdList} /MT:16 /NFL /NDL /NJH /NP /NS
+"""
+                    String libOption = isDotnet
+                            ? (scoOption ? "${scoOption} " : '')
+                            : "${scoOption ? scoOption + ' ' : ''}-l \"\$env:APPSCAN_SOURCE_DIR_RUNTIME\\lib;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\modules;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\plugins\""
                     script.powershell """
 \$ErrorActionPreference = 'Stop'
 \$env:HOME        = \$env:APPSCAN_HOME_DIR
@@ -156,16 +180,11 @@ Remove-Item -Force "\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx" -ErrorAction Si
 \$sastDirectory = "\$env:WORKSPACE\\sast_directory"
 if (Test-Path -Path \$sastDirectory) {Remove-Item -Path \$sastDirectory -Recurse -Force }
 New-Item -ItemType Directory -Path \$sastDirectory | Out-Null
-
-foreach (\$folder in ${modules}){
-    \$srcPath = "\$env:APPSCAN_SOURCE_DIR_RUNTIME\\\$folder"
-    \$targetPath = "\$sastDirectory\\\$folder"
-    if (Test-Path \$srcPath){
-        robocopy "\$srcPath" "\$targetPath" /E /XD test test_utils Tests /MT:16 /NFL /NDL /NJH /NP /NS
-    }
-}
+${copyBlock}
+\$csCount = (Get-ChildItem -Path \$sastDirectory -Recurse -Filter '*.cs' -ErrorAction SilentlyContinue | Measure-Object).Count
+Write-Host "[IRX] .NET C# source files staged: \$csCount"
 Set-Location -Path \$sastDirectory
-& ${appscanPath} prepare -s thorough -n "\$env:APPSCAN_SCAN_NAME" -d "\$env:WORKSPACE" -l "\$env:APPSCAN_SOURCE_DIR_RUNTIME\\lib;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\modules;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\plugins" 2>&1 |
+& ${appscanPath} prepare -s thorough -n "\$env:APPSCAN_SCAN_NAME" -d "\$env:WORKSPACE" ${libOption} 2>&1 |
     Out-File -FilePath "\$env:APPSCAN_LOG_DIR/prepare.log" -Encoding UTF8
 if (-not (Test-Path "\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx")) { Write-Error "[ERROR] IRX not found after prepare"; exit 1 }
 Write-Host "[INFO] IRX size: \$((Get-Item \"\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx\").Length) bytes"
@@ -179,6 +198,9 @@ Set-Location -Path "\$env:WORKSPACE"
                             if (build.hasLiquibaseStep(liqCompileCfg)) {
                                 build.runLiquibaseCommand(liqCompileCfg, ['validate'], 'Liquibase SAST')
                             }
+                        } else if (BuildUtils.isDotnetTool(tool as String)) {
+                            Map dotnetOverride = DotnetBuildRunner.toolCfg(state.cfg.asoc as Map, tool as String)
+                            new DotnetBuildRunner(script, os, state.cfg).build(dotnetOverride ?: null, tool as String)
                         } else {
                             Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
                             BuildRunner runner = new BuildRunner(script, compileCfg, tool)
@@ -802,7 +824,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                     "APPSCAN_OPTS=${proxyOpts()}"
             ]) {
                 if (os.isWindows()) {
-                    def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
+                    def appscanPath = windowsAppscanPath()
                     script.powershell """
 \$ErrorActionPreference = 'Continue'
 \$env:HOME        = \$env:APPSCAN_HOME_DIR
@@ -849,7 +871,7 @@ done
     private void getReports(String type, String dest) {
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_SCAN_ID=${scanId(type)}", "APPSCAN_OPTS=${proxyOpts()}"]) {
             if (os.isWindows()) {
-                def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
+                def appscanPath = windowsAppscanPath()
                 script.powershell """
 \$env:HOME        = \$env:APPSCAN_HOME_DIR
 \$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
@@ -892,7 +914,7 @@ done
         String output = ''
         script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
             if (os.isWindows()) {
-                def appscanPath = script.pwd().replace('\\', '/') + state.cfg?.appscanPath
+                def appscanPath = windowsAppscanPath()
                 output = script.powershell(returnStdout: true, script: """
 \$ErrorActionPreference = 'Continue'
 \$env:HOME        = \$env:APPSCAN_HOME_DIR
@@ -918,7 +940,11 @@ env -u APPSCAN_DOMAIN \\
         }
         def m = (output =~ /(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)
         if (!m) {
-            script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
+            if (os.isWindows()) {
+                script.powershell "Get-Content -Path '${BuildUtils.psSingleQuote(script.env.APPSCAN_LOG_DIR as String)}\\queue-${logName}.log' -ErrorAction SilentlyContinue | Where-Object { \$_ -notmatch '% transferred' }"
+            } else {
+                script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
+            }
             script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
         }
         script.echo "[INFO] '${name}' queued - Scan ID: ${m[0]}"
@@ -1212,6 +1238,16 @@ ${zipBase64}
         boolean nodeBuilt = state.stageResults.containsKey('Node.js build')
         if (!nodeBuilt || script.env.APPSCAN_SOURCE_FOLDERS || excluded.tokenize(',').collect { it.trim() }.contains('node_modules')) return excluded
         return excluded ? "${excluded},node_modules".toString() : 'node_modules'
+    }
+
+    private String windowsAppscanPath() {
+        String configured = ((state.cfg?.appscanPath ?: '') as String).trim()
+        if (configured) {
+            if (configured.contains(':') || configured.startsWith('\\\\')) return configured
+            String base = ((script.env.WORKSPACE ?: script.pwd()) as String).replace('\\', '/')
+            return "${base}${configured.startsWith('/') ? configured : '/' + configured}"
+        }
+        return (script.env.APPSCAN_CMD_RUNTIME ?: appscanCmd() ?: 'appscan.bat') as String
     }
 
     private String appscanCmd() {

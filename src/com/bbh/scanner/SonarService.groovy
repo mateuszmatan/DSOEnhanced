@@ -1,6 +1,7 @@
 package com.bbh.scanner
 
 import com.bbh.build.BuildRunner
+import com.bbh.build.DotnetBuildRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.build.BuildService
@@ -32,10 +33,14 @@ class SonarService implements Serializable {
         boolean fullBadges = sonarCfg.fullBadges ?: false
         def sonarUrl    = sonarCfg.serverUrl?.trim() ?: 'https://tools.bbh.com/sonar'
         def tool        = build.detectTool()
+        boolean isDotnet = BuildUtils.isDotnetTool(tool as String)
+        boolean useGenericDotnet = BuildUtils.booleanValue(sonarCfg.useGenericScanner, false)
         String badgeToken = resolveBadgeToken(sonarCfg)
         state.sonarResults['badgeToken'] = badgeToken
         String branch = resolveBranch()
-        applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
+        if (!isDotnet || useGenericDotnet) {
+            applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
+        }
         String effectiveProjectKey = projectKey ?: resolveProjectKey(sonarCfg as Map)
         String reportedKey = projectKey ?: effectiveProjectKey
         if (effectiveProjectKey && state.sonarScansByProjectKey.containsKey(effectiveProjectKey)) {
@@ -62,24 +67,25 @@ class SonarService implements Serializable {
                 scanFlutter(sonarCfg, sonarArgs, installationName)
             } else if (tool == 'liquibase') {
                 scanLiquibase(sonarCfg, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, effectiveProjectKey, fullBadges)
-            } else {
-                Map runCfg = effectiveSonarCfg(sonarCfg as Map, tool as String)
-                if (credentialsId) {
-                    script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
-                        new BuildRunner(script, runCfg, tool).run()
-                        if (addBadges) {
-                            script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
-                        }
-                    }
+            } else if (isDotnet) {
+                if (useGenericDotnet) {
+                    scanDotnetGeneric(sonarCfg as Map, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, effectiveProjectKey, fullBadges)
                 } else {
-                    script.withSonarQubeEnv("${installationName}") {
-                        new BuildRunner(script, runCfg, tool).run()
-                        if (addBadges) {
-                            script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
-                        }
+                    scanDotnet(sonarCfg as Map, tool as String, branch, installationName, credentialsId, addBadges, sonarUrl, effectiveProjectKey, projectName as String, fullBadges)
+                }
+            } else if (tool in ['pip', 'npm', 'ios']) {
+                scanGenericCli(sonarCfg as Map, tool as String, sonarArgs, installationName, credentialsId, addBadges, sonarUrl, effectiveProjectKey, fullBadges)
+            } else {
+                String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
+                Map runCfg = effectiveSonarCfg(sonarCfg as Map, runnerTool)
+                withSonarEnv(credentialsId as String, installationName as String) {
+                    new BuildRunner(script, runCfg, runnerTool).run()
+                    if (addBadges) {
+                        script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
                     }
                 }
             }
+        state.sonarResults['projectKey'] = reportedKey
         state.sonarResults['url']      = reportedKey ? "${sonarUrl}/dashboard?id=${reportedKey}" : ''
         state.sonarResults['badgeUrl'] = (reportedKey && badgeToken)
                 ? "${sonarUrl}/api/project_badges/quality_gate?project=${reportedKey}&token=${badgeToken}" : ''
@@ -104,6 +110,13 @@ class SonarService implements Serializable {
             return
         }
         fetchIssueCounts(sonarUrl, reportedKey)
+        Map projCov = (state.projectsCoverage?.get(state.currentProjectName) ?: [:]) as Map
+        boolean missingCov = !state.projectsCoverage?.containsKey(state.currentProjectName)
+        if (!projCov.get('enabled') && (BuildUtils.booleanValue(sonarCfg.calculateCoverageIfMissing, false)
+                || (missingCov && (!state.stageResults.isEmpty() || !state.stageTimes.isEmpty())))) {
+            script.echo "[SONAR] ${state.currentProjectName}: Code coverage was not calculated in unit tests - calculating coverage in SonarQube stage"
+            build.checkCoverage()
+        }
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
@@ -207,7 +220,8 @@ class SonarService implements Serializable {
                 if (os.isWindows()) {
                     counts = script.powershell(returnStdout: true, script: """
 try {
-    \$resp = Invoke-RestMethod -Uri "${sonarUrl}/api/issues/search?componentKeys=${projectKey}&types=VULNERABILITY&resolved=false&facets=severities&ps=1" -ErrorAction Stop
+    \$hdrs = if (\$env:authToken) { @{ Authorization = "Bearer \$(\$env:authToken)" } } else { @{} }
+    \$resp = Invoke-RestMethod -Uri "${sonarUrl}/api/issues/search?componentKeys=${projectKey}&types=VULNERABILITY&resolved=false&facets=severities&ps=1" -Headers \$hdrs -ErrorAction Stop
     \$c = @{}; foreach (\$item in \$resp.facets) { if (\$item.property -eq 'severities') { foreach (\$v in \$item.values) { \$c[\$v.val] = \$v.count } } }
     Write-Output "\$([int](\$c['BLOCKER'] + \$c['CRITICAL'])),\$([int]\$c['MAJOR']),\$([int]\$c['MINOR']),\$([int]\$c['INFO'])"
 } catch { Write-Output '0,0,0,0' }
@@ -247,34 +261,188 @@ rm -f "\${_TMP}"
         } catch (e) { script.echo "[SONAR] Could not fetch issue counts: ${e.message}" }
     }
 
-    private Map effectiveSonarCfg(Map sonarCfg, String tool) {
-        if (!(sonarCfg.liquibase instanceof Map)) return sonarCfg
-        Map liqCfg = sonarCfg.liquibase as Map
-        List extraFlags = []
-        if (liqCfg.sources) {
-            String src = (liqCfg.sources instanceof Collection ? (liqCfg.sources as Collection).join(',') : liqCfg.sources) as String
-            extraFlags << "-Dsonar.sources=${src}".toString()
-        }
-        if (liqCfg.inclusions) {
-            String inc = (liqCfg.inclusions instanceof Collection ? (liqCfg.inclusions as Collection).join(',') : liqCfg.inclusions) as String
-            extraFlags << "-Dsonar.inclusions=${inc}".toString()
-        }
-        if (liqCfg.exclusions) {
-            String exc = (liqCfg.exclusions instanceof Collection ? (liqCfg.exclusions as Collection).join(',') : liqCfg.exclusions) as String
-            extraFlags << "-Dsonar.exclusions=${exc}".toString()
-        }
-        extraFlags.addAll(BuildUtils.normalizeTokens(liqCfg.flags))
-        if (!extraFlags) return sonarCfg
-        Map toolBlock = [:]
-        if (sonarCfg.get(tool) instanceof Map) toolBlock.putAll(sonarCfg.get(tool) as Map)
-        List existingFlags = BuildUtils.normalizeTokens(toolBlock.flags)
-        for (String flag : extraFlags) {
-            String prefix = flag.contains('=') ? flag.substring(0, flag.indexOf('=') + 1) : flag
-            if (!existingFlags.any { (it as String).startsWith(prefix) }) {
-                existingFlags << flag
+    private void scanDotnetGeneric(Map sonarCfg, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
+        List args = [] + sonarArgs
+        withSonarEnv(credentialsId, installationName) {
+            runScanner(sonarCfg, args)
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
             }
         }
-        toolBlock.flags = existingFlags
+    }
+
+    private void scanGenericCli(Map sonarCfg, String tool, List sonarArgs, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, boolean fullBadges) {
+        Map toolBlock = (sonarCfg.get(tool) instanceof Map ? sonarCfg.get(tool) : (tool == 'npm' && sonarCfg.node instanceof Map ? sonarCfg.node : [:])) as Map
+        List args = [] + sonarArgs
+        String sources = ((toolBlock.sources ?: sonarCfg.sources ?: (script.fileExists('src') ? 'src' : '.')) as String).trim()
+        if (sources && !args.any { (it as String).startsWith('-Dsonar.sources=') }) {
+            args << "-Dsonar.sources=${sources}".toString()
+        }
+        if (tool == 'pip' && script.fileExists('coverage.xml') && !args.any { (it as String).startsWith('-Dsonar.python.coverage.reportPaths=') }) {
+            args << '-Dsonar.python.coverage.reportPaths=coverage.xml'
+        } else if (tool == 'npm' && script.fileExists('coverage/lcov.info') && !args.any { (it as String).startsWith('-Dsonar.javascript.lcov.reportPaths=') }) {
+            args << '-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info'
+            args << '-Dsonar.typescript.lcov.reportPaths=coverage/lcov.info'
+        }
+        args.addAll(BuildUtils.normalizeTokens(toolBlock.flags ?: sonarCfg.flags))
+        withSonarEnv(credentialsId, installationName) {
+            runScanner(sonarCfg, args)
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+            }
+        }
+    }
+
+    private void scanDotnet(Map sonarCfg, String tool, String branch, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, String projectName, boolean fullBadges) {
+        DotnetBuildRunner runner = new DotnetBuildRunner(script, os, state.cfg)
+        Map buildDotnetCfg = DotnetBuildRunner.toolCfg(state.cfg.build as Map, tool)
+        Map sonarDotnetCfg = DotnetBuildRunner.toolCfg(sonarCfg, tool)
+        if (sonarCfg.dotnetMode) {
+            sonarDotnetCfg = [:] + sonarDotnetCfg + [mode: sonarCfg.dotnetMode]
+        }
+        String mode = runner.resolveMode(sonarDotnetCfg, buildDotnetCfg, tool)
+        boolean classic = mode in ['msbuild', 'hybrid']
+
+        List beginTokens = []
+        if (classic) {
+            String scannerExe = ((sonarCfg.sonarScannerMsbuildPath ?: sonarDotnetCfg.scannerPath ?: '') as String).trim()
+            if (!scannerExe) scannerExe = os.isWindows() ? 'SonarScanner.MSBuild.exe' : 'sonar-scanner-msbuild'
+            beginTokens << scannerExe
+        } else {
+            String dotnetExe = ((sonarDotnetCfg.dotnetPath ?: buildDotnetCfg.dotnetPath ?: '') as String).trim()
+            if (!dotnetExe) dotnetExe = os.isWindows() ? 'dotnet.exe' : 'dotnet'
+            beginTokens.addAll([dotnetExe, 'sonarscanner'])
+        }
+        beginTokens << 'begin'
+        if (projectKey) beginTokens << "/k:${projectKey}".toString()
+        if (projectName) beginTokens << "/n:${projectName}".toString()
+        beginTokens << "/d:sonar.host.url=${sonarUrl}".toString()
+        if (branch) beginTokens << "/d:sonar.branch.name=${branch}".toString()
+        beginTokens << '/d:sonar.sourceEncoding=UTF-8'
+
+        boolean hasVb = resolveDotnetReportParam(null, ['*.vbproj', '**/*.vbproj']) != ''
+        String opencover = resolveDotnetReportParam(sonarCfg.opencoverPaths ?: sonarDotnetCfg.opencoverPaths, ['**/coverage.opencover.xml', '**/*opencover*.xml'])
+        if (opencover) {
+            beginTokens << "/d:sonar.cs.opencover.reportsPaths=${opencover}".toString()
+            if (hasVb) beginTokens << "/d:sonar.vbnet.opencover.reportsPaths=${opencover}".toString()
+        }
+        String vscover = resolveDotnetReportParam(sonarCfg.vscoveragexmlPaths ?: sonarDotnetCfg.vscoveragexmlPaths, ['**/*.coveragexml'])
+        if (vscover) beginTokens << "/d:sonar.cs.vscoveragexml.reportsPaths=${vscover}".toString()
+        String dotcover = resolveDotnetReportParam(sonarCfg.dotcoverPaths ?: sonarDotnetCfg.dotcoverPaths, [])
+        if (dotcover) beginTokens << "/d:sonar.cs.dotcover.reportsPaths=${dotcover}".toString()
+        String vstest = resolveDotnetReportParam(sonarCfg.vstestPaths ?: sonarDotnetCfg.vstestPaths, ['**/TestResults/*.trx', '**/*.trx'])
+        if (vstest) {
+            beginTokens << "/d:sonar.cs.vstest.reportsPaths=${vstest}".toString()
+            if (hasVb) beginTokens << "/d:sonar.vbnet.vstest.reportsPaths=${vstest}".toString()
+        }
+        String nunit = resolveDotnetReportParam(sonarCfg.nunitPaths ?: sonarDotnetCfg.nunitPaths, [])
+        if (nunit) beginTokens << "/d:sonar.cs.nunit.reportsPaths=${nunit}".toString()
+        String xunit = resolveDotnetReportParam(sonarCfg.xunitPaths ?: sonarDotnetCfg.xunitPaths, [])
+        if (xunit) beginTokens << "/d:sonar.cs.xunit.reportsPaths=${xunit}".toString()
+        beginTokens.addAll(BuildUtils.normalizeTokens(sonarDotnetCfg.beginArgs ?: sonarDotnetCfg.flags ?: sonarCfg.flags))
+
+        List endTokens = (classic ? [beginTokens[0], 'end'] : [beginTokens[0], 'sonarscanner', 'end'])
+        endTokens.addAll(BuildUtils.normalizeTokens(sonarDotnetCfg.endArgs))
+
+        String beginCmd = formatDotnetCmd(beginTokens)
+        String endCmd = formatDotnetCmd(endTokens)
+        Map compileCfg = [:] + buildDotnetCfg + sonarDotnetCfg
+        if (compileCfg.rebuild == null) compileCfg.rebuild = true
+
+        Closure invoke = {
+            execDotnetSonarStep(beginCmd, 'SonarQube .NET: begin')
+            runner.build(compileCfg, tool)
+            execDotnetSonarStep(endCmd, 'SonarQube .NET: end')
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+            }
+        }
+        withSonarEnv(credentialsId, installationName, invoke)
+    }
+
+    private void withSonarEnv(String credentialsId, String installationName, Closure body) {
+        if (credentialsId) {
+            script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}", body)
+        } else {
+            script.withSonarQubeEnv("${installationName}", body)
+        }
+    }
+
+    private void execDotnetSonarStep(String cmd, String label) {
+        script.echo "[SONAR] ${label}: ${cmd}"
+        if (os.isWindows()) {
+            script.bat(label: label, script: cmd)
+        } else {
+            BuildUtils.execSh(script, cmd, label, false)
+        }
+    }
+
+    private String resolveDotnetReportParam(def configured, List<String> globs) {
+        String raw = (configured instanceof Collection ? (configured as Collection).join(',') : (configured ?: '')) as String
+        if (raw.trim()) return raw.trim()
+        List<String> found = []
+        for (String glob : globs) {
+            try {
+                def files = script.findFiles(glob: glob)
+                if (files) {
+                    for (def f : files) {
+                        String p = (f?.path ?: '') as String
+                        if (p && !found.contains(p)) found << p
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return found.join(',')
+    }
+
+    private String formatDotnetCmd(List tokens) {
+        List nonEmpty = tokens.findAll { (it ?: '').toString().trim() }
+        if (os.isWindows()) {
+            return nonEmpty.collect { BuildUtils.cmdQuoteIfNeeded(it.toString()) }.join(' ')
+        }
+        return nonEmpty.collect { BuildUtils.shellQuoteIfNeeded(it.toString()) }.join(' ')
+    }
+
+    private Map effectiveSonarCfg(Map sonarCfg, String tool) {
+        Map toolBlock = [:]
+        if (sonarCfg.get(tool) instanceof Map) toolBlock.putAll(sonarCfg.get(tool) as Map)
+        boolean changed = false
+        if (tool == 'gradle' && !toolBlock.tasks && !toolBlock.commands) {
+            toolBlock.tasks = ['sonarqube']
+            changed = true
+        } else if (tool == 'maven' && !toolBlock.goals && !toolBlock.tasks && !toolBlock.commands) {
+            toolBlock.goals = ['sonar:sonar']
+            changed = true
+        }
+        if (sonarCfg.liquibase instanceof Map) {
+            Map liqCfg = sonarCfg.liquibase as Map
+            List extraFlags = []
+            if (liqCfg.sources) {
+                String src = (liqCfg.sources instanceof Collection ? (liqCfg.sources as Collection).join(',') : liqCfg.sources) as String
+                extraFlags << "-Dsonar.sources=${src}".toString()
+            }
+            if (liqCfg.inclusions) {
+                String inc = (liqCfg.inclusions instanceof Collection ? (liqCfg.inclusions as Collection).join(',') : liqCfg.inclusions) as String
+                extraFlags << "-Dsonar.inclusions=${inc}".toString()
+            }
+            if (liqCfg.exclusions) {
+                String exc = (liqCfg.exclusions instanceof Collection ? (liqCfg.exclusions as Collection).join(',') : liqCfg.exclusions) as String
+                extraFlags << "-Dsonar.exclusions=${exc}".toString()
+            }
+            extraFlags.addAll(BuildUtils.normalizeTokens(liqCfg.flags))
+            if (extraFlags) {
+                List existingFlags = BuildUtils.normalizeTokens(toolBlock.flags)
+                for (String flag : extraFlags) {
+                    String prefix = flag.contains('=') ? flag.substring(0, flag.indexOf('=') + 1) : flag
+                    if (!existingFlags.any { (it as String).startsWith(prefix) }) {
+                        existingFlags << flag
+                    }
+                }
+                toolBlock.flags = existingFlags
+                changed = true
+            }
+        }
+        if (!changed) return sonarCfg
         Map copy = [:]
         copy.putAll(sonarCfg)
         copy[tool] = toolBlock
@@ -317,15 +485,7 @@ rm -f "\${_TMP}"
                 if (env) script.withEnv(env) { invoke() } else invoke()
             }
         }
-        if (credentialsId) {
-            script.withSonarQubeEnv(credentialsId: "${credentialsId}", installationName: "${installationName}") {
-                runBody()
-            }
-        } else {
-            script.withSonarQubeEnv("${installationName}") {
-                runBody()
-            }
-        }
+        withSonarEnv(credentialsId, installationName, runBody)
     }
 
     String resolveBranch() {
@@ -404,6 +564,8 @@ rm -f "\${_TMP}"
         String lang = 'java'
         if (tool == 'flutter' || script.fileExists('pubspec.yaml')) {
             lang = 'dart'
+        } else if (BuildUtils.isDotnetTool(tool)) {
+            lang = 'cs'
         } else if (tool == 'liquibase' || script.fileExists('changelog.xml')) {
             lang = 'sql'
         } else if (script.fileExists('requirements.txt') || script.fileExists('pyproject.toml') || script.fileExists('setup.py')) {
@@ -416,6 +578,8 @@ rm -f "\${_TMP}"
         if (!sources) {
             if (lang == 'dart') {
                 sources = 'lib'
+            } else if (lang == 'cs') {
+                sources = '.'
             } else if (lang == 'sql') {
                 sources = 'db'
             } else if (lang == 'py') {
@@ -431,7 +595,7 @@ rm -f "\${_TMP}"
         if (!tests) {
             if (lang == 'dart') {
                 tests = 'test'
-            } else if (lang == 'sql') {
+            } else if (lang == 'cs' || lang == 'sql') {
                 tests = ''
             } else if (lang == 'py') {
                 tests = script.fileExists('tests') ? 'tests' : (script.fileExists('test') ? 'test' : '')
@@ -442,27 +606,45 @@ rm -f "\${_TMP}"
             }
         }
 
-        List<String> lines = [
-            "sonar.java.binaries=${binaries}",
-            'sonar.java.coveragePlugin=jacoco',
-            "sonar.language=${lang}",
-            'sonar.jacoco.reportPaths=target/jacoco.exec',
-            'sonar.junit.reportPaths=target/surefire-reports',
-            "sonar.projectKey=${projectKey}",
-            "sonar.sources=${sources}",
-            'sonar.sourceEncoding=UTF-8',
-            "sonar.tests=${tests}",
-            'sonar.dynamicAnalysis=reuseReports',
-            "sonar.modules=${modulesProp}"
-        ]
+        List<String> lines = []
+        if (lang == 'cs') {
+            String opencover = resolveDotnetReportParam(sonarCfg?.opencoverPaths, ['**/coverage.opencover.xml', '**/*opencover*.xml'])
+            String vstest = resolveDotnetReportParam(sonarCfg?.vstestPaths, ['**/TestResults/*.trx', '**/*.trx'])
+            lines = [
+                "sonar.language=cs",
+                "sonar.projectKey=${projectKey}",
+                "sonar.sources=${sources}",
+                'sonar.sourceEncoding=UTF-8',
+                'sonar.dynamicAnalysis=reuseReports'
+            ]
+            if (tests) lines << "sonar.tests=${tests}"
+            if (opencover) lines << "sonar.cs.opencover.reportsPaths=${opencover}"
+            if (vstest) lines << "sonar.cs.vstest.reportsPaths=${vstest}"
+        } else {
+            lines = [
+                "sonar.java.binaries=${binaries}",
+                'sonar.java.coveragePlugin=jacoco',
+                "sonar.language=${lang}",
+                'sonar.jacoco.reportPaths=target/jacoco.exec',
+                'sonar.junit.reportPaths=target/surefire-reports',
+                "sonar.projectKey=${projectKey}",
+                "sonar.sources=${sources}",
+                'sonar.sourceEncoding=UTF-8',
+                "sonar.tests=${tests}",
+                'sonar.dynamicAnalysis=reuseReports',
+                "sonar.modules=${modulesProp}"
+            ]
+        }
         if (branch) {
             lines << "sonar.branch.name=${branch}"
         }
-        for (String mod : modules) {
-            lines << "${mod}.sonar.projectName=${mod}"
-            lines << "${mod}.sonar.sources=${mod}/src/main/java"
-            lines << "${mod}.sonar.tests=${mod}/src/test/java"
-            lines << "${mod}.sonar.java.binaries=${mod}/target/classes,${mod}/build/classes/java/main"
+        if (lang != 'cs') {
+            for (String mod : modules) {
+                lines << "${mod}.sonar.projectName=${mod}"
+                lines << "${mod}.sonar.sources=${mod}/src/main/java"
+                lines << "${mod}.sonar.tests=${mod}/src/test/java"
+                lines << "${mod}.sonar.java.binaries=${mod}/target/classes,${mod}/build/classes/java/main"
+            }
         }
 
         String content = lines.join('\n') + '\n'

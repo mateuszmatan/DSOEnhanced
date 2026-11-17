@@ -46,11 +46,14 @@ check('BuildUtils.parallelStaticAnalysis: DSO_STATIC_ANALYSIS_PARALLEL decides w
 
 Map gradle = [tasks: ['clean', 'build', 'bootJar'], flags: ['--refresh-dependencies']]
 Map maven = [goals: ['clean', 'verify'], flags: ['-B', '-U']]
-Closure service = { Map asoc -> [build: [gradle: gradle, maven: maven], asoc: [keyId: 'k'] + asoc] }
+Map dotnet = [solution: 'App.sln', configuration: 'Release']
+Closure service = { Map asoc -> [build: [gradle: gradle, maven: maven, dotnet: dotnet], asoc: [keyId: 'k'] + asoc] }
 List<List> compileCases = [
         ['no asoc block', [gui: [build: [gradle: gradle]]], []],
         ['an asoc block without a build tool', [gui: service([:])], []],
         ['a block equal to the build command', [gui: service([gradle: [tasks: ['clean', 'build', 'bootJar'], flags: ['--refresh-dependencies']]])], []],
+        ['dotnet equal to build command', [api: service([dotnet: [solution: 'App.sln', configuration: 'Release']])], []],
+        ['dotnet differs from build command', [api: service([dotnet: [solution: 'App.sln', configuration: 'Debug']])], ['api']],
         ['other tasks', [gui: service([gradle: [tasks: ['compileJava']]])], ['gui']],
         ['other flags', [gui: service([gradle: [tasks: ['clean', 'build', 'bootJar'], flags: ['--offline']]])], ['gui']],
         ['other tasks and doCompile false', [gui: service([gradle: [tasks: ['compileJava']], doCompile: false])], []],
@@ -60,7 +63,7 @@ List<List> compileCases = [
                                                   web: service([:])], ['backend-api', 'gui']]
 ]
 List compileWrong = compileCases.collect { List c -> [c[0], harness.run { utils().sastCompileOverrides(c[1] as Map) }, c[2]] }.findAll { it[1] != it[2] }
-check('BuildUtils.sastCompileOverrides: a service whose asoc.gradle or asoc.maven block differs from build.<tool> is named once, in the order of the run, unless asoc.doCompile is false',
+check('BuildUtils.sastCompileOverrides: a service whose asoc.gradle, asoc.maven or asoc.dotnet block differs from build.<tool> is named once, in the order of the run, unless asoc.doCompile is false',
         compileWrong.isEmpty(), compileWrong)
 
 Map settled = harness.run {
@@ -293,6 +296,141 @@ check('AppScanService: deduplicates SAST scan when services share the same AppSc
                 && dedupResult.echoes.any { it.contains("scan for application ID 'shared-app-uuid' already completed - skipping wait") }
                 && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - reusing report and findings") },
         "error=${dedupResult.error} echoes=${dedupResult.echoes}")
+
+Map dotnetStatic = [:]
+try {
+    FakeScript resolverScript = new FakeScript(unix: false)
+    resolverScript.files.putAll([
+            'OrdersSolution.sln'             : 'Microsoft Visual Studio Solution File',
+            'src/Orders.Api/Orders.Api.csproj': '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>',
+            'src/Orders.Api/Program.cs'      : 'Console.WriteLine("hi");'
+    ])
+    Map resolvedDotnet = harness.run {
+        def resolver = harness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(resolverScript)
+        resolver.resolve([appId: 'dn-app', asoc: [keyId: 'dn-key']], 'orders-api')
+    } as Map
+
+    FakeScript winSonarClassic = new FakeScript(unix: false)
+    winSonarClassic.env.vars.putAll([WORKSPACE: 'C:\\ws', BRANCH_NAME: 'feature/dotnet-win', JOB_NAME: 'orders-job', BUILD_NUMBER: '7'])
+    winSonarClassic.files.putAll([
+            'Orders.sln'            : 'Microsoft Visual Studio Solution File',
+            'coverage.opencover.xml': '<CoverageSession/>',
+            'TestResults/run.trx'   : '<TestRun/>'
+    ])
+    winSonarClassic.steps['waitForQualityGate'] = { [status: 'OK'] }
+    winSonarClassic.shHandler = { Map a ->
+        String cmd = String.valueOf(a.script ?: '')
+        if (cmd.contains('Invoke-RestMethod') && cmd.contains('/api/issues/search')) return '1,2,3,4'
+        return ''
+    }
+    Map classicOut = harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(winSonarClassic)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(winSonarClassic, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(winSonarClassic, state, os, policy)
+        def sonar = harness.type('com.bbh.scanner.SonarService').newInstance(winSonarClassic, state, os, build)
+        state.currentProjectName = 'orders-api'
+        state.cfgDefaults = [sca: [enabled: true, maxCritical: 0, maxHigh: 0, maxMedium: 0], tools: [sonar: [qualityGate: [waitForQualityGate: true]]]]
+        state.cfg = [
+                buildTool: 'dotnet',
+                build    : [dotnet: [solution: 'Orders.sln', configuration: 'Release']],
+                tools    : [sonar: [
+                        projectName            : 'Orders API',
+                        projectKey             : 'com.bbh.orders:orders-api',
+                        authToken              : 'sonar-auth',
+                        sonarScannerMsbuildPath: 'C:\\tools\\SonarScanner.MSBuild.exe'
+                ]]
+        ]
+        sonar.scan()
+        [vuln: state.vulnCounts.sca, res: state.sonarResults]
+    } as Map
+
+    FakeScript winSonarCli = new FakeScript(unix: true)
+    winSonarCli.env.vars.putAll([WORKSPACE: '/ws', BRANCH_NAME: 'main', JOB_NAME: 'billing-job', BUILD_NUMBER: '8'])
+    winSonarCli.files['Billing.csproj'] = '<Project Sdk="Microsoft.NET.Sdk"/>'
+    winSonarCli.steps['waitForQualityGate'] = { [status: 'OK'] }
+    winSonarCli.shHandler = { Map a ->
+        String cmd = String.valueOf(a.script ?: '')
+        if (cmd.contains('curl')) return '0,0,0,0'
+        return 'Linux'
+    }
+    harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(winSonarCli)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(winSonarCli, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(winSonarCli, state, os, policy)
+        def sonar = harness.type('com.bbh.scanner.SonarService').newInstance(winSonarCli, state, os, build)
+        state.currentProjectName = 'billing'
+        state.cfgDefaults = [sca: [enabled: true, maxCritical: 0, maxHigh: 0, maxMedium: 0], tools: [sonar: [qualityGate: [waitForQualityGate: false]]]]
+        state.cfg = [
+                buildTool: 'dotnet',
+                build    : [dotnet: [solution: 'Billing.csproj', useDotnetCli: true]],
+                tools    : [sonar: [projectKey: 'com.bbh.orders:billing', authToken: 'sonar-auth', dotnet: [useDotnetCli: true]]]
+        ]
+        sonar.scan()
+    }
+
+    FakeScript winAppScan = new FakeScript(unix: false)
+    winAppScan.env.vars.putAll([
+            WORKSPACE                  : 'C:/ws',
+            APPSCAN_LOG_DIR            : 'C:/ws/logs',
+            APPSCAN_HOME_DIR           : 'C:/ws/home',
+            APPSCAN_BIN_DIR            : 'C:/ws/bin',
+            APPSCAN_TOOLS_DIR          : 'C:/ws/tools',
+            APPSCAN_SCAN_NAME          : 'orders-sast',
+            APPSCAN_SOURCE_DIR_RESOLVED: 'C:/ws'
+    ])
+    winAppScan.files['Orders.sln'] = 'Microsoft Visual Studio Solution File'
+    winAppScan.files['logs/appscan.cmd'] = 'C:\\ws\\.appscan-tools\\bin\\appscan.bat'
+    harness.run {
+        def state = harness.type('com.bbh.core.PipelineState').newInstance()
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(winAppScan)
+        os.detect()
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(winAppScan, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(winAppScan, state, os, policy)
+        def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(winAppScan, state, os, policy, build)
+        state.currentProjectName = 'orders-api'
+        state.cfg = [
+                appId      : 'dn-sast-uuid',
+                buildTool  : 'dotnet',
+                appscanPath: '/.appscan-tools/bin/appscan.bat',
+                asoc       : [keyId: 'k', doCompile: true],
+                build      : [dotnet: [solution: 'Orders.sln', configuration: 'Release']]
+        ]
+        appScan.generateIrx()
+    }
+
+    dotnetStatic = [
+            resolved         : resolvedDotnet,
+            classicCalls     : winSonarClassic.calls,
+            classicVulns     : classicOut.vuln,
+            classicStatus    : (classicOut.res as Map)?.status,
+            cliCalls         : winSonarCli.calls,
+            winAppScanCalls  : winAppScan.calls
+    ]
+} catch (Throwable t) {
+    dotnetStatic.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+
+check('RepoStackAutoResolver, SonarService and AppScanService support C#/.NET end-to-end on Windows classic MSBuild and SDK CLI',
+        !dotnetStatic.error
+                && (dotnetStatic.resolved as Map)?.buildTool == 'dotnet'
+                && (dotnetStatic.resolved as Map)?.buildToolAutoSetup == null
+                && ((dotnetStatic.resolved as Map)?.tools as Map)?.sonar?.projectKey == 'com.bbh:orders-api'
+                && (dotnetStatic.classicCalls as List<String>).any { it.startsWith('bat ') && it.contains('SonarScanner.MSBuild.exe') && it.contains('begin') && it.contains('/d:sonar.cs.opencover.reportsPaths=coverage.opencover.xml') && it.contains('/d:sonar.cs.vstest.reportsPaths=TestResults/run.trx') && it.contains('/d:sonar.branch.name=feature/dotnet-win') }
+                && (dotnetStatic.classicCalls as List<String>).any { it.startsWith('bat ') && it.contains('nuget.exe restore Orders.sln') }
+                && (dotnetStatic.classicCalls as List<String>).any { it.startsWith('bat ') && it.contains('MSBuild.exe Orders.sln') }
+                && (dotnetStatic.classicCalls as List<String>).any { it.startsWith('bat ') && it.contains('SonarScanner.MSBuild.exe') && it.contains('end') }
+                && (dotnetStatic.classicCalls as List<String>).any { it.startsWith('powershell ') && it.contains('Authorization = "Bearer') && it.contains('/api/issues/search') }
+                && dotnetStatic.classicVulns == [critical: 1, high: 2, medium: 3, low: 4]
+                && (dotnetStatic.cliCalls as List<String>).any { it.contains("'dotnet' 'sonarscanner' 'begin'") && it.contains("'/k:com.bbh.orders:billing'") }
+                && (dotnetStatic.cliCalls as List<String>).any { it.contains("'dotnet' 'build' 'Billing.csproj'") }
+                && (dotnetStatic.cliCalls as List<String>).any { it.contains("'dotnet' 'sonarscanner' 'end'") }
+                && (dotnetStatic.winAppScanCalls as List<String>).any { it.startsWith('bat ') && it.contains('MSBuild.exe Orders.sln') }
+                && (dotnetStatic.winAppScanCalls as List<String>).any { it.startsWith('powershell ') && it.contains('robocopy "$env:APPSCAN_SOURCE_DIR_RUNTIME" "$sastDirectory"') && it.contains('/XD sast_directory .git obj packages TestResults') && !it.contains('-l "$env:APPSCAN_SOURCE_DIR_RUNTIME\\lib') },
+        dotnetStatic)
 
 println "\n${failures == 0 ? 'ALL STATIC ANALYSIS SCENARIOS PASSED' : failures + ' STATIC ANALYSIS SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

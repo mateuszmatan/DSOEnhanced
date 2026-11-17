@@ -27,9 +27,18 @@ class BuildService implements Serializable {
     void buildArtifact() {
         def tool = setupBuildTool()
         script.echo "[BUILD] Tool: ${tool} OS: ${os.getType()}"
+        if (BuildUtils.isDotnetTool(tool as String)) {
+            new DotnetBuildRunner(script, os, state.cfg).build(null, tool as String)
+            if (hasLiquibaseStep(state.cfg.build?.liquibase)) {
+                script.echo "[BUILD] Running additional Liquibase step for multi-module project"
+                runLiquibaseBuild()
+            }
+            return
+        }
         switch (tool) {
-            case ['gradle', 'maven']:
-                BuildRunner runner = new BuildRunner(script, state.cfg.build as Map, tool)
+            case ['gradle', 'android', 'maven']:
+                String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
+                BuildRunner runner = new BuildRunner(script, state.cfg.build as Map, runnerTool)
                 if (!runner.ifExist()) {
                     script.error "[BUILD] Build tool is NOT installed on an agent"
                 }
@@ -65,6 +74,12 @@ class BuildService implements Serializable {
             case ['npm', 'node']:
                 nodeBuild()
                 break
+            case 'pip':
+                runCustomCommands((state.cfg.build?.pip?.commands ?: state.cfg.build?.commands) ?: [], state.cfg.sourceDir ?: '.', 'Python (pip)')
+                break
+            case 'ios':
+                runCustomCommands((state.cfg.build?.ios?.commands ?: state.cfg.build?.commands) ?: [], state.cfg.sourceDir ?: '.', 'iOS')
+                break
             case 'liquibase':
                 runLiquibaseBuild()
                 break
@@ -77,10 +92,33 @@ class BuildService implements Serializable {
         def tool = setupBuildTool()
         script.echo "[TEST] Tool: ${tool}"
         long startMs = System.currentTimeMillis()
+        if (BuildUtils.isDotnetTool(tool as String)) {
+            if (state.cfg.tests?.unitTests) {
+                try {
+                    new DotnetBuildRunner(script, os, state.cfg).test(tool as String)
+                } catch (Exception e) {
+                    if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                    policy.warn('Unit tests', "Unit tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+                }
+            } else {
+                script.echo "[TEST] Skipping the step because it is not configured"
+            }
+            if (hasLiquibaseStep(state.cfg.tests?.unitTests?.liquibase)) {
+                script.echo "[TEST] Running additional Liquibase validation/test step for multi-module project"
+                runLiquibaseTests()
+            }
+            if (isCypressEnabled()) {
+                runCypressTests()
+            }
+            collectDotnetUnitTestCounts()
+            state.recordUnitTests([durationMs: System.currentTimeMillis() - startMs])
+            return
+        }
         switch (tool) {
-            case ['gradle', 'maven']:
+            case ['gradle', 'android', 'maven']:
+                String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
                 if (state.cfg.tests.unitTests) {
-                    BuildRunner runner = new BuildRunner(script, state.cfg.tests.unitTests as Map, tool)
+                    BuildRunner runner = new BuildRunner(script, state.cfg.tests.unitTests as Map, runnerTool)
                     if (!runner.ifExist()) {
                         script.error "[TEST] Build tool is NOT installed on an agent"
                     }
@@ -90,6 +128,7 @@ class BuildService implements Serializable {
                         if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
                         policy.warn('Unit tests', "Unit tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
                     }
+                    collectJunitCountsIfPresent(runnerTool)
                 } else {
                     script.echo "[TEST] Skipping the step because it is not configured"
                 }
@@ -111,9 +150,25 @@ class BuildService implements Serializable {
 
             case 'flutter':
                 FlutterUtils.unitTestsFlutter(state.cfg, script)
+                if (script.fileExists('test_report.json')) {
+                    Map counts = parseFlutterTestReport()
+                    state.recordUnitTests([total: (counts.passed as int) + (counts.failed as int) + (counts.skipped as int), failed: counts.failed, skipped: counts.skipped])
+                }
                 if (isCypressEnabled()) {
                     runCypressTests()
                 }
+                break
+
+            case 'pip':
+                runPipTests()
+                collectJunitCountsIfPresent('pip')
+                if (isCypressEnabled()) {
+                    runCypressTests()
+                }
+                break
+
+            case 'ios':
+                runCustomCommands((state.cfg.tests?.unitTests?.commands ?: state.cfg.tests?.unitTests?.tasks) ?: [], state.cfg.tests?.unitTests?.dir ?: (state.cfg.sourceDir ?: '.'), 'iOS')
                 break
 
             case 'liquibase':
@@ -166,7 +221,7 @@ class BuildService implements Serializable {
             policy.warn('Unit tests', "Cypress tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
         }
         String reportsDir = (cypressCfg.reportsDir ?: 'cypress/results') as String
-        script.junit allowEmptyResults: true, testResults: "${reportsDir}/*.xml, **/cypress/results/*.xml"
+        recordJunitResult(script.junit(allowEmptyResults: true, testResults: "${reportsDir}/*.xml, **/cypress/results/*.xml"))
     }
 
     void runNodeTests() {
@@ -196,7 +251,98 @@ class BuildService implements Serializable {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             policy.warn('Unit tests', "Node.js unit tests failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
         }
-        script.junit allowEmptyResults: true, testResults: (unitTests.unitTestResult ?: '**/test-results/*.xml, **/junit.xml') as String
+        recordJunitResult(script.junit(allowEmptyResults: true, testResults: (unitTests.unitTestResult ?: '**/test-results/*.xml, **/junit.xml') as String))
+    }
+
+    private void runPipTests() {
+        Map unitTests = (state.cfg.tests?.unitTests ?: [:]) as Map
+        List commands = BuildUtils.normalizeTokens(unitTests.commands ?: unitTests.tasks ?: ['pytest --junitxml=junit.xml'])
+        String dir = (unitTests.dir ?: (state.cfg.sourceDir ?: '.')) as String
+        runCustomCommands(commands, dir, 'Python (pip)', true)
+    }
+
+    private void runCustomCommands(def rawCommands, def dirVal, String labelPrefix, boolean warnOnFailure = false) {
+        List commands = BuildUtils.normalizeTokens(rawCommands ?: [])
+        String dir = (dirVal ?: '.') as String
+        if (!commands) {
+            script.echo "[BUILD] ${labelPrefix}: no custom commands configured, skipping"
+            return
+        }
+        Closure execAll = {
+            for (String cmd : commands) {
+                if (os.isWindows()) {
+                    script.bat(label: "${labelPrefix}: ${cmd}", script: cmd)
+                } else {
+                    BuildUtils.execSh(script, cmd, "${labelPrefix}: ${cmd}", false)
+                }
+            }
+        }
+        try {
+            if (dir && dir != '.') {
+                script.dir(dir) { execAll() }
+            } else {
+                execAll()
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            if (!warnOnFailure) throw e
+            policy.warn('Unit tests', "${labelPrefix} step failed (${e.message ?: e.getClass().getSimpleName()}), coverage is checked on the reports that were produced.")
+        }
+    }
+
+    private void recordJunitResult(def result) {
+        if (!result) return
+        int total = (result.totalCount ?: 0) as int
+        int failed = (result.failCount ?: 0) as int
+        int skipped = (result.skipCount ?: 0) as int
+        state.recordUnitTests([total: total, failed: failed, skipped: skipped])
+    }
+
+    private boolean hasMatchingFiles(String pattern) {
+        for (String glob : (pattern ?: '').split(',')) {
+            String g = glob.trim()
+            if (!g) continue
+            try {
+                def found = script.findFiles(glob: g)
+                if (found && found.length > 0) return true
+            } catch (Exception ignored) {}
+        }
+        return false
+    }
+
+    private void collectJunitCountsIfPresent(String tool) {
+        String custom = (state.cfg.tests?.unitTests?.unitTestResult ?: '').toString().trim()
+        String pattern = custom ?: (tool == 'maven' ? '**/target/surefire-reports/*.xml' : (tool == 'pip' ? '**/junit*.xml, **/pytest*.xml' : '**/build/test-results/test/*.xml'))
+        if (hasMatchingFiles(pattern)) {
+            recordJunitResult(script.junit(allowEmptyResults: true, testResults: pattern))
+        }
+    }
+
+    private void collectDotnetUnitTestCounts() {
+        String pattern = ((state.cfg.tests?.unitTests?.unitTestResult ?: '') as String).trim()
+        List<String> trxFiles = []
+        if (!pattern || pattern.toLowerCase().contains('.trx')) {
+            String trxGlob = pattern ?: '**/TestResults/*.trx'
+            try {
+                for (def f : script.findFiles(glob: trxGlob)) trxFiles << (f.path as String)
+            } catch (Exception ignored) {}
+            if (!trxFiles && !pattern) {
+                try {
+                    for (def f : script.findFiles(glob: '**/*.trx')) trxFiles << (f.path as String)
+                } catch (Exception ignored) {}
+            }
+        }
+        if (trxFiles) {
+            Map counts = parseTrxReports(trxFiles)
+            int total = (counts.passed as int) + (counts.failed as int) + (counts.skipped as int)
+            script.echo "[TEST] .NET TRX report (${trxFiles.size()} file(s)): passed=${counts.passed} failed=${counts.failed} skipped=${counts.skipped}"
+            state.recordUnitTests([total: total, failed: counts.failed, skipped: counts.skipped])
+            return
+        }
+        String junitGlob = pattern && !pattern.toLowerCase().contains('.trx') ? pattern : '**/TestResults/*.xml'
+        if (hasMatchingFiles(junitGlob)) {
+            recordJunitResult(script.junit(allowEmptyResults: true, testResults: junitGlob))
+        }
     }
 
     void checkCoverage() {
@@ -286,15 +432,26 @@ class BuildService implements Serializable {
             if (!script.fileExists('total_lcov.info')) return [reports: [], missing: 'total_lcov.info not found']
             paths << 'total_lcov.info'
         }
-        for (String p : candidates) {
-            if (!paths && script.fileExists(p)) paths << p
+        if (!paths && BuildUtils.isDotnetTool(tool)) {
+            script.echo '[COVERAGE] Looking for existing Cobertura/OpenCover reports.'
+            paths = findCoverageReports(tool)
+        } else {
+            for (String p : candidates) {
+                if (p.contains('*') || p.contains('?')) {
+                    if (!paths) {
+                        for (def f : script.findFiles(glob: p)) paths << (f.path as String)
+                    }
+                } else if (!paths && script.fileExists(p)) {
+                    paths << p
+                }
+            }
+            if (!paths) {
+                script.echo '[COVERAGE] Looking for existing JaCoCo reports.'
+                paths = findCoverageReports(tool)
+            }
         }
         if (!paths) {
-            script.echo "[COVERAGE] Looking for existing JaCoCo reports."
-            paths = findCoverageReports()
-        }
-        if (!paths) {
-            return [reports: [], missing: "JaCoCo report not found (tried ${listed ? listed[0] : candidates[0]}), set coverage.reportPath for the service in ${state.settingsPlace()} to point at it".toString()]
+            return [reports: [], missing: "${BuildUtils.isDotnetTool(tool) ? 'Coverage' : 'JaCoCo'} report not found (tried ${listed ? listed[0] : candidates[0]}), set coverage.reportPath for the service in ${state.settingsPlace()} to point at it".toString()]
         }
         List reports = []
         List classes = []
@@ -303,10 +460,13 @@ class BuildService implements Serializable {
                 Map lcov = readLcov(path as String)
                 reports << CoverageReports.row(tool == 'flutter' ? 'flutter' : 'lcov', path as String, lcov.covered as int, lcov.total as int, '')
             } else {
-                Map cov = readJacoco(path as String)
-                reports << CoverageReports.row('jacoco', path as String, cov.covered as int, cov.total as int, '')
-                for (def entry : readJaCoCoPerClass(path as String)) {
-                    classes << "Package: ${entry.packageName}, Class: ${entry.className}, Coverage: ${entry.pct}, Missed: ${entry.missed}, Covered: ${entry.covered}".toString()
+                Map cov = readXmlCoverage(path as String)
+                String kind = (cov.kind ?: 'jacoco') as String
+                reports << CoverageReports.row(kind, path as String, cov.covered as int, cov.total as int, '')
+                if (kind == 'jacoco') {
+                    for (def entry : readJaCoCoPerClass(path as String)) {
+                        classes << "Package: ${entry.packageName}, Class: ${entry.className}, Coverage: ${entry.pct}, Missed: ${entry.missed}, Covered: ${entry.covered}".toString()
+                    }
                 }
             }
         }
@@ -319,16 +479,18 @@ class BuildService implements Serializable {
         def artifact = ''
 
         if (os.isWindows()) {
-            def pattern = tool == 'gradle'  ? 'build\\libs\\*.jar,build\\libs\\*.war'
-                        : tool == 'maven'   ? 'target\\*.jar,target\\*.war'
-                        : tool == 'flutter' ? flutterArtifactGlob(platform, true)
+            def pattern = tool == 'gradle'               ? 'build\\libs\\*.jar,build\\libs\\*.war'
+                        : tool == 'maven'                ? 'target\\*.jar,target\\*.war'
+                        : tool == 'flutter'              ? flutterArtifactGlob(platform, true)
+                        : BuildUtils.isDotnetTool(tool as String) ? dotnetArtifactGlob(true)
                         : ''
             if (pattern) artifact = script.powershell(returnStdout: true,
                 script: "Get-ChildItem ${pattern} -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName").trim()
         } else {
-            def pattern = tool == 'gradle'  ? state.cfg.build?.buildPath
-                        : tool == 'maven'   ? 'target/*.jar target/*.war'
-                        : tool == 'flutter' ? flutterArtifactGlob(platform, false)
+            def pattern = tool == 'gradle'               ? state.cfg.build?.buildPath
+                        : tool == 'maven'                ? 'target/*.jar target/*.war'
+                        : tool == 'flutter'              ? flutterArtifactGlob(platform, false)
+                        : BuildUtils.isDotnetTool(tool as String) ? dotnetArtifactGlob(false)
                         : ''
             if (pattern) artifact = script.sh(script: "ls ${pattern} 2>/dev/null | head -n 1 || true", returnStdout: true).trim()
         }
@@ -364,6 +526,9 @@ class BuildService implements Serializable {
             return
         } else if (tool == 'liquibase') {
             state.recordUnitTests([total: 0, failed: 0, skipped: 0])
+            return
+        } else if (BuildUtils.isDotnetTool(tool as String)) {
+            reportDotnetUnitTests()
             return
         }
 
@@ -712,10 +877,13 @@ class BuildService implements Serializable {
     }
 
     String detectTool() {
-        def cfgTool = state.cfg.buildTool?.trim()
-        if (cfgTool) {
-            script.echo "Detected tool from config file is ${cfgTool}"
-            return cfgTool.equalsIgnoreCase('liquibase') ? 'liquibase' : cfgTool
+        String cfgTool = (state.cfg.buildTool ?: '').toString().trim()
+        if (cfgTool && !cfgTool.equalsIgnoreCase('auto')) {
+            if (BuildUtils.isValidBuildTool(cfgTool)) {
+                script.echo "Detected tool from config file is ${cfgTool}"
+                return BuildUtils.normalizeToolName(cfgTool)
+            }
+            script.echo "[WARN] Invalid buildTool '${cfgTool}' in configuration. Falling back to auto-detection."
         }
         if (script.fileExists('pubspec.yaml'))  {
             script.echo "Detected tool is Flutter"
@@ -729,6 +897,10 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Gradle"
             return 'gradle'
         }
+        if (hasDotnetProjectFiles()) {
+            script.echo "Detected tool is .NET"
+            return 'dotnet'
+        }
         if (['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.json', 'changelog.sql',
              'db/changelog.xml', 'db/changelog.yaml', 'db/changelog.sql', 'db/changelog/db.changelog-master.xml',
              'db/changelog/db.changelog-master.yaml', 'sql/changelog.xml', 'sql/changelog.sql', 'liquibase/changelog.xml',
@@ -737,12 +909,20 @@ class BuildService implements Serializable {
             script.echo "Detected tool is Liquibase"
             return 'liquibase'
         }
+        if (['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile'].any { String f -> script.fileExists(f) }) {
+            script.echo "Detected tool is Python (pip)"
+            return 'pip'
+        }
+        if (['package.json', 'angular.json'].any { String f -> script.fileExists(f) }) {
+            script.echo "Detected tool is Node.js (npm)"
+            return 'npm'
+        }
         return 'gradle'
     }
 
     String setupBuildTool() {
         String buildTool = detectTool()
-        if (buildTool == 'liquibase' || buildTool in ['npm', 'node']) {
+        if (buildTool in ['liquibase', 'npm', 'node', 'pip', 'ios'] || BuildUtils.isDotnetTool(buildTool)) {
             String javaPath = state.cfg?.javaPath
             if (javaPath) {
                 script.env.JAVA_HOME = javaPath
@@ -952,15 +1132,32 @@ class BuildService implements Serializable {
         }
     }
 
-    private def findCoverageReports() {
-        List paths = (script.sh(script: "find '${script.env.WORKSPACE}' -type f -iname 'jacoco.xml'", returnStdout: true).trim().split('\n') as List).findAll { it?.trim() }
+    private def findCoverageReports(String tool = 'gradle') {
+        List<String> names = BuildUtils.isDotnetTool(tool)
+                ? ['coverage.cobertura.xml', 'coverage.opencover.xml', '*cobertura*.xml', '*opencover*.xml']
+                : ['jacoco.xml']
+        if (os.isWindows()) {
+            List<String> globs = names.collect { "**/${it}".toString() }
+            List paths = []
+            for (String g : globs) {
+                try {
+                    for (def f : script.findFiles(glob: g)) paths << (f.path as String)
+                } catch (Exception ignored) {}
+            }
+            return paths.unique()
+        }
+        String namePred = names.collect { "-iname '${it}'" }.join(' -o ')
+        List paths = (script.sh(script: "find '${script.env.WORKSPACE}' -type f \\( ${namePred} \\)", returnStdout: true).trim().split('\n') as List).findAll { it?.trim() }
         paths.each {
-            script.echo "===== Jacoco coverage reports: ${it} ====="
+            script.echo "===== Coverage reports: ${it} ====="
         }
         return paths
     }
 
     private List<String> jacocoCandidates(String tool) {
+        if (BuildUtils.isDotnetTool(tool)) {
+            return ['**/coverage.cobertura.xml', '**/coverage.opencover.xml', 'coverage.cobertura.xml', 'coverage.opencover.xml', 'TestResults/coverage.cobertura.xml']
+        }
         return tool == 'maven'
             ? ['target/site/jacoco/jacoco.xml', 'target/jacoco/jacoco.xml']
             : ['build/jacoco/jacoco.xml',
@@ -1024,39 +1221,111 @@ PYEOF
         return stats
     }
 
-    private Map readJacoco(String xmlPath) {
+    private Map readXmlCoverage(String xmlPath) {
         String result
         if (os.isWindows()) {
             result = script.powershell(returnStdout: true, script: """
 \$ErrorActionPreference = 'SilentlyContinue'
 try {
-    [xml]\$doc = Get-Content -Path '${xmlPath}' -Raw
-    \$counter = \$doc.report.counter | Where-Object { \$_.type -eq 'LINE' } | Select-Object -First 1
-    if (\$counter) {
-        \$covered = [int]\$counter.covered; \$missed = [int]\$counter.missed; \$total = \$covered + \$missed
-        \$pct = if (\$total -gt 0) { [math]::Round(\$covered * 100.0 / \$total, 1) } else { 0.0 }
-        Write-Output "\$pct,\$covered,\$missed"
-    } else { Write-Output '0.0,0,0' }
-} catch { Write-Output '0.0,0,0' }
+    [xml]\$doc = Get-Content -Path '${BuildUtils.psSingleQuote(xmlPath)}' -Raw
+    \$kind = 'jacoco'; \$covered = 0; \$missed = 0
+    if (\$doc.report) {
+        \$counter = \$doc.report.counter | Where-Object { \$_.type -eq 'LINE' } | Select-Object -First 1
+        if (\$counter) { \$covered = [int]\$counter.covered; \$missed = [int]\$counter.missed }
+    } elseif (\$doc.coverage) {
+        \$kind = 'cobertura'
+        \$lv = 0; \$lc = 0
+        try { \$lv = [int]\$doc.coverage.'lines-valid'; \$lc = [int]\$doc.coverage.'lines-covered' } catch {}
+        if (\$lv -gt 0) {
+            \$covered = \$lc; \$missed = \$lv - \$lc
+        } else {
+            \$seen = @{}
+            foreach (\$ln in \$doc.SelectNodes('//line')) {
+                \$k = (\$ln.ParentNode.ParentNode.filename + ':' + \$ln.number)
+                \$h = 0; try { \$h = [int][double]\$ln.hits } catch {}
+                if (-not \$seen.ContainsKey(\$k) -or \$h -gt \$seen[\$k]) { \$seen[\$k] = \$h }
+            }
+            foreach (\$v in \$seen.Values) { if (\$v -gt 0) { \$covered++ } else { \$missed++ } }
+        }
+    } elseif (\$doc.CoverageSession) {
+        \$kind = 'opencover'
+        \$pts = @{}
+        foreach (\$sp in \$doc.SelectNodes('//SequencePoint')) {
+            \$k = \$sp.fileid + ':' + \$sp.sl + ':' + \$sp.sc
+            \$vc = 0; try { \$vc = [int]\$sp.vc } catch {}
+            if (-not \$pts.ContainsKey(\$k) -or \$vc -gt \$pts[\$k]) { \$pts[\$k] = \$vc }
+        }
+        if (\$pts.Count -gt 0) {
+            foreach (\$v in \$pts.Values) { if (\$v -gt 0) { \$covered++ } else { \$missed++ } }
+        } elseif (\$doc.CoverageSession.Summary) {
+            \$tot = [int]\$doc.CoverageSession.Summary.numSequencePoints
+            \$covered = [int]\$doc.CoverageSession.Summary.visitedSequencePoints
+            \$missed = [math]::Max(0, \$tot - \$covered)
+        }
+    }
+    \$total = \$covered + \$missed
+    \$pct = if (\$total -gt 0) { [math]::Round(\$covered * 100.0 / \$total, 1) } else { 0.0 }
+    Write-Output "\$kind,\$pct,\$covered,\$missed"
+} catch { Write-Output 'jacoco,0.0,0,0' }
 """).trim()
         } else {
             result = script.sh(returnStdout: true, script: """
 python3 - "${xmlPath}" <<'PYEOF'
 import xml.etree.ElementTree as ET, sys
 try:
-    tree = ET.parse(sys.argv[1])
-    for c in tree.getroot().findall('counter'):
-        if c.get('type') == 'LINE':
-            covered = int(c.get('covered', 0)); missed = int(c.get('missed', 0))
-            total = covered + missed
-            pct = round(covered * 100.0 / total, 1) if total else 0.0
-            print(f'{pct},{covered},{missed}'); sys.exit(0)
-    print('0.0,0,0')
-except Exception: print('0.0,0,0')
+    root = ET.parse(sys.argv[1]).getroot()
+    if root.tag == 'report':
+        for c in root.findall('counter'):
+            if c.get('type') == 'LINE':
+                cov, mis = int(c.get('covered', 0)), int(c.get('missed', 0))
+                tot = cov + mis
+                pct = round(cov * 100.0 / tot, 1) if tot else 0.0
+                print(f'jacoco,{pct},{cov},{mis}'); sys.exit(0)
+    elif root.tag == 'coverage':
+        lv = int(root.get('lines-valid', 0) or 0)
+        lc = int(root.get('lines-covered', 0) or 0)
+        if lv > 0:
+            pct = round(lc * 100.0 / lv, 1)
+            print(f'cobertura,{pct},{lc},{max(0, lv - lc)}'); sys.exit(0)
+        seen = {}
+        for cls in root.iter('class'):
+            fn = cls.get('filename', '') or cls.get('name', '')
+            for ln in cls.iter('line'):
+                num = ln.get('number', '')
+                hits = int(float(ln.get('hits', 0) or 0))
+                if num:
+                    seen[(fn, num)] = max(seen.get((fn, num), 0), hits)
+        cov = sum(1 for v in seen.values() if v > 0)
+        tot = len(seen)
+        pct = round(cov * 100.0 / tot, 1) if tot else 0.0
+        print(f'cobertura,{pct},{cov},{tot - cov}'); sys.exit(0)
+    elif root.tag == 'CoverageSession':
+        pts = {}
+        for sp in root.iter('SequencePoint'):
+            k = (sp.get('fileid', ''), sp.get('sl', ''), sp.get('sc', ''))
+            pts[k] = max(pts.get(k, 0), int(sp.get('vc', 0) or 0))
+        if pts:
+            cov = sum(1 for v in pts.values() if v > 0); tot = len(pts)
+        else:
+            sm = root.find('Summary')
+            tot = int(sm.get('numSequencePoints', 0) or 0) if sm is not None else 0
+            cov = int(sm.get('visitedSequencePoints', 0) or 0) if sm is not None else 0
+        pct = round(cov * 100.0 / tot, 1) if tot else 0.0
+        print(f'opencover,{pct},{cov},{max(0, tot - cov)}'); sys.exit(0)
+    print('jacoco,0.0,0,0')
+except Exception: print('jacoco,0.0,0,0')
 PYEOF
 """).trim()
         }
-        return coverageFrom(result)
+        List parts = (result ?: '').split(',') as List
+        if (parts.size() >= 4) {
+            return coverageFrom("${parts[1]},${parts[2]},${parts[3]}") + [kind: parts[0]]
+        }
+        return coverageFrom(result) + [kind: 'jacoco']
+    }
+
+    private Map readJacoco(String xmlPath) {
+        return readXmlCoverage(xmlPath)
     }
 
     private Map readLcov(String lcovPath) {
@@ -1076,6 +1345,121 @@ awk -F: '/^DA:/{split(\$2,a,","); total++; if(a[2]>0) covered++} END{pct=(total>
 """).trim()
         }
         return coverageFrom(result)
+    }
+
+    private void reportDotnetUnitTests() {
+        String pattern = ((state.cfg.tests?.unitTests?.unitTestResult ?: '') as String).trim()
+        List<String> trxFiles = []
+        if (!pattern || pattern.toLowerCase().contains('.trx')) {
+            String trxGlob = pattern ?: '**/TestResults/*.trx'
+            try {
+                for (def f : script.findFiles(glob: trxGlob)) trxFiles << (f.path as String)
+            } catch (Exception ignored) {}
+            if (!trxFiles && !pattern) {
+                try {
+                    for (def f : script.findFiles(glob: '**/*.trx')) trxFiles << (f.path as String)
+                } catch (Exception ignored) {}
+            }
+        }
+        if (trxFiles) {
+            Map counts = parseTrxReports(trxFiles)
+            int total = (counts.passed as int) + (counts.failed as int) + (counts.skipped as int)
+            script.echo "[TEST] .NET TRX report (${trxFiles.size()} file(s)): passed=${counts.passed} failed=${counts.failed} skipped=${counts.skipped}"
+            state.recordUnitTests([total: total, failed: counts.failed, skipped: counts.skipped])
+            script.reportUnitTest(
+                applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+                applicationVersion:   script.env.BUILD_NUMBER,
+                applicationComponent: 'core',
+                testsPassed:          counts.passed,
+                testsFailed:          counts.failed,
+                testsIgnored:         counts.skipped
+            )
+            return
+        }
+        String junitGlob = pattern && !pattern.toLowerCase().contains('.trx') ? pattern : '**/TestResults/*.xml'
+        def result = script.junit allowEmptyResults: true, testResults: junitGlob
+        int total = (result?.totalCount ?: 0) as int
+        int failed = (result?.failCount ?: 0) as int
+        int skipped = (result?.skipCount ?: 0) as int
+        state.recordUnitTests([total: total, failed: failed, skipped: skipped])
+        script.reportUnitTest(
+            applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+            applicationVersion:   script.env.BUILD_NUMBER,
+            applicationComponent: 'core',
+            testsPassed:          Math.max(0, total - skipped - failed),
+            testsFailed:          failed,
+            testsIgnored:         skipped
+        )
+    }
+
+    private Map parseTrxReports(List<String> trxFiles) {
+        String out
+        if (os.isWindows()) {
+            String psList = trxFiles.collect { "'${BuildUtils.psSingleQuote(it)}'" }.join(', ')
+            out = script.powershell(returnStdout: true, script: """
+\$passed = 0; \$failed = 0; \$skipped = 0
+foreach (\$f in @(${psList})) {
+    try {
+        [xml]\$doc = Get-Content -Path \$f -Raw
+        \$c = \$doc.SelectSingleNode('//*[local-name()="Counters"]')
+        if (\$c) {
+            \$t = [int]\$c.total; \$p = [int]\$c.passed
+            \$fl = ([int]\$c.failed) + ([int]\$c.error) + ([int]\$c.timeout)
+            \$passed += \$p; \$failed += \$fl
+            \$skipped += [math]::Max(0, \$t - \$p - \$fl)
+        }
+    } catch {}
+}
+Write-Output "\$passed,\$failed,\$skipped"
+""").trim()
+        } else {
+            String joined = trxFiles.collect { BuildUtils.shellQuoteIfNeeded(it) }.join(' ')
+            out = script.sh(returnStdout: true, script: """
+python3 - ${joined} <<'PYEOF'
+import xml.etree.ElementTree as ET, sys
+passed = failed = skipped = 0
+for p in sys.argv[1:]:
+    try:
+        root = ET.parse(p).getroot()
+        for el in root.iter():
+            if el.tag.split('}')[-1] == 'Counters':
+                t = int(el.get('total', 0) or 0)
+                pa = int(el.get('passed', 0) or 0)
+                fl = int(el.get('failed', 0) or 0) + int(el.get('error', 0) or 0) + int(el.get('timeout', 0) or 0)
+                passed += pa; failed += fl; skipped += max(0, t - pa - fl)
+                break
+    except Exception: pass
+print(f'{passed},{failed},{skipped}')
+PYEOF
+""").trim()
+        }
+        def parts = (out ?: '').split(',')
+        return [
+            passed:  parts.length > 0 && parts[0].isInteger() ? (parts[0] as int) : 0,
+            failed:  parts.length > 1 && parts[1].isInteger() ? (parts[1] as int) : 0,
+            skipped: parts.length > 2 && parts[2].isInteger() ? (parts[2] as int) : 0
+        ]
+    }
+
+    private boolean hasDotnetProjectFiles() {
+        if (['global.json', 'packages.config', 'Directory.Packages.props', 'Directory.Build.props'].any { String f -> script.fileExists(f) }) {
+            return true
+        }
+        for (String glob : ['*.sln', '*.csproj', '*.fsproj', '*.vbproj', '**/*.sln', '**/*.csproj', '**/*.fsproj', '**/*.vbproj']) {
+            try {
+                def hits = script.findFiles(glob: glob)
+                if (hits && hits.length > 0) return true
+            } catch (Exception ignored) {}
+        }
+        return false
+    }
+
+    private String dotnetArtifactGlob(boolean windows) {
+        String custom = ((state.cfg.build?.buildPath ?: '') as String).trim()
+        if (custom) return windows ? custom.replace('/', '\\') : custom
+        return windows
+            ? 'bin\\Release\\*.dll,bin\\Release\\*.exe,*\\bin\\Release\\*.dll,*\\bin\\Release\\*.exe,*.nupkg'
+            : '*/*/bin/Release/*.dll */bin/Release/*.dll bin/Release/*.dll *.nupkg'
     }
 
     private Map parseFlutterTestReport() {

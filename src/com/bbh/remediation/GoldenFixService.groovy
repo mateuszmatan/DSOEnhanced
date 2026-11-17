@@ -73,10 +73,6 @@ class GoldenFixService implements DependencyRemediation {
             finish(result, 'SKIPPED', 'GoldenFix is disabled (goldenFix.enabled: false)')
             return
         }
-        if (!script.isUnix()) {
-            finish(result, 'SKIPPED', 'GoldenFix remediation requires a Linux/macOS agent')
-            return
-        }
 
         script.echo "[GOLDENFIX] Nexus IQ policy violated - fetching GoldenFix list for ${scanRefs.size()} Nexus IQ application(s)"
         List<Map> fixes = []
@@ -137,7 +133,7 @@ class GoldenFixService implements DependencyRemediation {
                 return
             }
             if (!commitId) {
-                finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip or pub manifest declares the vulnerable versions - nothing to change')
+                finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip, pub or NuGet manifest declares the vulnerable versions - nothing to change')
                 return
             }
 
@@ -151,6 +147,7 @@ class GoldenFixService implements DependencyRemediation {
 
             if (pr.url) {
                 result.prUrl = pr.url
+                result.prId = pr.id
                 pr.raised = ((pr.raised ?: []) as List) + (applied.changes as List)
                 comment(scmCfg, pr, pullRequestComment(state.currentProjectName as String, applied.changes as List, result.unresolved as List, result.notes as List))
                 finish(result, 'PR_UPDATED', "GoldenFix pull request ${title} updated with ${applied.changes.size()} change(s): ${pr.url}")
@@ -167,6 +164,7 @@ class GoldenFixService implements DependencyRemediation {
                 if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
                 state.goldenFixPullRequestsByRepo[repoKey] = prEntry
                 result.prUrl = created.url
+                result.prId = created.id
                 finish(result, 'PR_CREATED', "GoldenFix pull request ${title} raised: ${created.url}")
             }
         } finally {
@@ -274,6 +272,9 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map applyFixes(String dir, List<Map> fixes, Map cfg, boolean align = true) {
         List<String> excluded = (cfg.excludeDirs ?: defaultExcludedDirs()) as List<String>
+        if (!cfg.excludeDirs && fixesFor(fixes, 'nuget')) {
+            excluded = excluded + ['bin', 'obj', 'packages', '.vs', 'TestResults']
+        }
         List<ManifestUpdater> active = []
         List<String> patterns = []
         for (ManifestUpdater updater : updaters) {
@@ -284,7 +285,8 @@ class GoldenFixService implements DependencyRemediation {
         }
         List<String> scanned = active ? repository.findFiles(dir, patterns.unique(), excluded) : []
         Map texts = [:]
-        Map catalogs = fixesFor(fixes, 'maven') ? discover(dir, scanned, cfg, excluded, texts)
+        boolean runCatalogDiscovery = fixesFor(fixes, 'maven') || fixesFor(fixes, 'nuget') || cfg.versionCatalogs || cfg.versionCatalogRepo || state.cfg?.versionCatalogRepo
+        Map catalogs = runCatalogDiscovery ? discover(dir, scanned, cfg, excluded, texts)
                 : [files: scanned, entries: [:], notes: [], externals: [:], holders: [:]]
         List<String> files = catalogs.files as List<String>
         Map entries = catalogs.entries as Map
@@ -295,7 +297,8 @@ class GoldenFixService implements DependencyRemediation {
         List<String> shared = []
         List<String> others = []
         for (String f : files) {
-            if (entries.containsKey(f)) shared << f else others << f
+            String lowName = BuildUtils.fileNameOf(f).toLowerCase()
+            if (entries.containsKey(f) || lowName == 'directory.packages.props' || lowName == 'directory.build.props') shared << f else others << f
         }
         applyRound(dir, active, fixes, shared, files, texts, run)
         Map aligned = alignToCatalogs(fixes, run.found as List, shared)
@@ -316,7 +319,8 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
         List<String> listed = CatalogDiscovery.listed(cfg.versionCatalogs)
-        Map vcRepo = (cfg.versionCatalogRepo ?: (cfg.versionCatalogRepository ?: (cfg.goldenFix?.versionCatalogRepo ?: (cfg.goldenFix?.versionCatalogRepository ?: [:])))) as Map
+        List<String> extFiles = []
+        Map vcRepo = (cfg.versionCatalogRepo ?: (cfg.versionCatalogRepository ?: (state.cfg?.versionCatalogRepo ?: (state.cfg?.versionCatalogRepository ?: (cfg.goldenFix?.versionCatalogRepo ?: (cfg.goldenFix?.versionCatalogRepository ?: [:])))))) as Map
         if (vcRepo && (vcRepo.url || vcRepo.repositoryUrl)) {
             String repoUrl = (vcRepo.url ?: vcRepo.repositoryUrl) as String
             String catalogBranch = (vcRepo.branch ?: (vcRepo.targetBranch ?: 'main')) as String
@@ -330,6 +334,7 @@ class GoldenFixService implements DependencyRemediation {
                     if (catalogText) {
                         texts[catalogFile] = catalogText
                         if (!listed.contains(catalogFile)) listed << catalogFile
+                        if (!extFiles.contains(catalogFile)) extFiles << catalogFile
                     }
                 } catch (Throwable t) {
                     script.echo "[GOLDENFIX] Note: version catalog file ${catalogFile} in ${repoUrl}: ${t.message}"
@@ -339,6 +344,9 @@ class GoldenFixService implements DependencyRemediation {
         for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
         List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
+        for (String ef : extFiles) {
+            if (!extra.contains(ef) && !scanned.contains(ef)) extra << ef
+        }
         for (String f : CatalogDiscovery.toRead(scanned + extra)) read(dir, texts, f)
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
     }
@@ -700,6 +708,19 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     String timestamp(String timeZone) {
+        if (!script.isUnix()) {
+            String tz = BuildUtils.psSingleQuote((timeZone ?: '').trim())
+            String ps = tz ? """
+\$utc = [DateTime]::UtcNow
+try {
+    \$info = [TimeZoneInfo]::FindSystemTimeZoneById('${tz}')
+    [TimeZoneInfo]::ConvertTimeFromUtc(\$utc, \$info).ToString('yyyyMMddHHmm')
+} catch {
+    Get-Date -Format 'yyyyMMddHHmm'
+}
+""" : "Get-Date -Format 'yyyyMMddHHmm'"
+            return (script.powershell(returnStdout: true, script: ps) as String).trim()
+        }
         String prefix = timeZone ? "TZ='${timeZone}' " : ''
         return script.sh(returnStdout: true, script: "${prefix}date +%Y%m%d%H%M").trim()
     }

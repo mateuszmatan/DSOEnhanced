@@ -129,9 +129,14 @@ class HtmlReportService implements Serializable {
                 new com.bbh.core.ReleaseGate(script, state).evaluate(),
                 new HashMap(state.projectsRemoteTestResults ?: [:]),
                 new HashMap(state.projectsGoldenFix ?: [:]),
-                new HashMap(state.projectsCoverage ?: [:])
+                new HashMap(state.projectsCoverage ?: [:]),
+                new HashMap(state.projectsUnitTests ?: [:])
         )
-        script.sh "mkdir -p ${script.env.WORKSPACE}/report"
+        if (os.isWindows()) {
+            os.mkdirP("${script.env.WORKSPACE}\\report")
+        } else {
+            script.sh "mkdir -p ${script.env.WORKSPACE}/report"
+        }
         script.writeFile file: "${script.env.WORKSPACE}/report/pipeline-report.html", text: html
         script.echo "[REPORT] Pipeline report written to pipeline-report.html"
     }
@@ -588,10 +593,21 @@ class HtmlReportService implements Serializable {
             if (isMulti) sb.append("<div style='font-size:0.82rem;font-weight:700;color:#1d4ed8;margin:8px 0 4px;'>${esc(project as String)}</div>")
             sb.append(goldenFixStatusBanner(gf))
             sb.append(goldenFixChangesTable((gf.get('changes') ?: []) as List))
+            sb.append(goldenFixSastCommentsList((gf.get('sastComments') ?: []) as List))
             sb.append(goldenFixUnresolvedList((gf.get('unresolved') ?: []) as List))
             sb.append(goldenFixNotes((gf.get('notes') ?: []) as List))
         }
         return card('Nexus IQ GoldenFix', sb.toString())
+    }
+    @NonCPS protected String goldenFixSastCommentsList(List comments) {
+        if (!comments) return ''
+        def sb = new StringBuilder()
+        sb.append("<div style='margin-top:8px;font-size:0.78rem;font-weight:700;color:#0369a1;'>SAST Inline Comments on Pull Request</div><ul style='margin:4px 0 0 18px;font-size:0.74rem;color:#334155;'>")
+        comments.each { c ->
+            sb.append("<li><b>[${esc((c.get('severity') ?: '') as String)}]</b> <code>${esc((c.get('file') ?: '') as String)}:${c.get('line') ?: 1}</code> - ${esc((c.get('type') ?: '') as String)}: <i>Suggested solution:</i> ${esc((c.get('remediation') ?: '') as String)}</li>")
+        }
+        sb.append("</ul>")
+        return sb.toString()
     }
     @NonCPS protected String goldenFixStatusBanner(Map gf) {
         if (goldenFixHasPr(gf)) {
@@ -1112,8 +1128,9 @@ class HtmlReportService implements Serializable {
         for (int i = 0; i < (ctx.projectKeys as List).size(); i++) {
             String project = (ctx.projectKeys as List).get(i)?.toString() ?: ''
             def cfg = project ? projectsAllCfg.get(project) : null
-            def projectKey = cfg ? cfg.get('tools')?.get('sonar')?.get('projectKey') : ctx.sonarProjectKey
-            def badgeToken = cfg ? (((projectsSonarResults.get(project) ?: [:]) as Map).get('badgeToken') ?: cfg.get('tools')?.get('sonar')?.get('badgeToken')) : ctx.sonarBadgeToken
+            def projSonar = project ? ((projectsSonarResults.get(project) ?: [:]) as Map) : (ctx.sonarResults as Map)
+            def projectKey = (projSonar?.get('projectKey') ?: (cfg ? cfg.get('tools')?.get('sonar')?.get('projectKey') : null) ?: ctx.sonarProjectKey)
+            def badgeToken = cfg ? (projSonar?.get('badgeToken') ?: cfg.get('tools')?.get('sonar')?.get('badgeToken')) : ctx.sonarBadgeToken
             def serverUrl = (cfg ? cfg.get('tools')?.get('sonar')?.get('serverUrl') : null) ?: 'https://tools.bbh.com/sonar'
             if (!projectKey || !badgeToken) continue
             def badgesHtml = new StringBuilder()
@@ -1127,6 +1144,57 @@ class HtmlReportService implements Serializable {
             sb.append(cardRaw(title, body, 'margin-top:16px;width:100%;'))
         }
         return sb.toString()
+    }
+    @NonCPS protected String unitTestsCard(Map projectsUnitTests) {
+        if (!projectsUnitTests || projectsUnitTests.isEmpty()) return ''
+        boolean hasCounts = projectsUnitTests.any { k, v -> (v instanceof Map) && (v as Map).get('total') != null }
+        if (!hasCounts) return ''
+        def rows = []
+        int sumTotal = 0, sumPassed = 0, sumFailed = 0, sumSkipped = 0
+        long sumDuration = 0L
+        int countedModules = 0
+        projectsUnitTests.each { key, value ->
+            String project = key?.toString() ?: 'service'
+            Map u = (value ?: [:]) as Map
+            Integer total = u.get('total') != null ? (u.get('total') as Number).intValue() : null
+            int failed = u.get('failed') != null ? (u.get('failed') as Number).intValue() : 0
+            int skipped = u.get('skipped') != null ? (u.get('skipped') as Number).intValue() : 0
+            int passed = total != null ? Math.max(0, total - failed - skipped) : 0
+            long durMs = u.get('durationMs') != null ? (u.get('durationMs') as Number).longValue() : 0L
+            if (total != null) {
+                countedModules++
+                sumTotal += total
+                sumPassed += passed
+                sumFailed += failed
+                sumSkipped += skipped
+            }
+            sumDuration += durMs
+            String durText = durMs > 0L ? (formatDuration(durMs) ?: '-') : '-'
+            String totalTd = total != null ? "${total}" : '-'
+            String passedTd = total != null ? "<span style='color:#16a34a;font-weight:700;'>${passed}</span>" : '-'
+            String failedTd = total != null ? "<span style='color:${failed > 0 ? BAD_COLOR : '#334155'};font-weight:700;'>${failed}</span>" : '-'
+            String skippedTd = total != null ? "${skipped}" : '-'
+            rows << ("<tr>" + td(esc(project), 'padding:6px 10px;font-weight:600;')
+                    + td(totalTd, 'text-align:center;padding:6px 8px;font-weight:700;')
+                    + td(passedTd, 'text-align:center;padding:6px 8px;')
+                    + td(failedTd, 'text-align:center;padding:6px 8px;')
+                    + td(skippedTd, 'text-align:center;padding:6px 8px;')
+                    + td(esc(durText), 'text-align:center;padding:6px 8px;color:#64748b;')
+                    + "</tr>")
+        }
+        if (projectsUnitTests.size() > 1 || countedModules > 1) {
+            String sumDur = sumDuration > 0L ? (formatDuration(sumDuration) ?: '-') : '-'
+            rows << ("<tr style='background:#f8fafc;font-weight:700;'>"
+                    + td('All modules summary', 'padding:6px 10px;')
+                    + td("${sumTotal}", 'text-align:center;padding:6px 8px;')
+                    + td("<span style='color:#16a34a;'>${sumPassed}</span>", 'text-align:center;padding:6px 8px;')
+                    + td("<span style='color:${sumFailed > 0 ? BAD_COLOR : '#334155'};'>${sumFailed}</span>", 'text-align:center;padding:6px 8px;')
+                    + td("${sumSkipped}", 'text-align:center;padding:6px 8px;')
+                    + td(esc(sumDur), 'text-align:center;padding:6px 8px;color:#64748b;')
+                    + "</tr>")
+        }
+        String table = "<div style='overflow-x:auto;'><table style='min-width:520px;'><thead><tr><th>Service / Module</th><th style='text-align:center;'>Total</th><th style='text-align:center;'>Passed</th><th style='text-align:center;'>Failed</th><th style='text-align:center;'>Skipped</th><th style='text-align:center;'>Duration</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>"
+        return card('Unit Tests', table)
     }
     @NonCPS protected String securityGatesBanner(Map stageResults) {
         for (def name : secStageNames) {
@@ -1163,7 +1231,7 @@ class HtmlReportService implements Serializable {
                      String sonarProjectKey = '', String sonarBadgeToken = '',
                      Map projectsVulnCounts = [:], Map projectsNexusIQ = [:], Map projectsScanResults = [:],
                      Map projectsSonarResults = [:], List projectKeys = [], Map projectsAllCfg = [:], Map releaseGate = [:],
-                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:]) {
+                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], Map projectsUnitTests = [:]) {
 
         String firstFailed = ''
         int firstFailedIdx = -1
@@ -1239,7 +1307,7 @@ ${securityGates}
 ${showsReleasePolicy() ? releaseGateCardHtml(releaseGate) : ''}
 ${goldenFixCardHtml(projectsGoldenFix, isMulti)}
 ${sonarBadgesCards(ctx)}
-${coverageCard(coverage, projectsCoverage)}
+${coverageCard(coverage, projectsCoverage) + ((unitTestsCard(projectsUnitTests)) ? '\n' + unitTestsCard(projectsUnitTests) : '')}
 ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}
 </div>
 </div>

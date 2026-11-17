@@ -275,6 +275,50 @@ found, _, _ = run('scale', '--root', '.', '--own', 'gradle')
 took = time.time() - start
 check('400 module reports among 19 000 files are read in under 30 seconds', len(found) == 400 and took < 30, '%d rows, %.1fs' % (len(found), took))
 
+cobertura_xml = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<coverage line-rate="0.75" branch-rate="0.5" lines-covered="3" lines-valid="4">'
+    '<packages><package name="Orders.Api">'
+    '<classes><class name="Orders.Controller" filename="OrdersController.cs">'
+    '<lines><line number="10" hits="2"/><line number="11" hits="1"/><line number="12" hits="1"/><line number="13" hits="0"/></lines>'
+    '</class></classes></package></packages></coverage>'
+)
+cobertura_attrless = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<coverage><packages><package name="Billing.Worker"><classes>'
+    '<class name="Billing.Job" filename="BillingJob.cs">'
+    '<lines><line number="1" hits="3"/><line number="2" hits="0"/></lines>'
+    '</class></classes></package></packages></coverage>'
+)
+opencover_xml = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<CoverageSession>'
+    '<Summary numSequencePoints="5" visitedSequencePoints="4"/>'
+    '<Modules><Module><Classes>'
+    '<Class><FullName>Orders.Service</FullName><Methods><Method><SequencePoints>'
+    '<SequencePoint vc="1" sl="20" sc="1"/><SequencePoint vc="2" sl="21" sc="1"/>'
+    '<SequencePoint vc="0" sl="22" sc="1"/><SequencePoint vc="1" sl="23" sc="1"/>'
+    '</SequencePoints></Method></Methods></Class>'
+    '</Classes></Module></Modules></CoverageSession>'
+)
+put('dotnet', 'TestResults/guid-1/coverage.cobertura.xml', cobertura_xml)
+put('dotnet', 'release/archive/guid-1/coverage.cobertura.xml', cobertura_xml + ' ')
+put('dotnet', 'billing/TestResults/coverage.cobertura.xml', cobertura_attrless)
+put('dotnet', 'coverage.opencover.xml', opencover_xml)
+put('dotnet', 'target/site/jacoco/jacoco.xml', jacoco([('Api', 8, 2)]))
+dn_found, dn_classes, dn_head = run('dotnet', '--root', '.', '--own', 'dotnet', '--others', 'maven')
+mv_found, _, _ = run('dotnet', '--root', '.', '--own', 'maven', '--others', 'dotnet')
+check('C#/.NET: Cobertura and OpenCover reports are parsed, duplicates skipped, and Maven JaCoCo report in shared folder stays isolated',
+      dn_head == ['S\t0']
+      and dn_found == rows(('opencover', 'coverage.opencover.xml', 3, 4),
+                           ('cobertura', 'TestResults/guid-1/coverage.cobertura.xml', 3, 4),
+                           ('cobertura', 'billing/TestResults/coverage.cobertura.xml', 1, 2),
+                           ('cobertura', 'release/archive/guid-1/coverage.cobertura.xml', 3, 4, 'copy:TestResults/guid-1/coverage.cobertura.xml'))
+      and mv_found == rows(('jacoco', 'target/site/jacoco/jacoco.xml', 8, 10))
+      and any('Class: Orders.Controller' in c and 'Coverage: 75.0' in c for c in dn_classes)
+      and any('Class: Orders.Service' in c and 'Coverage: 75.0' in c for c in dn_classes),
+      dn_head + dn_found + mv_found + dn_classes)
+
 if failures:
     print('%d COVERAGE SCAN SCENARIO(S) FAILED' % len(failures))
     sys.exit(1)

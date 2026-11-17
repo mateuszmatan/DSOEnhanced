@@ -58,6 +58,11 @@ class CatalogDiscovery implements Serializable {
             if (all.contains(i.path)) add(entries, i.path as String, 'gradle', i.name as String, i.root as String)
         }
         for (String f : all) {
+            String low = fileName(f).toLowerCase()
+            if (low == 'directory.packages.props' || low == 'directory.build.props') {
+                add(entries, f, 'nuget', null, parentOf(f))
+                continue
+            }
             if (!f.endsWith('.versions.toml')) continue
             String root = parentOf(parentOf(f))
             boolean owned = f == (root ? root + '/' : '') + 'gradle/libs.versions.toml' && settingsDirs.contains(root)
@@ -252,6 +257,7 @@ class CatalogDiscovery implements Serializable {
 
     @NonCPS
     private static String kindOf(String path) {
+        if ((path ?: '').toLowerCase().endsWith('.props')) return 'nuget'
         return path.endsWith('.toml') ? 'toml' : (path.endsWith('.xml') ? 'maven' : 'gradle')
     }
 

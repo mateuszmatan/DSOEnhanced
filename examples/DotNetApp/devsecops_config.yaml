@@ -1,0 +1,136 @@
+# Example C# and .NET configuration for Windows Jenkins agents (and Linux cross-platform builds).
+# orders-framework-api uses the default classic Windows toolchain:
+#   MSBuild.exe + NuGet.exe + vstest.console.exe + OpenCover + SonarScanner.MSBuild.exe + GoldenFix NuGet.
+# billing-dotnet8-worker overrides the mode to use the dotnet SDK CLI (dotnet restore/build/test/sonarscanner).
+
+projects:
+
+  orders-framework-api:
+    appId:        "33333333-4444-5555-6666-777777777777"
+    buildTool:    dotnet
+    deployTarget: vm
+    sourceDir:    "."
+    appscanPath:  "/.appscan-tools/SAClientUtil/bin/appscan.bat"
+
+    asoc:
+      keyId:          "bbh_orders_api_key"
+      token:          "orders-api-asoc-secret"
+      doCompile:      true
+      sourceCodeOnly: false
+
+    build:
+      buildPath: "src/Orders.Api/bin/Release/**/*.dll"
+      dotnet:
+        solution:      "OrdersSolution.sln"
+        configuration: "Release"
+        platform:      "Any CPU"
+        restore:       true
+        nugetPath:     "C:\\tools\\nuget\\nuget.exe"
+        msbuildPath:   "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe"
+        flags:         ["/m", "/v:minimal"]
+
+    tests:
+      unitTests:
+        unitTestResult: "**/TestResults/*.trx"
+        dotnet:
+          vstestPath:     "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\Extensions\\TestPlatform\\vstest.console.exe"
+          opencoverPath:  "C:\\tools\\opencover\\OpenCover.Console.exe"
+          testAssemblies: ["tests/Orders.Tests/bin/Release/Orders.Tests.dll"]
+
+    tools:
+      sonar:
+        projectName:             "Orders Framework API"
+        projectKey:              "com.bbh.orders:orders-framework-api"
+        installationName:        "SonarQube"
+        authToken:               "sonar-auth-token"
+        badgeCredentialsId:      "sonar-badge-orders-api"
+        sonarScannerMsbuildPath: "C:\\tools\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe"
+        opencoverPaths:          "coverage.opencover.xml"
+        vstestPaths:             "**/TestResults/*.trx"
+
+      nexusIq:
+        application:   "OrdersFrameworkAPI"
+        credentialsId: "nexusiqP"
+        scanPatterns:  ["src/Orders.Api/bin/Release/**", "**/packages.config"]
+
+    goldenFix:
+      enabled:    true
+      ecosystems: [nuget, npm]
+      verify:
+        enabled: true
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/ORD/repos/orders-platform"
+        credentialsId: "bitbucket-http-credentials"
+        targetBranch:  "develop"
+
+    delivery:
+      nuget:
+        source:        "https://tools.bbh.com/nexus/repository/nuget-hosted/"
+        credentialsId: "nexus-nuget-api-key"
+        packagePattern: "**/*.nupkg"
+
+    deploy:
+      vm:
+        dod:
+          siteName:      "deploy.bbh.com"
+          deployProcess: "iis-dotnet-deploy"
+          applications:
+            - applicationName: "OrdersFrameworkAPI"
+              components:
+                - componentName:       "OrdersApiPackage"
+                  baseDir:             "src\\Orders.Api\\bin\\Release"
+                  fileIncludePatterns: "*.dll"
+
+  billing-dotnet8-worker:
+    appId:        "44444444-5555-6666-7777-888888888888"
+    buildTool:    dotnet
+    deployTarget: vm
+    sourceDir:    "."
+
+    asoc:
+      keyId:     "bbh_billing_worker_key"
+      token:     "billing-worker-asoc-secret"
+      doCompile: true
+
+    build:
+      buildPath: "src/Billing.Worker/bin/Release/net8.0/publish/**"
+      dotnet:
+        useDotnetCli:  true
+        solution:      "src/Billing.Worker/Billing.Worker.csproj"
+        configuration: "Release"
+        publish:       true
+        publishDir:    "src/Billing.Worker/bin/Release/net8.0/publish"
+
+    tests:
+      unitTests:
+        unitTestResult: "**/TestResults/*.trx"
+        dotnet:
+          useDotnetCli: true
+          coverlet:     true
+
+    tools:
+      sonar:
+        projectName: "Billing .NET 8 Worker"
+        projectKey:  "com.bbh.orders:billing-dotnet8-worker"
+        authToken:   "sonar-auth-token"
+        dotnet:
+          useDotnetCli: true
+
+      nexusIq:
+        application:   "BillingDotNet8Worker"
+        credentialsId: "nexusiqP"
+        scanPatterns:  ["src/Billing.Worker/bin/Release/**", "**/*.csproj", "Directory.Packages.props"]
+
+    goldenFix:
+      enabled:    true
+      ecosystems: [nuget]
+      verify:
+        enabled: true
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/ORD/repos/orders-platform"
+        credentialsId: "bitbucket-http-credentials"
+        targetBranch:  "develop"

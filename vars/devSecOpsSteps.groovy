@@ -67,7 +67,6 @@ def staticAnalysis(def api) {
         dependenciesScan(api)
         sast(api)
         sonarQube(api)
-        api.publishStaticSecurityPullRequest()
         return
     }
     api.scanWhileSastRuns({ sastQueue(api) }, {

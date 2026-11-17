@@ -16,13 +16,13 @@ import com.bbh.remediation.SecurityPullRequestService
 import com.bbh.remediation.updater.GradleUpdater
 import com.bbh.remediation.updater.MavenPomUpdater
 import com.bbh.remediation.updater.NpmPackageJsonUpdater
+import com.bbh.remediation.updater.NugetUpdater
 import com.bbh.remediation.updater.PipUpdater
 import com.bbh.remediation.updater.PubUpdater
 import com.bbh.scanner.NexusIqGoldenFixSource
 import com.bbh.scm.BitbucketPullRequestPublisher
 import com.bbh.scm.GitSourceRepository
 import com.bbh.report.HtmlReportService
-import com.bbh.report.PortalReportService
 import com.bbh.scanner.AppScanService
 import com.bbh.scanner.NexusIqService
 import com.bbh.scanner.SonarService
@@ -39,7 +39,6 @@ import com.bbh.utils.BuildUtils
 @Field VmDeployService     _vmDeploy
 @Field OpenshiftService    _openshift
 @Field InfluxDbService     _influx
-@Field PortalReportService _portalReport
 @Field SecurityPullRequestService _securityPr
 @Field Map                 _pipelineConfig = [:]
 @Field String              _variant = 'full'
@@ -55,16 +54,15 @@ private void _setup() {
     _appScan   = new AppScanService(this, _state, _os, _policy, _build)
     _sonar     = new SonarService(this, _state, _os, _build)
     BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
-    GitSourceRepository gitRepo = new GitSourceRepository(this)
+    GitSourceRepository gitRepo = new GitSourceRepository(this, _state)
     _securityPr = new SecurityPullRequestService(this, _state, publisher, gitRepo)
     _nexusIq   = new NexusIqService(this, _state, _policy, new GoldenFixService(this, _state,
             new NexusIqGoldenFixSource(this), gitRepo, publisher,
-            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater()],
+            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater(), new NugetUpdater()],
             new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
-    _portalReport = new PortalReportService(this, _state, _os)
 }
 
 def configure(String variant, Map config) {
@@ -169,6 +167,7 @@ def checkoutAdditionalRepositories() {
                     git url: rawUrl, branch: branch ?: 'master'
                 }
             }
+            _config.refreshAutoResolvedConfig(pName, targetDir)
         }
     }
 }
@@ -228,8 +227,6 @@ def finishPipeline(Map options = [:]) {
         writeFile file: 'report/pipeline-report.html',
                   text: "<html><head><meta charset='UTF-8'><title>Pipeline Report</title></head><body style='font-family:sans-serif;padding:24px'><h2>Pipeline Report</h2><p>Report could not be generated - check build logs.</p></body></html>"
     }
-    try { sendPortalReport(type) }
-    catch (Throwable t) { echo "[WARN] Could not upload report to portal: ${t.message}" }
     try { echo vulnerabilitySummary() }
     catch (Throwable t) { echo "[WARN] Could not summarise the vulnerabilities: ${t.message}" }
     section('Pipeline finished')
@@ -321,7 +318,6 @@ def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipel
 
 def generateHtmlReport()                       { _setup(); reportService().generate() }
 def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
-def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
 def publishStaticSecurityPullRequest()         { _setup(); _securityPr.publishStaticSecurityPullRequest() }
 def publishDastPullRequest()                   { _setup(); _securityPr.publishDastPullRequest() }
 

@@ -114,6 +114,8 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
                 name = coordinates.name as String
             } else if (format == 'pub') {
                 name = (coordinates.name ?: coordinates.packageId) as String
+            } else if (format == 'nuget') {
+                name = (coordinates.packageId ?: coordinates.name ?: packageNameFromPurl(comp.packageUrl as String)) as String
             }
             String version = coordinates.version as String
             if (!name || !version) continue
@@ -156,6 +158,13 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
         def counts = component?.securityData?.securityIssueCount
         if (counts instanceof Number) return (counts as int)
         return null
+    }
+
+    @NonCPS
+    static String packageNameFromPurl(String purl) {
+        if (!purl) return null
+        def m = (purl =~ /^pkg:[^\/]+\/([^@?#]+)/)
+        return m.find() ? (m.group(1) ?: '').replace('%20', ' ') : null
     }
 
     @NonCPS

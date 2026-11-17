@@ -42,6 +42,10 @@ class VmDeployService implements Serializable {
 
     void publishToNexus() {
         def tool = state.cfg.buildTool ?: 'gradle'
+        if (BuildUtils.isDotnetTool(tool as String)) {
+            deliverDotnetNuget()
+            return
+        }
         def cmd
         if (os.isWindows()) {
             cmd = (tool == 'maven')
@@ -61,7 +65,12 @@ class VmDeployService implements Serializable {
 
     void pushToNexus(String projectName) {
         def buildNumber = script.env.BUILD_NUMBER
-        if (state.cfg.buildTool?.trim() == 'maven') {
+        String tool = (state.cfg.buildTool ?: '') as String
+        if (BuildUtils.isDotnetTool(tool)) {
+            deliverDotnetNuget()
+            return
+        }
+        if (tool.trim() == 'maven') {
             String filePathPattern = (state.cfg.build?.buildPath ?: '') as String
             if (!filePathPattern) {
                 script.error "[NEXUS] build.buildPath must point at the artifact to publish, for example target/*.jar"
@@ -77,10 +86,50 @@ class VmDeployService implements Serializable {
             }
             deliverToNexusMaven(buildNumber, file, projectName)
         }
-        if (state.cfg.buildTool?.trim() == 'flutter') {
+        if (tool.trim() == 'flutter') {
             script.echo "${script.env.version}"
             FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName, state.platform)
             FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName, state.platform)
+        }
+    }
+
+    private void deliverDotnetNuget() {
+        Map nugetCfg = (state.cfg.delivery?.nuget ?: state.cfg.delivery?.dotnet ?: [:]) as Map
+        String source = (nugetCfg.source ?: nugetCfg.repositoryUrl ?: '') as String
+        if (!source) {
+            script.echo '[NEXUS] .NET NuGet publish not configured (set delivery.nuget.source)'
+            return
+        }
+        String pattern = (nugetCfg.packagePattern ?: state.cfg.build?.buildPath ?: '**/*.nupkg') as String
+        List<String> nupkgs = []
+        try {
+            for (def f : script.findFiles(glob: pattern)) {
+                String p = (f?.path ?: '') as String
+                if (p && p.toLowerCase().endsWith('.nupkg')) nupkgs << p
+            }
+        } catch (Exception ignored) {}
+        if (!nupkgs) {
+            script.error "[NEXUS] No .nupkg package matching '${pattern}' found for delivery.nuget"
+        }
+        String credId = (nugetCfg.credentialsId ?: nugetCfg.apiKeyCredentialsId ?: '') as String
+        boolean useCli = !os.isWindows() || BuildUtils.booleanValue(state.cfg.build?.dotnet?.useDotnetCli, false)
+        Closure pushAll = { String keyExpr ->
+            for (String pkg : nupkgs) {
+                if (useCli) {
+                    String args = keyExpr ? " --api-key ${keyExpr}" : ''
+                    os.run("dotnet nuget push '${pkg}' --source '${source}'${args}")
+                } else {
+                    String args = keyExpr ? " -ApiKey ${keyExpr}" : ''
+                    os.run("nuget.exe push '${pkg}' -Source '${source}'${args} -NonInteractive")
+                }
+            }
+        }
+        if (credId) {
+            script.withCredentials([script.string(credentialsId: credId, variable: 'NUGET_API_KEY')]) {
+                pushAll(os.isWindows() ? '$env:NUGET_API_KEY' : '$NUGET_API_KEY')
+            }
+        } else {
+            pushAll('')
         }
     }
 
@@ -331,6 +380,20 @@ class VmDeployService implements Serializable {
     }
 
     private void verifyComponentFiles(String componentName, String baseDir, String fileIncludePatterns) {
+        if (os.isWindows()) {
+            String ok = (script.powershell(returnStdout: true, script: """
+\$ErrorActionPreference = 'SilentlyContinue'
+\$hit = Get-ChildItem -Path '${BuildUtils.psSingleQuote(baseDir)}' -Recurse -File -Filter '${BuildUtils.psSingleQuote(fileIncludePatterns)}' | Select-Object -First 1
+if (\$hit) { Write-Output '0' } else { Write-Output '1' }
+""") as String).trim()
+            if (ok != '0') {
+                script.echo "[DOD] No files matching '${fileIncludePatterns}' were found for component '${componentName}'."
+                script.powershell "Get-ChildItem -Path '${BuildUtils.psSingleQuote(baseDir)}' -Recurse -File -Depth 4 | Select-Object -ExpandProperty FullName"
+                script.error "[DOD] Deployment artifact was not found. Component: '${componentName}', baseDir: '${baseDir}', pattern: '${fileIncludePatterns}'."
+            }
+            script.echo "[DOD] Artifact validation passed for component '${componentName}'."
+            return
+        }
         String findStatus = script.sh(
             script: """
                 set +e
