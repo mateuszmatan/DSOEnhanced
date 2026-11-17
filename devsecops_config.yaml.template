@@ -171,11 +171,6 @@ projects:
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
       versionCatalogs:        []     # optional: shared catalog files the search does not find by itself,
                                      # repository-relative paths or globs (* within a folder name, ** across folders)
-      versionCatalogRepo:            # optional: dedicated repository containing shared version catalogs
-        url:           ""            # repository clone URL (e.g. ssh://git@bitbucket.bbh.com/shared/catalogs.git)
-        credentialsId: ""            # Jenkins credentials ID [default: falls back to scm credentials]
-        branch:        ""            # branch to checkout and update [default: default branch]
-        path:          ""            # path to version catalog file or directory within the repo
 
     tests:
       maxParallel: 20                # [library default] max jobs of one test stage running at the same time
@@ -184,10 +179,6 @@ projects:
           tasks: ['test', 'jacocoTestReport']
         maven:
           goals: ['test', 'jacoco:report']
-        cypress:
-          enabled:    false          # set true to run Cypress component/unit tests (node/npm)
-          command:    ""             # custom command [default: npx cypress run --component]
-          reportsDir: ""             # JUnit XML reports directory [default: cypress/results]
         # liquibase:
         #   commands: ['validate']
         #   flags:    ['--changelog-file=src/main/resources/changelog.xml']

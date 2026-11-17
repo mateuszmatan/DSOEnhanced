@@ -5,7 +5,7 @@ Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delive
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
 {info}
-*This is the {{DSOEnhancedAppScanApiOnly}} branch, DevSecOps REST API SAST release.* A pipeline is configured by its {{Jenkinsfile}} and {{devsecops_config.yaml}} without portal dependency. Static Application Security Testing (SAST) is invoked via direct HCL AppScan on Cloud REST API calls (upload, start, poll, download) matching DAST, supporting TLS certificate verification skipping ({{insecureTls: true}}), proxy tunnel integration, and automatic exclusion of vulnerabilities with {{Noise}} status. The {{main}} branch of the repository is the release with the DevSecOps portal.
+*This is the {{DSOEnhancedWithoutPortal}} branch, DevSecOps version 0.* A pipeline is configured by its {{Jenkinsfile}} and the {{devsecops_config.yaml}} of its repository only, with the global settings that the library bundles. The {{main}} branch of the repository is the release with the DevSecOps portal. The features of {{main}} are carried over to this branch.
 {info}
 
 h2. Contents
@@ -179,7 +179,7 @@ h2. Referenced sources
 || Source || Figures referenced ||
 | IBM, {{Cost of a Data Breach Report 2025}} | Global average breach cost USD 4.44 million; United States average USD 10.22 million; mean time to identify and contain 241 days |
 | Verizon, {{2025 Data Breach Investigations Report}} | Exploitation of vulnerabilities as initial access vector in 20% of breaches, a 34% year-on-year increase; third-party involvement in 30% of breaches |
-| DORA (DevOps Research and Assessment), {{2024 State of DevOps Report}} | Elite performer benchmarks for deployment frequency, lead time for change, change failure rate and failed deployment recovery time |
+| Google Cloud / DORA, {{2024 State of DevOps Report}} | Elite performer benchmarks for deployment frequency, lead time for change, change failure rate and failed deployment recovery time |
 | IBM Systems Sciences Institute defect cost model | Relative cost of defect correction by development phase; widely cited, multipliers vary between studies |
 
 ----
@@ -205,11 +205,11 @@ h3. Security scanning
 
 ||Scan||Tool||Capabilities||
 |Dependency / SCA|Sonatype Nexus IQ|Policy evaluation of the whole dependency tree, per severity counts, a link to the composition report, and automated remediation pull requests|
-|SAST|HCL AppScan on Cloud|IRX generation on the agent, file upload and scan execution via REST API v4, polling until the scan finishes, HTML and PDF report archived, link to the AppScan console; vulnerabilities with Noise status are strictly excluded|
-|DAST|HCL AppScan on Cloud|Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived; vulnerabilities with Noise status are strictly excluded|
+|SAST|HCL AppScan on Cloud|IRX generation on the agent, queued analysis, polling until the scan finishes, HTML report archived, link to the AppScan console|
+|DAST|HCL AppScan on Cloud|Scan of the deployed application through an AppScan Presence, polling until the scan finishes, HTML and PDF report archived|
 |Code quality|SonarQube|Analysis, quality gate, vulnerability and hotspot counts, metric badges in the report|
 
-The severity counts the pipeline reports are the ones printed in the tool's own report (excluding any issues with Noise status), and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
+The severity counts the pipeline reports are the ones printed in the tool's own report, and they are verified a second time against the archived report while the HTML report is written, so a report and a pipeline verdict can never disagree. A missing or unreadable AppScan report fails the stage rather than being recorded as zero findings.
 
 * When {{staticAnalysis.parallel}} is switched on, the full and security pipelines run Nexus IQ and SonarQube while AppScan scans in its cloud: SAST sends every service first and reads the results last, and the results, the report and the release gate stay the same.
 
@@ -247,30 +247,6 @@ Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image 
 h3. Reporting and metrics
 
 A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report, SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
-
-h3. Automated Stack Discovery and Smart Auto-Resolve
-
-To remove over 80% of onboarding friction for application teams, {{RepoStackAutoResolver}} inspects repository workspace files dynamically. Instead of requiring engineers to know compiler versions, Node.js directories, Liquibase flags or OpenShift manifests, missing fields are auto-resolved:
-* Maven ({{pom.xml}}) and Gradle ({{build.gradle}}) with exact compiler JDK and wrapper versions.
-* Node.js Stage 0 ({{package.json}}) with detected directory, engine version and test runners (Cypress, Jest).
-* Database changes via Liquibase ({{changelog.xml}}, {{liquibase.properties}}).
-* Multi-language support: Kotlin, Python (pip), Dart/Flutter.
-* Target environment auto-detection: OpenShift when container files/manifests exist; virtual machines otherwise.
-* Fully backward compatible: explicit parameters in configuration files always take precedence.
-
-h3. Bitbucket Pull Request Decoration and Shift-Left Feedback
-
-Developers receive instant, actionable feedback directly in Bitbucket pull requests:
-* *Consolidated Static Security PR*: Static analysis combines Nexus IQ GoldenFix safe dependency upgrades, AppScan SAST vulnerability comments, and SonarQube quality findings into a single consolidated Bitbucket Pull Request. SAST findings marked with status {{Noise}} are automatically excluded, and comments are placed inline on the exact source file and line.
-* *Dedicated DAST PR*: Dynamic security findings from enhanced pipelines create a separate, isolated Pull Request, separating operational defect remediation from source code changes.
-
-h3. SonarQube Default Configuration, Heuristic Module Discovery and Branch Pinning
-
-When {{sonar-project.properties}} is omitted from a repository, {{SonarService}} synthesizes standard BBH enterprise defaults automatically. It detects multi-module structures in Maven and Gradle, assigns language-appropriate source/test directories, and pins {{sonar.branch.name}} to the active evaluated pipeline branch rather than defaulting to master.
-
-h3. Continuous Software Assurance Maturity Model (OWASP SAMM v2.0)
-
-The DevSecOps architecture aligns with the OWASP SAMM v2.0 framework across 5 business functions (Governance, Design, Implementation, Verification, Operations), evaluating continuous pipeline execution evidence against maturity benchmarks.
 
 h3. Platform support
 
@@ -1703,76 +1679,22 @@ h3. Which fields are required
 ||Field||Required||Notes||
 |{{asoc.keyId}}|YES, for every service|Pipeline fails at init without it|
 |{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like {{asoc.keyId}} is used|
-|{{appId}}|YES|Needed for AppScan SAST and DAST. When multiple services share the same appId, SAST executes only once: subsequent services skip duplicate IRX preparation and queueing, and reuse the completed scan and findings.|
-|{{tools.sonar.projectKey}}|Auto-resolved|When omitted, automatically synthesizes standard configuration with {{com.bbh:<projectName>}}, multi-module discovery, and active branch pinning|
+|{{appId}}|YES|Needed for AppScan SAST and DAST|
+|{{tools.sonar.projectKey}}|Recommended|Without it the analysis still runs, but the report has no SonarQube link, issue counts or badges|
 |{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
 |{{dast.targetUrl}}|Only if {{dast.enabled: true}}|Pipeline fails at DAST stage without it|
-|{{javaPath}} or {{buildToolAutoSetup: true}}|Auto-resolved or YES|When auto-resolve is active (default), {{buildToolAutoSetup: true}} and compiler JDK are inferred from {{pom.xml}} / {{build.gradle}}; otherwise required for Gradle/Maven/Flutter|
+|{{javaPath}} or {{buildToolAutoSetup: true}}|YES (optional for {{buildTool: liquibase}} when {{java}} and {{liquibase}} are on the agent {{PATH}})|Without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with *JAVA_HOME parameter is not specified* (unless {{buildTool: liquibase}})|
 |{{deploy.vm.dod}}|Only if {{deployTarget: vm}} and you use {{devSecOpsPipeline}}|The lower test region deployment of the full pipeline uses UrbanCode Deploy|
 |{{deploy.vm.rd}}, {{deploy.vm.qc}}|Only if {{deployTarget: vm}}|SSH deployment of the extended pipeline and of the QC stage|
-|{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|Auto-detected when container files or manifests are found; {{appName}} and {{artifactName}} are required as well|
+|{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|{{appName}} and {{artifactName}} are required as well|
 |{{delivery.maven}}|Only if {{deployTarget: vm}} and {{buildTool: maven}}|Snapshot upload of the artifact to Nexus|
 |{{jenkins.pipeline.extendedPipeline}}|Only for {{devSecOpsSecurityPipeline}}|The job it starts when {{RUN_EXTENDED_PIPELINE}} is selected; it may be set in any service of the run, the current service first|
 |{{scm.bitbucket.url}}|Only for GoldenFix|Without it the fixes are listed in the report but no pull request is raised|
 |{{scm.bitbucket.credentialsId}}|Only for GoldenFix|Needs push rights and permission to create and comment on pull requests|
-|{{build.node.enabled}}|Auto-resolved or YES|Auto-detected when {{package.json}} is found in repository or frontend folders; {{true}} adds Stage 0 Node.js build|
-|{{build.node.dir}}|Auto-resolved|Auto-detected as {{.}}, {{frontend}}, {{web}}, {{client}}, or {{ui}} when {{package.json}} exists|
+|{{build.node.enabled}}|Only for a Node.js build|{{true}} adds the Node.js build of stage 0 for the service; every other {{build.node}} key is optional|
+|{{build.node.dir}}|Only if {{package.json}} is not at the repository root|The commands run in the workspace otherwise|
 |{{build.node.installationName}} or {{build.node.nodePath}}|No|Without both, and without an installation in the bundled defaults, the commands use {{node}} and {{npm}} on the agent {{PATH}}; {{nodePath}} wins over any installation|
 |{{goldenFix.versionCatalogs}}|No|Only for a shared catalog that GoldenFix does not find by itself, see [Integration Guide: Nexus IQ GoldenFix Pipeline|#ch13]|
-
-h3. Automated Stack Discovery and Smart Auto-Resolve (RepoStackAutoResolver)
-
-The {{RepoStackAutoResolver}} component eliminates over 80% of manual onboarding friction by automatically inspecting workspace files at the beginning of each pipeline run. Application teams are not required to look up compiler versions, Gradle wrappers, Node.js directories, Liquibase flags or OpenShift deployment targets.
-
-|| Setting / Parameter || YAML Key / Portal Field || Workspace Trigger / Manifest || Resolved Default Value ||
-| Build Tool | {{buildTool}} | {{pom.xml}} | {{maven}} |
-| Build Tool | {{buildTool}} | {{build.gradle}} or {{build.gradle.kts}} | {{gradle}} |
-| Build Tool | {{buildTool}} | {{changelog.xml}}, {{changelog.yaml}}, {{liquibase.properties}} | {{liquibase}} |
-| Build Tool | {{buildTool}} | {{pubspec.yaml}} | {{flutter}} |
-| Build Tool | {{buildTool}} | {{requirements.txt}}, {{pyproject.toml}}, {{setup.py}}, {{Pipfile}} | {{pip}} |
-| Build Tool Auto Setup | {{buildToolAutoSetup}} | Maven or Gradle build tool detected | {{true}} |
-| Java Compiler Version | {{build.maven.javaVersion}} / {{build.gradle.javaVersion}} | {{<java.version>}}, {{<maven.compiler.source>}}, {{<maven.compiler.target>}}, {{<release>}} in {{pom.xml}}; {{jvmToolchain}}, {{sourceCompatibility}} in {{build.gradle}} | Matched JDK version ({{17}}, {{21}}, {{11}}, {{8}}) |
-| Gradle Wrapper Version | {{build.gradle.version}} | {{distributionUrl}} in {{gradle/wrapper/gradle-wrapper.properties}} | Exact Gradle wrapper version (e.g. {{8.7}}, {{7.6}}) |
-| Node.js Stage 0 Pre-Build | {{build.node.enabled}} | {{package.json}} present in root or frontend subfolder | {{true}} |
-| Node.js Directory | {{build.node.dir}} | Detected directory containing {{package.json}} | {{.}}, {{frontend}}, {{web}}, {{client}}, or {{ui}} |
-| Node.js Version | {{build.node.version}} | {{engines.node}} in {{package.json}} (e.g. {{>=20.0.0}}) | Major version (e.g. {{20}}) |
-| Cypress Unit Testing | {{tests.unitTests.node.cypress}} | {{cypress}} in {{devDependencies}} or {{dependencies}} | {{true}} |
-| Jest Unit Testing | {{tests.unitTests.node.jest}} | {{jest}} in {{devDependencies}} or {{dependencies}} | {{true}} |
-| Liquibase Build Command | {{build.liquibase.commands}} | Liquibase changelog detected | {{['updateSQL']}} |
-| Liquibase Validate Command | {{tests.unitTests.liquibase.commands}} | Liquibase build tool | {{['validate']}} |
-| Deployment Target | {{deployTarget}} | {{Dockerfile}}, {{Containerfile}}, {{openshift/}}, {{k8s/}}, or {{helm/}} | {{openshift}} (otherwise defaults to {{vm}}) |
-| SonarQube Project Key | {{tools.sonar.projectKey}} | Omitted or empty in configuration | {{com.bbh:<projectName>}} or {{com.bbh:<appName>}} |
-| SonarQube Language | {{sonar.language}} | Source code tree inspection ({{pubspec.yaml}} -> {{dart}}, {{requirements.txt}} -> {{py}}, Kotlin -> {{kotlin}}, Liquibase -> {{sql}}, else {{java}}) | Language identifier |
-| SonarQube Source Paths | {{sonar.sources}} | Missing {{sonar-project.properties}} | {{src/main/java}} (Java), {{src/main/kotlin}} (Kotlin), {{lib}} (Dart), {{db}} (SQL), {{src}} or {{.}} (Python) |
-| SonarQube Test Paths | {{sonar.tests}} | Missing {{sonar-project.properties}} | {{src/test/java}} (Java), {{src/test/kotlin}} (Kotlin), {{test}} (Dart), {{tests}} (Python) |
-| SonarQube Java Binaries | {{sonar.java.binaries}} | Build tool classes folder | Maven: {{target/classes}}; Gradle: {{target/classes,build/classes/java/main}} |
-| SonarQube Modules | {{sonar.modules}} | Multi-module Maven ({{<module>}}) or Gradle ({{settings.gradle}} {{include}}) | Comma-separated module names |
-| SonarQube Active Branch | {{sonar.branch.name}} | Active pipeline execution branch ({{CHANGE_BRANCH}}, {{BRANCH_NAME}}, {{GIT_BRANCH}}) | Evaluated branch name (never defaults to master) |
-
-h4. How to use in standalone mode (devsecops_config.yaml)
-
-# *Default Behaviour*: Auto-resolve is enabled by default ({{autoresolve parameters: true}}). You can omit build tool details, compiler paths, Node.js directories, and Sonar properties from {{devsecops_config.yaml}}.
-# *Minimal Configuration Example*: Application teams need to provide only the application ID and AppScan key ID in {{devsecops_config.yaml}}:
-{code:yaml}
-projects:
-  payment-service:
-    appId: "APP-54321"
-    asoc:
-      keyId: "11111111-2222-3333-4444-555555555555"
-      token: "APPSCAN_KEY_SECRET_CREDENTIAL_ID"
-{code}
-The pipeline automatically resolves the build tool (Maven/Gradle/Liquibase/Flutter/Python), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
-# *Disabling Auto-Resolve*: To mandate strict manual configuration and disable heuristic resolution, set {{autoresolve parameters: false}}:
-{code:yaml}
-projects:
-  payment-service:
-    autoresolve parameters: false
-    buildTool: maven
-    deployTarget: vm
-    appId: "APP-54321"
-    asoc:
-      keyId: "11111111-2222-3333-4444-555555555555"
-{code}
 
 ----
 
@@ -2554,15 +2476,6 @@ A bucket keeps the data for its retention period, and the cumulative "since the 
 h3. Dashboards
 
 [Grafana dashboards and queries|#ch22] holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under {{grafana/}} continue to work; the stage panels of {{devSecOpsDashboard}} show the Build artifact stage of the Nexus IQ GoldenFix pipeline as {{Build}} and the Node.js build as {{Node.js}}, with the sort key of {{Download sources}}.
-
-h3. Pipeline Report Delivery to DevSecOps Management Portal
-
-At the conclusion of each pipeline execution, {{com.bbh.report.PortalReportService}} transmits the execution status and the complete {{report/pipeline-report.html}} file to the DevSecOps Management Portal via {{POST /api/dso/reports}}.
-
-* *Target endpoint:* {{${DSO_PORTAL_URL}/api/dso/reports}} (or {{portal.url}} in service / default settings).
-* *Payload structure:* JSON containing {{pipelineKey}}, {{job}}, {{build}}, {{result}}, {{branch}}, {{commit}}, {{durationSeconds}}, {{stagesTotal}}, {{passed}}, {{warned}}, {{failed}}, {{blocked}}, {{skipped}}, and the complete {{reportHtml}} document.
-* *Resilience:* When {{DSO_PORTAL_URL}} is not configured, report upload is silently bypassed without warning or failure, preserving full compatibility for standalone Jenkins installations.
-* *Portal rendering:* Inside the DevSecOps Management Portal, the execution report is displayed in an interactive card featuring responsive iframe sandboxing, preserving all original styling, stage outcome badges, vulnerability tables, and links to remote Jenkins jobs, artifacts, SonarQube, Nexus IQ, and AppScan reports.
 
 ----
 
