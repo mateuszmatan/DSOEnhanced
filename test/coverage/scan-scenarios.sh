@@ -4,12 +4,12 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-python3 - "$ROOT/src/com/bbh/build/CoverageReports.groovy" "$ROOT/src/com/bbh/build/BuildService.groovy" "$WORK" <<'PY'
+python3 - "$ROOT/src/com/bbh/build/CoverageReports.groovy" "$ROOT/src/com/bbh/build/UnitTestReportParser.groovy" "$WORK" <<'PY'
 import ast, hashlib, os, re, subprocess, sys, time
 
 source, build, work = sys.argv[1:4]
 script = re.search(r"static String scanScript\(\) \{\s*return '''(.*?)'''", open(source).read(), re.S).group(1)
-old_classes = re.search(r"private List readJaCoCoPerClass\(String xmlPath\) \{.*?<<'PYEOF'\n(.*?)PYEOF", open(build).read(), re.S).group(1)
+old_classes = re.search(r"(?:private\s+)?List readJaCoCoPerClass\(String xmlPath\) \{.*?<<'PYEOF'\n(.*?)PYEOF", open(build).read(), re.S).group(1)
 scan = os.path.join(work, 'scan.py')
 open(scan, 'w').write(script)
 failures = []

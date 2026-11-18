@@ -49,7 +49,7 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 18px 0; }
 </div>
 <div class="section toc" id="contents">
 
-<p>Jenkins Shared Library implementing the Brown Brothers Harriman DevSecOps delivery pipeline: build, unit testing with coverage enforcement, dependency composition analysis (Nexus IQ), static code analysis (SonarQube), static and dynamic application security testing (HCL AppScan), artifact delivery (Nexus), deployment to virtual machine and OpenShift targets, functional and performance testing, HTML reporting, automated dependency remediation and InfluxDB telemetry.</p>
+<p>Jenkins Shared Library engineered and maintained by the <strong>DevSecOps team in ITSS COE at Brown Brothers Harriman (BBH)</strong>, implementing the enterprise DevSecOps delivery pipeline: build, unit testing with coverage enforcement, dependency composition analysis (Nexus IQ), static code analysis (SonarQube), static and dynamic application security testing (HCL AppScan), artifact delivery (Nexus), deployment to virtual machine and OpenShift targets, functional and performance testing, HTML reporting, automated dependency remediation and InfluxDB telemetry.</p>
 <p>This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.</p>
 <div class="callout info"><strong>This is the <code>DSOEnhancedWithoutPortal</code> branch, DevSecOps version 0.</strong> A pipeline is configured by its <code>Jenkinsfile</code> and the <code>devsecops_config.yaml</code> of its repository only, with the global settings that the library bundles. The <code>main</code> branch of the repository is the release with the DevSecOps portal. The features of <code>main</code> are carried over to this branch.</div>
 <h3>Contents</h3>
@@ -197,18 +197,32 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 18px 0; }
 │   │   └── OsHelper.groovy
 │   ├── config/ConfigLoader.groovy          &lt;- the Jenkinsfile, devsecops_config.yaml and the bundled defaults -&gt; PipelineState and the run-state file pipeline-config.yaml
 │   ├── config/RepositoryConfigReader.groovy &lt;- devsecops_config.yaml or config.yaml of the repository and the bundled defaults
-│   ├── build/
-│   │   ├── BuildService.groovy             &lt;- build, unit tests, coverage, remote test jobs, the Node.js build
+│   ├── build/                              &lt;- hexagonal build &amp; test runners, toolchain setup and report parsers
+│   │   ├── BuildService.groovy             &lt;- controller coordinating build, unit tests, coverage and remote test jobs
 │   │   ├── BuildRunner.groovy              &lt;- one runner for the Gradle and Maven commands
+│   │   ├── DotnetBuildRunner.groovy        &lt;- adapter: .NET CLI, MSBuild, Hybrid, Cake and NUKE build and test execution
+│   │   ├── DotnetProjectResolver.groovy    &lt;- model/resolver: .NET mode, test runner, coverage tool and project discovery
+│   │   ├── JdkToolchainSetup.groovy        &lt;- adapter: build tool detection and JDK environment provisioning
+│   │   ├── LiquibaseBuildRunner.groovy     &lt;- adapter: Liquibase changelog validation and test execution
 │   │   ├── NodeBuildRunner.groovy          &lt;- the Node.js build of stage 0 and the Node.js environment of the npm pre-check
+│   │   ├── RemoteTestJobRunner.groovy      &lt;- adapter: local and remote Jenkins test job orchestration
+│   │   ├── UnitTestReportParser.groovy     &lt;- model/parser: TRX, Flutter, JaCoCo, Cobertura, OpenCover and LCOV reports
+│   │   ├── CoverageReports.groovy          &lt;- multi-report coverage discovery and aggregation model
 │   │   └── ManifestBuildVerifier.groovy    &lt;- adapter: the GoldenFix pre-check build, one check per folder or catalog build
-│   ├── scanner/                            &lt;- adapters for the scanners
-│   │   ├── AppScanService.groovy           &lt;- HCL AppScan SAST and DAST
+│   ├── scanner/                            &lt;- hexagonal adapters and builders for the security and quality scanners
+│   │   ├── AppScanService.groovy           &lt;- HCL AppScan SAST and DAST orchestration
+│   │   ├── AppScanEnvironmentAdapter.groovy &lt;- adapter: SAClientUtil installation, A2A proxy password and appscan.properties
 │   │   ├── NexusIqService.groovy           &lt;- Nexus IQ scan, calls the remediation port on a violation
 │   │   ├── NexusIqGoldenFixSource.groovy   &lt;- adapter: Nexus IQ report + Component Remediation REST API
-│   │   └── SonarService.groovy
-│   ├── remediation/                        &lt;- GoldenFix, ports and adapters
-│   │   ├── GoldenFixService.groovy         &lt;- application service: fetch -&gt; patch manifests -&gt; commit/push -&gt; pull request
+│   │   ├── SonarService.groovy             &lt;- SonarQube scanner execution and quality gate evaluation
+│   │   └── SonarScannerCommandBuilder.groovy &lt;- model/builder: SonarQube properties, report paths and command formatting
+│   ├── remediation/                        &lt;- GoldenFix &amp; Security PR MVC controllers, views, services, ports and adapters
+│   │   ├── GoldenFixService.groovy         &lt;- application service / controller: fetch -&gt; patch manifests -&gt; commit/push -&gt; pull request
+│   │   ├── SharedCatalogRepositoryService.groovy &lt;- service: shared external versionCatalogRepo priority upgrade and shared PR coordination
+│   │   ├── GoldenFixPullRequestView.groovy &lt;- MVC view: GoldenFix commit messages, PR descriptions and comments
+│   │   ├── SecurityPullRequestService.groovy &lt;- MVC controller: static (SAST + SonarQube + GoldenFix) and DAST pull request decoration
+│   │   ├── SecurityFindingsParser.groovy   &lt;- MVC model/parser: SAST HTML, SonarQube and DAST finding extraction and path normalization
+│   │   ├── SecurityPullRequestView.groovy  &lt;- MVC view: static &amp; DAST PR markdown reports and inline line comments
 │   │   ├── CatalogDiscovery.groovy         &lt;- the shared version catalogs of the repository and the builds that use them
 │   │   ├── model/GoldenFix.groovy          &lt;- the remediation domain: the fix record, version semantics and the version choice
 │   │   ├── model/VersionCatalogs.groovy    &lt;- catalog aliases, path globs and the catalog blocks of settings.gradle
@@ -218,15 +232,18 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 18px 0; }
 │   │   ├── port/PullRequestPublisher.groovy   &lt;- outbound port: pull request
 │   │   ├── port/ManifestUpdater.groovy        &lt;- outbound port: one build manifest format
 │   │   ├── port/BuildVerifier.groovy          &lt;- outbound port: pre-check build of the proposed versions
-│   │   └── updater/                        &lt;- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater
+│   │   └── updater/                        &lt;- MavenPomUpdater, GradleUpdater, NpmPackageJsonUpdater, PipUpdater, PubUpdater, NugetUpdater
 │   ├── scm/                                &lt;- adapters: GitSourceRepository (git worktree), Bitbucket pull requests
 │   ├── deploy/                             &lt;- adapters: VmDeployService (SSH, UrbanCode Deploy), OpenshiftService
 │   ├── metrics/
 │   │   ├── InfluxDbService.groovy          &lt;- adapter: writes the batch to InfluxDB
 │   │   ├── PipelineMetrics.groovy          &lt;- builds every measurement from the pipeline state
 │   │   └── MetricLine.groovy               &lt;- line protocol formatting and escaping
-│   ├── report/HtmlReportService.groovy     &lt;- one report template, the variant only selects the stage layout
-│   └── utils/                              &lt;- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils
+│   ├── report/                             &lt;- MVC pipeline report engine
+│   │   ├── HtmlReportService.groovy        &lt;- MVC controller: report lifecycle, file persistence and stage layout orchestration
+│   │   ├── ReportViewModel.groovy          &lt;- MVC model: stage layouts, policy calculations, test job summaries and GoldenFix state
+│   │   └── HtmlReportCardsView.groovy      &lt;- MVC view: HTML cards, tables, banners and badges
+│   └── utils/                              &lt;- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils, RepoStackAutoResolver
 ├── resources/com/bbh/devsecops/defaults.yaml &lt;- the global settings: thresholds, coverage minimum, timeouts, GoldenFix policy, tool defaults
 ├── Jenkinsfile.template           &lt;- the Jenkinsfile of a project: services and agent labels
 ├── devsecops_config.yaml.template &lt;- one commented service with every key the library reads
@@ -242,7 +259,7 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 18px 0; }
 └── examples/
     ├── CertScanner/               &lt;- a complete two project example: the Jenkinsfile and devsecops_config.yaml
     └── reports/                   &lt;- generated demo reports, one HTML page per pipeline and outcome</code></pre>
-<p><strong>How the parts fit together (hexagonal):</strong> <code>core</code> holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix feature is a full hexagon: the application service in <code>remediation</code> talks only to the ports in <code>remediation/port</code>, the domain rules (which version to take, how versions compare, how catalog aliases match) live in <code>remediation/model</code>, and the adapters sit in <code>scanner</code> (Nexus IQ), <code>scm</code> (git, Bitbucket), <code>build</code> (the pre-check build) and <code>remediation/updater</code> (one per manifest format). <code>vars/devSecOpsApi.groovy</code> is the single composition root that assembles every service; the services in <code>scanner</code>, <code>build</code>, <code>deploy</code>, <code>metrics</code> and <code>report</code> are adapters around the core, each receiving the pipeline script object and translating between the tools and the state. A check in the test suite enforces these dependency directions.</p>
+<p><strong>How the parts fit together (MVC &amp; Hexagonal Architecture):</strong> <code>core</code> holds the state, the policy and the release gate and knows nothing about Jenkins plugins. The GoldenFix and Security PR features combine Hexagonal Architecture with MVC: the application controllers (<code>GoldenFixService</code>, <code>SharedCatalogRepositoryService</code>, <code>SecurityPullRequestService</code>) talk to the ports in <code>remediation/port</code>, delegate domain parsing and rules to models (<code>remediation/model</code>, <code>SecurityFindingsParser</code>, <code>CatalogDiscovery</code>), render pull request content through dedicated MVC views (<code>GoldenFixPullRequestView</code>, <code>SecurityPullRequestView</code>), and execute through adapters in <code>scanner</code> (Nexus IQ, AppScan, SonarQube), <code>scm</code> (git worktrees, Bitbucket PRs), <code>build</code> (pre-check verification and tool runners) and <code>remediation/updater</code> (Maven, Gradle, npm, pip, Flutter pub, and NuGet/.NET). Similarly, the HTML reporting subsystem is structured in MVC with <code>ReportViewModel</code> (Model), <code>HtmlReportCardsView</code> (View), and <code>HtmlReportService</code> (Controller). <code>vars/devSecOpsApi.groovy</code> is the single composition root that assembles every service. Automated architecture checks in the test suite enforce these dependency directions.</p>
 <p><strong>Config split:</strong></p>
 <table><thead><tr><th>Source</th><th>Who controls it</th><th>Contains</th></tr></thead><tbody><tr><td>The <code>defaults:</code> section of <code>resources/com/bbh/devsecops/defaults.yaml</code> in the library</td><td>DevSecOps team, with a library release</td><td>Security thresholds, required coverage, timeouts, the release gate, the GoldenFix policy and the tool defaults</td></tr><tr><td>The optional <code>platform:</code> section of the same file</td><td>DevSecOps team, with a library release</td><td>The platform values: the AppScan client, proxy and AppScan addresses, the OIS host, the Nexus snapshot repository of the Flutter delivery and the iOS build agent. The production file has none, so the library's built-in BBH values apply</td></tr><tr><td>The environment of the agent and the Jenkins global environment variables</td><td>Jenkins administrators</td><td>Tool environment values that win over the platform values, such as <code>PROXY_HOST</code> or <code>APPSCAN_SERVER_URL</code>, and the order of the static scans (<code>DSO_STATIC_ANALYSIS_PARALLEL</code>)</td></tr><tr><td><code>devsecops_config.yaml</code>, else <code>config.yaml</code>, in the repository</td><td>Project team, per branch</td><td>The <code>projects:</code> section: the service settings (appId, the AppScan key ID, servers, test jobs, deploy targets)</td></tr><tr><td>The <code>Jenkinsfile</code> in the repository</td><td>Project team, per branch</td><td>The entry point, the services of the run (<code>projectNames</code>), the agent labels (<code>agentNames</code>) and, for an extended pipeline, the security job (<code>securityPipeline</code>)</td></tr></tbody></table>
 <p>Projects <strong>cannot</strong> override the global thresholds. Thresholds for SAST, SCA, Nexus IQ, DAST, the required line coverage, the scan timeouts and the release gate exist in one place only, the <code>defaults:</code> section of <code>resources/com/bbh/devsecops/defaults.yaml</code>, and the library reads them from there only; a file in the repository cannot change them. To change one, the DevSecOps team changes that file and releases the library, and every build that loads the new version uses the new value. The other defaults, such as the GoldenFix policy, <code>tests.maxParallel</code> and <code>staticAnalysis.parallel</code>, are merged under every service as its starting values, and a service of <code>devsecops_config.yaml</code> may set its own.</p>

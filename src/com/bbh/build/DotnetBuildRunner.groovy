@@ -6,18 +6,20 @@ import com.cloudbees.groovy.cps.NonCPS
 
 class DotnetBuildRunner implements Serializable {
 
-    private final def      script
-    private final OsHelper os
-    private final Map      stateCfg
+    private final def                   script
+    private final OsHelper              os
+    private final Map                   stateCfg
+    private final DotnetProjectResolver resolver
 
     DotnetBuildRunner(def script, OsHelper os, Map stateCfg = [:]) {
         this.script   = script
         this.os       = os
         this.stateCfg = stateCfg ?: [:]
+        this.resolver = new DotnetProjectResolver(script, os, this.stateCfg)
     }
 
     void build(Map overrideCfg = null, String tool = 'dotnet') {
-        Map baseCfg = toolCfg(stateCfg.build as Map, tool)
+        Map baseCfg = DotnetBuildRunner.toolCfg(stateCfg.build as Map, tool)
         Map cfg = overrideCfg ? ([:] + baseCfg + overrideCfg) : baseCfg
         String mode = resolveMode(cfg, baseCfg, tool)
         List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: cfg.goals)
@@ -26,7 +28,7 @@ class DotnetBuildRunner implements Serializable {
                 runCustomCommands(commands, cfg, 'Build')
                 return
             }
-            String target = resolveTarget(cfg, baseCfg, false)
+            String target = resolver.resolveTarget(cfg, baseCfg, false)
             String configName = ((cfg.configuration ?: baseCfg.configuration ?: 'Release') as String).trim()
             if (mode == 'cake') {
                 runCake(cfg, baseCfg, configName, 'Build')
@@ -43,8 +45,8 @@ class DotnetBuildRunner implements Serializable {
     }
 
     void test(String tool = 'dotnet') {
-        Map buildCfg = toolCfg(stateCfg.build as Map, tool)
-        Map cfg = toolCfg(stateCfg.tests?.unitTests as Map, tool)
+        Map buildCfg = DotnetBuildRunner.toolCfg(stateCfg.build as Map, tool)
+        Map cfg = DotnetBuildRunner.toolCfg(stateCfg.tests?.unitTests as Map, tool)
         String mode = resolveMode(cfg, buildCfg, tool)
         List commands = BuildUtils.normalizeTokens(cfg.commands ?: cfg.tasks ?: cfg.goals)
         withToolEnvironment(cfg, buildCfg) {
@@ -52,7 +54,7 @@ class DotnetBuildRunner implements Serializable {
                 runCustomCommands(commands, cfg, 'Test')
                 return
             }
-            String target = resolveTarget(cfg, buildCfg, true)
+            String target = resolver.resolveTarget(cfg, buildCfg, true)
             String configName = ((cfg.configuration ?: buildCfg.configuration ?: 'Release') as String).trim()
             if (mode == 'cake') {
                 runCake(cfg, buildCfg, configName, 'Test')
@@ -66,13 +68,13 @@ class DotnetBuildRunner implements Serializable {
             if (runner == 'dotnet') {
                 runDotnetTest(cfg, buildCfg, target, configName)
             } else if (runner == 'hybrid') {
-                List<String> dlls = resolveTestAssemblies(cfg, configName)
+                List<String> dlls = resolver.resolveTestAssemblies(cfg, configName)
                 if (dlls) runConsoleTestRunner('vstest', cfg, buildCfg, dlls)
-                if (hasSdkStyleProjects() || !dlls) runDotnetTest(cfg, buildCfg, target, configName)
+                if (resolver.hasSdkStyleProjects() || !dlls) runDotnetTest(cfg, buildCfg, target, configName)
             } else {
-                List<String> dlls = resolveTestAssemblies(cfg, configName)
+                List<String> dlls = resolver.resolveTestAssemblies(cfg, configName)
                 if (!dlls) {
-                    if (hasSdkStyleProjects()) {
+                    if (resolver.hasSdkStyleProjects()) {
                         script.echo '[TEST] Test assemblies not configured; running dotnet test for SDK-style project'
                         runDotnetTest(cfg, buildCfg, target, configName)
                         return
@@ -86,127 +88,24 @@ class DotnetBuildRunner implements Serializable {
     }
 
     String resolveMode(Map cfg, Map buildCfg, String tool) {
-        String rawTool = (tool ?: '').trim().toLowerCase()
-        if (rawTool in ['cake', 'nuke']) return rawTool
-        String explicit = ((cfg?.mode ?: cfg?.tool ?: buildCfg?.mode ?: buildCfg?.tool ?: '') as String).trim().toLowerCase()
-        if (explicit && explicit != 'auto') {
-            String mapped = normalizeMode(explicit)
-            if (mapped) return mapped
-            String fallback = autoDetectMode(cfg, buildCfg, tool)
-            script.echo "[WARN] Invalid .NET build mode '${explicit}' in configuration. Falling back to auto-detected mode '${fallback}'."
-            return fallback
-        }
-        def rawCli = cfg?.useDotnetCli != null ? cfg.useDotnetCli : buildCfg?.useDotnetCli
-        if (rawCli != null) {
-            if (isValidBoolean(rawCli)) {
-                return BuildUtils.booleanValue(rawCli, false) ? 'dotnet' : 'msbuild'
-            }
-            String fallback = autoDetectMode(cfg, buildCfg, tool)
-            script.echo "[WARN] Invalid useDotnetCli value '${rawCli}' in configuration. Falling back to auto-detected mode '${fallback}'."
-            return fallback
-        }
-        return autoDetectMode(cfg, buildCfg, tool)
+        return resolver.resolveMode(cfg, buildCfg, tool)
     }
 
     String autoDetectMode(Map cfg, Map buildCfg, String tool) {
-        String lowTool = (tool ?: '').trim().toLowerCase()
-        if (lowTool in ['msbuild', 'vs', 'visualstudio', 'netfx']) return 'msbuild'
-        if (lowTool in ['cake', 'nuke']) return lowTool
-        Map utCfg = toolCfg(stateCfg?.tests?.unitTests as Map, tool)
-        Map sonarCfg = (stateCfg?.tools?.sonar ?: [:]) as Map
-        if (cfg?.msbuildPath || buildCfg?.msbuildPath || cfg?.msbuildTarget || buildCfg?.msbuildTarget
-                || cfg?.msbuildInstallationName || buildCfg?.msbuildInstallationName
-                || cfg?.vstestPath || buildCfg?.vstestPath || utCfg?.vstestPath
-                || cfg?.opencoverPath || utCfg?.opencoverPath
-                || BuildUtils.booleanValue(cfg?.opencover, false) || BuildUtils.booleanValue(utCfg?.opencover, false)
-                || BuildUtils.booleanValue(cfg?.useMsbuildRestore, false) || BuildUtils.booleanValue(buildCfg?.useMsbuildRestore, false)
-                || sonarCfg?.sonarScannerMsbuildPath) {
-            return 'msbuild'
-        }
-        if (cfg?.dotnetPath || buildCfg?.dotnetPath || cfg?.dotnetInstallationName || buildCfg?.dotnetInstallationName) {
-            return 'dotnet'
-        }
-        List<String> projs = findAllMatching(['*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj'])
-        if (!projs && script.fileExists('build.cake')) return 'cake'
-        if (!projs && script.fileExists('.nuke')) return 'nuke'
-        if (!os.isWindows()) return 'dotnet'
-
-        boolean classic = script.fileExists('packages.config') || findFirst('**/packages.config') != ''
-        boolean modern = script.fileExists('global.json') || script.fileExists('Directory.Packages.props')
-        for (String p : projs) {
-            String text = readProjectQuiet(p)
-            if (!text) continue
-            if (text.contains('<TargetFrameworkVersion>') || text =~ /(?i)<TargetFrameworks?>\s*net4[0-9]/ || (!text.contains('Sdk=') && text.contains('<Project'))) {
-                classic = true
-            }
-            if (text.contains('Sdk=') && !(text =~ /(?i)<TargetFramework>\s*net4[0-9]/)) {
-                modern = true
-            }
-        }
-        if (classic && modern) return 'hybrid'
-        if (modern && !classic) return 'dotnet'
-        return 'msbuild'
+        return resolver.autoDetectMode(cfg, buildCfg, tool)
     }
 
     String resolveTestRunner(Map cfg, Map buildCfg, String mode) {
-        String raw = ((cfg?.runner ?: cfg?.testRunner ?: buildCfg?.testRunner ?: '') as String).trim().toLowerCase()
-        if (!raw || raw == 'auto') {
-            if (mode == 'dotnet') return 'dotnet'
-            if (mode == 'hybrid') return 'hybrid'
-            return 'vstest'
-        }
-        if (raw in ['dotnet', 'cli', 'sdk', 'dotnet-test']) return 'dotnet'
-        if (raw in ['vstest', 'vstest.console']) return 'vstest'
-        if (raw in ['mstest', 'nunit', 'xunit', 'hybrid']) return raw
-        String fallback = mode == 'dotnet' ? 'dotnet' : (mode == 'hybrid' ? 'hybrid' : 'vstest')
-        script.echo "[WARN] Invalid .NET test runner '${raw}' in configuration. Falling back to auto-detected runner '${fallback}'."
-        return fallback
+        return resolver.resolveTestRunner(cfg, buildCfg, mode)
     }
 
     String resolveCoverageTool(Map cfg, Map buildCfg, String runner) {
-        String raw = ((cfg?.coverageTool ?: buildCfg?.coverageTool ?: '') as String).trim().toLowerCase()
-        if (raw && raw != 'auto') {
-            if (raw in ['cobertura', 'coverlet', 'xplat']) return 'cobertura'
-            if (raw == 'opencover') return 'opencover'
-            if (raw == 'dotcover') return 'dotcover'
-            if (raw in ['none', 'false', 'off', 'disabled']) return 'none'
-            String fallback = defaultCoverageTool(cfg, runner)
-            script.echo "[WARN] Invalid .NET coverageTool '${raw}' in configuration. Falling back to auto-detected coverage tool '${fallback}'."
-            return fallback
-        }
-        return defaultCoverageTool(cfg, runner)
-    }
-
-    private String defaultCoverageTool(Map cfg, String runner) {
-        String ocPath = ((cfg?.opencoverPath ?: '') as String).trim()
-        if ((ocPath || BuildUtils.booleanValue(cfg?.opencover, false)) && os.isWindows()) return 'opencover'
-        if (runner == 'dotnet') return BuildUtils.booleanValue(cfg?.coverlet, true) ? 'cobertura' : 'none'
-        return 'none'
-    }
-
-    @NonCPS
-    private static String normalizeMode(String explicit) {
-        if (explicit in ['cli', 'dotnet', 'sdk', 'dotnet-cli']) return 'dotnet'
-        if (explicit in ['msbuild', 'classic', 'framework', 'vs', 'visualstudio', 'netfx']) return 'msbuild'
-        if (explicit in ['hybrid', 'cake', 'nuke']) return explicit
-        return ''
-    }
-
-    @NonCPS
-    private static boolean isValidBoolean(def val) {
-        if (val instanceof Boolean) return true
-        String s = (val ?: '').toString().trim().toLowerCase()
-        return s in ['true', 'false', '1', '0', 'yes', 'no']
+        return resolver.resolveCoverageTool(cfg, buildCfg, runner)
     }
 
     @NonCPS
     static Map toolCfg(Map parentCfg, String tool) {
-        if (!(parentCfg instanceof Map)) return [:]
-        String low = (tool ?: '').trim().toLowerCase()
-        if (low == 'msbuild' && parentCfg.msbuild instanceof Map) return parentCfg.msbuild as Map
-        if (parentCfg.dotnet instanceof Map) return parentCfg.dotnet as Map
-        if (parentCfg.msbuild instanceof Map) return parentCfg.msbuild as Map
-        return [:]
+        return DotnetProjectResolver.toolCfg(parentCfg, tool)
     }
 
     private void runDotnetBuild(Map cfg, Map baseCfg, String target, String configName) {
@@ -245,7 +144,7 @@ class DotnetBuildRunner implements Serializable {
 
     private void runHybridBuild(Map cfg, Map baseCfg, String target, String configName) {
         boolean doRestore = BuildUtils.booleanValue(cfg.restore != null ? cfg.restore : baseCfg.restore, true)
-        if (doRestore && hasSdkStyleProjects()) {
+        if (doRestore && resolver.hasSdkStyleProjects()) {
             String dotnetExe = resolveExecutable(cfg.dotnetPath ?: baseCfg.dotnetPath, os.isWindows() ? 'dotnet.exe' : 'dotnet')
             List restoreTokens = [dotnetExe, 'restore']
             if (target) restoreTokens << target
@@ -263,7 +162,7 @@ class DotnetBuildRunner implements Serializable {
         boolean doRestore = BuildUtils.booleanValue(cfg.restore != null ? cfg.restore : baseCfg.restore, true)
         boolean useMsbuildRestore = BuildUtils.booleanValue(cfg.useMsbuildRestore != null ? cfg.useMsbuildRestore : baseCfg.useMsbuildRestore, false)
 
-        if (doRestore && !useMsbuildRestore && shouldRunNugetRestore(target)) {
+        if (doRestore && !useMsbuildRestore && resolver.shouldRunNugetRestore(target)) {
             List restoreTokens = [nugetExe, 'restore']
             if (target) restoreTokens << target
             if (nugetConfig) restoreTokens.addAll(['-ConfigFile', nugetConfig])
@@ -389,91 +288,6 @@ class DotnetBuildRunner implements Serializable {
         execCommand(formatCommand(dcTokens), 'dotCover unit tests')
     }
 
-    private boolean shouldRunNugetRestore(String target) {
-        if (target) return true
-        return script.fileExists('packages.config') || findFirst('**/packages.config') != '' || findFirst('*.sln') != '' || findFirst('**/*.sln') != ''
-    }
-
-    private boolean hasSdkStyleProjects() {
-        for (String p : findAllMatching(['*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj'])) {
-            if (readProjectQuiet(p).contains('Sdk=')) return true
-        }
-        return false
-    }
-
-    private String readProjectQuiet(String path) {
-        try {
-            return script.readFile(path) ?: ''
-        } catch (Exception ignored) {
-            return ''
-        }
-    }
-
-    private List<String> resolveTestAssemblies(Map cfg, String configName) {
-        List<String> configured = BuildUtils.normalizeTokens(cfg.testAssemblies)
-        List<String> out = []
-        if (configured) {
-            for (String pattern : configured) {
-                if (pattern.contains('*') || pattern.contains('?')) {
-                    out.addAll(findAllMatching([pattern]))
-                } else if (script.fileExists(pattern)) {
-                    out << pattern
-                }
-            }
-            return out.unique()
-        }
-        List<String> patterns = [
-            "**/bin/${configName}/*Tests.dll".toString(),
-            "**/bin/${configName}/*Test.dll".toString(),
-            "**/bin/${configName}/**/*Tests.dll".toString(),
-            "**/bin/${configName}/**/*Test.dll".toString(),
-            '**/bin/**/*Tests.dll',
-            '**/bin/**/*Test.dll'
-        ]
-        for (String p : findAllMatching(patterns)) {
-            String low = p.replace('\\', '/').toLowerCase()
-            if (low.contains('/obj/') || low.contains('/packages/') || low.contains('/ref/') || low.startsWith('obj/') || low.startsWith('packages/')) continue
-            String fileName = BuildUtils.fileNameOf(low)
-            if (fileName.endsWith('.testadapter.dll') || fileName.startsWith('microsoft.') || fileName.startsWith('xunit.') || fileName.startsWith('nunit')) continue
-            out << p
-        }
-        return out.unique()
-    }
-
-    private String resolveTarget(Map cfg, Map buildCfg, boolean forTests) {
-        String configured = ((cfg?.solution ?: cfg?.project ?: buildCfg?.solution ?: buildCfg?.project ?: '') as String).trim()
-        if (configured) return configured
-        List<String> globs = forTests
-                ? ['*.sln', '**/*.sln', '*Tests.csproj', '**/*Tests.csproj', '*Test.csproj', '**/*Test.csproj', '*.csproj', '**/*.csproj']
-                : ['*.sln', '**/*.sln', '*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj']
-        for (String glob : globs) {
-            String hit = findFirst(glob)
-            if (hit) return hit
-        }
-        return ''
-    }
-
-    private String findFirst(String glob) {
-        List<String> matches = findAllMatching([glob])
-        return matches ? matches[0] : ''
-    }
-
-    private List<String> findAllMatching(List<String> globs) {
-        List<String> hits = []
-        for (String glob : globs) {
-            try {
-                def files = script.findFiles(glob: glob)
-                if (files) {
-                    for (def f : files) {
-                        String path = (f?.path ?: '') as String
-                        if (path && !hits.contains(path)) hits << path
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
-        return hits.sort()
-    }
-
     private void runCustomCommands(List commands, Map cfg, String phase) {
         String label = (cfg.label ?: ".NET ${phase}: ${commands.join(' ')}") as String
         String joined = commands.join(' ')
@@ -496,9 +310,9 @@ class DotnetBuildRunner implements Serializable {
         for (String pathKey : ['dotnetPath', 'msbuildPath', 'nugetPath', 'vstestPath', 'mstestPath', 'nunitPath', 'xunitPath']) {
             String val = ((cfg?.get(pathKey) ?: baseCfg?.get(pathKey) ?: '') as String).trim()
             if (val) {
-                String dirPart = isBinaryPath(val) ? parentDir(val) : val
+                String dirPart = DotnetBuildRunner.isBinaryPath(val) ? DotnetBuildRunner.parentDir(val) : val
                 if (dirPart && !pathParts.contains(dirPart)) pathParts << dirPart
-                if (pathKey == 'dotnetPath' && !isBinaryPath(val)) {
+                if (pathKey == 'dotnetPath' && !DotnetBuildRunner.isBinaryPath(val)) {
                     extraEnv << "DOTNET_ROOT=${val}".toString()
                 }
             }
@@ -545,7 +359,7 @@ class DotnetBuildRunner implements Serializable {
     private String resolveExecutable(def configured, String fallbackName) {
         String trimmed = ((configured ?: '') as String).trim()
         if (!trimmed) return fallbackName
-        if (isBinaryPath(trimmed.toLowerCase())) return trimmed
+        if (DotnetBuildRunner.isBinaryPath(trimmed.toLowerCase())) return trimmed
         String sep = os.isWindows() ? '\\' : '/'
         return (trimmed.endsWith('/') || trimmed.endsWith('\\')) ? "${trimmed}${fallbackName}" : "${trimmed}${sep}${fallbackName}"
     }

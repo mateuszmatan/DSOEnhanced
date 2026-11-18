@@ -1,6 +1,7 @@
 # DevSecOps Jenkins Shared Library – Standalone User Guide (Without Portal)
 
 > **Comprehensive Guide for Pipelines Running Without the Portal (`DSOEnhanced` library on `DSOEnhancedWithoutPortal` branch).**
+> Engineered and maintained by the **DevSecOps team in ITSS COE at Brown Brothers Harriman (BBH)**.
 > Fully autonomous delivery pipeline configured via code using `Jenkinsfile` and `devsecops_config.yaml` in your Git repository.
 > Designed for non-technical users, Product Owners, business analysts, and engineers.
 
@@ -29,7 +30,8 @@
 In the `DSOEnhancedWithoutPortal` branch, the library operates independently of the management portal:
 - **No Portal Dependency:** The pipeline never polls external portal APIs for configuration.
 - **Configuration as Code:** All pipeline parameters are stored in `devsecops_config.yaml` (or backward-compatible `config.yaml`) at the root of your application Git repository.
-- **Smart Auto-Detection & Validation (`[WARN]` Fallback):** When `buildTool`, `deployTarget`, or tool-specific sub-parameters (`build.dotnet.mode`, `tests.unitTests.dotnet.runner`, `coverageTool`) are omitted, `RepoStackAutoResolver` automatically detects them from repository files. If an invalid or unrecognized value is provided, the pipeline logs a `[WARN]` message and falls back to the auto-detected setting.
+- **Smart Auto-Detection & Validation (`[WARN]` Fallback):** When `buildTool`, `deployTarget`, or tool-specific sub-parameters (`build.dotnet.mode`, `tests.unitTests.dotnet.runner`, `coverageTool`) are omitted, `RepoStackAutoResolver` automatically detects them from repository files (strictly scoped to each service's `sourceDir` in multi-repository and multi-module setups). If an invalid or unrecognized value is provided, the pipeline logs a `[WARN]` message and falls back to the auto-detected setting.
+- **MVC & Hexagonal Architecture:** The library is structured around a clean Domain Core (`com.bbh.core`), Inbound/Outbound Ports (`com.bbh.remediation.port`), Hexagonal Adapters (`SharedCatalogRepositoryService`, `JdkToolchainSetup`, `RemoteTestJobRunner`, `LiquibaseBuildRunner`, `DotnetProjectResolver`, `AppScanEnvironmentAdapter`, `SonarScannerCommandBuilder`), and MVC Model-View-Controller separation (`ReportViewModel`, `HtmlReportCardsView`, `HtmlReportService`; `GoldenFixPullRequestView`, `SecurityFindingsParser`, `SecurityPullRequestView`, `SecurityPullRequestService`).
 - **Embedded Library Defaults:** Global enterprise standards (coverage thresholds, timeouts, InfluxDB telemetry endpoints) are bundled inside the library (`defaults.yaml`), meaning you only specify settings unique to your application.
 
 ### Quick Reference Index
@@ -243,8 +245,8 @@ tools:
     ```
   - Creates a dedicated branch and opens a Bitbucket Pull Request with the updated `pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `libs.versions.toml`, `*.csproj` / `*.fsproj` / `*.vbproj`, `Directory.Packages.props`, or `packages.config` (supported on both Linux and Windows agents).
 
-- **External Version Catalog Repository:**
-  - When version catalogs or BOMs reside in an external Bitbucket repository:
+- **Shared External Version Catalog Repository (`versionCatalogRepo` Priority Upgrade):**
+  - When version catalogs, parent POMs, imported BOMs, or Central Package Management files (`libs.versions.toml`, `Directory.Packages.props`, `Directory.Build.props`, `pom.xml`, `gradle.properties`) reside in a shared external Bitbucket repository used across multiple projects:
     ```yaml
     goldenFix:
       versionCatalogRepo:
@@ -253,17 +255,22 @@ tools:
         branch: 'main'
         path: 'catalogs/libs.versions.toml'
     ```
-  - GoldenFix checks out the external repository, upgrades dependency versions, validates changes, and submits the Pull Request directly to the external catalog repository.
+  - **Priority Upgrade Rule:** GoldenFix (`SharedCatalogRepositoryService`) inspects the shared `versionCatalogRepo` **first**. Any vulnerable dependency (or version property referenced by the project) that is managed in the shared catalog repository is upgraded there first, committed, pushed, and raised/updated as a shared Pull Request in the catalog repository across all participating projects.
+  - Only remaining dependencies that are **not** managed in the shared version catalog are upgraded in the local project repository.
 
-### Decoupled Pipeline Execution Order:
-1. **Stage 1: Build Artifact (without tests):** The pipeline first builds application artifacts without executing unit tests (e.g., `-DskipTests` / `-x test`, or `NuGet.exe` + `MSBuild.exe` / `dotnet build` for .NET). If a Node.js build is configured (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling the backend application.
-2. **Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):**
-   - **Unit Tests:** Runs automated unit tests (including `vstest.console.exe` / `dotnet test` and Node.js & Cypress tests), parses `.trx` and JUnit XML results, and aggregates JaCoCo, Cobertura, OpenCover & LCOV code coverage.
-   - **SAST (HCL AppScan):** Queues static application security analysis in the background and retrieves findings.
-   - **Nexus IQ:** Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.
-3. **Stage 3: SonarQube (Static Code Analysis & Quality Gate):**
-   - Runs last after Unit tests, SAST, and Nexus IQ have concluded.
-   - Ingests test execution results (`.trx`, JUnit XML) and JaCoCo/Cobertura/OpenCover/LCOV/Cypress coverage reports (via `SonarScanner.MSBuild.exe` or `dotnet sonarscanner` for .NET) to enforce the SonarQube Quality Gate.
+### Decoupled Multi-Module & Multi-Repository Static Security Flow:
+For every module in a multi-module project and every repository attached to a multi-repository project:
+1. **Stage 1: Build Artifact (without tests):** The pipeline first builds application artifacts for every service/module without executing unit tests (e.g., `-DskipTests` / `-x test`, or `NuGet.exe` + `MSBuild.exe` / `dotnet build` for .NET). If a Node.js build is configured (`build.node.enabled: true`), npm commands run as Stage 0 before compiling the backend application.
+2. **Stage 2: Concurrent Verification (Unit Tests with Coverage + SAST + Nexus IQ -> Golden PR):**
+   - **Unit Tests & Coverage (per module/repository):** Runs automated unit tests (`vstest.console.exe`, `dotnet test`, Gradle, Maven, pytest, npm, Flutter, Cypress), parses `.trx` and JUnit XML results, and aggregates JaCoCo, Cobertura, OpenCover & LCOV code coverage per module/repository.
+   - **SAST (HCL AppScan):** Queues static application security analysis in parallel for every service and retrieves findings.
+   - **Nexus IQ & GoldenFix:** Evaluates open-source dependencies against security policies, upgrades shared `versionCatalogRepo` catalogs first and local manifests second, and raises/updates the Golden Pull Request.
+3. **Stage 3: SonarQube (Static Code Analysis & Missing Coverage Fallback):**
+   - Runs after Unit tests, SAST, and Nexus IQ have concluded.
+   - If code coverage was not yet calculated during Unit tests, SonarQube triggers coverage collection (`checkCoverage()`) automatically before executing the scanner, ingests test & coverage reports, and renders SonarQube badges.
+4. **Stage 4: Static Security PR Decoration & Final Report:**
+   - Posts inline SAST and SonarQube vulnerability comments with suggested remediation directly on the exact file and line of the Golden Pull Request (resolved relative to each repository root).
+   - Generates the final HTML report containing the **Unit Tests** card (listed per module/repository + all-modules summary), **Code Coverage** card (listed per module/repository + summary), **SAST** report links, **SonarQube** dashboard link & badges, and **Nexus IQ GoldenFix** card with Golden Fix link, Golden Pull Request link, and SAST inline comments list.
 
 ---
 
