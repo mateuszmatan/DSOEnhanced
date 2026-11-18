@@ -2591,5 +2591,81 @@ projects:
     check('Multi-repo + multi-module static security pipeline auto-detects post-checkout, computes missing coverage in Sonar, comments SAST per repo root, and renders full report',
             !asserts.values().contains(false),
             [failed: asserts.findAll { k, v -> !v }.keySet(), errors: mr.errors, uTests: uTests, cov: covMap, comments: commentPayloads])
+
+    Map vcTest = [errors: []]
+    try {
+        SandboxHarness vh = new SandboxHarness(srcDir, stubDir, fixturesDir)
+        FakeScript vs = new FakeScript(unix: true)
+        vs.shHandler = { Map a -> a.returnStdout ? '202611181930' : (a.returnStatus ? 0 : null) }
+        vh.run {
+            def memRepo = vh.type('com.bbh.fixture.InMemorySourceRepository').newInstance([[
+                    '/ws@tmp/version-catalogs/main/gradle/libs.versions.toml': '[versions]\njackson = "2.13.0"\n[libraries]\njackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }\n',
+                    '/ws@tmp/version-catalogs/main/Directory.Packages.props' : '<Project><ItemGroup><PackageVersion Include="Newtonsoft.Json" Version="12.0.1" /></ItemGroup></Project>\n',
+                    'build.gradle'                                           : 'dependencies { implementation("com.fasterxml.jackson.core:jackson-databind:2.13.0") }\n',
+                    'Orders.csproj'                                          : '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Newtonsoft.Json" Version="12.0.1" /><PackageReference Include="Serilog" Version="2.10.0" /></ItemGroup></Project>\n'
+            ]] as Object[])
+            def memPub = vh.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
+            def source = vh.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([[
+                    [key: 'maven:com.fasterxml.jackson.core:jackson-databind', ecosystem: 'maven', group: 'com.fasterxml.jackson.core', name: 'jackson-databind', displayName: 'com.fasterxml.jackson.core:jackson-databind', currentVersion: '2.13.0', targetVersion: '2.15.2', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
+            ]] as Object[])
+            def state = vh.type('com.bbh.core.PipelineState').newInstance()
+            def updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater', 'NugetUpdater'].collect {
+                vh.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
+            }
+            def gf = vh.type('com.bbh.remediation.GoldenFixService').newInstance(vs, state, source, memRepo, memPub, updaters)
+
+            Map sharedVcRepo = [
+                    url          : 'https://bitbucket.bbh.com/projects/SHARED/repos/version-catalogs',
+                    branch       : 'main',
+                    credentialsId: 'bb-creds'
+            ]
+            state.currentProjectName = 'core-java'
+            state.cfg = [
+                    scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/CORE/repos/core-java', targetBranch: 'main', credentialsId: 'bb-creds']],
+                    goldenFix: [enabled: true, versionCatalogRepo: sharedVcRepo]
+            ]
+            gf.remediate([[application: 'core-app', stage: 'build']])
+
+            source.fixes.clear()
+            source.fixes.addAll([
+                    [key: 'nuget:newtonsoft.json', ecosystem: 'nuget', group: '', name: 'Newtonsoft.Json', displayName: 'Newtonsoft.Json', currentVersion: '12.0.1', targetVersion: '13.0.3', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true],
+                    [key: 'nuget:serilog', ecosystem: 'nuget', group: '', name: 'Serilog', displayName: 'Serilog', currentVersion: '2.10.0', targetVersion: '2.12.0', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
+            ])
+            state.currentProjectName = 'orders-dotnet'
+            state.cfg = [
+                    scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet', targetBranch: 'develop', credentialsId: 'bb-creds']],
+                    goldenFix: [enabled: true, versionCatalogRepo: sharedVcRepo]
+            ]
+            gf.remediate([[application: 'orders-app', stage: 'build']])
+
+            vcTest.coreResult = state.projectsGoldenFix['core-java']
+            vcTest.ordersResult = state.projectsGoldenFix['orders-dotnet']
+            vcTest.written = memRepo.written
+            vcTest.commits = memRepo.commits
+            vcTest.createdPrs = memPub.created
+            vcTest.comments = memPub.comments
+        }
+    } catch (Throwable t) {
+        (vcTest.errors as List) << (SandboxHarness.rejectionOf(t) ?: t.toString())
+    }
+    Map coreRes = (vcTest.coreResult ?: [:]) as Map
+    Map ordRes = (vcTest.ordersResult ?: [:]) as Map
+    Map written = (vcTest.written ?: [:]) as Map
+    List createdPrs = (vcTest.createdPrs ?: []) as List
+    List prComments = (vcTest.comments ?: []) as List
+    check('Shared external versionCatalogRepo upgrades catalog dependencies in shared repo first across multiple projects and only upgrades non-catalog dependencies locally',
+            (vcTest.errors as List).isEmpty()
+                    && coreRes.status == 'PR_CREATED'
+                    && (written['/ws@tmp/version-catalogs/main/gradle/libs.versions.toml'] as String)?.contains('jackson = "2.15.2"')
+                    && !written.containsKey('build.gradle')
+                    && (written['/ws@tmp/version-catalogs/main/Directory.Packages.props'] as String)?.contains('Version="13.0.3"')
+                    && (written['Orders.csproj'] as String)?.contains('Include="Newtonsoft.Json" Version="12.0.1"')
+                    && (written['Orders.csproj'] as String)?.contains('Include="Serilog" Version="2.12.0"')
+                    && ordRes.status == 'PR_CREATED'
+                    && (ordRes.changes as List)?.size() == 2
+                    && (ordRes.notes as List)?.any { (it as String).contains('Shared version catalog pull request:') }
+                    && createdPrs.size() == 2
+                    && prComments.size() == 1,
+            vcTest)
 }
 

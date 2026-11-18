@@ -120,7 +120,10 @@ class SecurityPullRequestService implements Serializable {
         }
         Map gf = (state.projectsGoldenFix?.get(projectName) ?: [:]) as Map
         if (gf.prUrl) {
-            return [id: gf.prId, url: gf.prUrl, title: gf.prTitle, branch: gf.branch, targetBranch: gf.targetBranch]
+            String prRepoKey = BuildUtils.normalizeRepositoryUrl(gf.prUrl as String)
+            if (!repoKey || !prRepoKey || prRepoKey.startsWith(repoKey)) {
+                return [id: gf.prId, url: gf.prUrl, title: gf.prTitle, branch: gf.branch, targetBranch: gf.targetBranch]
+            }
         }
         if (!state.projectsAllCfg || state.projectsAllCfg.size() <= 1) {
             return (state.goldenFixPullRequest ?: [:]) as Map

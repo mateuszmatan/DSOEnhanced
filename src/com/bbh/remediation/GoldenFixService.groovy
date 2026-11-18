@@ -87,7 +87,42 @@ class GoldenFixService implements DependencyRemediation {
         }
 
         Map scmCfg = (state.cfg?.scm?.bitbucket ?: [:]) as Map
+        Map vcRepo = resolveVersionCatalogRepo(cfg)
+        if (!scmCfg.url && !vcRepo.url) {
+            finish(result, 'NOT_CONFIGURED', "${fixes.size()} GoldenFix(es) available, but scm.bitbucket.url is not configured - pull request not raised")
+            return
+        }
+
+        Map extOutcome = vcRepo.url ? executeExternalCatalogRepo(vcRepo, scmCfg, fixes, scanRefs, cfg) : [:]
+        Set<String> extHandled = (extOutcome.handledKeys ?: []) as Set<String>
+        List<Map> remainingFixes = extHandled ? fixes.findAll { Map f -> !extHandled.contains(f.key as String) } : fixes
+        if (remainingFixes.isEmpty() && extOutcome.status) {
+            result.changes      = extOutcome.changes ?: []
+            result.unresolved   = []
+            result.notes        = extOutcome.notes ?: []
+            result.prUrl        = extOutcome.prUrl ?: ''
+            result.prId         = extOutcome.prId
+            result.prTitle      = extOutcome.prTitle ?: ''
+            result.branch       = extOutcome.branch ?: ''
+            result.targetBranch = extOutcome.targetBranch ?: ''
+            result.verified     = extOutcome.verified
+            result.verifyLog    = extOutcome.verifyLog ?: ''
+            finish(result, extOutcome.status as String, extOutcome.message as String)
+            return
+        }
         if (!scmCfg.url) {
+            if (extOutcome.status) {
+                result.changes      = extOutcome.changes ?: []
+                result.unresolved   = unresolvedFixes(remainingFixes, [], [], [], [:])
+                result.notes        = extOutcome.notes ?: []
+                result.prUrl        = extOutcome.prUrl ?: ''
+                result.prId         = extOutcome.prId
+                result.prTitle      = extOutcome.prTitle ?: ''
+                result.branch       = extOutcome.branch ?: ''
+                result.targetBranch = extOutcome.targetBranch ?: ''
+                finish(result, extOutcome.status as String, extOutcome.message as String)
+                return
+            }
             finish(result, 'NOT_CONFIGURED', "${fixes.size()} GoldenFix(es) available, but scm.bitbucket.url is not configured - pull request not raised")
             return
         }
@@ -106,19 +141,21 @@ class GoldenFixService implements DependencyRemediation {
 
         String dir = repository.prepareWorkingCopy(title)
         try {
-            Map attempt = applyVerifiedFixes(dir, fixes, cfg)
+            Map attempt = applyVerifiedFixes(dir, remainingFixes, cfg)
             Map applied = attempt.applied as Map
             List<String> refreshed = (attempt.refreshed ?: []) as List<String>
-            result.changes    = applied.changes
+            List<Map> extChanges = (extOutcome.changes ?: []) as List<Map>
+            List<String> extNotes = (extOutcome.notes ?: []) as List<String>
+            result.changes    = extChanges + (applied.changes as List<Map>)
             result.unresolved = (applied.unresolved as List) + (attempt.dropped as List)
-            result.notes      = (applied.notes as List) + refreshedNotes(refreshed)
-            result.verified   = attempt.verified
-            result.verifyLog  = attempt.log
+            result.notes      = extNotes + (applied.notes as List) + refreshedNotes(refreshed)
+            result.verified   = attempt.verified != null ? attempt.verified : extOutcome.verified
+            result.verifyLog  = attempt.log ?: (extOutcome.verifyLog ?: '')
             if (attempt.verified == false) {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
                 return
             }
-            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
+            List<Map> covered = pr.url ? coveredFixes(remainingFixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
             String raised = alreadyRaised(covered, pr.url as String)
             if (covered) {
                 result.unresolved = withoutCovered(result.unresolved as List<Map>, covered)
@@ -127,14 +164,27 @@ class GoldenFixService implements DependencyRemediation {
             String commitId = applied.files
                     ? repository.commit(dir, (applied.files as List<String>) + refreshed, commitMessage(title, applied.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
                     : ''
-            if (!commitId && covered && covered.size() == fixes.size()) {
+            if (!commitId && covered && covered.size() == remainingFixes.size()) {
                 result.prUrl = pr.url
                 finish(result, 'PR_UPDATED', raised)
                 return
             }
             if (!commitId) {
+                if (extOutcome.status in ['PR_CREATED', 'PR_UPDATED']) {
+                    result.prUrl        = extOutcome.prUrl ?: ''
+                    result.prId         = extOutcome.prId
+                    result.prTitle      = extOutcome.prTitle ?: ''
+                    result.branch       = extOutcome.branch ?: ''
+                    result.targetBranch = extOutcome.targetBranch ?: ''
+                    finish(result, extOutcome.status as String, extOutcome.message as String)
+                    return
+                }
                 finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip, pub or NuGet manifest declares the vulnerable versions - nothing to change')
                 return
+            }
+
+            if (extOutcome.prUrl) {
+                result.notes = (result.notes as List) + ["Shared version catalog pull request: ${extOutcome.prUrl}".toString()]
             }
 
             Map repoInfo = publisher.repositoryInfo(scmCfg)
@@ -154,7 +204,7 @@ class GoldenFixService implements DependencyRemediation {
             } else {
                 Map created = publisher.createPullRequest(scmCfg, [
                         title       : title,
-                        description : pullRequestDescription(title, applied.changes as List, applied.unresolved as List, scanRefs, buildContext(),
+                        description : pullRequestDescription(title, result.changes as List, applied.unresolved as List, scanRefs, buildContext(),
                                 result.notes as List, !refreshed.isEmpty()),
                         sourceBranch: title,
                         targetBranch: targetBranch
@@ -319,36 +369,259 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map discover(String dir, List<String> scanned, Map cfg, List<String> excluded, Map texts) {
         List<String> listed = CatalogDiscovery.listed(cfg.versionCatalogs)
-        List<String> extFiles = []
-        Map vcRepo = (cfg.versionCatalogRepo ?: (cfg.versionCatalogRepository ?: (state.cfg?.versionCatalogRepo ?: (state.cfg?.versionCatalogRepository ?: (cfg.goldenFix?.versionCatalogRepo ?: (cfg.goldenFix?.versionCatalogRepository ?: [:])))))) as Map
-        if (vcRepo && (vcRepo.url || vcRepo.repositoryUrl)) {
-            String repoUrl = (vcRepo.url ?: vcRepo.repositoryUrl) as String
-            String catalogBranch = (vcRepo.branch ?: (vcRepo.targetBranch ?: 'main')) as String
-            String catalogPath = (vcRepo.path ?: 'gradle/libs.versions.toml') as String
-            script.echo "[GOLDENFIX] Using separate version catalog repository: ${repoUrl} (branch: ${catalogBranch}, path: ${catalogPath})"
-            String extDir = prepareExternalCatalog(repoUrl, catalogBranch, (vcRepo.credentialsId ?: '') as String)
-            if (extDir) {
-                String catalogFile = catalogPath.startsWith('/') ? catalogPath.substring(1) : catalogPath
-                try {
-                    String catalogText = repository.readText(extDir, catalogFile)
-                    if (catalogText) {
-                        texts[catalogFile] = catalogText
-                        if (!listed.contains(catalogFile)) listed << catalogFile
-                        if (!extFiles.contains(catalogFile)) extFiles << catalogFile
-                    }
-                } catch (Throwable t) {
-                    script.echo "[GOLDENFIX] Note: version catalog file ${catalogFile} in ${repoUrl}: ${t.message}"
-                }
-            }
-        }
         for (String f : CatalogDiscovery.toRead(scanned)) read(dir, texts, f)
         List<String> wanted = CatalogDiscovery.wanted(scanned, texts, listed)
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
-        for (String ef : extFiles) {
-            if (!extra.contains(ef) && !scanned.contains(ef)) extra << ef
-        }
         for (String f : CatalogDiscovery.toRead(scanned + extra)) read(dir, texts, f)
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
+    }
+
+    private Map resolveVersionCatalogRepo(Map cfg) {
+        def raw = cfg?.versionCatalogRepo ?: cfg?.versionCatalogRepository ?: state.cfg?.versionCatalogRepo ?: state.cfg?.versionCatalogRepository ?: state.cfg?.tools?.nexusIq?.versionCatalogRepo ?: state.cfg?.tools?.nexusIq?.versionCatalogRepository ?: cfg?.goldenFix?.versionCatalogRepo ?: cfg?.goldenFix?.versionCatalogRepository
+        if (raw instanceof CharSequence) {
+            String u = raw.toString().trim()
+            return u ? [url: u] : [:]
+        }
+        if (raw instanceof Map) {
+            Map m = raw as Map
+            String u = ((m.url ?: m.repositoryUrl ?: m.cloneUrl ?: '') as String).trim()
+            return u ? ([:] + m + [url: u]) : [:]
+        }
+        return [:]
+    }
+
+    private Map executeExternalCatalogRepo(Map vcRepo, Map scmCfg, List<Map> fixes, List<Map> scanRefs, Map cfg) {
+        String repoUrl = vcRepo.url as String
+        String repoKey = normalizeRepoKey(repoUrl)
+        String targetBranch = (vcRepo.branch ?: vcRepo.targetBranch ?: 'main') as String
+        String credId = (vcRepo.credentialsId ?: scmCfg.credentialsId ?: '') as String
+        Map vcScmCfg = [
+                url          : repoUrl,
+                cloneUrl     : vcRepo.cloneUrl ?: repoUrl,
+                credentialsId: credId,
+                authType     : vcRepo.authType ?: scmCfg.authType,
+                targetBranch : targetBranch
+        ]
+        Map prsByRepo = (state.goldenFixPullRequestsByRepo ?: [:]) as Map
+        Map vcPr = (prsByRepo[repoKey] ?: [:]) as Map
+        String title = (vcPr.title ?: "GoldenFix-${timestamp(cfg.timeZone as String)}") as String
+        script.echo "[GOLDENFIX] Using shared version catalog repository: ${repoUrl} (branch: ${targetBranch})"
+        String extDir = (vcPr.extDir ?: prepareExternalCatalog(repoUrl, targetBranch, credId)) as String
+        if (!extDir) {
+            return [handledKeys: [] as Set, changes: [], notes: ["Could not prepare external version catalog repository ${repoUrl}".toString()]]
+        }
+
+        List<String> excluded = (cfg.excludeDirs ?: defaultExcludedDirs()) as List<String>
+        List<String> explicitPaths = CatalogDiscovery.listed(vcRepo.paths ?: vcRepo.path)
+        List<String> extFiles = []
+        Map extTexts = [:]
+        for (String p : explicitPaths) {
+            String rel = p.startsWith('/') ? p.substring(1) : p
+            String txt = readQuiet(extDir, rel)
+            if (txt) {
+                extFiles << rel
+                extTexts[rel] = txt
+            }
+        }
+        List<String> searchPatterns = ['*.versions.toml', 'Directory.Packages.props', 'Directory.Build.props', '*.props', 'pom.xml', '*bom*.xml', 'gradle.properties', 'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'package.json', 'requirements.txt', 'pubspec.yaml']
+        try {
+            for (String found : repository.findFiles(extDir, searchPatterns, excluded)) {
+                if (!extFiles.contains(found)) {
+                    String txt = readQuiet(extDir, found)
+                    if (txt) {
+                        extFiles << found
+                        extTexts[found] = txt
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        if (extFiles.isEmpty()) {
+            for (String fallback : ['gradle/libs.versions.toml', 'libs.versions.toml', 'Directory.Packages.props', 'Directory.Build.props', 'pom.xml', 'gradle.properties']) {
+                String txt = readQuiet(extDir, fallback)
+                if (txt) {
+                    extFiles << fallback
+                    extTexts[fallback] = txt
+                }
+            }
+        }
+        if (extFiles.isEmpty()) {
+            return [handledKeys: [] as Set, changes: [], notes: ["No version catalog files found in ${repoUrl}".toString()]]
+        }
+
+        Map extRun = applyExternalCatalogFixes(extDir, extFiles, extTexts, fixes, excluded)
+        List<Map> covered = vcPr.url ? coveredFixes(fixes, extRun.found as List, extRun.changes as List<Map>, (vcPr.raised ?: []) as List<Map>, extFiles) : []
+        String raisedNote = alreadyRaised(covered, vcPr.url as String)
+        Set<String> handledKeys = [] as Set
+        for (Map c : (extRun.changes as List<Map>)) {
+            for (def k : ((c.componentKeys ?: []) as List)) handledKeys << (k as String)
+        }
+        for (Map fix : fixes) {
+            if (covered.any { it.component == fix.displayName }) handledKeys << (fix.key as String)
+        }
+
+        List<String> notes = [] + (extRun.notes as List<String>)
+        if (covered && raisedNote) notes << raisedNote
+
+        String commitId = extRun.files
+                ? repository.commit(extDir, extRun.files as List<String>, commitMessage(title, extRun.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
+                : ''
+        if (!commitId && covered) {
+            return [
+                    handledKeys : handledKeys,
+                    changes     : extRun.changes,
+                    notes       : notes,
+                    status      : 'PR_UPDATED',
+                    message     : raisedNote,
+                    prUrl       : vcPr.url,
+                    prId        : vcPr.id,
+                    prTitle     : title,
+                    branch      : title,
+                    targetBranch: targetBranch,
+                    verified    : true
+            ]
+        }
+        if (!commitId) {
+            return [handledKeys: handledKeys, changes: [], notes: notes]
+        }
+
+        Map repoInfo = publisher.repositoryInfo(vcScmCfg)
+        repository.push(extDir, title, [
+                url          : vcScmCfg.cloneUrl ?: repoInfo.cloneUrl,
+                credentialsId: vcScmCfg.credentialsId,
+                authType     : vcScmCfg.authType,
+                cloud        : repoInfo.cloud
+        ])
+
+        if (vcPr.url) {
+            vcPr.raised = ((vcPr.raised ?: []) as List) + (extRun.changes as List)
+            vcPr.extDir = extDir
+            comment(vcScmCfg, vcPr, pullRequestComment(state.currentProjectName as String, extRun.changes as List, [], notes))
+            return [
+                    handledKeys : handledKeys,
+                    changes     : extRun.changes,
+                    notes       : notes,
+                    status      : 'PR_UPDATED',
+                    message     : "GoldenFix pull request ${title} updated in shared version catalog repository with ${(extRun.changes as List).size()} change(s): ${vcPr.url}".toString(),
+                    prUrl       : vcPr.url,
+                    prId        : vcPr.id,
+                    prTitle     : title,
+                    branch      : title,
+                    targetBranch: targetBranch,
+                    verified    : true
+            ]
+        }
+
+        Map created = publisher.createPullRequest(vcScmCfg, [
+                title       : title,
+                description : pullRequestDescription(title, extRun.changes as List, [], scanRefs, buildContext(), notes, false),
+                sourceBranch: title,
+                targetBranch: targetBranch
+        ])
+        Map prEntry = [title: title, branch: title, targetBranch: targetBranch, url: created.url, id: created.id, raised: extRun.changes, extDir: extDir]
+        state.goldenFixPullRequest = prEntry
+        if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
+        state.goldenFixPullRequestsByRepo[repoKey] = prEntry
+        return [
+                handledKeys : handledKeys,
+                changes     : extRun.changes,
+                notes       : notes,
+                status      : 'PR_CREATED',
+                message     : "GoldenFix pull request ${title} raised in shared version catalog repository: ${created.url}".toString(),
+                prUrl       : created.url,
+                prId        : created.id,
+                prTitle     : title,
+                branch      : title,
+                targetBranch: targetBranch,
+                verified    : true
+        ]
+    }
+
+    private Map applyExternalCatalogFixes(String extDir, List<String> extFiles, Map extTexts, List<Map> fixes, List<String> excluded) {
+        Map discovered = CatalogDiscovery.discover(extFiles, extFiles, extTexts, extFiles)
+        Map entries = [:] + (discovered.entries as Map)
+        for (String f : extFiles) {
+            if (!entries.containsKey(f)) {
+                String low = BuildUtils.fileNameOf(f).toLowerCase()
+                String kind = low.endsWith('.toml') ? 'toml'
+                        : (low.endsWith('.props') ? 'nuget'
+                        : (low.endsWith('.xml') ? 'maven' : 'gradle'))
+                entries[f] = [path: f, kind: kind, names: kind == 'toml' ? [VersionCatalogs.baseName(f)] : [], consumers: []]
+            }
+        }
+        List<ManifestUpdater> active = []
+        for (ManifestUpdater updater : updaters) {
+            if (fixesFor(fixes, updater.ecosystem())) {
+                updater.useCatalogs(entries)
+                active << updater
+            }
+        }
+        Map extRun = [changes: [], notes: [], requests: [], references: [], found: [], files: []]
+        for (ManifestUpdater updater : active) {
+            List<Map> ecosystemFixes = fixesFor(fixes, updater.ecosystem())
+            List<String> ownExtFiles = filesOf(updater, extFiles)
+            if (!ownExtFiles) continue
+            List properties = []
+            for (String f : ownExtFiles) {
+                String text = read(extDir, extTexts, f)
+                Map r = updater.updateDeclarations(f, text, ecosystemFixes)
+                collect(extRun, r)
+                properties.addAll((r.properties ?: []) as List)
+                write(extDir, extTexts, f, text, r.content as String, extRun)
+            }
+            Set directKeys = [] as Set
+            for (Map c : (extRun.changes as List<Map>)) directKeys.addAll((c.componentKeys ?: []) as List)
+            for (Map p : (properties as List<Map>)) directKeys.addAll((p.componentKeys ?: []) as List)
+            List<Map> remainingEco = ecosystemFixes.findAll { !directKeys.contains(it.key) }
+            if (remainingEco) {
+                String ws = (script.env?.WORKSPACE ?: '') as String
+                String sd = (state.cfg?.sourceDir ?: '').toString().trim()
+                String wsRoot = (ws && sd && sd != '.') ? "${ws}/${sd}" : ws
+                try {
+                    for (String lf : repository.findFiles(wsRoot, updater.filePatterns(), excluded)) {
+                        String ltext = readQuiet(wsRoot, lf)
+                        if (ltext) {
+                            Map lr = updater.updateDeclarations(lf, ltext, remainingEco)
+                            properties.addAll((lr.properties ?: []) as List)
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+            if (properties) {
+                List<Map> merged = GoldenFix.mergePropertyRequests(properties)
+                (extRun.requests as List).addAll(merged)
+                (extRun.references as List).addAll(properties)
+                for (String f : ownExtFiles) {
+                    String text = read(extDir, extTexts, f)
+                    Map r = updater.updateProperties(f, text, merged)
+                    collect(extRun, r)
+                    write(extDir, extTexts, f, text, r.content as String, extRun)
+                }
+            }
+        }
+        extRun.changes = collapseChanges(extRun.changes as List<Map>)
+        for (ManifestUpdater updater : active) {
+            labelProperties(extRun.changes as List<Map>, extRun.references as List<Map>, filesOf(updater, extFiles), [:])
+        }
+        for (Map c : (extRun.changes as List<Map>)) {
+            if (c.property && !c.component) {
+                List names = []
+                for (Map ref : (extRun.references as List<Map>)) {
+                    if (ref.name == c.property) GoldenFix.addAllUnique(names, (ref.components ?: []) as List)
+                }
+                if (names) c.component = names.join(', ')
+            }
+            String what = c.property ? "property ${c.property} (${c.component})" : c.component
+            script.echo "[GOLDENFIX]   [catalog-repo] ${c.file}: ${what} ${c.from} -> ${c.to}"
+        }
+        return [files: extRun.files, changes: extRun.changes, found: extRun.found, notes: []]
+    }
+
+    private String readQuiet(String dir, String file) {
+        try {
+            return repository.readText(dir, file) ?: ''
+        } catch (Throwable ignored) {
+            return ''
+        }
     }
 
     private String prepareExternalCatalog(String url, String branch, String credentialsId) {
