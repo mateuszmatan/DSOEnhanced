@@ -1,6 +1,7 @@
 # The services of examples/CertScanner/Jenkinsfile, at the root of the CertScanner repository. The global settings
-# (thresholds, coverage minimum, timeouts, GoldenFix policy) come from the library. asoc.token,
-# influx.credentialsId and tools.sonar.badgeCredentialsId name Jenkins Secret text credentials.
+# (thresholds, coverage minimum, timeouts, GoldenFix policy, the AppScan on Cloud API key of the functional user)
+# come from the library; a service sets only its AppScan appId. influx.credentialsId and
+# tools.sonar.badgeCredentialsId name Jenkins Secret text credentials.
 
 projects:
 
@@ -17,8 +18,6 @@ projects:
 
     asoc:
       url:         "https://bbh.cloud.appscan.com"
-      keyId:       "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9"
-      token:       "cert-scanner-gui-appscan-key"
       insecureTls: false
 
     influx:
@@ -154,8 +153,6 @@ projects:
 
     asoc:
       url:   "https://bbh.cloud.appscan.com"
-      keyId: "bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5"
-      token: "cert-scanner-backend-appscan-key"
 
     influx:
       enabled: true

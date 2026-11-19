@@ -3,6 +3,8 @@
 # policy and the tool defaults come from the library (resources/com/bbh/devsecops/defaults.yaml) and are merged under
 # every service; a value of the service replaces a library default, except for the thresholds, coverage.minLine,
 # the sast and dast timeouts, tools.sonar.qualityGate and releaseGate, which are read from the library only.
+# SAST and DAST sign in with the one AppScan on Cloud API key of the functional user, asoc.keyId and asoc.token of
+# the library defaults; a service sets only its appId, and a keyId, token or credentialsId of a service is ignored.
 # The Jenkinsfile names the services: devSecOpsPipeline(projectNames: 'my-app', agentNames: ['linux-agent']).
 # examples/CertScanner/devsecops_config.yaml shows two complete services.
 
@@ -10,7 +12,7 @@ projects:
 
   my-app:                            # the service name given in projectNames
 
-    appId:        ""                 # HCL AppScan application ID (UUID)
+    appId:        ""                 # HCL AppScan application ID (UUID), the only AppScan setting a service needs
     buildTool:    gradle             # gradle | maven | flutter | liquibase | dotnet | msbuild  [default: gradle]
     deployTarget: vm                 # vm | openshift            [default: vm]
     sourceDir:    "."                # source root for IRX generation [default: .]
@@ -26,8 +28,6 @@ projects:
 
     asoc:                            # HCL AppScan on Cloud (required)
       url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
-      keyId:       ""                # AppScan API key ID of this service, for SAST and DAST (required)
-      token:       ""                # Jenkins Secret text credential holding the key secret [default: a credential named like keyId]
       insecureTls: false             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false
       doCompile:   true              # compile the project before the IRX is generated
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
@@ -368,8 +368,6 @@ projects:
   #   appId:        ""
   #   buildTool:    liquibase
   #   deployTarget: vm
-  #   asoc:
-  #     keyId: ""
   #   build:
   #     liquibase:
   #       commands: ['updateSQL']

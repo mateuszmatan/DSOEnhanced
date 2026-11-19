@@ -92,11 +92,13 @@ appScript.shHandler = { Map a ->
     if (a.returnStatus) return 0
     if (!a.returnStdout) return null
     if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
+    if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+    if (text.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+    if (text.contains('/api/v4/Scans/Sast')) return '{"Id":"12345678-1234-1234-1234-123456789abc"}'
     if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
     if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
     if (text.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"REPORT-ID"}'
     if (text.contains('/api/v4/Reports/REPORT-ID')) return '{"Status":"Ready"}'
-    if (text.contains('queue_analysis')) return 'Scan id: 12345678-1234-1234-1234-123456789abc'
     return ''
 }
 List<String> appErrors = []
@@ -104,14 +106,15 @@ appHarness.run {
     def state = appHarness.type('com.bbh.core.PipelineState').newInstance()
     state.cfg = [appId: 'APP-ID', buildTool: 'gradle', asoc: [token: 'asoc-token'],
                  dast : [enabled: true, targetUrl: 'http://rd.example.com', presenceId: 'PRES-1']]
-    state.cfgDefaults = [dast: [pollTimeoutMin: 60, pollIntervalSec: 60], sast: [pollTimeoutMin: 50, pollIntervalSec: 30]]
+    state.cfgDefaults = [dast: [pollTimeoutMin: 60, pollIntervalSec: 60], sast: [pollTimeoutMin: 50, pollIntervalSec: 30],
+                         asoc: [keyId: 'keyid', token: 'asoc-token']]
     state.currentProjectName = 'gui'
     def os = appHarness.type('com.bbh.core.OsHelper').newInstance(appScript)
     def policy = appHarness.type('com.bbh.core.PolicyEngine').newInstance(appScript, state, os)
     def build = appHarness.type('com.bbh.build.BuildService').newInstance(appScript, state, os, policy)
     def appscan = appHarness.type('com.bbh.scanner.AppScanService').newInstance(appScript, state, os, policy, build)
     [
-            ['cliLogin', { appscan.cliLogin() }],
+            ['sastLogin', { appscan.sastLogin() }],
             ['apiLogin', { appscan.apiLogin() }],
             ['dastStartScan', { appScript.events << "scanId=${appscan.dastStartScan()}".toString() }],
             ['dastWait', { appscan.dastWait('DAST-SCAN-ID', 1, 1) }],
@@ -144,6 +147,50 @@ if (!sameCommands) new File(baselineFile.parentFile, 'appscan-commands.actual.tx
 check('AppScan service: generated shell and REST commands match the baseline', sameCommands,
         'compare test/sandbox/baseline/appscan-commands.txt with appscan-commands.actual.txt')
 
+Closure windowsAppScanCalls = {
+    SandboxHarness winHarness = new SandboxHarness(srcDir, stubDir)
+    FakeScript winScript = new FakeScript()
+    winScript.unix = false
+    winScript.env.vars.putAll([WORKSPACE: 'C:\\ws', APPSCAN_LOG_DIR: 'C:\\ws/.appscan-logs', APPSCAN_SCAN_NAME: 'demo-scan',
+                               APPSCAN_SERVER_URL: 'https://bbh.cloud.appscan.com', PROXY_HOST: 'tstproxy.bbh.com', PROXY_PORT: '9090'])
+    winScript.files['demo-scan.irx'] = 'irx'
+    winScript.shHandler = { Map a ->
+        String text = String.valueOf(a.script ?: '')
+        if (!a.returnStdout) return null
+        if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
+        if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+        if (text.contains('/api/v4/Scans/Sast')) return '{"Id":"12345678-1234-1234-1234-123456789abc"}'
+        return ''
+    }
+    List<String> winErrors = []
+    winHarness.run {
+        def state = winHarness.type('com.bbh.core.PipelineState').newInstance()
+        state.cfg = [appId: 'APP-ID', buildTool: 'msbuild']
+        state.cfgDefaults = [sast: [pollTimeoutMin: 50, pollIntervalSec: 30], asoc: [keyId: 'keyid', token: 'asoc-token']]
+        state.currentProjectName = 'gui'
+        def os = winHarness.type('com.bbh.core.OsHelper').newInstance(winScript)
+        os.detect()
+        def policy = winHarness.type('com.bbh.core.PolicyEngine').newInstance(winScript, state, os)
+        def build = winHarness.type('com.bbh.build.BuildService').newInstance(winScript, state, os, policy)
+        def appscan = winHarness.type('com.bbh.scanner.AppScanService').newInstance(winScript, state, os, policy, build)
+        try {
+            appscan.sastLogin()
+            appscan.queueSast([:])
+            appscan.sastLogin()
+        } catch (Throwable t) {
+            winErrors << (SandboxHarness.rejectionOf(t) ?: t.toString())
+        }
+    }
+    List<String> winApiCalls = winScript.calls.findAll { it.contains('/api/v4/') }
+    check('AppScan service on a Windows agent: SAST logs in once and uploads and queues the IRX with curl.exe from a batch step, never from sh',
+            winErrors.isEmpty() && winApiCalls.size() == 3 && winApiCalls.every { it.startsWith('bat @curl.exe ') }
+                    && winApiCalls.count { it.contains('Account/ApiKeyLogin') } == 1
+                    && winScript.files.values().any { it.contains('"KeyId":"keyid"') && it.contains('"KeySecret":"fake-APPSCAN_KEY_SECRET"') }
+                    && winScript.calls.contains('withCredentials [asoc-token]'),
+            "${winErrors} | ${winApiCalls}")
+}
+windowsAppScanCalls()
+
 SandboxHarness parserHarness = new SandboxHarness(srcDir, stubDir)
 String hclSummaryReport = '''<html><body><h3>Summary of security issues</h3><table>
 <tr><td>Total security issues:</td><td>7</td></tr>
@@ -158,10 +205,16 @@ String hclIssueReport = '''<html><body><div>Issue ID: 1</div><div>Severity: High
 <div>Issue ID: 2</div><div>Severity: High</div><div>Status: Open</div>
 <div>Issue ID: 3</div><div>Severity: Medium</div><div>Status: Fixed</div></body></html>'''
 Map issueCounts = parserHarness.run { parserHarness.type('com.bbh.utils.AppScanReportParser').severities(hclIssueReport) } as Map
+String hclNoiseReport = hclSummaryReport.replace('</table>', '</table><div>Issue ID: 1</div><div>Severity: High</div><div>Status: Open</div>' +
+        '<div>Issue ID: 2</div><div>Severity: High</div><div>Status: Noise</div><div>Issue ID: 3</div><div>Severity: Medium</div><div>Status: New</div>')
+Map noiseCounts = parserHarness.run { parserHarness.type('com.bbh.utils.AppScanReportParser').severities(hclNoiseReport) } as Map
 check('AppScan report parser: the severity totals of the HTML report are the ones the pipeline reports',
         summaryCounts.high == 2 && summaryCounts.medium == 3 && summaryCounts.low == 2 && summaryCounts.critical == 0
                 && escapedCounts.high == 2 && issueCounts.high == 2 && issueCounts.medium == 0,
         "summary ${summaryCounts}, escaped ${escapedCounts}, issue blocks ${issueCounts}")
+check('AppScan report parser: an issue with the Noise status is not counted, even when the summary table of the report counts it',
+        noiseCounts.high == 1 && noiseCounts.medium == 1 && noiseCounts.low == 0 && noiseCounts.critical == 0,
+        "${noiseCounts}")
 
 def jsonNull = Class.forName('net.sf.json.JSONNull').getInstance()
 Map iqReportWithNulls = [components: [
@@ -216,7 +269,7 @@ Closure dastRun = { Closure downloadBody ->
     dastHarness.run {
         def state = dastHarness.type('com.bbh.core.PipelineState').newInstance()
         state.cfg = [appId: 'APP-ID', buildTool: 'gradle', dast: [enabled: true, targetUrl: 'http://rd.example.com']]
-        state.cfgDefaults = [dast: [pollTimeoutMin: 1, pollIntervalSec: 1, reportTimeoutMin: 1, reportIntervalSec: 30]]
+        state.cfgDefaults = [dast: [pollTimeoutMin: 1, pollIntervalSec: 1, reportTimeoutMin: 1, reportIntervalSec: 30], asoc: [keyId: 'keyid']]
         state.currentProjectName = 'gui'
         def os = dastHarness.type('com.bbh.core.OsHelper').newInstance(d)
         def policy = dastHarness.type('com.bbh.core.PolicyEngine').newInstance(d, state, os)

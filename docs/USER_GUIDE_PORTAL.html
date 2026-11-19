@@ -460,7 +460,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li><strong>Contact E-mail:</strong> Group mailbox for communications and notifications.</li>
 <li><strong>Jenkins Agents:</strong> Comma-separated labels of Jenkins nodes assigned to run the pipelines (the first agent is the default).</li>
 </ul>
-<div class="callout callout-note"><div class="callout-header">NOTE</div><div class="callout-body"><p><strong>Credentials Architecture:</strong> The <em>AppScan API Key ID</em> field has been removed from the Product level. All security credentials are now configured directly within individual Services to maintain consistency and isolation.</p></div></div>
+<div class="callout callout-note"><div class="callout-header">NOTE</div><div class="callout-body"><p><strong>Credentials Architecture:</strong> Neither a Product nor a Service holds an AppScan API key. SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, which the DevSecOps team keeps in the library defaults (<code>asoc.keyId</code> and the Jenkins Secret text credential named in <code>asoc.token</code>). A Service holds only its AppScan application ID.</p></div></div>
 
 <hr />
 <h2 id="3-adding-and-configuring-services">3. Adding and Configuring Services</h2>
@@ -593,9 +593,9 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li>The HCL ASOC cloud scan is queued in the background and runs <strong>in parallel</strong> with Nexus IQ and SonarQube.</li>
 <li>Results are fetched at the end of the static analysis stage, significantly reducing overall pipeline duration.</li>
 <li><strong>Streamlined Configuration:</strong></li>
-<li><code>asoc.token</code> is positioned in the <strong>main SAST section</strong>.</li>
+<li>The <strong>main SAST section</strong> holds only the AppScan application ID (<code>appId</code>) of the service.</li>
 <li><code>sast.scanName</code> is available in <strong>Advanced Settings</strong> for custom scan naming.</li>
-<li>Credentials (<code>asoc.keyId</code>, <code>asoc.token</code>) are configured per service.</li>
+<li>The API key of the functional user (<code>asoc.keyId</code>, <code>asoc.token</code>) is a setting of the library defaults, shared by every service; the portal never asks for it.</li>
 </ul>
 <hr />
 <h2 id="8-dynamic-application-security-testing-dast-hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</h2>
@@ -779,17 +779,10 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td style="text-align: center;"><span class="badge badge-default">DEFAULT</span></td>
 </tr>
 <tr>
-<td><strong>AppScan ASOC Key ID</strong></td>
-<td>ASOC API key credential ID</td>
-<td><code>asoc-key-payments-api</code></td>
-<td>Jenkins Credentials store</td>
-<td style="text-align: center;"><span class="badge badge-required">YES</span></td>
-</tr>
-<tr>
-<td><strong>AppScan ASOC Token</strong></td>
-<td>ASOC API secret credential ID</td>
-<td><code>asoc-secret-payments-api</code></td>
-<td>Jenkins Credentials store</td>
+<td><strong>AppScan Application ID</strong></td>
+<td>ASOC application of the service (SAST and DAST)</td>
+<td><code>209f44ac-dd06-4ca0-884e-d944904f8020</code></td>
+<td>HCL ASOC application settings</td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
 <tr>
@@ -887,7 +880,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <li>Click <strong>Copy values</strong> (replicate an existing service), OR</li>
 <li>Fill in the form fields using contextual tooltips for guidance.</li>
 <li><strong>Configure Security:</strong></li>
-<li>Supply AppScan ASOC credentials in the main SAST section.</li>
+<li>Supply the AppScan application ID in the main SAST section; the API key comes from the library defaults.</li>
 <li>Enter SonarQube credentials and choose either Badge Token or Badge Credentials ID.</li>
 <li>Enter your single Nexus IQ Application ID.</li>
 <li><strong>Configure Target Deployment:</strong></li>

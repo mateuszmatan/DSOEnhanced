@@ -32,6 +32,8 @@ archiveArtifacts report/pipeline-report.html
 publishHTML pipeline-report.html
 cleanWs
 == log
+[WARN] gui: asoc.keyId in devsecops_config.yaml ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
+[WARN] backend-api: asoc.keyId in devsecops_config.yaml ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS

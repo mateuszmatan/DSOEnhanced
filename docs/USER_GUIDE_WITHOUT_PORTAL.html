@@ -460,10 +460,10 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <table>
 <thead><tr><th>Pipeline Entry Point</th><th>Stages Executed</th><th>Required Config Sections</th><th>Produced Artifacts &amp; PRs</th></tr></thead>
 <tbody>
-<tr><td><code>devSecOpsPipeline</code> <em>(Full Pipeline)</em></td><td>All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)</td><td><code>asoc.keyId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>appscan-dast-report*.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR</td></tr>
-<tr><td><code>devSecOpsSecurityPipeline</code> <em>(Security Pipeline)</em></td><td>Stages 1, 0 (optional), 2, 3, 4, 5, 6; optionally triggers <code>extendedPipeline</code></td><td><code>asoc.keyId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;.rd</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR, Static Security PR</td></tr>
-<tr><td><code>devSecOpsExtendedPipeline</code> <em>(Extended Pipeline)</em></td><td>Stages 1 (copies state from <code>securityPipeline</code>), 7, 8, 9, 10, 11, 12, 13</td><td><code>asoc.keyId</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-dast-report*.html/.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, DAST PR</td></tr>
-<tr><td><code>devSecOpsSASTScanningPipeline</code> <em>(SAST-Only)</em></td><td>Stages 1, 0 (optional), 4 (AppScan SAST)</td><td><code>appId</code>, <code>asoc.keyId</code>, <code>asoc.token</code> / <code>keySecret</code></td><td><code>report/pipeline-report.html</code> (SAST view), <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code></td></tr>
+<tr><td><code>devSecOpsPipeline</code> <em>(Full Pipeline)</em></td><td>All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)</td><td><code>appId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>appscan-dast-report*.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR</td></tr>
+<tr><td><code>devSecOpsSecurityPipeline</code> <em>(Security Pipeline)</em></td><td>Stages 1, 0 (optional), 2, 3, 4, 5, 6; optionally triggers <code>extendedPipeline</code></td><td><code>appId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;.rd</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR, Static Security PR</td></tr>
+<tr><td><code>devSecOpsExtendedPipeline</code> <em>(Extended Pipeline)</em></td><td>Stages 1 (copies state from <code>securityPipeline</code>), 7, 8, 9, 10, 11, 12, 13</td><td><code>appId</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-dast-report*.html/.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, DAST PR</td></tr>
+<tr><td><code>devSecOpsSASTScanningPipeline</code> <em>(SAST-Only)</em></td><td>Stages 1, 0 (optional), 4 (AppScan SAST)</td><td><code>appId</code></td><td><code>report/pipeline-report.html</code> (SAST view), <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code></td></tr>
 <tr><td><code>devSecOpsNexusIqGoldenFixPipeline</code> <em>(Nexus IQ + GoldenFix)</em></td><td>Stages 1, 0 (optional), 2 (Build), 3 (Nexus IQ + GoldenFix)</td><td><code>tools.nexusIq.application</code> + <code>scanPatterns</code>, <code>goldenFix</code>, <code>scm.bitbucket</code></td><td><code>report/pipeline-report.html</code> (Nexus IQ + GoldenFix view), <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR</td></tr>
 </tbody>
 </table>
@@ -556,11 +556,10 @@ devSecOpsPipeline(
 <li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
 <li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
 <li><strong>Credentials Configuration:</strong></li>
-<li>Configured per service in the <code>asoc:</code> section:
+<li>SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (<code>asoc.keyId</code> and the Jenkins Secret text credential named in <code>asoc.token</code> of <code>resources/com/bbh/devsecops/defaults.yaml</code>).</li>
+<li>A service sets only its application ID; a <code>keyId</code>, <code>token</code> or <code>credentialsId</code> of a service is ignored with a <code>[WARN]</code> line:
     <code>yaml
     asoc:
-      keyId: 'asoc-key-id-backend'
-      token: 'asoc-secret-id-backend'
       appId: '10982'</code></li>
 <li><strong>Custom Scan Name:</strong></li>
 <li>Optional <code>sast.scanName</code> defines custom scan naming in ASOC.</li>
@@ -692,9 +691,7 @@ projects:
 
     # 4. Static Application Security Testing (HCL AppScan SAST)
     asoc:
-      keyId: 'asoc-key-id-backend'                # Jenkins credentials ID
-      token: 'asoc-secret-id-backend'             # Jenkins credentials ID
-      appId: '10982'                              # Application ID in HCL ASOC
+      appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
 
@@ -746,8 +743,6 @@ projects:
       minimum: 80
 
     asoc:
-      keyId: 'asoc-key-id-gui'
-      token: 'asoc-secret-id-gui'
       appId: '10983'
 
     tools:
@@ -848,9 +843,9 @@ projects:
 <td style="text-align: center;"><span class="badge badge-default">DEFAULT 80</span></td>
 </tr>
 <tr>
-<td><code>asoc.keyId</code> &amp; <code>asoc.token</code></td>
-<td>AppScan SAST credentials</td>
-<td><code>asoc-cred-id</code> (from Jenkins)</td>
+<td><code>asoc.appId</code></td>
+<td>AppScan application ID of the service (SAST and DAST); the API key is set once in the library defaults</td>
+<td><code>10982</code></td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
 <tr>

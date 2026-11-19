@@ -13,8 +13,6 @@ projects:
     appscanPath:  "/.appscan-tools/SAClientUtil/bin/appscan.bat"
 
     asoc:
-      keyId:          "bbh_orders_api_key"
-      token:          "orders-api-asoc-secret"
       doCompile:      true
       sourceCodeOnly: false
 
@@ -88,8 +86,6 @@ projects:
     sourceDir:    "."
 
     asoc:
-      keyId:     "bbh_billing_worker_key"
-      token:     "billing-worker-asoc-secret"
       doCompile: true
 
     build:

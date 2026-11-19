@@ -117,19 +117,19 @@ h3. 2. Requirements per Stage and Security / Quality Tool
 ||Capability / Stage||Required Configuration ({{devsecops_config.yaml}} / {{config.yaml}})||Agent / Environment Prerequisites||What the Stage Produces & Enforces||
 |*Build & Unit Tests* (Stages 0 & 2)|Optional {{buildTool}} (auto-detected if omitted or invalid). Optional {{build.<tool>}}, {{tests.unitTests.<tool>}}, {{coverage.minLine}} (default {{75}}% in bundled defaults, {{60}}% fallback)|Matching compiler/SDK on agent: JDK ({{javaPath}} or auto-detected), Gradle/Maven, .NET SDK or Visual Studio BuildTools ({{MSBuild.exe}}, {{NuGet.exe}}, {{vstest.console.exe}}, {{OpenCover.Console.exe}}), Node.js/npm, Python/pip, Flutter, or Liquibase|Compiles artifact, runs unit tests, aggregates all JaCoCo, LCOV, Cobertura, and OpenCover reports, and checks line coverage against the threshold|
 |*Dependencies Scan — Nexus IQ & GoldenFix* (Stage 3)|{{tools.nexusIq.application}} (or {{applications}}), {{tools.nexusIq.credentialsId}}, {{tools.nexusIq.scanPatterns}}. For GoldenFix PRs: {{goldenFix.enabled: true}} and {{scm.bitbucket.url}} + {{credentialsId}}|Jenkins Nexus Platform Plugin ({{nexusPolicyEvaluation}}), {{git}}, and {{curl}} / {{curl.exe}} for Nexus IQ remediation REST API and Bitbucket PR API|Evaluates open-source dependencies against Nexus IQ policy, runs GoldenFix pre-check build in an isolated Git worktree, upgrades manifests/version catalogs, and opens/updates a Bitbucket Pull Request|
-|*SAST — HCL AppScan* (Stage 4)|{{appId}} (or {{asoc.appId}}), {{asoc.keyId}}, {{asoc.token}} (Jenkins credentials ID) or {{asoc.keySecret}}. Optional {{asoc.doCompile}}, {{asoc.<tool>}}, {{sast.sourceFolders}}, {{sast.excludedFolders}}|HCL AppScan SAClientUtil (installed automatically from {{SA_LINUX_URL}} / {{SA_WIN_URL}} or pre-installed at {{appscanPath}}), outbound access (or proxy) to {{bbh.cloud.appscan.com}}|Compiles sources (when {{doCompile: true}}), generates {{.irx}} package, queues scan in HCL AppScan, downloads HTML report, enforces severity policy, and posts inline PR comments on vulnerable files/lines|
+|*SAST — HCL AppScan* (Stage 4)|{{appId}} (or {{asoc.appId}}). Optional {{asoc.doCompile}}, {{asoc.<tool>}}, {{sast.sourceFolders}}, {{sast.excludedFolders}}. The API key ({{asoc.keyId}}, {{asoc.token}}) is a setting of the library defaults|HCL AppScan SAClientUtil for the IRX (installed automatically from {{SA_LINUX_URL}} / {{SA_WIN_URL}} or pre-installed at {{appscanPath}}), {{curl}} on the agent ({{curl.exe}} on Windows), outbound access (or proxy) to {{bbh.cloud.appscan.com}}|Compiles sources (when {{doCompile: true}}), generates the {{.irx}} package, uploads it and queues the scan through the AppScan REST API v4, downloads the HTML and PDF reports without Noise issues, enforces the severity policy, and posts inline PR comments on vulnerable files/lines|
 |*SCA — SonarQube* (Stage 5)|{{tools.sonar.projectKey}} (auto-generated as {{com.bbh:<service>}} if omitted), {{tools.sonar.installationName}}, {{tools.sonar.authToken}} / {{credentialsId}}|SonarQube Scanner for Jenkins ({{withSonarQubeEnv}}), plus {{SonarScanner.MSBuild.exe}} / {{dotnet-sonarscanner}} for .NET or {{sonar-scanner}} for Flutter/Liquibase/Python/Node/iOS|Executes static code quality & security hotspot analysis, fetches blocker/critical/major/minor counts via REST API, enforces policy, and posts inline PR comments|
 |*Artifact Delivery & Deployment* (Stages 6, 7, 12, 13)|{{deployTarget}}: {{openshift}} or {{vm}} (auto-detected from {{Dockerfile}} / {{openshift}} / {{k8s}} / {{helm}} if omitted). {{deploy.openshift.<rd|qc>}} or {{deploy.vm.<rd|qc|dod>}}, optional {{delivery.<maven|gradle|nuget>}}|For OpenShift: {{oc}}, {{skopeo}}, cluster credentials. For VM: SSH credentials or UrbanCode Deploy (DOD) plugin. For NuGet: {{nuget.exe}} or {{dotnet}}|Publishes snapshot/release artifacts or container images to Nexus and deploys to RD (lower environment) and QC (higher environment, gated by {{release-gate.json}})|
 |*Functional & Performance Tests* (Stages 8, 9, 10)|{{tests.regression.jobs}} (or {{urls}}), {{tests.smoke.jobs}} (or {{urls}}), {{tests.performance.jobs}} (or {{urls}}), optional {{tokenCredentialsId}} and {{maxParallel}}|Local Jenkins jobs or Parameterized Remote Trigger plugin for remote Jenkins URLs|Triggers downstream test jobs in parallel batches, collects build status and duration, and records results in HTML report and InfluxDB|
-|*DAST — HCL AppScan* (Stage 11)|{{dast.enabled: true}}, {{dast.targetUrl}}, {{dast.scanName}} (or {{dast.scanFile}}), {{asoc.keyId}} / {{dast.keyId}}|Running application in RD reachable at {{dast.targetUrl}} (via optional {{dast.presenceId}} tunnel)|Runs dynamic runtime security scan against {{targetUrl}}, downloads HTML and PDF reports, enforces DAST policy, and opens a DAST findings Pull Request if violations exist|
+|*DAST — HCL AppScan* (Stage 11)|{{dast.enabled: true}}, {{dast.targetUrl}}, {{dast.scanName}} (or {{dast.scanFile}}); the API key comes from the library defaults|Running application in RD reachable at {{dast.targetUrl}} (via optional {{dast.presenceId}} tunnel)|Runs dynamic runtime security scan against {{targetUrl}}, downloads HTML and PDF reports, enforces DAST policy, and opens a DAST findings Pull Request if violations exist|
 
 h3. 3. Breakdown per Pipeline Type
 
 ||Pipeline Entry Point||Stages Executed||Required Sections in {{devsecops_config.yaml}} / {{config.yaml}}||Artifacts & Pull Requests Produced||
-|{{devSecOpsPipeline}} *(Full Pipeline)*|All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{asoc.keyId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{appscan-dast-report*.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR|
-|{{devSecOpsSecurityPipeline}} *(Security Pipeline)*|Static & snapshot stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot); optionally triggers {{extendedPipeline}}|{{asoc.keyId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>.rd}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments)|
-|{{devSecOpsExtendedPipeline}} *(Extended Pipeline)*|Dynamic & release stages: 1 (Monitor + copy {{pipeline-config.yaml}} & {{release-gate.json}} from {{securityPipeline}}), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{asoc.keyId}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}}; Jenkinsfile passes {{securityPipeline: '<job>'}} (or runs standalone)|{{report/pipeline-report.html}}, {{appscan-dast-report*.html/.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, DAST PR|
-|{{devSecOpsSASTScanningPipeline}} *(SAST-Only Pipeline)*|Stages: 1 (Monitor), 0 (Node.js optional when {{asoc.doCompile: true}} on Linux), 4 (AppScan SAST)|{{appId}}, {{asoc.keyId}}, {{asoc.token}} / {{keySecret}} (and {{build.<tool>}} / {{asoc.<tool>}} when {{asoc.doCompile: true}})|{{report/pipeline-report.html}} (SAST-only view), {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}|
+|{{devSecOpsPipeline}} *(Full Pipeline)*|All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{appId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{appscan-dast-report*.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR|
+|{{devSecOpsSecurityPipeline}} *(Security Pipeline)*|Static & snapshot stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot); optionally triggers {{extendedPipeline}}|{{appId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>.rd}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments)|
+|{{devSecOpsExtendedPipeline}} *(Extended Pipeline)*|Dynamic & release stages: 1 (Monitor + copy {{pipeline-config.yaml}} & {{release-gate.json}} from {{securityPipeline}}), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{appId}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}}; Jenkinsfile passes {{securityPipeline: '<job>'}} (or runs standalone)|{{report/pipeline-report.html}}, {{appscan-dast-report*.html/.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, DAST PR|
+|{{devSecOpsSASTScanningPipeline}} *(SAST-Only Pipeline)*|Stages: 1 (Monitor), 0 (Node.js optional when {{asoc.doCompile: true}} on Linux), 4 (AppScan SAST)|{{appId}} (and {{build.<tool>}} / {{asoc.<tool>}} when {{asoc.doCompile: true}})|{{report/pipeline-report.html}} (SAST-only view), {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}|
 |{{devSecOpsNexusIqGoldenFixPipeline}} *(Nexus IQ + GoldenFix Pipeline)*|Stages: 1 (Monitor), 0 (Node.js optional), 2 (Build artifact), 3 (Nexus IQ scan + GoldenFix remediation & PR)|{{tools.nexusIq.application}} + {{scanPatterns}}, {{goldenFix}}, {{scm.bitbucket}} ({{buildTool}} auto-resolved if omitted)|{{report/pipeline-report.html}} (Nexus IQ + GoldenFix view), {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR|
 
 ----
@@ -454,7 +454,7 @@ devSecOpsPipeline(
 # The report header says "Settings from devsecops_config.yaml in the repository", with the name of the file that was read, and {{build_evidence}} carries {{config_file}}. The settings follow the branch and the commit: a replayed build reads the file of its commit.
 # A custom Jenkinsfile that calls {{devSecOpsApi.initialize()}} without {{configure()}} reads the file too. The Nexus IQ GoldenFix pipeline needs {{tools.nexusIq.application}} and its {{scanPatterns}} for every service of the run.
 
-Compared with release b815d55 of the library, which read {{config.yaml}} and {{resources/defaults.yaml}}, a run of this release: reads {{devsecops_config.yaml}} first and {{config.yaml}} only without it; writes its build tags to {{pipeline-config.yaml}} instead of the repository file, so the first extended build after the update needs one security build made by this release; needs {{asoc.keyId}} for every service, because SAST and DAST sign in with the key of each service; requires {{agentNames}}; accepts {{projectNames}} as a list; reads its defaults from {{com/bbh/devsecops/defaults.yaml}}; names the file in the report header and in {{build_evidence}}; and names a file that is not valid YAML or has no {{projects:}}.
+Compared with release b815d55 of the library, which read {{config.yaml}} and {{resources/defaults.yaml}}, a run of this release: reads {{devsecops_config.yaml}} first and {{config.yaml}} only without it; writes its build tags to {{pipeline-config.yaml}} instead of the repository file, so the first extended build after the update needs one security build made by this release; signs in to AppScan on Cloud with the one API key of the functional user from {{asoc.keyId}} and {{asoc.token}} of the library defaults, so a service sets only its {{appId}}; requires {{agentNames}}; accepts {{projectNames}} as a list; reads its defaults from {{com/bbh/devsecops/defaults.yaml}}; names the file in the report header and in {{build_evidence}}; and names a file that is not valid YAML or has no {{projects:}}.
 
 ----
 
@@ -473,7 +473,7 @@ Before onboarding a project to the DevSecOps pipeline, the application and its r
 * *Code must compile successfully.* The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless {{asoc.doCompile: false}}. The compile command comes from {{asoc.gradle}} / {{asoc.maven}} / {{asoc.dotnet}}, or from the {{build}} section when {{asoc}} has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus or NuGet repositories.
 * *Unit tests with JaCoCo (Gradle/Maven), Cobertura/OpenCover (C#/.NET), or LCOV (Flutter/JS/Python) coverage.* The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. For C#/.NET, {{vstest.console.exe}} + {{OpenCover.Console.exe}} (or {{dotnet test --collect:"XPlat Code Coverage"}}) produces OpenCover/Cobertura XML coverage and {{.trx}} test results automatically parsed by the pipeline. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the defaults that the library bundles only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs {{flutter test --coverage}} in the main package and in each tested plugin and module, and reads the {{coverage/lcov.info}} of each.
 * *A JDK on the agent, named in the configuration (not required for C#/.NET or Liquibase).* Set {{javaPath}} in the project configuration to the JDK the build and the tests must use, or set {{buildToolAutoSetup: true}} to let the library detect the required Java version from {{pom.xml}} or {{build.gradle}} and pick a matching JDK from the agent. Without either, Java/Gradle/Maven/Flutter Unit tests stop with *JAVA_HOME parameter is not specified*, unless the agent already exports {{HAS_BUILD_TOOL_INSTALLED=true}}. Services with {{buildTool: dotnet}} or {{msbuild}} never require {{JAVA_HOME}}.
-* *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID). An API key pair must be obtained from ASoC for every service: the key ID is set for the service in {{devsecops_config.yaml}} ({{asoc.keyId}}), the key secret stays in a Jenkins *Secret text* credential named in {{asoc.token}}. Both SAST and DAST scans are uploaded to this application with the key of the service.
+* *HCL AppScan on Cloud (ASoC) application registered.* The application must be registered in ASoC and have a known application ID (UUID), which is the {{appId}} of the service in {{devsecops_config.yaml}}. Every pipeline signs in with the one API key of the functional ASoC user: its key ID is {{asoc.keyId}} of the library defaults ({{resources/com/bbh/devsecops/defaults.yaml}}), and its secret stays in the Jenkins *Secret text* credential named in {{asoc.token}} of the same file. A service cannot change the key; a {{keyId}}, {{token}} or {{credentialsId}} under {{asoc}}, {{sast}} or {{dast}} of a service is ignored with a warning. Both SAST and DAST scans are uploaded to the application of the service.
 * *SonarQube project registered.* A project must exist in SonarQube with a unique {{projectKey}}. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins *Secret text* credential named in {{badgeCredentialsId}}, or the token itself in {{badgeToken}}. The SonarQube server must be reachable from the Jenkins agent.
 * *Nexus IQ application registered.* The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs, DLLs, {{*.nupkg}}, {{packages.config}}, {{*.csproj}}, {{Directory.Packages.props}}) must match the {{scanPatterns}} configured for the service in {{devsecops_config.yaml}}. The Nexus IQ server must be reachable from the Jenkins agent.
 * *Build artifacts produced in expected locations.* Gradle projects produce artifacts under {{build/libs/}}, Maven projects under {{target/}}, and .NET projects under {{bin/Release/}} (or {{build.dotnet.publishDir}} / {{packages.config}} for NuGet dependency scanning). These paths must match the {{scanPatterns}} configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the {{package-lock.json}} of its frontend folder scanned, see [the stage reference|#ch16].
@@ -557,7 +557,7 @@ h3. Jenkins global configuration
 
 ||Credential ID||Type||Used for||
 |{{nexusiqP}}|Username/Password|Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions)|
-|{{asoc.token}} of the service, otherwise a credential named like its {{asoc.keyId}}|Secret text|The AppScan key secret of the service, for the SAST login and the DAST sign-in; {{devsecops_config.yaml}} holds only the key ID and the credentials ID|
+|{{asoc.token}} of the library defaults, otherwise a credential named like {{asoc.keyId}} of the library defaults|Secret text|The API key secret of the functional AppScan on Cloud user, for the SAST and DAST sign-in of every service; {{devsecops_config.yaml}} holds only the application ID ({{appId}})|
 |{{tools.sonar.badgeCredentialsId}} of the service (optional)|Secret text|The SonarQube badge token for the badges in the report|
 |{{scm.bitbucket.credentialsId}}|Username/Password (or Secret text with {{authType: bearer}})|GoldenFix: push of branch {{GoldenFix-YYYYMMDDHHMM}}, pull request creation and comments on the pull request (repository write permission)|
 |{{build.node.npmrcCredentialsId}} of the service or of the bundled defaults (optional)|Secret file|An {{.npmrc}} for the Node.js build and the npm pre-check of GoldenFix, bound as {{NPM_CONFIG_USERCONFIG}}|
@@ -654,7 +654,7 @@ h3. HCL AppScan — SAST
 
 # *Request an AppScan application.* Ask the DevSecOps team to create one for your product, giving them the application name and your team.
 # *Receive the Application ID.* It looks like {{109f44ac-cc06-4ca0-884e-d944904f7019}} and goes into {{devsecops_config.yaml}} as {{appId}}.
-# *Receive the API key ID and its secret.* The key ID looks like {{bbh_b81fbc9f-...}} and goes into {{devsecops_config.yaml}} as {{asoc.keyId}} of the service. The matching secret is *not* put in the file — the Jenkins administrators store it as a *Secret text* credential, and its ID goes into the file as {{asoc.token}}. Without {{asoc.token}} the library reads the credential whose ID is the key ID. SAST and DAST both use this key.
+# *No API key of your own.* SAST and DAST sign in with the API key of the functional AppScan on Cloud user, which the DevSecOps team keeps in the library defaults ({{asoc.keyId}} and the Jenkins *Secret text* credential named in {{asoc.token}}). Do not put a key ID or a secret in {{devsecops_config.yaml}}: the library ignores them and says so in the console. Ask the DevSecOps team to add your application to the functional user.
 # *Confirm your agent can reach AppScan.* Ask the DevSecOps team to confirm the proxy service account and the OIS certificate are installed on your agent label. This is the most common reason a first SAST run fails.
 
 {info}
@@ -683,7 +683,7 @@ h3. Credentials that must exist in Jenkins
 Most of these are shared across all applications and will already exist. Check with the administrators and request only what is missing.
 
 ||Credential ID||Type||Needed for||Scope||
-|your AppScan key secret ({{asoc.token}})|Secret text|The AppScan login of SAST and DAST, with the key ID of the service|per service|
+|the API key secret of the functional AppScan on Cloud user ({{asoc.token}} of the library defaults)|Secret text|The AppScan sign-in of SAST and DAST for every service, created once by the DevSecOps team|once for the library|
 |{{nexusiqP}}|Username with password|Nexus IQ evaluation and remediation lookups|shared|
 |your Bitbucket credential|Username with password, or HTTP access token|Pushing the upgrade branch, opening the pull request and commenting on it; needs *write* access|per application|
 |your {{.npmrc}} ({{build.node.npmrcCredentialsId}})|Secret file|Only if the Node.js build installs from an npm registry that needs a login|optional|
@@ -737,9 +737,6 @@ projects:
     appId:     "<AppScan application ID>"
     buildTool: gradle
     javaPath:  /usr/lib/jvm/java-17-openjdk
-    asoc:
-      keyId: "<AppScan key ID>"
-      token: "<Jenkins credential ID of your AppScan key secret>"
 {code}
 
 *The {{Jenkinsfile}} starts the pipeline.* It names the entry point of your pipeline, the services of the run and the Jenkins agent labels; take it from your chapter:
@@ -837,8 +834,6 @@ projects:
 
     asoc:
       url:   "https://bbh.cloud.appscan.com"
-      keyId: "<AppScan key ID>"
-      token: "<Jenkins credential ID of your AppScan key secret>"
 
     tools:
       sonar:
@@ -1064,8 +1059,6 @@ projects:
 
     asoc:
       url:   "https://bbh.cloud.appscan.com"
-      keyId: "<AppScan key ID>"
-      token: "<Jenkins credential ID of your AppScan key secret>"
 {code}
 
 h3. Specific to this pipeline
@@ -1117,8 +1110,6 @@ projects:
 
     asoc:
       url:   "https://bbh.cloud.appscan.com"
-      keyId: "<AppScan key ID>"
-      token: "<Jenkins credential ID of your AppScan key secret>"
 
     tools:
       nexusIq:
@@ -1145,7 +1136,7 @@ projects:
 * {{buildTool}}, {{build}} and {{javaPath}} (or {{buildToolAutoSetup: true}}) build the artifact; without a JDK the Build artifact stage stops with *JAVA_HOME parameter is not specified*.
 * {{scm.bitbucket}} is where the {{GoldenFix-YYYYMMDDHHMM}} branch is pushed and the pull request is raised, into {{targetBranch}} or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
 * {{goldenFix}} is on by default; every setting of [the configuration reference|#ch15] applies, such as {{minThreatLevel}}, {{ecosystems}} and the pre-check build under {{goldenFix.verify}}.
-* {{asoc.keyId}} *stays required* although this pipeline runs no AppScan scan: the library checks {{asoc.keyId}} of every service at the start of every pipeline. {{appId}} is shown so that one service entry serves every pipeline of the service.
+* No AppScan key is needed: the key of the functional user is a setting of the library defaults and only AppScan stages read it. {{appId}} is shown so that one service entry serves every pipeline of the service.
 * {{build.node}} builds a frontend with Node.js before the artifact build, as in [the full pipeline|#ch9]. While {{build.node.nexusIqScan}} is not {{false}}, the {{package-lock.json}} of {{build.node.dir}} joins the scan patterns of the service, so that Nexus IQ also reports the npm dependencies and GoldenFix can raise them in {{package.json}}. The npm pre-check of GoldenFix then runs with the Node.js, the registry and the {{.npmrc}} of that build.
 
 h3. Several services in one repository: one job and shared version catalogs
@@ -1327,8 +1318,7 @@ projects:
 
     asoc:                            # HCL AppScan on Cloud (required)
       url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
-      keyId:       ""                # AppScan API key ID of this service, for SAST and DAST
-      token:       ""                # Jenkins Secret text credential holding the key secret [default: a credential named like keyId]
+                                     # the API key (keyId, token) is the functional user's one in the library defaults; a service value is ignored
       insecureTls: false             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false
       doCompile:   true              # compile the project before the IRX is generated
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
@@ -1756,8 +1746,8 @@ h3. Nexus IQ and SonarQube while AppScan scans
 h3. Which fields are required
 
 ||Field||Required||Notes||
-|{{asoc.keyId}}|YES, for every service|Pipeline fails at init without it|
-|{{asoc.token}}|Recommended|Secret text credential with the AppScan key secret of the service, for SAST and DAST; without it the credential named like {{asoc.keyId}} is used|
+|{{asoc.keyId}}|NO, library defaults only|The key ID of the functional AppScan on Cloud user in {{resources/com/bbh/devsecops/defaults.yaml}}; a value of a service is ignored with a warning, SAST and DAST stop with a message while the defaults hold none|
+|{{asoc.token}}|NO, library defaults only|Secret text credential with the key secret of the functional user, in the library defaults; without it the credential named like {{asoc.keyId}} is used; a value of a service is ignored with a warning|
 |{{appId}}|YES|Needed for AppScan SAST and DAST|
 |{{tools.sonar.projectKey}}|Auto-resolved / Recommended|When auto-resolve is enabled (default), automatically synthesizes {{com.bbh:<projectName>}}|
 |{{tools.nexusIq.application}}|Recommended; YES with {{scanPatterns}} for {{devSecOpsNexusIqGoldenFixPipeline}}|Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it|
@@ -1809,14 +1799,11 @@ The {{RepoStackAutoResolver}} component eliminates over 80% of manual onboarding
 h4. How to use in standalone mode (devsecops_config.yaml)
 
 # *Default Behaviour*: Auto-resolve is enabled by default ({{autoresolve parameters: true}}). You can omit build tool details, compiler paths, Node.js directories, and Sonar properties from {{devsecops_config.yaml}}.
-# *Minimal Configuration Example*: Application teams need to provide only the application ID and AppScan key ID in {{devsecops_config.yaml}}:
+# *Minimal Configuration Example*: Application teams need to provide only the application ID in {{devsecops_config.yaml}}; the AppScan API key is the one of the functional user in the library defaults:
 {code:yaml}
 projects:
   payment-service:
     appId: "APP-54321"
-    asoc:
-      keyId: "11111111-2222-3333-4444-555555555555"
-      token: "APPSCAN_KEY_SECRET_CREDENTIAL_ID"
 {code}
 The pipeline automatically resolves the build tool (Maven / Gradle / C#.NET / Liquibase / Flutter / Python), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
 # *Disabling Auto-Resolve*: To mandate strict manual configuration and disable heuristic resolution, set {{autoresolve parameters: false}}:
@@ -1827,8 +1814,6 @@ projects:
     buildTool: maven
     deployTarget: vm
     appId: "APP-54321"
-    asoc:
-      keyId: "11111111-2222-3333-4444-555555555555"
 {code}
 
 ----
@@ -1854,7 +1839,6 @@ Fails if:
 * the library resource {{com/bbh/devsecops/defaults.yaml}} cannot be read
 * a name in {{projectNames}}, {{PROJECT_NAMES}} or {{PROJECT_NAME}} is not a service of the file
 * an extended pipeline finds no {{pipeline-config.yaml}} in the last successful build of its security job, a service of the run is missing from it, or a tag in it is not a plain tag
-* {{asoc.keyId}} is empty for a service of the run
 
 h3. Stage 0: Node.js build (optional)
 
@@ -2061,7 +2045,7 @@ GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange
 
 h3. Stage 4: SAST – HCL AppScan
 
-Downloads and unpacks SAClientUtil (the AppScan CLI), compiles every project and generates its IRX archive, queues all projects for the scan, and then waits for the results one by one. Before a project is queued and before its results are read, the CLI logs in with the key of that project ({{asoc.keyId}} and the secret of {{asoc.token}}). The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The HTML report of each project is downloaded and parsed, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the bundled defaults (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
+Downloads and unpacks SAClientUtil, which compiles every project and generates its IRX archive. Everything else goes through the AppScan on Cloud REST API v4 with {{curl}} ({{curl.exe}} from a batch step on Windows agents): the IRX of each project is uploaded ({{FileUpload}}), all projects are queued for the scan ({{Scans/Sast}}), and the results are then read one by one: the scan status is polled until it is {{Ready}}, and the HTML and the PDF report are generated and downloaded. The pipeline signs in once with the API key of the functional user from the library defaults ({{asoc.keyId}} and the secret of {{asoc.token}}), keeps the bearer token for the next calls and signs in again only after 90 minutes; the request body with the secret is written to the temporary folder of the build and removed after the call, so the secret never appears on a command line or in the console, and the proxy password and the token are not echoed. The scan is named {{sast.scanName}} when it is set, otherwise {{<scan name>-sast}}, where the scan name comes from {{tools.sonar.projectName}} or the service name; the file names keep the scan name. The reports leave out the issues with the {{Noise}} status, the HTML report of each project is parsed without them, and the counts are compared with {{sast.maxCritical}}, {{sast.maxHigh}} and {{sast.maxMedium}} of the bundled defaults (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
 
 After a Node.js build in the same run, the folders that an IRX archive leaves out also hold {{node_modules}}, so the installed npm packages are not scanned as source code. This applies to every IRX archive of the run, unless included folders ({{includedDirs}}) are set or {{node_modules}} is already among the excluded folders ({{excludedDirs}}). Without a Node.js build nothing changes. The rule has limits:
 * With included folders set, only those folders are scanned and the excluded folders do not apply.
@@ -2120,7 +2104,7 @@ Every test stage runs *all* configured jobs, even when some of them fail, and th
 
 h3. Stage 11: DAST – HCL AppScan
 
-Runs only for projects with {{dast.enabled: true}}. Signs in to the AppScan REST API with the key of the project ({{asoc.keyId}} and the secret of {{asoc.token}}) and queues a DAST scan against {{dast.targetUrl}}. Uses optional {{dast.presenceId}} for scanning internal (non-internet-accessible) environments.
+Runs only for projects with {{dast.enabled: true}}. Signs in to the AppScan REST API with the API key of the functional user from the library defaults ({{asoc.keyId}} and the secret of {{asoc.token}}), reusing the token of SAST when the run already holds one, and queues a DAST scan against {{dast.targetUrl}}. Uses optional {{dast.presenceId}} for scanning internal (non-internet-accessible) environments.
 
 The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as *PDF*. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the *HCL AppScan* console page of the scan (under {{asoc.url}}, otherwise {{APPSCAN_SERVER_URL}}) and the PDF report. Above the DAST thresholds of the bundled defaults the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
 
@@ -2232,8 +2216,6 @@ projects:
     buildTool:    dotnet
     deployTarget: vm
     asoc:
-      keyId:     "bbh_orders_api_key"
-      token:     "orders-api-asoc-secret"
       doCompile: true
     build:
       buildPath: "src/Orders.Api/bin/Release/**/*.dll"
@@ -2313,8 +2295,6 @@ projects:
     deployTarget: vm
     sourceDir:    "db"
     asoc:
-      keyId:      "appscan-key-id"
-      token:      "appscan-secret-cred"
       doCompile:  true
       liquibase:
         commands: ["updateSQL"]
@@ -2377,8 +2357,6 @@ projects:
     deployTarget: openshift
     javaPath:     "/usr/lib/jvm/java-21"
     asoc:
-      keyId:      "appscan-key-id"
-      token:      "appscan-secret-cred"
       doCompile:  true
       liquibase:
         commands: ["updateSQL"]
@@ -2603,7 +2581,7 @@ h3. Complete method reference
 |{{nodeBuildNeeded()}}|{{true}} when the current project needs the Node.js build in this pipeline: enabled, and in the SAST scanning pipeline only while {{asoc.doCompile}} is not false on a Linux or macOS agent|
 |{{nodeBuild()}}|Run the Node.js build of the current project ({{build.node}}): Node.js home, registry or {{.npmrc}}, environment, commands, timeout|
 |{{appscanSetup()}}|Download and extract SAClientUtil|
-|{{appscanLogin()}}|Authenticate the AppScan CLI|
+|{{appscanLogin()}}|Sign in to the AppScan REST API with the key of the library defaults, once per token|
 |{{appscanResolveSourceDir(String path = null)}}|Set the IRX source directory|
 |{{appscanGenerateIRX(int timeoutMin = 120)}}|Compile and generate the IRX archive|
 |{{appscanQueue(Map config)}}|Queue the SAST scan for the current project|
@@ -3282,9 +3260,9 @@ h3. "[INIT] Security pipeline <job> builds <services>, this run builds <service>
 
 The security build copied by the extended pipeline holds no run-time tags for a service of the extended run. The two Jenkinsfiles name other services; give both the same {{projectNames}}, or name the security job of these services in {{securityPipeline}}.
 
-h3. "asoc.keyId must be set for the service <service> in ..."
+h3. "[SAST] asoc.keyId is not set in resources/com/bbh/devsecops/defaults.yaml of the library ..."
 
-Set the AppScan key ID of the named service in the file the message names ({{devsecops_config.yaml}} or {{config.yaml}} of the repository). Every service of the run needs its own. The key secret is a Jenkins *Secret text* credential named in {{asoc.token}}, never a value of the file.
+The library defaults hold no key ID of the functional AppScan on Cloud user; DAST says the same with {{[DAST]}}. The DevSecOps team sets {{asoc.keyId}} and {{asoc.token}} (the Jenkins *Secret text* credential with the key secret) in {{resources/com/bbh/devsecops/defaults.yaml}} of the library. A key ID in {{devsecops_config.yaml}} or {{config.yaml}} of a service does not help: it is ignored with a {{[WARN]}} line that names it.
 
 h3. "JAVA_HOME parameter is not specified"
 
@@ -3508,7 +3486,8 @@ h3. Problems on a first run
 |{{[INIT] pipelineKey and pipelineKeys are settings of ...}}|The {{Jenkinsfile}} was written for the {{main}} release and names a pipeline key. Name the services in {{projectNames}} and the agents in {{agentNames}}, and commit {{devsecops_config.yaml}}.|
 |{{No agentNames in the Jenkinsfile}}|The Jenkinsfile names no agent labels. Add {{agentNames}}.|
 |{{Neither devsecops_config.yaml nor config.yaml is at the root of the repository}}|The repository needs one of the two files, spelled exactly so, at its root, on the branch the job builds.|
-|{{asoc.keyId must be set}}|The AppScan key ID is missing from the named service in the file the message names, {{devsecops_config.yaml}} or {{config.yaml}}.|
+|{{asoc.keyId is not set in resources/com/bbh/devsecops/defaults.yaml}}|The library defaults hold no key ID of the functional AppScan on Cloud user. The DevSecOps team sets {{asoc.keyId}} and {{asoc.token}} there; a service sets only its {{appId}}.|
+|{{[WARN] <service>: asoc.keyId ... ignored}}|The service configuration names an AppScan key, token or credential. Remove it: SAST and DAST always sign in with the key of the functional user from the library defaults.|
 |{{[SONAR] Badge token credentials ... could not be read}}|The credential named in {{tools.sonar.badgeCredentialsId}} does not exist or is not Secret text. The stage result does not change; the report uses {{badgeToken}} or shows no badges.|
 |{{[OPENSHIFT] <service>: RD deployment not required}}, {{QC deployment not required}}|Nexus delivery is off for the service and the region has no build tag, so there is no image to deploy: RD needs {{deploy.openshift.rd.buildTag}}, QC its own {{deploy.openshift.qc.buildTag}} or the RD tag. Pin a tag or turn the delivery on.|
 |{{The Nexus IQ GoldenFix pipeline would scan nothing}}|The service has no Nexus IQ application or no scan patterns in the file the message names, {{devsecops_config.yaml}} or {{config.yaml}}. Set both under {{tools.nexusIq}}.|

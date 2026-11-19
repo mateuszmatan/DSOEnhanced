@@ -74,7 +74,7 @@ class ConfigLoader implements Serializable {
                 Map merged = deepMerge(state.cfgDefaults, rawProj)
                 state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName, rawProj)
                 recordAutoResolved(pName as String, merged, state.projectsAllCfg[pName] as Map)
-                appScanKeyId(pName)
+                warnIgnoredAppScanKey(pName as String, rawProj)
             }
             def primaryName = projectNames[0]
             state.cfg = state.projectsAllCfg[primaryName]
@@ -85,7 +85,7 @@ class ConfigLoader implements Serializable {
             script.echo "[INIT] APPSCAN_SCAN_NAME=${script.env.APPSCAN_SCAN_NAME}"
         }
 
-        script.env.APPSCAN_KEY_ID = appScanKeyId(state.currentProjectName)
+        script.env.APPSCAN_KEY_ID = BuildUtils.appScanKeyId(state.cfgDefaults)
         validateCrossServiceRepositories(projectNames as List)
         List unscanned = variant == 'nexusiq' ? withoutNexusIqScan(projectNames as List) : []
         if (unscanned) script.error "[INIT] The Nexus IQ GoldenFix pipeline would scan nothing for ${unscanned.join(', ')}: set tools.nexusIq.application and its scanPatterns for the service in ${state.settingsPlace()}"
@@ -226,7 +226,6 @@ class ConfigLoader implements Serializable {
         state.currentProjectName = projectName
         script.env.CURRENT_PROJECT_NAME = projectName
         script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
-        script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
     }
 
     void refreshAutoResolvedConfig(String projectName, String targetDir = '') {
@@ -250,10 +249,24 @@ class ConfigLoader implements Serializable {
         for (Map r : found) script.echo "[INIT] Auto-resolved for ${projectName}: ${r.field} = ${r.value} (${r.reason})"
     }
 
-    private String appScanKeyId(String projectName) {
-        String keyId = ((state.projectsAllCfg[projectName]?.sast?.keyId ?: state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
-        if (!keyId) script.error "[INIT] asoc.keyId must be set for the service ${projectName} in ${state.settingsPlace()}"
-        return keyId
+    private void warnIgnoredAppScanKey(String projectName, Map rawProj) {
+        List ignored = ignoredAppScanKeySettings(rawProj)
+        if (!ignored) return
+        script.echo "[WARN] ${projectName}: ${ignored.join(', ')} in ${state.settingsPlace()} ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/${BuildUtils.defaultsResource()} of the library; a service sets only its application ID (appId)"
+    }
+
+    @NonCPS
+    static List ignoredAppScanKeySettings(Map rawProj) {
+        List found = []
+        for (String block : ['asoc', 'sast', 'dast']) {
+            def section = rawProj?.get(block)
+            if (!(section instanceof Map)) continue
+            for (String key : ['keyId', 'token', 'credentialsId']) {
+                def value = (section as Map).get(key)
+                if (value != null && value.toString().trim()) found << "${block}.${key}".toString()
+            }
+        }
+        return found
     }
 
     void applyPolicy() {

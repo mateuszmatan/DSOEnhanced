@@ -52,7 +52,7 @@ A Product represents an overarching business application (e.g., *Payments Hub*, 
 - **Jenkins Agents:** Comma-separated labels of Jenkins nodes assigned to run the pipelines (the first agent is the default).
 
 > [!NOTE]
-> **Credentials Architecture:** The *AppScan API Key ID* field has been removed from the Product level. All security credentials are now configured directly within individual Services to maintain consistency and isolation.
+> **Credentials Architecture:** Neither a Product nor a Service holds an AppScan API key. SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, which the DevSecOps team keeps in the library defaults (`asoc.keyId` and the Jenkins Secret text credential named in `asoc.token`). A Service holds only its AppScan application ID.
 
 ---
 
@@ -145,9 +145,9 @@ Static security analysis inspects application source code for security vulnerabi
   - The HCL ASOC cloud scan is queued in the background and runs **in parallel** with Nexus IQ and SonarQube.
   - Results are fetched at the end of the static analysis stage, significantly reducing overall pipeline duration.
 - **Streamlined Configuration:**
-  - `asoc.token` is positioned in the **main SAST section**.
+  - The **main SAST section** holds only the AppScan application ID (`appId`) of the service.
   - `sast.scanName` is available in **Advanced Settings** for custom scan naming.
-  - Credentials (`asoc.keyId`, `asoc.token`) are configured per service.
+  - The API key of the functional user (`asoc.keyId`, `asoc.token`) is a setting of the library defaults, shared by every service; the portal never asks for it.
 
 ---
 
@@ -260,8 +260,7 @@ Every pipeline execution streams performance and quality data to InfluxDB:
 | **Cypress Command** | Cypress invocation command | `npx cypress run --component` | Project scripts | <span class="badge badge-optional">OPTIONAL</span> |
 | **Cypress Reports Dir** | JUnit test reports folder | `cypress/results` | Cypress reporter | <span class="badge badge-optional">OPTIONAL</span> |
 | **Coverage Minimum** | Enforced coverage percentage | `80` | BBH standard default (80) | <span class="badge badge-default">DEFAULT</span> |
-| **AppScan ASOC Key ID** | ASOC API key credential ID | `asoc-key-payments-api` | Jenkins Credentials store | <span class="badge badge-required">YES</span> |
-| **AppScan ASOC Token** | ASOC API secret credential ID | `asoc-secret-payments-api` | Jenkins Credentials store | <span class="badge badge-required">YES</span> |
+| **AppScan Application ID** | ASOC application of the service (SAST and DAST) | `209f44ac-dd06-4ca0-884e-d944904f8020` | HCL ASOC application settings | <span class="badge badge-required">YES</span> |
 | **SAST Scan Name** | Custom ASOC scan display name | `PAYHUB-API-Nightly` | Team preference (optional) | <span class="badge badge-optional">OPTIONAL</span> |
 | **Sonar Installation** | SonarQube server in Jenkins | `BBH-SonarQube` | Standard Jenkins tool name | <span class="badge badge-default">DEFAULT</span> |
 | **Sonar Auth Token** | SonarQube token credential ID | `sonar-auth-token-id` | Jenkins Credentials store | <span class="badge badge-required">YES</span> |
@@ -284,7 +283,7 @@ Every pipeline execution streams performance and quality data to InfluxDB:
    - Click **Copy values** (replicate an existing service), OR
    - Fill in the form fields using contextual tooltips for guidance.
 3. **Configure Security:**
-   - Supply AppScan ASOC credentials in the main SAST section.
+   - Supply the AppScan application ID in the main SAST section; the API key comes from the library defaults.
    - Enter SonarQube credentials and choose either Badge Token or Badge Credentials ID.
    - Enter your single Nexus IQ Application ID.
 4. **Configure Target Deployment:**

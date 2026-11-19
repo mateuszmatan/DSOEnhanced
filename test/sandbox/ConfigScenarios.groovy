@@ -189,9 +189,11 @@ String otherKeyId = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
 Map perKey = fromFile('full', agents, ['devsecops_config.yaml': configWith { Map p -> ((p['backend-api'] as Map).asoc as Map).keyId = otherKeyId }])
 String primaryKeyId = perKey.j.env.APPSCAN_KEY_ID
 if (!perKey.initError) perKey.harness.run { perKey.loader.switchProject('backend-api') }
-check('an AppScan key per service: APPSCAN_KEY_ID is the key of the primary service after the start and the key of the current service after switchProject',
-        !perKey.initError && primaryKeyId == 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9' && perKey.j.env.APPSCAN_KEY_ID == otherKeyId,
-        "${perKey.initError} | ${primaryKeyId} | ${perKey.j.env.APPSCAN_KEY_ID}")
+List keyWarnings = (perKey.j.log as List).findAll { it.startsWith('[WARN] ') && it.contains(' ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library') }
+check('one AppScan key for every service: APPSCAN_KEY_ID is the key ID of the library defaults after the start and after switchProject, and a key a service sets is named as ignored',
+        !perKey.initError && primaryKeyId == 'bbh_asoc-functional-user-key' && perKey.j.env.APPSCAN_KEY_ID == primaryKeyId
+                && keyWarnings.size() == 2 && keyWarnings.every { it.contains('asoc.keyId in devsecops_config.yaml ignored') },
+        "${perKey.initError} | ${primaryKeyId} | ${perKey.j.env.APPSCAN_KEY_ID} | ${keyWarnings}")
 
 j = jenkins([PROJECT_NAME: 'gui'])
 j.files['config.yaml'] = configText
@@ -205,9 +207,11 @@ check('a custom Jenkinsfile that calls initialize() without configure() reads co
                 && runStateOf(j).keySet().toList() == ['gui'],
         "${run.error} | ${customPlace} | ${runStateOf(j).keySet()}")
 
-Map noKeyId = fromFile('full', agents, ['config.yaml': configWith { Map p -> ((p['backend-api'] as Map).asoc as Map).remove('keyId') }])
-check('a service without asoc.keyId stops the build at the start, also when it is not the primary service, and the message names the file',
-        noKeyId.initError == '[INIT] asoc.keyId must be set for the service backend-api in config.yaml', noKeyId.initError)
+Map noKeyId = fromFile('full', agents, ['config.yaml': configWith { Map p -> p.values().each { ((it as Map).asoc as Map)?.remove('keyId') } }])
+check('a service without asoc.keyId starts: the key ID comes from the library defaults, and no warning is written',
+        !noKeyId.initError && noKeyId.j.env.APPSCAN_KEY_ID == 'bbh_asoc-functional-user-key'
+                && !(noKeyId.j.log as List).any { it.contains('the AppScan on Cloud API key of the functional user') },
+        "${noKeyId.initError} | ${noKeyId.j.env.APPSCAN_KEY_ID}")
 
 Map invalid = fromFile('full', agents, ['devsecops_config.yaml': 'projects: ['])
 check('a file that is not YAML names the file and the parser message', (invalid.initError as String).startsWith('[INIT] devsecops_config.yaml is not valid YAML: '), invalid.initError)

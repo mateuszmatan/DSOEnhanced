@@ -15,6 +15,10 @@ defaults:
       maxHigh:     0
       maxMedium:   0
 
+  asoc:                            # HCL AppScan on Cloud API key of the functional user, used by SAST and DAST of every service
+    keyId: ""                       # Key ID of the API key; a service cannot change it and sets only its appId
+    token: ""                       # Jenkins Secret text credential holding the key secret [default: a credential named like keyId]
+
   sast:
     maxCritical:       0
     maxHigh:           0
@@ -22,6 +26,8 @@ defaults:
     prepareTimeoutMin: 120
     pollTimeoutMin:    50
     pollIntervalSec:   30
+    reportTimeoutMin:  30          # how long to wait for AppScan to render the HTML and PDF report
+    reportIntervalSec: 30          # delay between two attempts to fetch the rendered report
 
   sca:
     enabled:         true

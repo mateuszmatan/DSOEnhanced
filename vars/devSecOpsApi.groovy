@@ -258,7 +258,7 @@ def vulnerabilitySummary() {
 }
 
 def appscanSetup()                           { _setup(); _appScan.setup() }
-def appscanLogin()                           { _setup(); _appScan.cliLogin() }
+def appscanLogin()                           { _setup(); _appScan.sastLogin() }
 def appscanResolveSourceDir(String p = null) { _setup(); _appScan.resolveSourceDir(p) }
 def appscanGenerateIRX(int timeoutMin = 120) { _setup(); _appScan.generateIrx(timeoutMin) }
 def appscanQueue(Map config)                 { _setup(); _appScan.queueSast(config) }

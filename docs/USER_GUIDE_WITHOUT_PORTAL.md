@@ -56,20 +56,20 @@ In the `DSOEnhancedWithoutPortal` branch, the library operates independently of 
 | :--- | :--- | :--- | :--- |
 | **Build & Unit Tests** (Stages 0 & 2) | Optional `buildTool` (auto-detected if omitted/invalid), `build.<tool>`, `tests.unitTests.<tool>`, `coverage.minLine` | Matching SDK/compiler on agent (JDK, Gradle/Maven, .NET SDK or VS BuildTools `MSBuild.exe` / `NuGet.exe` / `vstest.console.exe` / `OpenCover.Console.exe`, Node.js, Python, Flutter, Liquibase) | Compiles artifact, runs unit tests, aggregates JaCoCo/LCOV/Cobertura/OpenCover reports, and enforces line coverage gate |
 | **Nexus IQ & GoldenFix** (Stage 3) | `tools.nexusIq.application`, `credentialsId`, `scanPatterns`; optional `goldenFix.enabled: true` + `scm.bitbucket` | Jenkins Nexus Platform Plugin, `git`, `curl` / `curl.exe` | Evaluates open-source dependencies, verifies upgrades in an isolated Git worktree, updates manifests/version catalogs, and raises Bitbucket PR |
-| **HCL AppScan SAST** (Stage 4) | `appId`, `asoc.keyId`, `asoc.token` / `keySecret`; optional `asoc.doCompile`, `asoc.<tool>` | HCL AppScan SAClientUtil (`SA_LINUX_URL` / `SA_WIN_URL` or `appscanPath`) | Compiles sources, generates `.irx`, runs cloud SAST analysis, enforces severity limits, and posts inline PR comments on vulnerable lines |
+| **HCL AppScan SAST** (Stage 4) | `appId`; optional `asoc.doCompile`, `asoc.<tool>` (the API key is the functional user's one in the library defaults) | HCL AppScan SAClientUtil (`SA_LINUX_URL` / `SA_WIN_URL` or `appscanPath`) for the IRX, `curl` (`curl.exe` on Windows) | Compiles sources, generates `.irx`, uploads and queues it through the AppScan REST API v4, downloads reports without Noise issues, enforces severity limits, and posts inline PR comments on vulnerable lines |
 | **SonarQube SCA** (Stage 5) | `tools.sonar.projectKey` (auto-generated as `com.bbh:<service>` if omitted), `installationName`, `authToken` / `credentialsId` | Jenkins SonarQube plugin (`withSonarQubeEnv`), `SonarScanner.MSBuild.exe` / `dotnet-sonarscanner` / `sonar-scanner` | Executes static code quality & security analysis, fetches issue counts via REST API, enforces quality gate, and posts inline PR comments |
 | **Delivery & Deployment** (Stages 6, 7, 12, 13) | `deployTarget` (`openshift` or `vm`, auto-detected if omitted), `deploy.<target>.<rd\|qc>`, optional `delivery.<maven\|gradle\|nuget>` | OpenShift (`oc`, `skopeo`) or VM (SSH / UrbanCode Deploy DOD plugin), Nexus credentials | Publishes snapshot/release artifacts or container images and deploys to RD and QC (gated by `release-gate.json`) |
 | **Regression / Smoke / Performance** (Stages 8, 9, 10) | `tests.regression.jobs` (`urls`), `tests.smoke.jobs` (`urls`), `tests.performance.jobs` (`urls`) | Local Jenkins jobs or Parameterized Remote Trigger plugin | Triggers test jobs in parallel batches and records results in HTML report and InfluxDB |
-| **HCL AppScan DAST** (Stage 11) | `dast.enabled: true`, `dast.targetUrl`, `dast.scanName`, `asoc.keyId` | Running service in RD reachable at `dast.targetUrl` (optional `dast.presenceId`) | Executes dynamic runtime security scan, downloads HTML/PDF reports, enforces policy, and raises DAST findings PR |
+| **HCL AppScan DAST** (Stage 11) | `dast.enabled: true`, `dast.targetUrl`, `dast.scanName`, `appId` | Running service in RD reachable at `dast.targetUrl` (optional `dast.presenceId`) | Executes dynamic runtime security scan, downloads HTML/PDF reports, enforces policy, and raises DAST findings PR |
 
 #### C. Breakdown per Pipeline Type
 
 | Pipeline Entry Point | Stages Executed | Required Config Sections | Produced Artifacts & PRs |
 | :--- | :--- | :--- | :--- |
-| `devSecOpsPipeline` *(Full Pipeline)* | All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy) | `asoc.keyId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast` | `report/pipeline-report.html`, `appscan-report*.html`, `appscan-dast-report*.pdf`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR |
-| `devSecOpsSecurityPipeline` *(Security Pipeline)* | Stages 1, 0 (optional), 2, 3, 4, 5, 6; optionally triggers `extendedPipeline` | `asoc.keyId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>.rd` | `report/pipeline-report.html`, `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR |
-| `devSecOpsExtendedPipeline` *(Extended Pipeline)* | Stages 1 (copies state from `securityPipeline`), 7, 8, 9, 10, 11, 12, 13 | `asoc.keyId`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast` | `report/pipeline-report.html`, `appscan-dast-report*.html/.pdf`, `pipeline-config.yaml`, `release-gate.json`, DAST PR |
-| `devSecOpsSASTScanningPipeline` *(SAST-Only Pipeline)* | Stages 1, 0 (optional), 4 (AppScan SAST) | `appId`, `asoc.keyId`, `asoc.token` / `keySecret` | `report/pipeline-report.html` (SAST view), `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json` |
+| `devSecOpsPipeline` *(Full Pipeline)* | All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy) | `appId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast` | `report/pipeline-report.html`, `appscan-report*.html`, `appscan-dast-report*.pdf`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR |
+| `devSecOpsSecurityPipeline` *(Security Pipeline)* | Stages 1, 0 (optional), 2, 3, 4, 5, 6; optionally triggers `extendedPipeline` | `appId`, `tools.nexusIq`, `tools.sonar`, `deploy.<target>.rd` | `report/pipeline-report.html`, `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR, Static Security PR |
+| `devSecOpsExtendedPipeline` *(Extended Pipeline)* | Stages 1 (copies state from `securityPipeline`), 7, 8, 9, 10, 11, 12, 13 | `appId`, `deploy.<target>`, `tests.<regression\|smoke\|performance>`, `dast` | `report/pipeline-report.html`, `appscan-dast-report*.html/.pdf`, `pipeline-config.yaml`, `release-gate.json`, DAST PR |
+| `devSecOpsSASTScanningPipeline` *(SAST-Only Pipeline)* | Stages 1, 0 (optional), 4 (AppScan SAST) | `appId` | `report/pipeline-report.html` (SAST view), `appscan-report*.html`, `pipeline-config.yaml`, `release-gate.json` |
 | `devSecOpsNexusIqGoldenFixPipeline` *(Nexus IQ + GoldenFix)* | Stages 1, 0 (optional), 2 (Build), 3 (Nexus IQ + GoldenFix) | `tools.nexusIq.application` + `scanPatterns`, `goldenFix`, `scm.bitbucket` | `report/pipeline-report.html` (Nexus IQ + GoldenFix view), `pipeline-config.yaml`, `release-gate.json`, GoldenFix PR |
 
 ---
@@ -183,11 +183,10 @@ Static security analysis executed in the cloud:
   - Generates the IRX archive and submits the scan to HCL ASOC in the background.
   - Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.
 - **Credentials Configuration:**
-  - Configured per service in the `asoc:` section:
+  - SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (`asoc.keyId` and the Jenkins Secret text credential named in `asoc.token` of `resources/com/bbh/devsecops/defaults.yaml`).
+  - A service sets only its application ID; a `keyId`, `token` or `credentialsId` of a service is ignored with a `[WARN]` line:
     ```yaml
     asoc:
-      keyId: 'asoc-key-id-backend'
-      token: 'asoc-secret-id-backend'
       appId: '10982'
     ```
 - **Custom Scan Name:**
@@ -332,9 +331,7 @@ projects:
 
     # 4. Static Application Security Testing (HCL AppScan SAST)
     asoc:
-      keyId: 'asoc-key-id-backend'                # Jenkins credentials ID
-      token: 'asoc-secret-id-backend'             # Jenkins credentials ID
-      appId: '10982'                              # Application ID in HCL ASOC
+      appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
 
@@ -391,8 +388,6 @@ projects:
       minimum: 80
 
     asoc:
-      keyId: 'asoc-key-id-gui'
-      token: 'asoc-secret-id-gui'
       appId: '10983'
 
     tools:
@@ -432,7 +427,7 @@ projects:
 | `unitTests.cypress.command` | Custom Cypress command | `npx cypress run --component` | <span class="badge badge-optional">OPTIONAL</span> |
 | `unitTests.cypress.reportsDir` | Cypress JUnit reports dir | `cypress/results` | <span class="badge badge-optional">OPTIONAL</span> |
 | `coverage.minimum` | Quality gate threshold | `80` | <span class="badge badge-default">DEFAULT 80</span> |
-| `asoc.keyId` & `asoc.token` | AppScan SAST credentials | `asoc-cred-id` (from Jenkins) | <span class="badge badge-required">YES</span> |
+| `asoc.appId` | AppScan application ID of the service (SAST and DAST); the API key is set once in the library defaults | `10982` | <span class="badge badge-required">YES</span> |
 | `sast.scanName` | ASOC scan display name | `PAYHUB-NIGHTLY` | <span class="badge badge-optional">OPTIONAL</span> |
 | `tools.sonar.authToken` | SonarQube authentication secret | `sonar-token-id` | <span class="badge badge-required">YES</span> |
 | `tools.sonar.badgeToken` | Sonar badge token (raw) | `raw-token-string` | <span class="badge badge-optional">1 OF 2</span> |

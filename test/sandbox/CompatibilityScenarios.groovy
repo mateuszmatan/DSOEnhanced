@@ -48,11 +48,11 @@ Closure observed = { FakeScript j, def state, Map runState ->
           projectsAllCfg: state.projectsAllCfg, cfgDefaults: state.cfgDefaults, cfg: state.cfg,
           policyLimits  : state.policyLimits, minRequired: state.coverage.minRequired,
           primary       : state.currentProjectName, runState: runState,
-          env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME', 'APPSCAN_KEY_ID'].collectEntries { [(it): j.env.vars.get(it)] },
+          env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME'].collectEntries { [(it): j.env.vars.get(it)] },
           log           : j.log.findAll { it.startsWith('[INIT]') || it.startsWith('[POLICY]') }])
 }
 
-Closure traced = { FakeScript j, Map run -> run + [trace: [calls: j.calls, probes: j.probes]] }
+Closure traced = { FakeScript j, Map run -> run + [trace: [calls: j.calls, probes: j.probes, appScanKeyId: j.env.vars.get('APPSCAN_KEY_ID')]] }
 Closure loaded = { Map run -> run.findAll { !(it.key in ['log', 'trace']) } }
 
 Closure runOld = { List names ->
@@ -117,6 +117,8 @@ String bothFiles = "[INIT] devsecops_config.yaml and config.yaml are both in the
         List found = sameAsOld(old, run)
         check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: the loader over ${file} and the bundled defaults loads what the b815d55 loader loaded over config.yaml and defaults.yaml, with no rule",
                 !found, found.take(10))
+        check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: APPSCAN_KEY_ID is the AppScan on Cloud key ID of the library defaults, no longer the asoc.keyId of the primary service",
+                ((run.trace ?: [:]) as Map).appScanKeyId == ((defaults.asoc ?: [:]) as Map).keyId, [((run.trace ?: [:]) as Map).appScanKeyId])
     }
 }
 
