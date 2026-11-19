@@ -213,15 +213,15 @@ projects:
           goals: ['test', 'jacoco:report']
         # dotnet:                    # C#/.NET unit tests (auto-detected runner and coverage tool when omitted; invalid values log [WARN] and fall back)
         #   runner:         "auto"   # "auto" | "dotnet" | "vstest" | "mstest" | "nunit" | "xunit" | "hybrid"
-        #   coverageTool:   "auto"   # "auto" | "cobertura" ("coverlet", "xplat") | "opencover" | "dotcover" | "none"
-        #   useDotnetCli:   false    # true: run `dotnet test --collect:"XPlat Code Coverage"`
+        #   coverageTool:   "auto"   # "auto" | "coverlet" ("xplat", OpenCover format, read by SonarQube) | "cobertura" (report only) | "opencover" | "dotcover" | "none"
+        #   useDotnetCli:   false    # true: run `dotnet test --collect "XPlat Code Coverage;Format=opencover"`
         #   vstestPath:     ""       # Windows: path to vstest.console.exe
         #   mstestPath:     ""       # Windows: path to MSTest.exe
         #   nunitPath:      ""       # path to nunit3-console.exe
         #   xunitPath:      ""       # path to xunit.console.exe
         #   opencoverPath:  ""       # Windows: path to OpenCover.Console.exe (collects coverage.opencover.xml)
         #   dotcoverPath:   ""       # path to dotCover.exe
-        #   coverlet:       true     # dotnet CLI: collect XPlat Code Coverage (Cobertura XML)
+        #   coverlet:       true     # dotnet CLI: collect XPlat Code Coverage (coverage.opencover.xml)
         #   testAssemblies: []       # Windows classic MSBuild: explicit test DLL paths/globs [default: auto-discovers **/*Tests.dll]
         #   commands:       []       # optional custom test commands
         #   flags:          []

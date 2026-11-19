@@ -347,6 +347,24 @@ class HtmlReportCardsView implements Serializable {
     }
 
     @NonCPS
+    static String autoResolvedCard(Map projectsAutoResolved) {
+        List rows = []
+        (projectsAutoResolved ?: [:]).each { service, list ->
+            for (def r : ((list ?: []) as List)) {
+                Map item = r as Map
+                rows << ("<tr>" + HtmlReportCardsView.td(HtmlReportCardsView.esc(service as String), 'padding:6px 10px;font-weight:600;')
+                        + HtmlReportCardsView.td("<code>${HtmlReportCardsView.esc(item.field as String)}</code>", 'padding:6px 8px;')
+                        + HtmlReportCardsView.td("<code>${HtmlReportCardsView.esc(item.value as String)}</code>", 'padding:6px 8px;')
+                        + HtmlReportCardsView.td(HtmlReportCardsView.esc(item.reason as String), 'padding:6px 8px;color:#64748b;')
+                        + "</tr>")
+            }
+        }
+        if (!rows) return ''
+        String table = "<div style='overflow-x:auto;'><table style='min-width:520px;'><thead><tr><th>Service</th><th>Setting</th><th>Auto-resolved value</th><th>Why</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>"
+        return HtmlReportCardsView.card('Auto-resolved settings', table)
+    }
+
+    @NonCPS
     static String testJobsHtml(List jobs, int inlineLimit = 10) {
         if (!jobs) return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:#dc2626;font-weight:600;'>No jobs executed - tests are mandatory</div>"
         def sb = new StringBuilder()

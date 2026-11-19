@@ -2268,6 +2268,15 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
                     build       : [dotnet: [mode: 'invalid-mode', coverageTool: 'invalid-cov']],
                     tests       : [unitTests: [dotnet: [runner: 'invalid-runner', coverageTool: 'invalid-cov']]]
             ], 'billing-svc')
+            dotnetE2e.autoChanges = dnHarness.type('com.bbh.utils.RepoStackAutoResolver').changes([
+                    buildTool   : 'invalid-build-tool',
+                    deployTarget: 'invalid-deploy-target',
+                    build       : [dotnet: [mode: 'invalid-mode', coverageTool: 'invalid-cov']],
+                    tests       : [unitTests: [dotnet: [runner: 'invalid-runner', coverageTool: 'invalid-cov']]]
+            ], dotnetE2e.warnResolved as Map)
+            def autoState = dnHarness.type('com.bbh.core.PipelineState').newInstance()
+            autoState.projectsAutoResolved = ['billing-svc': dotnetE2e.autoChanges]
+            dotnetE2e.autoCard = dnHarness.type('com.bbh.report.HtmlReportCardsView').autoResolvedCard(autoState.projectsAutoResolved)
 
             def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(autoWinScript)
             os.detect()
@@ -2308,7 +2317,7 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
                     && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'restore' 'Billing.csproj'") }
                     && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'build' 'Billing.csproj' '--configuration' 'Release' '--no-restore'") }
                     && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'publish' 'Billing.csproj' '--configuration' 'Release' '--no-build' '-o' 'out/pub'") }
-                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'test' 'Billing.csproj' '--configuration' 'Release'") && it.contains("'--collect' 'XPlat Code Coverage'") }
+                    && (dotnetE2e.cliBuildCalls as List<String>).any { it.contains("'dotnet' 'test' 'Billing.csproj' '--configuration' 'Release'") && it.contains("'--collect' 'XPlat Code Coverage;Format=opencover'") }
                     && (dotnetE2e.cliUnitTests as Map)?.subMap(['total', 'failed', 'skipped']) == [total: 11, failed: 0, skipped: 1],
             dotnetE2e)
 
@@ -2379,6 +2388,16 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
                     && autoWinCalls.any { it.startsWith('bat [MSBuild Build]') && it.contains('MSBuild.exe Billing.csproj') }
                     && autoWinCalls.any { it.startsWith('bat [Cake Build]') && it.contains('dotnet.exe cake build.cake') },
             [warnResolved, dotnetE2e.hybridMode, autoWinLog, autoWinCalls])
+
+    List<Map> autoChanges = (dotnetE2e.autoChanges ?: []) as List<Map>
+    String autoCard = (dotnetE2e.autoCard ?: '') as String
+    check('Auto-resolve lists every setting it fills in or corrects with its value and why, and the report shows them in the Auto-resolved settings card',
+            autoChanges.any { it.field == 'buildTool' && it.value == 'dotnet' && (it.reason as String).contains("'invalid-build-tool'") }
+                    && autoChanges.any { it.field == 'tools.sonar.projectKey' && it.value == 'com.bbh:billing-svc' && (it.reason as String).startsWith('not set') }
+                    && autoChanges.any { it.field == 'build.dotnet.mode' && it.value == 'dotnet' }
+                    && autoChanges.any { it.field == 'tests.unitTests.dotnet.runner' && it.value == 'auto' }
+                    && autoCard.contains('Auto-resolved settings') && autoCard.contains('billing-svc') && autoCard.contains('tools.sonar.projectKey') && autoCard.contains('com.bbh:billing-svc'),
+            [autoChanges, autoCard])
 }
 
 void verifyMultiRepoStaticFlowScenarios(File srcDir, File stubDir, File fixturesDir, Closure check) {

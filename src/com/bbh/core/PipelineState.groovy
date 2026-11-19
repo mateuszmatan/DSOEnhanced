@@ -44,6 +44,7 @@ class PipelineState implements Serializable {
     Map projectsScanResults    = [:]
     Map projectsSonarResults   = [:]
     Map projectsAllCfg         = [:]
+    Map projectsAutoResolved   = [:]
 
     Map sonarResults      = [:]
     Map nexusIqResults    = [:]

@@ -797,6 +797,9 @@ class HtmlReportService implements Serializable {
     @NonCPS protected String settingsHtml() {
         return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>Settings from ${esc(state.settingsPlace())} in the repository</div>"
     }
+    @NonCPS protected String autoResolvedCardHtml() {
+        return HtmlReportCardsView.autoResolvedCard((state.projectsAutoResolved ?: [:]) as Map)
+    }
     @NonCPS protected String headerBackground(String buildResult) { return HtmlReportCardsView.headerBackground(buildResult) }
 
     @NonCPS
@@ -883,7 +886,7 @@ ${showsReleasePolicy() ? releaseGateCardHtml(releaseGate) : ''}
 ${goldenFixCardHtml(projectsGoldenFix, isMulti)}
 ${sonarBadgesCards(ctx)}
 ${coverageCard(coverage, projectsCoverage) + ((unitTestsCard(projectsUnitTests)) ? '\n' + unitTestsCard(projectsUnitTests) : '')}
-${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}
+${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}${autoResolvedCardHtml()}
 </div>
 </div>
 </div>

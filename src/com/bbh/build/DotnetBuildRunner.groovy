@@ -108,6 +108,13 @@ class DotnetBuildRunner implements Serializable {
         return DotnetProjectResolver.toolCfg(parentCfg, tool)
     }
 
+    @NonCPS
+    static String coverletCollector(String covTool) {
+        if (covTool == 'coverlet') return 'XPlat Code Coverage;Format=opencover'
+        if (covTool == 'cobertura') return 'XPlat Code Coverage'
+        return ''
+    }
+
     private void runDotnetBuild(Map cfg, Map baseCfg, String target, String configName) {
         String dotnetExe = resolveExecutable(cfg.dotnetPath ?: baseCfg.dotnetPath, os.isWindows() ? 'dotnet.exe' : 'dotnet')
         String nugetConfig = ((cfg.nugetConfig ?: baseCfg.nugetConfig ?: '') as String).trim()
@@ -216,9 +223,8 @@ class DotnetBuildRunner implements Serializable {
         List tokens = [dotnetExe, 'test']
         if (target) tokens << target
         tokens.addAll(['--configuration', configName, '--logger', 'trx;LogFileName=test-results.trx', '--results-directory', resultsDir])
-        if (covTool == 'cobertura') {
-            tokens.addAll(['--collect', 'XPlat Code Coverage'])
-        }
+        String collector = DotnetBuildRunner.coverletCollector(covTool)
+        if (collector) tokens.addAll(['--collect', collector])
         tokens.addAll(BuildUtils.normalizeTokens(cfg.flags))
         if (covTool == 'opencover' && os.isWindows()) {
             wrapWithOpenCover(dotnetExe, tokens.subList(1, tokens.size()), cfg)
@@ -263,9 +269,8 @@ class DotnetBuildRunner implements Serializable {
             wrapWithDotCover(exe, args, cfg)
             return
         }
-        if (covTool == 'cobertura' && runner == 'vstest') {
-            args << '/Collect:XPlat Code Coverage'
-        }
+        String collector = DotnetBuildRunner.coverletCollector(covTool)
+        if (collector && runner == 'vstest') args << "/Collect:${collector}".toString()
         execCommand(formatCommand([exe] + args), label)
     }
 

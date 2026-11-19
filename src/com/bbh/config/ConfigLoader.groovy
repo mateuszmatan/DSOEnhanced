@@ -73,6 +73,7 @@ class ConfigLoader implements Serializable {
                 Map rawProj = (projects[pName] ?: [:]) as Map
                 Map merged = deepMerge(state.cfgDefaults, rawProj)
                 state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName, rawProj)
+                recordAutoResolved(pName as String, merged, state.projectsAllCfg[pName] as Map)
                 appScanKeyId(pName)
             }
             def primaryName = projectNames[0]
@@ -236,8 +237,17 @@ class ConfigLoader implements Serializable {
             current = [:] + current + [sourceDir: targetDir]
         }
         Map updated = autoResolver.resolve(current, projectName, rawProj)
+        recordAutoResolved(projectName, current, updated)
         state.projectsAllCfg[projectName] = updated
         if (state.currentProjectName == projectName) state.cfg = updated
+    }
+
+    private void recordAutoResolved(String projectName, Map before, Map after) {
+        List<Map> found = RepoStackAutoResolver.changes(before, after)
+        Map<String, Map> byField = [:]
+        for (def r : ((state.projectsAutoResolved[projectName] ?: []) as List<Map>) + found) byField[r.field as String] = r as Map
+        state.projectsAutoResolved[projectName] = byField.values() as List
+        for (Map r : found) script.echo "[INIT] Auto-resolved for ${projectName}: ${r.field} = ${r.value} (${r.reason})"
     }
 
     private String appScanKeyId(String projectName) {

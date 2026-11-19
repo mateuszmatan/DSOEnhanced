@@ -2,6 +2,7 @@ package com.bbh.build
 
 import com.bbh.core.OsHelper
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.DotnetOptions
 import com.cloudbees.groovy.cps.NonCPS
 
 class DotnetProjectResolver implements Serializable {
@@ -19,24 +20,23 @@ class DotnetProjectResolver implements Serializable {
     String resolveMode(Map cfg, Map buildCfg, String tool) {
         String rawTool = (tool ?: '').trim().toLowerCase()
         if (rawTool in ['cake', 'nuke']) return rawTool
-        String explicit = ((cfg?.mode ?: cfg?.tool ?: buildCfg?.mode ?: buildCfg?.tool ?: '') as String).trim().toLowerCase()
-        if (explicit && explicit != 'auto') {
-            String mapped = DotnetProjectResolver.normalizeMode(explicit)
+        def explicit = cfg?.mode ?: cfg?.tool ?: buildCfg?.mode ?: buildCfg?.tool
+        if (!DotnetOptions.isAuto(explicit)) {
+            String mapped = DotnetOptions.mode(explicit)
             if (mapped) return mapped
-            String fallback = autoDetectMode(cfg, buildCfg, tool)
-            script.echo "[WARN] Invalid .NET build mode '${explicit}' in configuration. Falling back to auto-detected mode '${fallback}'."
-            return fallback
+            return warnFallback("Invalid .NET build mode '${explicit}' in configuration", 'mode', autoDetectMode(cfg, buildCfg, tool))
         }
         def rawCli = cfg?.useDotnetCli != null ? cfg.useDotnetCli : buildCfg?.useDotnetCli
         if (rawCli != null) {
-            if (DotnetProjectResolver.isValidBoolean(rawCli)) {
-                return BuildUtils.booleanValue(rawCli, false) ? 'dotnet' : 'msbuild'
-            }
-            String fallback = autoDetectMode(cfg, buildCfg, tool)
-            script.echo "[WARN] Invalid useDotnetCli value '${rawCli}' in configuration. Falling back to auto-detected mode '${fallback}'."
-            return fallback
+            if (DotnetOptions.isBoolean(rawCli)) return BuildUtils.booleanValue(rawCli, false) ? 'dotnet' : 'msbuild'
+            return warnFallback("Invalid useDotnetCli value '${rawCli}' in configuration", 'mode', autoDetectMode(cfg, buildCfg, tool))
         }
         return autoDetectMode(cfg, buildCfg, tool)
+    }
+
+    private String warnFallback(String problem, String what, String fallback) {
+        script.echo "[WARN] ${problem}. Falling back to auto-detected ${what} '${fallback}'."
+        return fallback
     }
 
     String autoDetectMode(Map cfg, Map buildCfg, String tool) {
@@ -57,7 +57,7 @@ class DotnetProjectResolver implements Serializable {
         if (cfg?.dotnetPath || buildCfg?.dotnetPath || cfg?.dotnetInstallationName || buildCfg?.dotnetInstallationName) {
             return 'dotnet'
         }
-        List<String> projs = findAllMatching(['*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj'])
+        List<String> projs = findAllMatching(DotnetOptions.projectGlobs())
         if (!projs && script.fileExists('build.cake')) return 'cake'
         if (!projs && script.fileExists('.nuke')) return 'nuke'
         if (!os.isWindows()) return 'dotnet'
@@ -66,13 +66,8 @@ class DotnetProjectResolver implements Serializable {
         boolean modern = script.fileExists('global.json') || script.fileExists('Directory.Packages.props')
         for (String p : projs) {
             String text = readProjectQuiet(p)
-            if (!text) continue
-            if (text.contains('<TargetFrameworkVersion>') || text =~ /(?i)<TargetFrameworks?>\s*net4[0-9]/ || (!text.contains('Sdk=') && text.contains('<Project'))) {
-                classic = true
-            }
-            if (text.contains('Sdk=') && !(text =~ /(?i)<TargetFramework>\s*net4[0-9]/)) {
-                modern = true
-            }
+            classic = classic || DotnetOptions.isClassicProject(text)
+            modern = modern || DotnetOptions.isSdkProject(text)
         }
         if (classic && modern) return 'hybrid'
         if (modern && !classic) return 'dotnet'
@@ -80,38 +75,25 @@ class DotnetProjectResolver implements Serializable {
     }
 
     String resolveTestRunner(Map cfg, Map buildCfg, String mode) {
-        String raw = ((cfg?.runner ?: cfg?.testRunner ?: buildCfg?.testRunner ?: '') as String).trim().toLowerCase()
-        if (!raw || raw == 'auto') {
-            if (mode == 'dotnet') return 'dotnet'
-            if (mode == 'hybrid') return 'hybrid'
-            return 'vstest'
-        }
-        if (raw in ['dotnet', 'cli', 'sdk', 'dotnet-test']) return 'dotnet'
-        if (raw in ['vstest', 'vstest.console']) return 'vstest'
-        if (raw in ['mstest', 'nunit', 'xunit', 'hybrid']) return raw
-        String fallback = mode == 'dotnet' ? 'dotnet' : (mode == 'hybrid' ? 'hybrid' : 'vstest')
-        script.echo "[WARN] Invalid .NET test runner '${raw}' in configuration. Falling back to auto-detected runner '${fallback}'."
-        return fallback
+        def raw = cfg?.runner ?: cfg?.testRunner ?: buildCfg?.testRunner
+        String fallback = mode in ['dotnet', 'hybrid'] ? mode : 'vstest'
+        if (DotnetOptions.isAuto(raw)) return fallback
+        return DotnetOptions.runner(raw) ?: warnFallback("Invalid .NET test runner '${raw}' in configuration", 'runner', fallback)
     }
 
     String resolveCoverageTool(Map cfg, Map buildCfg, String runner) {
-        String raw = ((cfg?.coverageTool ?: buildCfg?.coverageTool ?: '') as String).trim().toLowerCase()
-        if (raw && raw != 'auto') {
-            if (raw in ['cobertura', 'coverlet', 'xplat']) return 'cobertura'
-            if (raw == 'opencover') return 'opencover'
-            if (raw == 'dotcover') return 'dotcover'
-            if (raw in ['none', 'false', 'off', 'disabled']) return 'none'
-            String fallback = defaultCoverageTool(cfg, runner)
-            script.echo "[WARN] Invalid .NET coverageTool '${raw}' in configuration. Falling back to auto-detected coverage tool '${fallback}'."
-            return fallback
-        }
-        return defaultCoverageTool(cfg, runner)
+        def raw = cfg?.coverageTool ?: buildCfg?.coverageTool
+        if (DotnetOptions.isAuto(raw)) return defaultCoverageTool(cfg, runner)
+        String tool = DotnetOptions.coverage(raw)
+        if (!tool) return warnFallback("Invalid .NET coverageTool '${raw}' in configuration", 'coverage tool', defaultCoverageTool(cfg, runner))
+        if (tool == 'cobertura') script.echo "[WARN] .NET coverageTool 'cobertura' writes a report SonarQube cannot import for C#; use 'coverlet' (OpenCover format) to see the coverage in SonarQube too."
+        return tool
     }
 
     String defaultCoverageTool(Map cfg, String runner) {
         String ocPath = ((cfg?.opencoverPath ?: '') as String).trim()
         if ((ocPath || BuildUtils.booleanValue(cfg?.opencover, false)) && os.isWindows()) return 'opencover'
-        if (runner == 'dotnet') return BuildUtils.booleanValue(cfg?.coverlet, true) ? 'cobertura' : 'none'
+        if (runner == 'dotnet') return BuildUtils.booleanValue(cfg?.coverlet, true) ? 'coverlet' : 'none'
         return 'none'
     }
 
@@ -121,7 +103,7 @@ class DotnetProjectResolver implements Serializable {
     }
 
     boolean hasSdkStyleProjects() {
-        for (String p : findAllMatching(['*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj'])) {
+        for (String p : findAllMatching(DotnetOptions.projectGlobs())) {
             if (readProjectQuiet(p).contains('Sdk=')) return true
         }
         return false
@@ -198,21 +180,6 @@ class DotnetProjectResolver implements Serializable {
             } catch (Exception ignored) {}
         }
         return hits.sort()
-    }
-
-    @NonCPS
-    static String normalizeMode(String explicit) {
-        if (explicit in ['cli', 'dotnet', 'sdk', 'dotnet-cli']) return 'dotnet'
-        if (explicit in ['msbuild', 'classic', 'framework', 'vs', 'visualstudio', 'netfx']) return 'msbuild'
-        if (explicit in ['hybrid', 'cake', 'nuke']) return explicit
-        return ''
-    }
-
-    @NonCPS
-    static boolean isValidBoolean(def val) {
-        if (val instanceof Boolean) return true
-        String s = (val ?: '').toString().trim().toLowerCase()
-        return s in ['true', 'false', '1', '0', 'yes', 'no']
     }
 
     @NonCPS

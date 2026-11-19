@@ -9,6 +9,43 @@ class RepoStackAutoResolver implements Serializable {
         this.script = script
     }
 
+    @NonCPS
+    static List<Map> changes(Map before, Map after) {
+        Map<String, Object> old = [:]
+        Map<String, Object> now = [:]
+        flatten(before, '', old)
+        flatten(after, '', now)
+        List<Map> out = []
+        for (def entry : now.entrySet()) {
+            String field = entry.key as String
+            def value = entry.value
+            if (!old.containsKey(field)) {
+                out << [field: field, value: display(value), reason: 'not set - detected from the repository']
+            } else if (display(old[field]) != display(value)) {
+                out << [field: field, value: display(value), reason: "replaces the invalid or unsupported value '${display(old[field])}'".toString()]
+            }
+        }
+        return out
+    }
+
+    @NonCPS
+    private static void flatten(def node, String prefix, Map<String, Object> out) {
+        if (!(node instanceof Map)) {
+            if (prefix) out[prefix] = node
+            return
+        }
+        for (def entry : (node as Map).entrySet()) {
+            String key = prefix ? "${prefix}.${entry.key}".toString() : entry.key.toString()
+            flatten(entry.value, key, out)
+        }
+    }
+
+    @NonCPS
+    private static String display(def value) {
+        if (value instanceof Collection) return "[${(value as Collection).join(', ')}]".toString()
+        return value == null ? '' : value.toString()
+    }
+
     Map resolve(Map currentCfg, String serviceName = '', Map explicitCfg = null) {
         Map cfg = currentCfg != null ? [:] + currentCfg : [:]
         def flag = cfg.get('autoresolve parameters')
@@ -95,98 +132,61 @@ class RepoStackAutoResolver implements Serializable {
 
     private void resolveDotnet(Map cfg) {
         if (!BuildUtils.isDotnetTool(cfg.buildTool as String)) return
-        String sd = sourceRoot(cfg)
         Map build = (cfg.build ?: [:]) as Map
         String toolKey = (cfg.buildTool == 'msbuild' && build.msbuild instanceof Map) ? 'msbuild' : 'dotnet'
-        Map dnBuild = (build.get(toolKey) instanceof Map ? ([:] + (build.get(toolKey) as Map)) : [:])
+        Map dnBuild = build.get(toolKey) instanceof Map ? ([:] + (build.get(toolKey) as Map)) : [:]
         boolean buildChanged = false
-
-        String rawMode = ((dnBuild.mode ?: dnBuild.tool ?: '') as String).trim()
-        if (rawMode && !rawMode.equalsIgnoreCase('auto') && !isValidDotnetMode(rawMode)) {
-            String fallback = detectDotnetModeFromRepo(sd)
-            script.echo "[WARN] Invalid .NET build mode '${rawMode}' in configuration. Falling back to auto-detected mode '${fallback}'."
-            dnBuild.mode = fallback
+        def rawMode = dnBuild.mode ?: dnBuild.tool
+        if (!DotnetOptions.isAuto(rawMode) && !DotnetOptions.mode(rawMode)) {
+            dnBuild.mode = warnFallback("Invalid .NET build mode '${rawMode}' in configuration", 'mode', detectDotnetModeFromRepo(sourceRoot(cfg)))
             buildChanged = true
         }
-        if (dnBuild.useDotnetCli != null && !isValidBoolean(dnBuild.useDotnetCli)) {
-            String fallback = detectDotnetModeFromRepo(sd)
-            script.echo "[WARN] Invalid useDotnetCli value '${dnBuild.useDotnetCli}' in configuration. Falling back to auto-detected mode '${fallback}'."
+        if (dnBuild.useDotnetCli != null && !DotnetOptions.isBoolean(dnBuild.useDotnetCli)) {
+            dnBuild.mode = warnFallback("Invalid useDotnetCli value '${dnBuild.useDotnetCli}' in configuration", 'mode', detectDotnetModeFromRepo(sourceRoot(cfg)))
             dnBuild.remove('useDotnetCli')
-            dnBuild.mode = fallback
             buildChanged = true
         }
-        if (dnBuild.coverageTool && !isValidDotnetCoverage(dnBuild.coverageTool as String)) {
-            script.echo "[WARN] Invalid .NET coverageTool '${dnBuild.coverageTool}' in configuration. Falling back to auto-detected coverage tool 'auto'."
-            dnBuild.coverageTool = 'auto'
-            buildChanged = true
-        }
-        if (buildChanged) {
-            Map newBuild = [:] + build
-            newBuild[toolKey] = dnBuild
-            cfg.build = newBuild
-        }
+        buildChanged = resetInvalidCoverage(dnBuild) || buildChanged
+        if (buildChanged) cfg.build = [:] + build + [(toolKey): dnBuild]
 
         Map tests = (cfg.tests ?: [:]) as Map
         Map ut = (tests.unitTests ?: [:]) as Map
-        if (ut.get(toolKey) instanceof Map) {
-            Map dnUt = [:] + (ut.get(toolKey) as Map)
-            boolean utChanged = false
-            String rawRunner = ((dnUt.runner ?: dnUt.testRunner ?: '') as String).trim()
-            if (rawRunner && !isValidDotnetRunner(rawRunner)) {
-                script.echo "[WARN] Invalid .NET test runner '${rawRunner}' in configuration. Falling back to auto-detected runner 'auto'."
-                dnUt.runner = 'auto'
-                dnUt.remove('testRunner')
-                utChanged = true
-            }
-            if (dnUt.coverageTool && !isValidDotnetCoverage(dnUt.coverageTool as String)) {
-                script.echo "[WARN] Invalid .NET coverageTool '${dnUt.coverageTool}' in configuration. Falling back to auto-detected coverage tool 'auto'."
-                dnUt.coverageTool = 'auto'
-                utChanged = true
-            }
-            if (utChanged) {
-                Map newUt = [:] + ut
-                newUt[toolKey] = dnUt
-                Map newTests = [:] + tests
-                newTests.unitTests = newUt
-                cfg.tests = newTests
-            }
+        if (!(ut.get(toolKey) instanceof Map)) return
+        Map dnUt = [:] + (ut.get(toolKey) as Map)
+        boolean utChanged = false
+        def rawRunner = dnUt.runner ?: dnUt.testRunner
+        if (!DotnetOptions.isAuto(rawRunner) && !DotnetOptions.runner(rawRunner)) {
+            dnUt.runner = warnFallback("Invalid .NET test runner '${rawRunner}' in configuration", 'runner', 'auto')
+            dnUt.remove('testRunner')
+            utChanged = true
         }
+        utChanged = resetInvalidCoverage(dnUt) || utChanged
+        if (utChanged) cfg.tests = [:] + tests + [unitTests: [:] + ut + [(toolKey): dnUt]]
+    }
+
+    private boolean resetInvalidCoverage(Map toolCfg) {
+        def raw = toolCfg.coverageTool
+        if (DotnetOptions.isAuto(raw) || DotnetOptions.coverage(raw)) return false
+        toolCfg.coverageTool = warnFallback("Invalid .NET coverageTool '${raw}' in configuration", 'coverage tool', 'auto')
+        return true
+    }
+
+    private String warnFallback(String problem, String what, String fallback) {
+        script.echo "[WARN] ${problem}. Falling back to auto-detected ${what} '${fallback}'."
+        return fallback
     }
 
     private String detectDotnetModeFromRepo(String sd) {
-        if (!script.isUnix()) {
-            if (existsIn(sd, 'packages.config')) return 'msbuild'
-            for (String glob : ['*.csproj', '**/*.csproj', '*.fsproj', '**/*.fsproj', '*.vbproj', '**/*.vbproj']) {
-                for (String p : findPaths(sd ? "${sd}/${glob}" : glob)) {
-                    String text = readFileQuiet(p)
-                    if (text.contains('<TargetFrameworkVersion>') || text =~ /(?i)<TargetFrameworks?>\s*net4[0-9]/) return 'msbuild'
-                    if (text.contains('Sdk=')) return 'dotnet'
-                }
+        if (script.isUnix()) return 'dotnet'
+        if (existsIn(sd, 'packages.config')) return 'msbuild'
+        for (String glob : DotnetOptions.projectGlobs()) {
+            for (String p : findPaths(sd ? "${sd}/${glob}" : glob)) {
+                String text = readFileQuiet(p)
+                if (DotnetOptions.isClassicProject(text)) return 'msbuild'
+                if (DotnetOptions.isSdkProject(text)) return 'dotnet'
             }
-            return 'msbuild'
         }
-        return 'dotnet'
-    }
-
-    @NonCPS
-    private static boolean isValidDotnetMode(String mode) {
-        return (mode ?: '').trim().toLowerCase() in ['auto', 'dotnet', 'cli', 'sdk', 'dotnet-cli', 'msbuild', 'classic', 'framework', 'vs', 'visualstudio', 'netfx', 'hybrid', 'cake', 'nuke']
-    }
-
-    @NonCPS
-    private static boolean isValidDotnetRunner(String runner) {
-        return (runner ?: '').trim().toLowerCase() in ['auto', 'dotnet', 'cli', 'sdk', 'dotnet-test', 'vstest', 'vstest.console', 'mstest', 'nunit', 'xunit', 'hybrid']
-    }
-
-    @NonCPS
-    private static boolean isValidDotnetCoverage(String cov) {
-        return (cov ?: '').trim().toLowerCase() in ['auto', 'cobertura', 'coverlet', 'xplat', 'opencover', 'dotcover', 'none', 'false', 'off', 'disabled']
-    }
-
-    @NonCPS
-    private static boolean isValidBoolean(def val) {
-        if (val instanceof Boolean) return true
-        return (val ?: '').toString().trim().toLowerCase() in ['true', 'false', '1', '0', 'yes', 'no']
+        return 'msbuild'
     }
 
     private void resolveNodeStage0(Map cfg) {

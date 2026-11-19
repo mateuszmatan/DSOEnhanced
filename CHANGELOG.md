@@ -4,7 +4,12 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
 
 ## [Unreleased]
 
+### Fixed
+- C# / .NET coverage now reaches SonarQube: `dotnet test` (and `vstest.console` with Coverlet) collects `XPlat Code Coverage;Format=opencover`, so `coverage.opencover.xml` is read by both the pipeline report and `sonar.cs.opencover.reportsPaths`. `coverageTool: cobertura` stays available for the report only and logs a `[WARN]` that SonarQube cannot import it for C#.
+- The .NET settings `build.dotnet.mode`, `useDotnetCli`, `tests.unitTests.dotnet.runner` and `coverageTool` are validated by one class (`DotnetOptions`), so the auto-resolve and the build runner accept the same values and log the same `[WARN]` fallback.
+
 ### Added
+- Every setting the auto-resolve fills in or corrects is recorded per service: the log prints `[INIT] Auto-resolved for <service>: <setting> = <value> (<why>)` and the pipeline report shows the *Auto-resolved settings* card.
 - **C# and .NET Build Tool & Ecosystem Support (Windows Classic MSBuild + NuGet & `dotnet` CLI Override)**:
   - Full first-class support for C# / .NET repositories via `buildTool: 'dotnet'` (and aliases `msbuild`, `csharp`, `.net`), auto-detected from `*.sln`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, `packages.config`, and `global.json` in both `BuildService.detectTool()` and `RepoStackAutoResolver`.
   - Classic Windows Jenkins agent default via `DotnetBuildRunner`: executes `NuGet.exe restore` and `MSBuild.exe` (`/t:Build`, configurable solution/configuration/platform/flags) with unit testing via `vstest.console.exe` (`/Logger:trx`) and optional `OpenCover.Console.exe`, plus optional override (`useDotnetCli: true` or `mode: dotnet`, also default on Linux) for `dotnet restore` / `dotnet build` / `dotnet test --collect:"XPlat Code Coverage"` / `dotnet publish`.
