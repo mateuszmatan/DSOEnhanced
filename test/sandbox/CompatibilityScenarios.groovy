@@ -64,11 +64,11 @@ Closure observed = { FakeScript j, def state, Map runState ->
                          projectsAllCfg: state.projectsAllCfg, cfgDefaults: state.cfgDefaults, cfg: state.cfg,
                          policyLimits  : state.policyLimits, minRequired: state.coverage.minRequired,
                          primary       : state.currentProjectName, runState: runState,
-                         env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME', 'APPSCAN_KEY_ID'].collectEntries { [(it): j.env.vars.get(it)] },
+                         env           : ['PROJECT_NAMES', 'CURRENT_PROJECT_NAME', 'APPSCAN_SCAN_NAME'].collectEntries { [(it): j.env.vars.get(it)] },
                          log           : j.log.findAll { it.startsWith('[INIT]') || it.startsWith('[POLICY]') }])
 }
 
-Closure traced = { FakeScript j, Map run -> run + [trace: [calls: j.calls, probes: j.probes]] }
+Closure traced = { FakeScript j, Map run -> run + [trace: [calls: j.calls, probes: j.probes, appScanKeyId: j.env.vars.get('APPSCAN_KEY_ID')]] }
 Closure loaded = { Map run -> run.findAll { !(it.key in ['log', 'trace']) } }
 
 Closure runOld = { List names ->
@@ -196,7 +196,16 @@ List<Map> configRules = [
          }],
         [id    : 'R8',
          reason: 'NEW: staticAnalysis.parallel is absent at b815d55; only devSecOpsApi.parallelScans() reads it (parallel-scans)',
-         apply : { Map cfg, String variant -> dropPath(cfg, ['staticAnalysis', 'parallel'], { it == true }) }]
+         apply : { Map cfg, String variant -> dropPath(cfg, ['staticAnalysis', 'parallel'], { it == true }) }],
+        [id    : 'R9',
+         reason: 'the AppScan on Cloud API key asoc.keyId and asoc.token is the one of the functional user in the library defaults: the portal renders none, ' +
+                 'ConfigLoader.initialize reads it from the bundled resource into state.libraryDefaults, and AppScanService.apiLogin reads only that',
+         apply : { Map cfg, String variant -> [['asoc', 'keyId'], ['asoc', 'token']].sum { dropPath(cfg, it, always) } }],
+        [id    : 'R10',
+         reason: 'SAME+: sast and dast reportTimeoutMin 30 and reportIntervalSec 30 equal the code defaults of AppScanService.downloadSecurityReport (?: 30)',
+         apply : { Map cfg, String variant ->
+             [['sast', 'reportTimeoutMin'], ['sast', 'reportIntervalSec'], ['dast', 'reportTimeoutMin'], ['dast', 'reportIntervalSec']].sum { dropPath(cfg, it, { it == 30 }) }
+         }]
 ]
 Map hits = configRules.collectEntries { [(it.id): 0] }
 Closure normalise = { Map run, String variant ->
@@ -269,6 +278,8 @@ String bothFiles = "[INIT] devsecops_config.yaml and config.yaml are both in the
         List found = sameAsOld(old, keyless)
         check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: the keyless loader over ${file} and the bundled defaults loads what the b815d55 loader loaded over config.yaml and defaults.yaml, with no rule",
                 !found, found.take(10))
+        check("A' ${spec.variant} ${(spec.names as List).join(',')} over ${file}: APPSCAN_KEY_ID is the AppScan on Cloud key ID of the library defaults, no longer the asoc.keyId of the primary service",
+                ((keyless.trace ?: [:]) as Map).appScanKeyId == ((defaults.asoc ?: [:]) as Map).keyId, [((keyless.trace ?: [:]) as Map).appScanKeyId])
     }
 }
 
@@ -310,9 +321,9 @@ check('the library bundles global defaults that a run without a key can apply',
 
 Map fixtureApplied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText])
 List bundledDiff = ['cfg', 'projectsAllCfg'].collectMany { String k -> differences(fixtureApplied[k], applied[k], k) }
-List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database|goldenFix\.ecosystems)[.:].*/) }
+List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database|goldenFix\.ecosystems|asoc\.(keyId|token))[.:].*/) }
 Map bundledTools = (bundledDefaults.tools ?: [:]) as Map
-check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults',
+check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults, apart from the AppScan key of the functional user, which the DevSecOps team fills in',
         bundledTools.liquibase == [home: '', url: '', sha256: '', javaVersion: 17] && bundledTools.oracleJdbc == [path: '', url: '', sha256: '']
                 && bundledTools.utplsql == [home: '', url: '', sha256: '']
                 && bundledDefaults.database == [allowedTargets: [], package: [snapshotRepository: [id: '', url: ''], releaseRepository: [id: '', url: '']]]

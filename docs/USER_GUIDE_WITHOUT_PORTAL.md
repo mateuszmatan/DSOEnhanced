@@ -131,11 +131,10 @@ Static security analysis executed in the cloud:
   - Generates the IRX archive and submits the scan to HCL ASOC in the background.
   - Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.
 - **Credentials Configuration:**
-  - Configured per service in the `asoc:` section:
+  - SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (`asoc.keyId` and the Jenkins Secret text credential named in `asoc.token` of `resources/com/bbh/devsecops/defaults.yaml`).
+  - A service sets only its application ID; a `keyId`, `token` or `credentialsId` of a service is ignored with a `[WARN]` line:
     ```yaml
     asoc:
-      keyId: 'asoc-key-id-backend'
-      token: 'asoc-secret-id-backend'
       appId: '10982'
     ```
 - **Custom Scan Name:**
@@ -275,9 +274,7 @@ projects:
 
     # 4. Static Application Security Testing (HCL AppScan SAST)
     asoc:
-      keyId: 'asoc-key-id-backend'                # Jenkins credentials ID
-      token: 'asoc-secret-id-backend'             # Jenkins credentials ID
-      appId: '10982'                              # Application ID in HCL ASOC
+      appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
 
@@ -334,8 +331,6 @@ projects:
       minimum: 80
 
     asoc:
-      keyId: 'asoc-key-id-gui'
-      token: 'asoc-secret-id-gui'
       appId: '10983'
 
     tools:
@@ -375,7 +370,7 @@ projects:
 | `unitTests.cypress.command` | Custom Cypress command | `npx cypress run --component` | <span class="badge badge-optional">OPTIONAL</span> |
 | `unitTests.cypress.reportsDir` | Cypress JUnit reports dir | `cypress/results` | <span class="badge badge-optional">OPTIONAL</span> |
 | `coverage.minimum` | Quality gate threshold | `80` | <span class="badge badge-default">DEFAULT 80</span> |
-| `asoc.keyId` & `asoc.token` | AppScan SAST credentials | `asoc-cred-id` (from Jenkins) | <span class="badge badge-required">YES</span> |
+| `asoc.appId` | AppScan application ID of the service (SAST and DAST); the API key is set once in the library defaults | `10982` | <span class="badge badge-required">YES</span> |
 | `sast.scanName` | ASOC scan display name | `PAYHUB-NIGHTLY` | <span class="badge badge-optional">OPTIONAL</span> |
 | `tools.sonar.authToken` | SonarQube authentication secret | `sonar-token-id` | <span class="badge badge-required">YES</span> |
 | `tools.sonar.badgeToken` | Sonar badge token (raw) | `raw-token-string` | <span class="badge badge-optional">1 OF 2</span> |

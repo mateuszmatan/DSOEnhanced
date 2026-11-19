@@ -6,8 +6,6 @@ projects:
     javaPath: /usr/lib/jvm/java-17-openjdk
     asoc:
       url: https://bbh.cloud.appscan.com
-      keyId: bbh_6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10
-      token: appscan-orders-key-secret
     influx:
       url: http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s
       credentialsId: influxdb-token

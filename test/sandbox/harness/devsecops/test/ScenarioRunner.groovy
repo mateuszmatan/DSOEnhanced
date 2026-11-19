@@ -46,7 +46,7 @@ class ScenarioRunner {
         Map jenkinsfile = spec.keyless ?
                 [agentNames: ['linux-agent', 'windows-agent']] + (spec.autoDetect ? [:] : [projectNames: (projects.projects as Map).keySet().join(',')]) + upstreamJob :
                 [pipelineKeys: PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map, upstreamJob)]
-        if (spec.keyless) j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
+        j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
         Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
         j.env.vars.putAll([
@@ -73,6 +73,7 @@ class ScenarioRunner {
         ((spec.files ?: [:]) as Map).each { name, text -> j.files[name as String] = text == null ? yaml.dump(projects) : text as String }
         j.readFileHandler = { String path -> 'apiVersion: v1\nkind: Template\n' }
         List<String> goldenFixCalls = []
+        List<String> sastQueued = []
         Map<String, String> manifests = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG : GoldenFixResponder.MANIFESTS
         Map reports = spec.sharedCatalog ? GoldenFixResponder.SHARED_CATALOG_REPORTS : GoldenFixResponder.REPORTS
         if (spec.goldenFix) GoldenFixResponder.plantManifests(j, manifests)
@@ -87,17 +88,18 @@ class ScenarioRunner {
             String label = String.valueOf(a.label ?: '')
             Map d = data[project()] ?: data.gui
             if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
-            if (spec.breakSast && text.contains('api_login')) throw new FakeAbort('script returned exit code 1')
-            if (spec.breakSastWait && text.contains(' status -i ')) throw new FakeAbort('script returned exit code 1')
+            if (spec.breakSast && text.contains('Account/ApiKeyLogin')) throw new FakeAbort('script returned exit code 1')
+            if (spec.breakSastWait && text.contains('/api/v4/Scans/Sast/')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakNode && label.startsWith('Node.js: ')) throw new FakeAbort('script returned exit code 1')
             if (a.returnStatus) return 0
             def move = text =~ /mv '([^']+)' '([^']+)'/
             if (move.find() && j.files.containsKey(relative(move.group(1)))) j.files[relative(move.group(2))] = j.files.remove(relative(move.group(1)))
-            def sastDownload = text =~ /get_result -i "[^"]*" -t html -d "([^"]+)"/
-            if (sastDownload.find()) j.files[relative(sastDownload.group(1))] = issuesHtml(d.sast as List)
-            def dastDownload = text =~ /-o "([^"]+)"/
-            if (dastDownload.find()) j.files[relative(dastDownload.group(1))] = dastDownload.group(1).endsWith('.pdf') ? '%PDF-1.7' : issuesHtml(d.dast as List)
+            def reportDownload = text =~ /-o "([^"]+)"/
+            if (reportDownload.find()) {
+                String out = reportDownload.group(1)
+                j.files[relative(out)] = out.endsWith('.pdf') ? '%PDF-1.7' : issuesHtml((out.contains('dast') ? d.dast : d.sast) as List)
+            }
             if (text.contains('.irx')) j.files["${j.env.APPSCAN_SCAN_NAME}.irx".toString()] = 'irx'
             if (!a.returnStdout) return null
             Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls, manifests, reports) : null
@@ -111,7 +113,14 @@ class ScenarioRunner {
             if (text.contains('xml.etree.ElementTree')) return "${c[0]},${c[1]},${c[2]}"
             List s = d.sonar as List
             if (text.contains('facets=severities')) return "${s[0]},${s[1]},${s[2]},${s[3]}"
-            if (text.contains('queue_analysis')) return 'Scan id: 5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c'
+            if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+            if (text.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+            if (text.contains('/api/v4/Scans/Sast')) {
+                Map payload = new groovy.json.JsonSlurper().parseText(j.files['sast_payload.json'] ?: '{}') as Map
+                String upload = j.calls.findAll { it.contains('/api/v4/FileUpload') }.collect { (it =~ /fileToUpload=@([^"]+)"/)[0][1] }.last()
+                sastQueued << "${upload} ${payload.ScanName} ${payload.AppId}".toString()
+                return '{"Id":"5f3c8a2e-1b4d-4c6e-9a7b-2d8e0f1a3b5c"}'
+            }
             if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
             if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
             if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
@@ -155,7 +164,7 @@ class ScenarioRunner {
             crash = SandboxHarness.rejectionOf(t) ?: t.toString()
         }
         return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String,
-                goldenFixCalls: goldenFixCalls, evaluatedAt: evaluatedAt, evaluations: evaluations]
+                goldenFixCalls: goldenFixCalls, sastQueued: sastQueued, evaluatedAt: evaluatedAt, evaluations: evaluations]
     }
 
     static String influxOf(FakeScript j) {

@@ -341,12 +341,12 @@ List<Map> goldenSpecs = [
             Map alone = runDatabase(full + [name: 'D3 without the database service', layout: 'b', configure: { Map p -> p.remove('orders-db') }])
             Closure appCalls = { Map run ->
                 List<String> calls = ((run.j as FakeScript).calls as OwnedList).ownedBy('orders-app')
-                List<Integer> logins = (0..<calls.size()).findAll { calls[it].contains('" api_login ') }.collectMany { [it - 2, it - 1, it] }
-                (0..<calls.size()).findAll { !logins.contains(it) && !calls[it].contains('portal_re') }.collect { calls[it].replace(',.dso-db', '').replaceAll(/(?<!\d)\d{13}(?!\d)/, '<ms>') }
+                Closure login = { String call -> call.contains('asoc-api-key-login.json') || call.contains('Account/ApiKeyLogin') || call == 'withCredentials [asoc-functional-user-secret]' }
+                (0..<calls.size()).findAll { !login(calls[it]) && !calls[it].contains('portal_re') }.collect { calls[it].replace(',.dso-db', '').replaceAll(/(?<!\d)\d{13}(?!\d)/, '<ms>') }
             }
             List<String> mixed = appCalls(r)
             List<String> single = appCalls(alone)
-            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS, the AppScan logins that the second AppScan key adds and the report sent to the portal, which names every service',
+            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS, the AppScan sign-in, which orders-db makes for both services with the one key of the functional user, and the report sent to the portal, which names every service',
                     mixed == single && ((r.j as FakeScript).calls as OwnedList).ownedBy('orders-app').any { it.contains('APPSCAN_EXCLUDED_FOLDERS=orders-db,node_modules,.dso-db') },
                     [mixed.size(), single.size()] + (0..<Math.min(mixed.size(), single.size())).findAll { mixed[it] != single[it] }.take(1).collect { [mixed[it], single[it]]*.take(300) })
             List gradle = (r.shells as List<Map>).findAll { (it.label as String).startsWith('Gradle: ') }
@@ -784,7 +784,7 @@ api.build.node = [enabled: true, dir: 'web']
 api.tests.unitTests.maven.dir = 'api'
 api.tests.unitTests.unitTestResult = 'api/target/surefire-reports/*.xml'
 api.tools.sonar.maven.dir = 'api'
-[app, api].each { Map service -> (service.asoc as Map).remove('keySecret'); service.remove('influx') }
+[app, api].each { Map service -> ['keyId', 'token', 'keySecret'].each { (service.asoc as Map).remove(it) }; service.remove('influx') }
 [[layout: 'b', name: 'orders-app', reference: 'gui', expected: app], [layout: 'c', name: 'orders-api', reference: 'backend-api', expected: api]].each { Map c ->
     Map actual = (layoutProjects[c.layout] as Map)[c.name] as Map
     check("Chapter 14: ${c.name} of layout (${c.layout}) is ${c.reference} of the reference implementation with the changes that chapter 14 names",

@@ -14,7 +14,8 @@ import com.bbh.utils.LiquibaseOutput
 class AppScanService implements Serializable {
     private final def script
     private String token
-    private String cliLoginKey = ''
+    private long tokenIssuedAt = 0L
+    private String proxyPass = ''
     private final PipelineState state
     private final OsHelper os
     private final PolicyEngine policy
@@ -47,63 +48,13 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
         createDirs()
     }
 
-    void cliLogin() {
-        String loginKey = "${script.env.APPSCAN_KEY_ID} ${keySecretCredentialsId()}"
-        if (loginKey == cliLoginKey) return
-        script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
-            script.withCredentials([script.string(credentialsId: keySecretCredentialsId(), variable: "APPSCAN_KEY_SECRET")]) {
-                if (os.isWindows()) {
-                    def appscanPath = windowsAppscanPath()
-                    script.powershell """
-\$ErrorActionPreference = 'Stop'
-\$env:HOME        = \$env:APPSCAN_HOME_DIR
-\$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
-\$out = & ${appscanPath} api_login -u "${script.env.APPSCAN_KEY_ID}" -P "${script.env.APPSCAN_KEY_SECRET}" -persist -acceptssl -service_url "${script.env.APPSCAN_SERVER_URL}" 2>&1
-\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR/api_login.log" -Encoding UTF8
-if ((\$out -join ' ') -match 'unable to authenticate|authentication failed|unauthorized|token has expired') {
-    Write-Error "[ERROR] AppScan CLI login failed."; exit 1
-}
-Write-Host "[INFO] AppScan CLI login succeeded."
-"""
-                } else {
-                    script.sh """#!/usr/bin/env bash
-set -euo pipefail; set +x
-${shProxyEnv}
-env -u APPSCAN_DOMAIN \\
-    PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
-    APPSCAN_OPTS="\${_OPTS}" \\
-"\$APPSCAN_CMD_RUNTIME" api_login \\
-    -u "${script.env.APPSCAN_KEY_ID}" -P "${script.env.APPSCAN_KEY_SECRET}" -persist -acceptssl \\
-    -service_url "${script.env.APPSCAN_SERVER_URL}" \\
-    > "\$APPSCAN_LOG_DIR/api_login.log" 2>&1 || true
-grep -v "^Picked up " "\$APPSCAN_LOG_DIR/api_login.log" || true
-if grep -qiE 'unable to authenticate|authentication failed|unauthorized|token has expired' "\$APPSCAN_LOG_DIR/api_login.log"; then
-    echo "[ERROR] AppScan CLI login failed."; exit 1
-fi
-echo "[INFO] AppScan CLI login succeeded."
-"""
-                }
-            }
-        }
-        cliLoginKey = loginKey
+    void sastLogin() {
+        ensureToken('SAST')
     }
 
-    private String keySecretCredentialsId() {
-        return resolveSecretCredentialsId('SAST')
-    }
-
-    private String resolveKeyId(String type) {
-        if (type == 'DAST') {
-            return ((state.cfg.dast?.keyId ?: state.cfg.asoc?.keyId ?: script.env.APPSCAN_KEY_ID ?: '') as String).trim()
-        }
-        return ((state.cfg.sast?.keyId ?: state.cfg.asoc?.keyId ?: script.env.APPSCAN_KEY_ID ?: '') as String).trim()
-    }
-
-    private String resolveSecretCredentialsId(String type) {
-        if (type == 'DAST') {
-            return (state.cfg.dast?.token ?: state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
-        }
-        return (state.cfg.sast?.token ?: state.cfg.asoc?.token ?: script.env.APPSCAN_KEY_ID) as String
+    void ensureToken(String type) {
+        if (this.token && System.currentTimeMillis() - tokenIssuedAt < tokenRefreshIntervalMs) return
+        apiLogin(type)
     }
 
     String resolveAppId(Map config = null) {
@@ -441,16 +392,34 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 String existingScanId = (scanInfo.scanId ?: '') as String
                 if (existingScanId) {
                     script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: existingScanId
+                    recordSastConsoleLink(existingScanId, appId)
                 }
                 script.echo "[SAST] ${state.currentProjectName}: shares AppScan application ID '${appId}' with '${primary}' - reusing scan ID '${existingScanId}'"
                 return
             }
         }
+        ensureToken('SAST')
+        if (!appId) script.error "[APPSCAN] appId not configured for the service in ${state.settingsPlace()}"
+        String filePath = "${script.env.WORKSPACE}/${script.env.APPSCAN_SCAN_NAME ?: 'my-project'}.irx"
+        if (!script.fileExists(filePath)) script.error "[APPSCAN] File not found: ${filePath}"
+
+        script.echo "[SAST] Uploading analysis file: ${filePath}"
+        String uploadResp = (callApi(curlCommand(acceptHeaders() + ["-F \"fileToUpload=@${filePath}\""], appscanApiUrl('FileUpload')), true) as String).trim()
+        def fileId = readApiJson(uploadResp)?.FileId
+        if (!fileId) script.error("[SAST] Unable to upload file to AppScan: ${RestClient.abbreviate(uploadResp, 300)}")
+        script.echo "[SAST] File uploaded successfully. FileId: ${fileId}"
+
         String defaultName = "${script.env.APPSCAN_SCAN_NAME ?: 'sast-scan'}-sast"
         String scanName = ((state.cfg.sast?.scanName ?: '') as String).trim()
-        def scanId = queueAnalysis(scanName ? BuildUtils.scanName(scanName) : defaultName, defaultName,
-                "${script.env.WORKSPACE}/${script.env.APPSCAN_SCAN_NAME ?: 'my-project'}.irx", config)
+        String finalScanName = scanName ? BuildUtils.scanName(scanName) : defaultName
+        script.writeFile(file: 'sast_payload.json',
+                text: RestClient.toJson([FileId: fileId as String, ScanName: finalScanName, AppId: appId, ClientType: 'api', FullyAutomatic: true]))
+        String response = (callApi(curlCommand(jsonHeaders() + ['-d @sast_payload.json'], appscanApiUrl('Scans/Sast')), true) as String).trim()
+        String scanId = (readApiJson(response)?.Id ?: '') as String
+        if (!scanId) script.error("[SAST] Error when starting SAST scan: ${RestClient.abbreviate(response, 300)}")
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-sast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
+        script.echo "[SAST] SAST scan queued. Scan ID: ${scanId}"
+        recordSastConsoleLink(scanId, appId)
         if (appId) {
             Map record = (state.sastScansByAppId[appId] ?: [:]) as Map
             record.primaryProject = state.currentProjectName
@@ -488,9 +457,31 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 return
             }
         }
-        pollScan('sast', (state.cfgDefaults.sast?.pollTimeoutMin ?: 50) as int, (state.cfgDefaults.sast?.pollIntervalSec ?: 30) as int)
+        String scanId = scanId('sast')
+        if (!scanId || scanId == 'NONE') script.error "[SAST] No scan ID available"
+        sastWait(scanId, (state.cfgDefaults.sast?.pollTimeoutMin ?: 50) as int, (state.cfgDefaults.sast?.pollIntervalSec ?: 30) as int)
         if (appId && state.sastScansByAppId.containsKey(appId)) {
             state.sastScansByAppId[appId].completed = true
+        }
+    }
+
+    void sastWait(String scanId, int timeoutMin, int intervalSec) {
+        script.echo "[SAST] Waiting for SAST scan: ${scanId}"
+        script.timeout(time: timeoutMin, unit: 'MINUTES') {
+            while (true) {
+                ensureToken('SAST')
+                String response = (callApi(curlCommand(acceptHeaders(), appscanApiUrl("Scans/Sast/${scanId}")), true) as String).trim()
+                String status = (readApiJson(response)?.LatestExecution?.Status ?: 'Unknown') as String
+                script.echo "[SAST] SAST scan status: ${status}"
+                if (status == 'Ready') {
+                    script.echo '[SAST] SAST scan finished with success.'
+                    break
+                }
+                if (status == 'Failed') {
+                    script.error("[SAST] SAST scan finished with failure: ${RestClient.abbreviate(response, 300)}")
+                }
+                script.sleep(time: intervalSec, unit: 'SECONDS')
+            }
         }
     }
 
@@ -501,10 +492,12 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             String primary = (scanInfo.primaryProject ?: '') as String
             String primaryScanName = (scanInfo.scanName ?: '') as String
             if (primary && primary != state.currentProjectName) {
-                String srcReport = "${script.env.WORKSPACE}/appscan-report-${primaryScanName}.html"
-                def dest = "${script.env.WORKSPACE}/appscan-report-${script.env.APPSCAN_SCAN_NAME}.html"
-                if (script.fileExists(srcReport)) {
-                    copyReportFile(srcReport, dest)
+                String scanName = script.env.APPSCAN_SCAN_NAME
+                copyReportFile("${script.env.WORKSPACE}/appscan-report-${primaryScanName}.html", "${script.env.WORKSPACE}/appscan-report-${scanName}.html")
+                String srcPdf = "${script.env.WORKSPACE}/appscan-report-${primaryScanName}.pdf"
+                if (script.fileExists(srcPdf)) {
+                    copyReportFile(srcPdf, "${script.env.WORKSPACE}/appscan-report-${scanName}.pdf")
+                    state.recordScanArtifact('sast', 'pdf', "appscan-report-${scanName}.pdf")
                 }
                 Map counts = (scanInfo.counts ?: [critical: 0, high: 0, medium: 0, low: 0]) as Map
                 state.vulnCounts.sast = counts
@@ -513,8 +506,10 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 return
             }
         }
+        String scanId = scanId('sast')
+        if (!scanId || scanId == 'NONE') script.error "[SAST] No scan ID available"
+        sastDownloadReport(scanId)
         def dest = "${script.env.WORKSPACE}/appscan-report-${script.env.APPSCAN_SCAN_NAME}.html"
-        getReports('sast', dest)
         if (script.fileExists(dest)) {
             def counts = parseHtmlCounts(dest, 'sast')
             state.vulnCounts.sast = counts
@@ -528,10 +523,32 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         }
     }
 
+    void sastDownloadReport(String scanId) {
+        Map html = downloadSecurityReport('SAST', scanId, 'Html', 'appscan-report.html')
+        Map pdf  = downloadSecurityReport('SAST', scanId, 'Pdf', 'appscan-report.pdf')
+        if (!pdf.ok) script.echo "[SAST] PDF report unavailable: ${pdf.reason} - the HTML report is still linked"
+        if (!html.ok) {
+            script.error("[SAST] The HTML report could not be produced, so the findings of this scan are unknown: ${html.reason}")
+        }
+        renameSastReport()
+        String pdfName = "appscan-report-${script.env.APPSCAN_SCAN_NAME}.pdf"
+        if (script.fileExists("${script.env.WORKSPACE}/${pdfName}")) {
+            state.recordScanArtifact('sast', 'pdf', pdfName)
+        }
+    }
+
     void renameSastReport() {
         def scanName = (script.env.APPSCAN_SCAN_NAME ?: '').trim()
         if (!scanName) return
         renameReportFile("${script.env.WORKSPACE}/appscan-report.html", "${script.env.WORKSPACE}/appscan-report-${scanName}.html")
+        renameReportFile("${script.env.WORKSPACE}/appscan-report.pdf", "${script.env.WORKSPACE}/appscan-report-${scanName}.pdf")
+    }
+
+    private void recordSastConsoleLink(String scanId, String appId) {
+        String base = ((state.cfg.asoc?.url ?: script.env.APPSCAN_SERVER_URL ?: '') as String).trim().replaceAll('/+$', '')
+        if (!base || !appId) return
+        String url = scanId ? "${base}/main/myapps/${appId}/scans/${scanId}" : "${base}/main/myapps/${appId}/scans"
+        state.recordScanArtifact('sast', 'hcl', url)
     }
 
     void dastScan() {
@@ -550,7 +567,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             state.policyStatus['dast'] = 'NOT_REQUIRED'
             return
         }
-        apiLogin('DAST')
+        ensureToken('DAST')
         def scanId = dastStartScan()
         script.writeFile file: "${script.env.APPSCAN_LOG_DIR}/scan-dast-${script.env.APPSCAN_SCAN_NAME}.id", text: scanId
         script.echo "[DAST] Scan ID: ${scanId}"
@@ -567,23 +584,50 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void apiLogin(String type = 'DAST') {
         script.echo "[${type}] Starting API Authentication"
-
-        String keyId = resolveKeyId(type)
-        String credId = resolveSecretCredentialsId(type)
+        String keyId = BuildUtils.appScanKeyId(state.appScanKeyDefaults())
+        if (!keyId) {
+            script.error "[${type}] asoc.keyId is not set in resources/${BuildUtils.defaultsResource()} of the library: the DevSecOps team sets there the Key ID of the AppScan on Cloud API key of the functional user"
+        }
+        String tmpDir = (script.env.WORKSPACE_TMP ?: "${script.env.WORKSPACE}@tmp") as String
+        String bodyFile = "${tmpDir}/asoc-api-key-login.json"
         String response = ''
-        script.withCredentials([script.string(credentialsId: credId, variable: 'APPSCAN_KEY_SECRET')]) {
-            String credentials = "-d \"{\\\"KeyId\\\":\\\"${keyId}\\\",\\\"KeySecret\\\":\\\"${script.env.APPSCAN_KEY_SECRET}\\\"}\""
-            response = script.sh(
-                    script: curlCommand(['-H "Content-Type: application/json"', credentials], appscanApiUrl('Account/ApiKeyLogin')),
-                    returnStdout: true
-            ).trim()
+        script.withCredentials([script.string(credentialsId: BuildUtils.appScanKeySecretCredentialsId(state.appScanKeyDefaults()), variable: 'APPSCAN_KEY_SECRET')]) {
+            try {
+                script.writeFile(file: bodyFile, text: RestClient.toJson([KeyId: keyId, KeySecret: script.env.APPSCAN_KEY_SECRET as String]))
+                response = (callApi(curlCommand(['-H "Content-Type: application/json"', "-d \"@${bodyFile}\""], appscanApiUrl('Account/ApiKeyLogin')), true) as String).trim()
+            } finally {
+                removeFile(bodyFile)
+            }
         }
 
-        this.token = script.readJSON(text: response)?.Token
+        this.token = (readApiJson(response)?.Token ?: '') as String
         if (!this.token) {
-            script.error("[${type}] Unable to fetch Bearer Token: ${response}")
+            script.error("[${type}] Unable to fetch Bearer Token: ${RestClient.abbreviate(response, 300)}")
         }
+        tokenIssuedAt = System.currentTimeMillis()
         script.echo "[${type}] Authenticated successfully."
+    }
+
+    private def callApi(String command, boolean returnStdout) {
+        if (os.isWindows()) {
+            return script.bat(script: "@${command.replaceFirst(/^curl /, 'curl.exe ')}", returnStdout: returnStdout)
+        }
+        return script.sh(script: "set +x\n${command}", returnStdout: returnStdout)
+    }
+
+    private def readApiJson(String text) {
+        if (!text) return null
+        try {
+            return script.readJSON(text: text)
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return null
+        }
+    }
+
+    private void removeFile(String path) {
+        if (os.isWindows()) script.powershell "Remove-Item -Force -ErrorAction SilentlyContinue -Path '${BuildUtils.psSingleQuote(path)}'"
+        else script.sh "rm -f '${BuildUtils.escapeForSingleQuotes(path)}'"
     }
 
     String dastStartScan() {
@@ -611,11 +655,8 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
         script.writeFile(file: 'dast_payload.json', text: payload)
 
-        def response = script.sh(
-                script: curlCommand(jsonHeaders() + ['-d @dast_payload.json'], appscanApiUrl('Scans/Dast')),
-                returnStdout: true
-        ).trim()
-        def scanId = script.readJSON(text: response).Id
+        String response = (callApi(curlCommand(jsonHeaders() + ['-d @dast_payload.json'], appscanApiUrl('Scans/Dast')), true) as String).trim()
+        def scanId = readApiJson(response)?.Id
 
         if (!scanId) {
             script.error("[DAST] Error when starting DAST scan: ${response}")
@@ -627,66 +668,54 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void dastWait(String scanId, int timeoutMin, int intervalSec) {
         script.echo "[DAST] Waiting for DAST scan: ${scanId}"
-        long lastLoginTime = System.currentTimeMillis()
-
         script.timeout(time: timeoutMin, unit: 'MINUTES') {
             while (true) {
-                if (System.currentTimeMillis() - lastLoginTime >= tokenRefreshIntervalMs) {
-                    script.echo "[DAST] Refreshing AppScan token..."
-                    apiLogin('DAST')
-                    lastLoginTime = System.currentTimeMillis()
-                }
-
-                def response = script.sh(
-                        script: curlCommand(acceptHeaders(), appscanApiUrl("Scans/Dast/${scanId}")),
-                        returnStdout: true
-                ).trim()
-                def status = script.readJSON(text: response)?.LatestExecution?.Status ?: 'Unknow'
-
+                ensureToken('DAST')
+                String response = (callApi(curlCommand(acceptHeaders(), appscanApiUrl("Scans/Dast/${scanId}")), true) as String).trim()
+                String status = (readApiJson(response)?.LatestExecution?.Status ?: 'Unknown') as String
                 script.echo "[DAST] DAST scan status: ${status}"
-
-                if (status == "Ready") {
-                    script.echo "[DAST] DAST scan finished with success."
+                if (status == 'Ready') {
+                    script.echo '[DAST] DAST scan finished with success.'
                     break
-                } else if (status == "Failed") {
-                    script.error("[DAST] DAST scan finished with failure: ${response}")
                 }
-
+                if (status == 'Failed') {
+                    script.error("[DAST] DAST scan finished with failure: ${RestClient.abbreviate(response, 300)}")
+                }
                 script.sleep(time: intervalSec, unit: 'SECONDS')
             }
         }
     }
 
     void dastDownloadReport(String scanId) {
-        Map html = downloadDastReport(scanId, 'Html', 'appscan-dast-report.html')
-        Map pdf  = downloadDastReport(scanId, 'Pdf', 'appscan-dast-report.pdf')
+        Map html = downloadSecurityReport('DAST', scanId, 'Html', 'appscan-dast-report.html')
+        Map pdf  = downloadSecurityReport('DAST', scanId, 'Pdf', 'appscan-dast-report.pdf')
         if (!pdf.ok) script.echo "[DAST] PDF report unavailable: ${pdf.reason} - the HTML report is still linked"
         if (!html.ok) {
             script.error("[DAST] The HTML report could not be produced, so the findings of this scan are unknown: ${html.reason}")
         }
     }
 
-    Map downloadDastReport(String scanId, String fileType, String outFile) {
-        script.echo "[DAST] Generating & Downloading ${fileType.toUpperCase()} report"
-        int timeoutMin  = (state.cfgDefaults.dast?.reportTimeoutMin ?: 30) as int
-        int intervalSec = (state.cfgDefaults.dast?.reportIntervalSec ?: 30) as int
+    Map downloadSecurityReport(String type, String scanId, String fileType, String outFile) {
+        String key = type.toLowerCase()
+        script.echo "[${type}] Generating & Downloading ${fileType.toUpperCase()} report"
+        int timeoutMin  = (state.cfgDefaults[key]?.reportTimeoutMin ?: 30) as int
+        int intervalSec = (state.cfgDefaults[key]?.reportIntervalSec ?: 30) as int
+        String payloadFile = "${key}_report_payload.json"
 
-        script.writeFile(file: 'report_payload.json',
-                text: """{"Configuration":{"ReportFileType":"${fileType}","Summary":true,"Details":true,"Overview":true,"TableOfContent":true}}""")
+        script.writeFile(file: payloadFile,
+                text: """{"Configuration":{"ReportFileType":"${fileType}","Summary":true,"Details":true,"Overview":true,"TableOfContent":true,"IncludeNoise":false}}""")
 
-        def response = script.sh(
-                script: curlCommand(jsonHeaders() + ['-d @report_payload.json'], appscanApiUrl("Reports/Security/Scan/${scanId}")),
-                returnStdout: true
-        ).trim()
-        def reportId = script.readJSON(text: response).Id
+        ensureToken(type)
+        String response = (callApi(curlCommand(jsonHeaders() + ["-d @${payloadFile}".toString()], appscanApiUrl("Reports/Security/Scan/${scanId}")), true) as String).trim()
+        def reportId = readApiJson(response)?.Id
         if (!reportId) {
             return [ok: false, reason: "AppScan did not accept the ${fileType.toUpperCase()} report request: ${RestClient.abbreviate(response, 300)}".toString()]
         }
-        script.echo "[DAST] Generating report ID: ${reportId}"
-        return fetchRenderedReport(reportId, fileType, outFile, timeoutMin, intervalSec)
+        script.echo "[${type}] Generating report ID: ${reportId}"
+        return fetchRenderedReport(type, reportId as String, fileType, outFile, timeoutMin, intervalSec)
     }
 
-    Map fetchRenderedReport(String reportId, String fileType, String outFile, int timeoutMin, int intervalSec) {
+    Map fetchRenderedReport(String type, String reportId, String fileType, String outFile, int timeoutMin, int intervalSec) {
         long deadline = System.currentTimeMillis() + (timeoutMin * 60000L)
         int seconds = intervalSec < 1 ? 1 : intervalSec
         int maxAttempts = ((timeoutMin * 60) / seconds) as int
@@ -695,15 +724,16 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         String reason = 'the report was never rendered'
         while (attempt < maxAttempts && System.currentTimeMillis() < deadline) {
             attempt++
+            ensureToken(type)
             String status = reportStatus(reportId)
             if (status == 'Failed') {
                 return [ok: false, reason: "AppScan reported the ${fileType.toUpperCase()} report as Failed".toString()]
             }
             if (status == 'Ready' || status == 'Unknown') {
-                script.sh(script: curlCommand([bearerHeader(), "-o \"${outFile}\""], appscanApiUrl("Reports/${reportId}/Download")))
+                callApi(curlCommand([bearerHeader(), "-o \"${outFile}\""], appscanApiUrl("Reports/${reportId}/Download")), false)
                 Map check = validateReportFile(outFile, fileType)
                 if (check.ok) {
-                    script.echo "[DAST] DAST report saved as ${outFile} after ${attempt} attempt(s)"
+                    script.echo "[${type}] ${type} report saved as ${outFile} after ${attempt} attempt(s)"
                     return [ok: true, reason: '']
                 }
                 reason = check.reason as String
@@ -711,7 +741,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 reason = "AppScan reports the ${fileType.toUpperCase()} report as ${status}".toString()
             }
             if (attempt >= maxAttempts) break
-            script.echo "[DAST] ${fileType.toUpperCase()} report not ready yet (${reason}) - waiting ${seconds}s, attempt ${attempt} of ${maxAttempts}"
+            script.echo "[${type}] ${fileType.toUpperCase()} report not ready yet (${reason}) - waiting ${seconds}s, attempt ${attempt} of ${maxAttempts}"
             script.sleep(time: seconds, unit: 'SECONDS')
         }
         return [ok: false, reason: "${reason}, gave up after ${attempt} attempt(s) over at most ${timeoutMin} minute(s)".toString()]
@@ -719,7 +749,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     String reportStatus(String reportId) {
         try {
-            String body = script.sh(script: curlCommand(acceptHeaders(), appscanApiUrl("Reports/${reportId}")), returnStdout: true).trim()
+            String body = (callApi(curlCommand(acceptHeaders(), appscanApiUrl("Reports/${reportId}")), true) as String).trim()
             if (!body) return 'Unknown'
             def status = script.readJSON(text: body)?.Status
             return status ? (status as String) : 'Unknown'
@@ -814,7 +844,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         List<String> parts = ['curl', '-s', '-S']
         if (BuildUtils.booleanValue(state.cfg.asoc?.insecureTls, false)) parts << '-k'
         parts << "-x \"http://${script.env.PROXY_HOST}:${script.env.PROXY_PORT}\""
-        parts << "-U \"${script.env.PROXY_USER}:${script.env.PROXY_PASS}\""
+        parts << "-U \"${script.env.PROXY_USER}:${proxyPassword()}\""
         parts.addAll(options)
         parts << "\"${url}\""
         return parts.join(' ')
@@ -836,144 +866,6 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         return acceptHeaders() + ['-H "Content-Type: application/json"']
     }
 
-    private void pollScan(String type, int timeoutMin, int intervalSec) {
-        def scanId = scanId(type)
-        if (!scanId || scanId == 'NONE') script.error "[${type.toUpperCase()}] No scan ID available"
-        script.timeout(time: timeoutMin, unit: 'MINUTES') {
-            script.withEnv([
-                    "APPSCAN_CMD_RUNTIME=${appscanCmd()}",
-                    "APPSCAN_SCAN_ID=${scanId}",
-                    "APPSCAN_POLL_INTERVAL=${intervalSec.toString()}",
-                    "APPSCAN_OPTS=${proxyOpts()}"
-            ]) {
-                if (os.isWindows()) {
-                    def appscanPath = windowsAppscanPath()
-                    script.powershell """
-\$ErrorActionPreference = 'Continue'
-\$env:HOME        = \$env:APPSCAN_HOME_DIR
-\$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
-\$pp = (Get-Content -Raw -Path "\$env:APPSCAN_LOG_DIR\\proxy.pass").Trim()
-\$opts = "\$env:APPSCAN_OPTS -Dhttp.proxyPassword=\$pp -Dhttps.proxyPassword=\$pp"
-\$env:APPSCAN_OPTS = \$opts
-
-\$_start = Get-Date
-while (\$true) {
-    \$_elapsed = [int]((Get-Date) - \$_start).TotalSeconds
-    \$out = & ${appscanPath} status -i "\$env:APPSCAN_SCAN_ID" 2>&1
-    \$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR/status-${type}-${script.env.APPSCAN_SCAN_NAME}.log" -Encoding UTF8
-    \$text = \$out -join ' '
-    if (\$text -match 'Completed|Complete|Ready')        { Write-Host "[INFO] ${type.toUpperCase()} scan completed after \$_elapsed s."; exit 0 }
-    if (\$text -match 'Failed|Error|Canceled|Cancelled') { Write-Error "[ERROR] ${type.toUpperCase()} scan failed after \$_elapsed s."; exit 1 }
-    Write-Host "[RUNNING] ${type.toUpperCase()} scan in progress... \$_elapsed s elapsed"
-    Start-Sleep -Seconds ([int]\$env:APPSCAN_POLL_INTERVAL)
-}
-"""
-                } else {
-                    script.sh """#!/usr/bin/env bash
-set -euo pipefail; set +x
-${shProxyEnv}
-_START=\$(date +%s)
-while true; do
-    _ELAPSED=\$(( \$(date +%s) - _START ))
-    env -u APPSCAN_DOMAIN \\
-        PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
-        APPSCAN_OPTS="\${_OPTS}" \\
-    "\$APPSCAN_CMD_RUNTIME" status -i "\$APPSCAN_SCAN_ID" \\
-        > "\$APPSCAN_LOG_DIR/status-${type}-${script.env.APPSCAN_SCAN_NAME}.log" 2>&1 || true
-    if grep -qiE "Completed|Complete|Ready"        "\$APPSCAN_LOG_DIR/status-${type}-${script.env.APPSCAN_SCAN_NAME}.log"; then echo "[INFO] ${type.toUpperCase()} scan completed after \${_ELAPSED}s."; exit 0; fi
-    if grep -qiE "Failed|Error|Canceled|Cancelled" "\$APPSCAN_LOG_DIR/status-${type}-${script.env.APPSCAN_SCAN_NAME}.log"; then echo "[ERROR] ${type.toUpperCase()} scan failed after \${_ELAPSED}s."; exit 1; fi
-    echo "[RUNNING] ${type.toUpperCase()} scan in progress... \${_ELAPSED}s elapsed"
-    sleep "\$APPSCAN_POLL_INTERVAL"
-done
-"""
-                }
-            }
-        }
-    }
-
-    private void getReports(String type, String dest) {
-        script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_SCAN_ID=${scanId(type)}", "APPSCAN_OPTS=${proxyOpts()}"]) {
-            if (os.isWindows()) {
-                def appscanPath = windowsAppscanPath()
-                script.powershell """
-\$env:HOME        = \$env:APPSCAN_HOME_DIR
-\$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
-
-\$pp = (Get-Content -Raw -Path "\$env:APPSCAN_LOG_DIR\\proxy.pass").Trim()
-\$env:APPSCAN_OPTS += " -Dhttp.proxyPassword=\$pp -Dhttps.proxyPassword=\$pp"
-for (\$i = 1; \$i -le 30; \$i++) {
-    \$cmd_out = & ${appscanPath} get_result -i "\$env:APPSCAN_SCAN_ID" -t html -d "${dest}" 2>&1
-    Write-Host "-------"
-    Write-Host \$cmd_out
-    if ((Test-Path "${dest}") -and (Get-Item "${dest}").Length -gt 0) { Write-Host "[INFO] ${type.toUpperCase()} report downloaded"; break }
-    Write-Host "[WARN] Report not ready, retry \$i/6..."; Start-Sleep -Seconds 10
-}
-"""
-            } else {
-                script.sh """#!/usr/bin/env bash
-set -euo pipefail; set +x
-${shProxyEnv}
-for i in {1..6}; do
-    env -u APPSCAN_DOMAIN \\
-        PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
-        APPSCAN_OPTS="\${_OPTS}" \\
-    "\$APPSCAN_CMD_RUNTIME" get_result -i "\$APPSCAN_SCAN_ID" -t html -d "${dest}" \\
-        > "\$APPSCAN_LOG_DIR/get_result-${type}-${script.env.APPSCAN_SCAN_NAME}.log" 2>&1 || true
-    if [ -s "${dest}" ]; then echo "[INFO] ${type.toUpperCase()} report downloaded"; break; fi
-    echo "[WARN] Report not ready, retry \$i/6..."; sleep 10
-done
-"""
-            }
-        }
-    }
-
-    private String queueAnalysis(String name, String logName, String filePath, Map config) {
-        def appId = state.cfg.appId?.trim()
-        if (!appId) {
-            appId = config.appId?.trim()
-        }
-        if (!appId) script.error "[APPSCAN] appId not configured for the service in ${state.settingsPlace()}"
-        if (!script.fileExists(filePath)) script.error "[APPSCAN] File not found: ${filePath}"
-        String output = ''
-        script.withEnv(["APPSCAN_CMD_RUNTIME=${appscanCmd()}", "APPSCAN_OPTS=${proxyOpts()}"]) {
-            if (os.isWindows()) {
-                def appscanPath = windowsAppscanPath()
-                output = script.powershell(returnStdout: true, script: """
-\$ErrorActionPreference = 'Continue'
-\$env:HOME        = \$env:APPSCAN_HOME_DIR
-\$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
-\$pp = (Get-Content -Raw -Path "\$env:APPSCAN_LOG_DIR\\proxy.pass").Trim()
-\$opts = "\$env:APPSCAN_OPTS -Dhttp.proxyPassword=\$pp -Dhttps.proxyPassword=\$pp"
-\$env:APPSCAN_OPTS = \$opts
-\$out = & ${appscanPath} queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" 2>&1
-\$out | Out-File -FilePath "\$env:APPSCAN_LOG_DIR\\queue-${logName}.log" -Encoding UTF8
-\$out
-""").trim()
-            } else {
-                output = script.sh(returnStdout: true, script: """#!/usr/bin/env bash
-set -euo pipefail; set +x
-${shProxyEnv}
-env -u APPSCAN_DOMAIN \\
-    PATH="\$APPSCAN_BIN_DIR:\$PATH" HOME="\$APPSCAN_HOME_DIR" USERPROFILE="\$APPSCAN_HOME_DIR" \\
-    APPSCAN_OPTS="\${_OPTS}" \\
-"\$APPSCAN_CMD_RUNTIME" queue_analysis -a "${appId}" -f "${filePath}" -n "${name}" \\
-    2>&1 | tee "\$APPSCAN_LOG_DIR/queue-${logName}.log" | grep -v "^Picked up " || true
-""").trim()
-            }
-        }
-        def m = (output =~ /(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)
-        if (!m) {
-            if (os.isWindows()) {
-                script.powershell "Get-Content -Path '${BuildUtils.psSingleQuote(script.env.APPSCAN_LOG_DIR as String)}\\queue-${logName}.log' -ErrorAction SilentlyContinue | Where-Object { \$_ -notmatch '% transferred' }"
-            } else {
-                script.sh "grep -v '% transferred' ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
-            }
-            script.error "[APPSCAN] Could not extract scan ID from queue_analysis output for '${name}'. Check ${script.env.APPSCAN_LOG_DIR}/queue-${logName}.log"
-        }
-        script.echo "[INFO] '${name}' queued - Scan ID: ${m[0]}"
-        return m[0]
-    }
-
     private void fetchProxyPassword() {
         envAdapter.fetchProxyPassword()
     }
@@ -988,6 +880,12 @@ env -u APPSCAN_DOMAIN \\
 
     private String readProxyPassword() {
         return envAdapter.readProxyPassword()
+    }
+
+    private String proxyPassword() {
+        if (script.env.PROXY_PASS) return script.env.PROXY_PASS as String
+        if (!proxyPass) proxyPass = readAppscanLogFile('proxy.pass', false)
+        return proxyPass ?: 'null'
     }
 
     private String excludedFolders() {

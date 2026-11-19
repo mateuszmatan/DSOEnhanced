@@ -246,6 +246,8 @@ cleanWs
 == log
 [PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
 [PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
+[WARN] gui: asoc.keyId in the DevSecOps portal ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
+[WARN] backend-api: asoc.keyId in the DevSecOps portal ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS

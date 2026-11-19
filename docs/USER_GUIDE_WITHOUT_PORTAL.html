@@ -525,11 +525,10 @@ devSecOpsPipeline(
 <li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
 <li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
 <li><strong>Credentials Configuration:</strong></li>
-<li>Configured per service in the <code>asoc:</code> section:
+<li>SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (<code>asoc.keyId</code> and the Jenkins Secret text credential named in <code>asoc.token</code> of <code>resources/com/bbh/devsecops/defaults.yaml</code>).</li>
+<li>A service sets only its application ID; a <code>keyId</code>, <code>token</code> or <code>credentialsId</code> of a service is ignored with a <code>[WARN]</code> line:
     <code>yaml
     asoc:
-      keyId: 'asoc-key-id-backend'
-      token: 'asoc-secret-id-backend'
       appId: '10982'</code></li>
 <li><strong>Custom Scan Name:</strong></li>
 <li>Optional <code>sast.scanName</code> defines custom scan naming in ASOC.</li>
@@ -654,9 +653,7 @@ projects:
 
     # 4. Static Application Security Testing (HCL AppScan SAST)
     asoc:
-      keyId: 'asoc-key-id-backend'                # Jenkins credentials ID
-      token: 'asoc-secret-id-backend'             # Jenkins credentials ID
-      appId: '10982'                              # Application ID in HCL ASOC
+      appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
 
@@ -708,8 +705,6 @@ projects:
       minimum: 80
 
     asoc:
-      keyId: 'asoc-key-id-gui'
-      token: 'asoc-secret-id-gui'
       appId: '10983'
 
     tools:
@@ -810,9 +805,9 @@ projects:
 <td style="text-align: center;"><span class="badge badge-default">DEFAULT 80</span></td>
 </tr>
 <tr>
-<td><code>asoc.keyId</code> &amp; <code>asoc.token</code></td>
-<td>AppScan SAST credentials</td>
-<td><code>asoc-cred-id</code> (from Jenkins)</td>
+<td><code>asoc.appId</code></td>
+<td>AppScan application ID of the service (SAST and DAST); the API key is set once in the library defaults</td>
+<td><code>10982</code></td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
 <tr>

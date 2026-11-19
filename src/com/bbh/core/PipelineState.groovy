@@ -5,6 +5,7 @@ import com.cloudbees.groovy.cps.NonCPS
 class PipelineState implements Serializable {
     Map  cfg                = [:]
     Map  cfgDefaults        = [:]
+    Map  libraryDefaults    = [:]
     long commitTime         = 0L
     String commitSha        = ''
     String commitAuthor     = ''
@@ -64,6 +65,11 @@ class PipelineState implements Serializable {
     @NonCPS
     String settingsPlace() {
         return configFile ?: 'the DevSecOps portal'
+    }
+
+    @NonCPS
+    Map appScanKeyDefaults() {
+        return libraryDefaults ?: cfgDefaults
     }
 
     void stagePass(String name) {

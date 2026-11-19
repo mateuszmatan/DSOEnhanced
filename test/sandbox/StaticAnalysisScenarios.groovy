@@ -260,35 +260,42 @@ check('GoldenFix: goldenFix.versionCatalogRepo names the shared version catalog 
 
 Map credResult = [:]
 try {
+    FakeScript cs = new FakeScript(unix: true)
+    cs.env.vars.putAll([WORKSPACE: '/ws', APPSCAN_SERVER_URL: 'https://bbh.cloud.appscan.com'])
+    cs.shHandler = { Map a -> a.returnStdout && String.valueOf(a.script).contains('Account/ApiKeyLogin') ? '{"Token":"BEARER-TOKEN"}' : '' }
     harness.run {
         def state = harness.type('com.bbh.core.PipelineState').newInstance()
         state.cfg = [
                 asoc: [keyId: 'asoc-key', token: 'asoc-token'],
                 sast: [keyId: 'sast-key', token: 'sast-token'],
-                dast: [keyId: 'dast-key', token: 'dast-token']
+                dast: [keyId: 'dast-key', credentialsId: 'dast-token']
         ]
-        def os = harness.type('com.bbh.core.OsHelper').newInstance(autoScript)
+        state.cfgDefaults = [asoc: [keyId: 'functional-key', token: 'functional-secret']]
+        def os = harness.type('com.bbh.core.OsHelper').newInstance(cs)
         os.detect()
-        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(autoScript, state, os)
-        def build = harness.type('com.bbh.build.BuildService').newInstance(autoScript, state, os, policy)
-        def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(autoScript, state, os, policy, build)
-
-        credResult.sastKey = appScan.resolveKeyId('SAST')
-        credResult.sastSecret = appScan.resolveSecretCredentialsId('SAST')
-        credResult.dastKey = appScan.resolveKeyId('DAST')
-        credResult.dastSecret = appScan.resolveSecretCredentialsId('DAST')
+        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(cs, state, os)
+        def build = harness.type('com.bbh.build.BuildService').newInstance(cs, state, os, policy)
+        def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(cs, state, os, policy, build)
+        appScan.apiLogin('SAST')
+        appScan.apiLogin('DAST')
+        credResult.ignored = harness.type('com.bbh.config.ConfigLoader').ignoredAppScanKeySettings(state.cfg)
+        credResult.secretOfKey = utils().appScanKeySecretCredentialsId([asoc: [keyId: 'functional-key']])
     }
+    credResult.creds = cs.calls.findAll { it.startsWith('withCredentials') }
+    credResult.body = cs.files['/ws@tmp/asoc-api-key-login.json']
+    credResult.keys = cs.calls.findAll { it.contains('asoc-key') || it.contains('sast-key') || it.contains('dast-key') || it.contains('-token') }
 } catch (Throwable t) {
     credResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
 }
 
-check('AppScanService: resolveKeyId and resolveSecretCredentialsId isolate SAST credentials from DAST credentials',
+check('AppScanService: SAST and DAST sign in with the API key of the functional user from the library defaults only; keyId, token and credentialsId of a service are ignored and listed',
         !credResult.error
-                && credResult.sastKey == 'sast-key'
-                && credResult.sastSecret == 'sast-token'
-                && credResult.dastKey == 'dast-key'
-                && credResult.dastSecret == 'dast-token',
-        "error=${credResult.error} sastKey=${credResult.sastKey} dastKey=${credResult.dastKey}")
+                && credResult.creds == ['withCredentials [functional-secret]', 'withCredentials [functional-secret]']
+                && credResult.body == '{"KeyId":"functional-key","KeySecret":"fake-APPSCAN_KEY_SECRET"}'
+                && !credResult.keys
+                && credResult.ignored == ['asoc.keyId', 'asoc.token', 'sast.keyId', 'sast.token', 'dast.keyId', 'dast.credentialsId']
+                && credResult.secretOfKey == 'functional-key',
+        credResult)
 
 Map dedupResult = [:]
 try {
@@ -307,14 +314,22 @@ try {
     sc.files['logs/appscan.cmd'] = '/ws/bin/appscan.sh'
     sc.files['logs/proxy.pass'] = 'pass'
     sc.files['home/.appscan/appscan.properties'] = 'server.url=https://bbh.cloud.appscan.com'
+    String sharedReport = sc.files.remove('appscan-report-service1.html')
     sc.shHandler = { Map a ->
         String cmd = a.script as String
-        if (cmd?.contains('queue_analysis')) {
-            return 'Scan ID: 12345678-1234-1234-1234-123456789012'
-        }
-        if (cmd?.contains('get_result')) {
-            return 'Report downloaded'
-        }
+        def out = cmd =~ /-o "([^"]+)"/
+        if (out.find()) sc.files[out.group(1)] = out.group(1).endsWith('.pdf') ? '%PDF-1.7' : sharedReport
+        def move = cmd =~ /mv '\/ws\/([^']+)' '\/ws\/([^']+)'/
+        if (move.find() && sc.files.containsKey(move.group(1))) sc.files[move.group(2)] = sc.files.remove(move.group(1))
+        def copy = cmd =~ /cp '\/ws\/([^']+)' '\/ws\/([^']+)'/
+        if (copy.find() && sc.files.containsKey(copy.group(1))) sc.files[copy.group(2)] = sc.files[copy.group(1)]
+        if (!a.returnStdout) return null
+        if (cmd.contains('Account/ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
+        if (cmd.contains('/api/v4/FileUpload')) return '{"FileId":"file-1234"}'
+        if (cmd.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
+        if (cmd.contains('/api/v4/Scans/Sast')) return '{"Id":"12345678-1234-1234-1234-123456789012"}'
+        if (cmd.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"report-1234"}'
+        if (cmd.contains('/api/v4/Reports/report-1234')) return '{"Status":"Ready"}'
         return ''
     }
     harness.run {
@@ -326,10 +341,11 @@ try {
         def appScan = harness.type('com.bbh.scanner.AppScanService').newInstance(sc, state, os, policy, build)
 
         state.currentProjectName = 'service1'
+        state.cfgDefaults = [asoc: [keyId: 'functional-key', token: 'functional-secret']]
         state.cfg = [appId: 'shared-app-uuid', asoc: [doCompile: false]]
         appScan.generateIrx()
         appScan.queueSast([:])
-        state.sastScansByAppId['shared-app-uuid'].completed = true
+        appScan.waitSast()
         appScan.downloadSastReports()
         dedupResult.service1Counts = state.vulnCounts.sast
 
@@ -344,6 +360,10 @@ try {
         dedupResult.service2Counts = state.vulnCounts.sast
         dedupResult.echoes = sc.log
         dedupResult.service2Id = sc.files['logs/scan-sast-service2.id']
+        dedupResult.uploads = sc.calls.count { it.contains('/api/v4/FileUpload') }
+        dedupResult.polls = sc.calls.count { it.contains('/api/v4/Scans/Sast/') }
+        dedupResult.reports = sc.calls.count { it.contains('/api/v4/Reports/Security/Scan/') }
+        dedupResult.service2Report = sc.files['appscan-report-service2.html']
     }
 } catch (Throwable t) {
     dedupResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
@@ -354,11 +374,13 @@ check('AppScanService: deduplicates SAST scan when services share the same AppSc
                 && dedupResult.service1Counts == [critical: 1, high: 2, medium: 3, low: 4]
                 && dedupResult.service2Counts == [critical: 1, high: 2, medium: 3, low: 4]
                 && dedupResult.service2Id == '12345678-1234-1234-1234-123456789012'
+                && dedupResult.uploads == 1 && dedupResult.polls == 1 && dedupResult.reports == 2
+                && dedupResult.service2Report?.contains('Critical severity issues:')
                 && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - skipping duplicate IRX generation") }
                 && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - reusing scan ID") }
                 && dedupResult.echoes.any { it.contains("scan for application ID 'shared-app-uuid' already completed - skipping wait") }
                 && dedupResult.echoes.any { it.contains("shares AppScan application ID 'shared-app-uuid' with 'service1' - reusing report and findings") },
-        "error=${dedupResult.error} echoes=${dedupResult.echoes}")
+        "error=${dedupResult.error} uploads=${dedupResult.uploads} polls=${dedupResult.polls} reports=${dedupResult.reports} echoes=${dedupResult.echoes}")
 
 Map dotnetStatic = [:]
 try {

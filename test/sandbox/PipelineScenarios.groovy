@@ -139,7 +139,9 @@ List<Map> keylessMarks = [
         rule('a run without a key names its settings file in the report header (M25)',
                 /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: [^\n]*?<\/div>/, ''),
         rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, ''),
-        rule('a run without a key has no portal to send the report to', /(?ms)^withEnv \[PORTAL_URL=[^\n]*\n.*?^sh rm -f 'portal_report_[^\n]*\n/, '')
+        rule('a run without a key has no portal to send the report to', /(?ms)^withEnv \[PORTAL_URL=[^\n]*\n.*?^sh rm -f 'portal_report_[^\n]*\n/, ''),
+        rule('a run without a key names its settings file in the warning about an AppScan key of a service',
+                /(?m)^(\[WARN\] [^:\n]+: [^\n]*?) in [\w-]*config\.yaml ignored - /, '$1 in the DevSecOps portal ignored - ')
 ]
 List<Map> keylessRules = [bootstrapRule, portalLogRule,
                           rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
@@ -367,13 +369,13 @@ Closure verify = { Map spec ->
     if (spec.executed.contains(STATIC)) {
         List<String> calls = j.calls
         int chmod = calls.indexOf('sh chmod +x "$APPSCAN_BIN_DIR/gradle"')
-        List<Integer> queued = calls.findIndexValues { it.startsWith('sh [Gradle: clean build bootJar]') || it.startsWith('sh [Maven: clean verify]') || it.contains('queue_analysis') }
+        List<Integer> queued = calls.findIndexValues { it.startsWith('sh [Gradle: clean build bootJar]') || it.startsWith('sh [Maven: clean verify]') || it.endsWith('/api/v4/Scans/Sast"') }
                 .findAll { it > chmod } as List<Integer>
         int removal = calls.indexOf(stagedCopy)
         List<Integer> evaluated = r.evaluatedAt as List<Integer>
         int sonarFirst = calls.findIndexOf { it.startsWith('sh [Gradle: sonarqube]') }
         int sonarLast = calls.findLastIndexOf { it.startsWith('sh [Maven: sonar:sonar]') }
-        int polled = calls.findIndexOf { it.contains(' status -i ') }
+        int polled = calls.findIndexOf { it.contains('/api/v4/Scans/Sast/') }
         check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, SonarQube runs, and only then SAST polls its scans",
                 chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < sonarFirst && sonarLast < polled,
                 [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, polled: polled, sonar: [sonarFirst, sonarLast]])
@@ -480,13 +482,6 @@ Closure focused = { Map spec ->
             ([r.crash] + (r.var as FakeCpsScript).stageFailures).join('\n      '))
     return r
 }
-Closure loginsOf = { FakeScript j, String marker, String pattern ->
-    j.calls.findIndexValues { it.contains(marker) }.collect { idx ->
-        int i = idx as int
-        "${j.calls[i - 1]} ${(j.calls[i] =~ pattern)[0][1]}".toString()
-    }
-}
-
 Closure resultOf = { Map r, String stage ->
     List<String> log = (r.j as FakeScript).log
     int i = log.indexOf("[STAGE]  ${stage}".toString())
@@ -505,26 +500,26 @@ Closure perServiceSettings = { Map p ->
 }
 Map perService = focused([name: 'full pipeline, AppScan settings per service', buildNumber: 351, configure: perServiceSettings])
 FakeScript perServiceJenkins = perService.j as FakeScript
-List sastLogins = loginsOf(perServiceJenkins, ' api_login ', /-u "([^"]+)"/)
-List guiThenBackend = ["withCredentials [gui-appscan-key-secret] ${guiKey}".toString(), "withCredentials [${backendKey}] ${backendKey}".toString()]
-check('full pipeline, AppScan settings per service: SAST logs in with the key of each service before its IRX is queued and before its results are read, '
-        + 'the secret from asoc.token or, without it, from the credentials named like the key ID', sastLogins == guiThenBackend + guiThenBackend, sastLogins)
-List dastLogins = loginsOf(perServiceJenkins, 'Account/ApiKeyLogin', /(\{.*\})/).collect { (it as String).replace('\\"', '"') }
-check('full pipeline, AppScan settings per service: DAST signs in with the key ID and the Secret text of each service',
-        dastLogins == ["withCredentials [gui-appscan-key-secret] {\"KeyId\":\"${guiKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString(),
-                       "withCredentials [${backendKey}] {\"KeyId\":\"${backendKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()]
-                && !perServiceJenkins.calls.any { it.contains('hcl-app-scan-acount') },
-        dastLogins)
-Closure queuedOf = { FakeScript j ->
-    j.calls.findAll { it.contains('queue_analysis -a') }.collect { String c ->
-        "${(c =~ /-f "([^"]+)"/)[0][1]} ${(c =~ /-n "([^"]+)"/)[0][1]} ${(c =~ /queue-([^"]+)\.log/)[0][1]}".toString()
-    }
+String functionalKey = 'bbh_asoc-functional-user-key'
+Closure loginsOf = { FakeScript j ->
+    j.calls.findIndexValues { it.contains('Account/ApiKeyLogin') }.collect { idx -> j.calls.subList(0, idx as int).findAll { it.startsWith('withCredentials [') }.last() }
 }
-List queued = queuedOf(perServiceJenkins)
+List apiLogins = loginsOf(perServiceJenkins)
+String loginBody = perServiceJenkins.files['/ws@tmp/asoc-api-key-login.json'] ?: ''
+List keyWarnings = perServiceJenkins.log.findAll { it.startsWith('[WARN] ') && it.contains('the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token') }
+check('full pipeline, AppScan settings per service: SAST and DAST sign in once with the API key of the functional user from the library defaults, '
+        + 'the key ID and the Secret text a service sets are ignored and named in a warning',
+        apiLogins == ['withCredentials [asoc-functional-user-secret]']
+                && loginBody == "{\"KeyId\":\"${functionalKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()
+                && !perServiceJenkins.calls.any { it.contains(guiKey) || it.contains(backendKey) || it.contains('gui-appscan-key-secret') || it.contains('hcl-app-scan-acount') }
+                && keyWarnings.size() == 2 && keyWarnings[0].startsWith('[WARN] gui: asoc.keyId, asoc.token in the DevSecOps portal ignored')
+                && keyWarnings[1].startsWith('[WARN] backend-api: asoc.keyId in the DevSecOps portal ignored'),
+        apiLogins + [loginBody] + keyWarnings)
+List queued = perService.sastQueued as List
 String dastPayload = perServiceJenkins.files.find { it.key.endsWith('dast_payload.json') }?.value ?: ''
 check('full pipeline, AppScan settings per service: sast.scanName names the SAST scan of its service, sanitised, and a service without it keeps <scan name>-sast; '
-        + 'the IRX, the queue log, the scan ID file, the report names and the DAST scan name stay as they were',
-        queued == ['/ws/certscanner-gui.irx certscanner-gui-sast certscanner-gui-sast', '/ws/certscanner-backend.irx certscanner-backend-nightly certscanner-backend-sast']
+        + 'the IRX, the scan ID file, the report names and the DAST scan name stay as they were',
+        queued == ['/ws/certscanner-gui.irx certscanner-gui-sast 209f44ac-dd06-4ca0-884e-d944904f8020', '/ws/certscanner-backend.irx certscanner-backend-nightly 209f44ac-dd06-4ca0-884e-d944904f8021']
                 && ['scan-sast-certscanner-gui.id', 'scan-sast-certscanner-backend.id'].every { String id -> perServiceJenkins.files.keySet().any { it.endsWith(id) } }
                 && ['appscan-report-certscanner-backend.html', 'appscan-dast-report-certscanner-backend.html'].every { perServiceJenkins.files.containsKey(it) }
                 && dastPayload.contains('"ScanName": "certscanner-backend-dast_351"'),
@@ -753,7 +748,7 @@ check('full pipeline, orange, GoldenFix, parallel scans: the release gate, the I
 
 Closure sastNamesOf = { Map r ->
     FakeScript j = r.j as FakeScript
-    [loginsOf(j, ' api_login ', /-u "([^"]+)"/), queuedOf(j), j.files.keySet().findAll { it.contains('scan-sast-') || it.startsWith('appscan-report-') }.sort()]
+    [loginsOf(j), r.sastQueued, j.files.keySet().findAll { it.contains('scan-sast-') || it.startsWith('appscan-report-') }.sort()]
 }
 Map perServiceParallel = focused([name: 'full pipeline, AppScan settings per service, parallel scans', buildNumber: 351, parallel: true, configure: perServiceSettings])
 check('full pipeline, AppScan settings per service, parallel scans: the same logins, queued scan names, scan ID files and report names as one scan after another',

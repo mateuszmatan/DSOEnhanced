@@ -90,25 +90,10 @@ printf '%s' "$APPSCAN_CMD" > "$APPSCAN_LOG_DIR/appscan.cmd"
 sh chmod +x "$APPSCAN_BIN_DIR/gradle"
 sh mkdir -p '/ws/.appscan-home/.appscan'
 sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
-withEnv [APPSCAN_CMD_RUNTIME=/opt/appscan/bin/appscan.sh, APPSCAN_OPTS=-DBLUEMIX_SERVER=bbh.cloud.appscan.com -Dhttp.proxyHost=tstproxy.bbh.com -Dhttp.proxyPort=9090 -Dhttp.proxyUser=PROXY_ASOCJenk -Dhttps.proxyHost=tstproxy.bbh.com -Dhttps.proxyPort=9090 -Dhttps.proxyUser=PROXY_ASOCJenk -Djava.net.useSystemProxies=false -Dhttp.auth.preference=Basic -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=]
-withCredentials [bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9]
-sh #!/usr/bin/env bash
-set -euo pipefail; set +x
-_PP="$(cat "$APPSCAN_LOG_DIR/proxy.pass")"
-_OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"
-env -u APPSCAN_DOMAIN \
-    PATH="$APPSCAN_BIN_DIR:$PATH" HOME="$APPSCAN_HOME_DIR" USERPROFILE="$APPSCAN_HOME_DIR" \
-    APPSCAN_OPTS="${_OPTS}" \
-"$APPSCAN_CMD_RUNTIME" api_login \
-    -u "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9" -P "fake-APPSCAN_KEY_SECRET" -persist -acceptssl \
-    -service_url "https://bbh.cloud.appscan.com" \
-    > "$APPSCAN_LOG_DIR/api_login.log" 2>&1 || true
-grep -v "^Picked up " "$APPSCAN_LOG_DIR/api_login.log" || true
-if grep -qiE 'unable to authenticate|authentication failed|unauthorized|token has expired' "$APPSCAN_LOG_DIR/api_login.log"; then
-    echo "[ERROR] AppScan CLI login failed."; exit 1
-fi
-echo "[INFO] AppScan CLI login succeeded."
-
+withCredentials [asoc-functional-user-secret]
+sh set +x
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxy-secret" -H "Content-Type: application/json" -d "@/ws@tmp/asoc-api-key-login.json" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"
+sh rm -f '/ws@tmp/asoc-api-key-login.json'
 sh mkdir -p /ws/report
 withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
 sh set +x
@@ -123,6 +108,8 @@ cleanWs
 == log
 [PORTAL] key 5e0f0001...0001: gui of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
 [PORTAL] key 5e0f0002...0002: backend-api of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
+[WARN] gui: asoc.keyId in the DevSecOps portal ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
+[WARN] backend-api: asoc.keyId in the DevSecOps portal ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/com/bbh/devsecops/defaults.yaml of the library; a service sets only its application ID (appId)
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
 [RESULT] PASS
@@ -187,6 +174,7 @@ covered=840  missed=160  total=1000
 [STAGE]  Dependencies scan (Nexus IQ)
 [RESULT] PASS
 ------------------------------------------------------------
+[SAST] Starting API Authentication
 ------------------------------------------------------------
 [STAGE]  SAST - Static Application Security Tests - HCL AppScan
 [RESULT] FAIL

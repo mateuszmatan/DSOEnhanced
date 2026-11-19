@@ -177,6 +177,17 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String appScanKeyId(Map defaults) {
+        return ((defaults?.asoc?.keyId ?: '') as String).trim()
+    }
+
+    @NonCPS
+    static String appScanKeySecretCredentialsId(Map defaults) {
+        Map asoc = (defaults?.asoc instanceof Map ? defaults.asoc : [:]) as Map
+        return ((asoc.token ?: asoc.credentialsId ?: appScanKeyId(defaults)) as String).trim()
+    }
+
+    @NonCPS
     static boolean nodeBuildEnabled(Map cfg) {
         return !databaseBlock(cfg) && booleanValue(cfg.build?.node?.enabled, false)
     }

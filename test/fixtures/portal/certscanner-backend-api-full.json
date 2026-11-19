@@ -114,9 +114,7 @@
       "appName": "cert-scanner-backend",
       "artifactName": "cert-scanner-backend.jar",
       "asoc": {
-        "url": "https://bbh.cloud.appscan.com",
-        "keyId": "bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9",
-        "token": "hcl-app-scan-acount"
+        "url": "https://bbh.cloud.appscan.com"
       },
       "influx": {
         "url": "http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s",

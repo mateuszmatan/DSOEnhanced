@@ -115,6 +115,7 @@ class ConfigLoader implements Serializable {
 
         Map primary = state.configFile ? repositoryConfig() : (state.portalDocuments[0] as Map).config as Map
         state.cfgDefaults = (primary.defaults ?: [:]) as Map
+        state.libraryDefaults = state.configFile ? state.cfgDefaults : repositoryReader.appScanKeyDefaults()
         if (!state.cfgDefaults && !state.configFile) {
             script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
         }
@@ -139,7 +140,7 @@ class ConfigLoader implements Serializable {
                 Map auto = autoResolver.resolve(state.cfgDefaults, projects[pName] as Map, merged, pName as String)
                 state.projectsAllCfg[pName] = auto.cfg
                 state.projectsAutoResolved[pName] = auto.resolved
-                appScanKeyId(pName)
+                warnIgnoredAppScanKey(pName as String, (projects[pName] ?: [:]) as Map)
             }
             def primaryName = projectNames[0]
             state.cfg = state.projectsAllCfg[primaryName]
@@ -150,7 +151,7 @@ class ConfigLoader implements Serializable {
             script.echo "[INIT] APPSCAN_SCAN_NAME=${script.env.APPSCAN_SCAN_NAME}"
         }
 
-        script.env.APPSCAN_KEY_ID = appScanKeyId(state.currentProjectName)
+        script.env.APPSCAN_KEY_ID = BuildUtils.appScanKeyId(state.appScanKeyDefaults())
         validateCrossServiceRepositories(projectNames as List)
         List databases = (projectNames as List).findAll { BuildUtils.databaseBlock(state.projectsAllCfg[it] as Map) }
         if (variant == 'nexusiq' && databases && databases.size() == (projectNames as List).size()) {
@@ -299,7 +300,6 @@ class ConfigLoader implements Serializable {
         state.currentProjectName = projectName
         script.env.CURRENT_PROJECT_NAME = projectName
         script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
-        script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
     }
 
     void refreshAutoResolvedConfig(String projectName, String targetDir = '') {
@@ -317,10 +317,24 @@ class ConfigLoader implements Serializable {
         if (state.currentProjectName == projectName) state.cfg = auto.cfg
     }
 
-    private String appScanKeyId(String projectName) {
-        String keyId = ((state.projectsAllCfg[projectName]?.sast?.keyId ?: state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
-        if (!keyId) script.error "[INIT] asoc.keyId must be set for the service ${projectName} in ${state.settingsPlace()}"
-        return keyId
+    private void warnIgnoredAppScanKey(String projectName, Map rawProj) {
+        List ignored = ignoredAppScanKeySettings(rawProj)
+        if (!ignored) return
+        script.echo "[WARN] ${projectName}: ${ignored.join(', ')} in ${state.settingsPlace()} ignored - the AppScan on Cloud API key of the functional user is read only from asoc.keyId and asoc.token of resources/${BuildUtils.defaultsResource()} of the library; a service sets only its application ID (appId)"
+    }
+
+    @NonCPS
+    static List ignoredAppScanKeySettings(Map rawProj) {
+        List found = []
+        for (String block : ['asoc', 'sast', 'dast']) {
+            def section = rawProj?.get(block)
+            if (!(section instanceof Map)) continue
+            for (String key : ['keyId', 'token', 'credentialsId']) {
+                def value = (section as Map).get(key)
+                if (value != null && value.toString().trim()) found << "${block}.${key}".toString()
+            }
+        }
+        return found
     }
 
     void applyPolicy() {

@@ -184,24 +184,29 @@ check('several keys: one [PORTAL] line per key and one for the ignored Jenkinsfi
                 && j.log.contains('[PORTAL] The Jenkinsfile sets projectNames, agentNames; the values from the DevSecOps portal are used instead'),
         j.log.findAll { it.startsWith('[PORTAL]') })
 
+String libraryKeyId = ((((yaml.load(defaultsText) as Map).defaults as Map).asoc ?: [:]) as Map).keyId
 Map otherKey = PortalFixtures.copy(backend)
 (((otherKey.projects as Map)['backend-api'] as Map).asoc as Map).keyId = 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5'
+Map portalKey = PortalFixtures.copy(gui)
+[portalKey, otherKey].each { Map document -> (document.defaults as Map).asoc = [keyId: 'bbh_portal-defaults-key', token: 'portal-defaults-secret'] }
 j = jenkins([:])
-r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, otherKey)]])
+r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, portalKey), PortalFixtures.publish(j, otherKey)]])
 initError = r.error ?: initialize(r)
 String primaryKeyId = j.env.APPSCAN_KEY_ID
 if (!initError) r.harness.run { r.loader.switchProject('backend-api') }
-check('an AppScan key per service: APPSCAN_KEY_ID is the key of the primary service after the start and the key of the current service after switchProject',
-        !initError && primaryKeyId == 'bbh_b81fbc9f-39c1-8eb4-38b5-b702268969b9' && j.env.APPSCAN_KEY_ID == 'bbh_0c1d2e3f-4a5b-6c7d-8e9f-a0b1c2d3e4f5',
-        "${initError} | ${primaryKeyId} | ${j.env.APPSCAN_KEY_ID}")
+check('one AppScan key for every service: APPSCAN_KEY_ID is the key ID of the functional user from the library defaults after the start and after switchProject, not a key of the portal defaults or of a service, whose key ID is ignored with a [WARN]',
+        !initError && libraryKeyId && primaryKeyId == libraryKeyId && j.env.APPSCAN_KEY_ID == libraryKeyId
+                && j.log.any { it.startsWith('[WARN] backend-api: asoc.keyId in the DevSecOps portal ignored - ') } && !j.log.any { it.startsWith('[WARN] gui: ') },
+        "${initError} | ${primaryKeyId} | ${j.env.APPSCAN_KEY_ID} | ${j.log.findAll { it.startsWith('[WARN]') }}")
 
-Map keyless = PortalFixtures.copy(backend)
-(((keyless.projects as Map)['backend-api'] as Map).asoc as Map).remove('keyId')
 j = jenkins([:])
-r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, keyless)]])
+j.resources.remove('com/bbh/devsecops/defaults.yaml')
+j.resourcesDir = null
+r = load(j, 'full', [pipelineKeys: [PortalFixtures.publish(j, gui), PortalFixtures.publish(j, backend)]])
 initError = r.error ?: initialize(r)
-check('an AppScan key per service: a service without asoc.keyId stops the build at the start, also when it is not the primary service',
-        initError == '[INIT] asoc.keyId must be set for the service backend-api in the DevSecOps portal', initError)
+check('one AppScan key for every service: services without a key start, and when the library defaults cannot be read the start goes on with a [WARN] (SAST and DAST stop later with their own message)',
+        !initError && !j.env.APPSCAN_KEY_ID && j.log.any { it.startsWith('[WARN] The library resource com/bbh/devsecops/defaults.yaml cannot be read (') },
+        "${initError} | ${j.env.APPSCAN_KEY_ID} | ${j.log.findAll { it.startsWith('[WARN]') }}")
 
 j = jenkins([:])
 SandboxHarness apiHarness = new SandboxHarness(srcDir, stubDir)
@@ -595,8 +600,10 @@ check('a custom Jenkinsfile that calls initialize() without configure() reads co
                 && ((runState.projects ?: [:]) as Map).keySet().toList() == ['gui'],
         "${run.error} | ${customPlace} | ${runState.projects?.keySet()}")
 
-Map noKeyId = fromFile('full', agents, ['config.yaml': configWith { Map p -> ((p['backend-api'] as Map).asoc as Map).remove('keyId') }])
-check('without a key: a service without asoc.keyId names the file that was read', noKeyId.initError == '[INIT] asoc.keyId must be set for the service backend-api in config.yaml', noKeyId.initError)
+Map noKeyId = fromFile('full', agents, ['config.yaml': configWith { Map p -> p.values().each { (((it as Map).asoc ?: [:]) as Map).remove('keyId') } }])
+check('without a key: services without asoc.keyId start, and APPSCAN_KEY_ID is the key ID of the functional user from the library defaults',
+        !noKeyId.initError && (noKeyId.j as FakeScript).env.APPSCAN_KEY_ID == libraryKeyId && !(noKeyId.j as FakeScript).log.any { it.contains('asoc.keyId in config.yaml ignored') },
+        "${noKeyId.initError} | ${(noKeyId.j as FakeScript).env.APPSCAN_KEY_ID}")
 
 Map invalid = fromFile('full', agents, ['devsecops_config.yaml': 'projects: ['])
 check('without a key: a file that is not YAML names the file and the parser message', (invalid.initError as String).startsWith('[INIT] devsecops_config.yaml is not valid YAML: '), invalid.initError)
