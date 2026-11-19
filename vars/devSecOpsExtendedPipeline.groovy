@@ -30,8 +30,12 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [copyArtifactsFrom: devSecOpsApi.pipelineConfig().securityPipeline]) } }
             }
 
+            stage('Download artifacts from Nexus Repo') {
+                steps { script { devSecOpsSteps.pullNexusSnapshot(devSecOpsApi) } }
+            }
+
             stage('Lower test region deployment') {
-                steps { script { devSecOpsSteps.lowerRegionDeployment(devSecOpsApi, 'ssh') } }
+                steps { script { devSecOpsSteps.lowerRegionDeployment(devSecOpsApi, 'dod') } }
             }
 
             stage('Regression tests (>60% user stories coverage)') {

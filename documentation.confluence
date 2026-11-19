@@ -64,8 +64,8 @@ The library executes the following pipeline automatically when you call {{devSec
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
 |4|SAST – HCL AppScan|Static Application Security Testing: compile, IRX archive and scan, queued per project|
 |5|SCA (SonarQube)|Static code analysis and quality gate|
-|6|Nexus delivery (static analysis passed)|Publish the snapshot artifact, even when an earlier stage is orange, unless {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the service|
-|7|Lower test region deployment|Deploy to the lower test region: VM with UrbanCode Deploy ({{devSecOpsPipeline}}) or over SSH ({{devSecOpsExtendedPipeline}}), or OpenShift|
+|6|Nexus delivery (static analysis passed)|Publish the snapshot artifact, even when an earlier stage is orange, unless {{delivery.nexusDeliveryEnabled}} (or {{deploy.<target>.rd.nexusDeliveryEnabled}}) is false for the service|
+|7|Lower test region deployment|Deploy to the lower test region: VM with UrbanCode Deploy ({{devSecOpsPipeline}} and {{devSecOpsExtendedPipeline}}), or OpenShift|
 |8|Regression tests|Trigger regression jobs, at least one job must be configured|
 |9|Smoke tests|Trigger smoke jobs, at least one job must be configured|
 |10|Performance tests|Trigger performance jobs, at least one job must be configured|
@@ -84,7 +84,7 @@ The library ships five entry points. They share the same services, thresholds, r
 ||Entry point||Runs||Use it when||
 |{{devSecOpsPipeline}}|All thirteen stages in one build, after the optional Node.js build: unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery, RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment|One job should cover the whole flow|
 |{{devSecOpsSecurityPipeline}}|The optional Node.js build, unit tests, Nexus IQ, SAST, SonarQube, snapshot delivery; archives {{pipeline-config.yaml}} and the release gate verdict, and triggers the extended job when {{RUN_EXTENDED_PIPELINE}} is selected|The static part runs on every commit and the rest is a separate job|
-|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment; it has no Node.js build stage, and its release delivery runs the Node.js build of a service again before it publishes|Downstream of the security pipeline, which its Jenkinsfile names in {{securityPipeline}}; it inherits the release verdict through the copied {{release-gate.json}}|
+|{{devSecOpsExtendedPipeline}}|RD deployment, regression, smoke, performance, DAST, release delivery, QC deployment; it has no Node.js build stage, and its release delivery runs the Node.js build of a service again only before a release that is implemented, today the NuGet push of a .NET service|Downstream of the security pipeline, which its Jenkinsfile names in {{securityPipeline}}; it inherits the release verdict through the copied {{release-gate.json}}|
 |{{devSecOpsSASTScanningPipeline}}|Monitor sources, the optional Node.js build and SAST|A job that executes the AppScan static scan only; its report contains the SAST stage and the SAST findings|
 |{{devSecOpsNexusIqGoldenFixPipeline}}|Monitor sources, the optional Node.js build, artifact build and Nexus IQ with GoldenFix|A job that checks the dependencies of the built artifact and raises the GoldenFix pull request with the safe versions; its report contains the Nexus IQ stage, the Nexus IQ findings and the GoldenFix card|
 
@@ -128,7 +128,7 @@ h3. 3. Breakdown per Pipeline Type
 ||Pipeline Entry Point||Stages Executed||Required Sections in {{devsecops_config.yaml}} / {{config.yaml}}||Artifacts & Pull Requests Produced||
 |{{devSecOpsPipeline}} *(Full Pipeline)*|All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{appId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{appscan-dast-report*.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR|
 |{{devSecOpsSecurityPipeline}} *(Security Pipeline)*|Static & snapshot stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot); optionally triggers {{extendedPipeline}}|{{appId}}, {{tools.nexusIq}}, {{tools.sonar}}, {{deploy.<target>.rd}} ({{buildTool}} and {{deployTarget}} auto-resolved if omitted)|{{report/pipeline-report.html}}, {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments)|
-|{{devSecOpsExtendedPipeline}} *(Extended Pipeline)*|Dynamic & release stages: 1 (Monitor + copy {{pipeline-config.yaml}} & {{release-gate.json}} from {{securityPipeline}}), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{appId}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}}; Jenkinsfile passes {{securityPipeline: '<job>'}} (or runs standalone)|{{report/pipeline-report.html}}, {{appscan-dast-report*.html/.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, DAST PR|
+|{{devSecOpsExtendedPipeline}} *(Extended Pipeline)*|Dynamic & release stages: 1 (Monitor + copy {{pipeline-config.yaml}}, {{release-gate.json}} & {{build.tag}} from {{securityPipeline}}), Download artifacts from Nexus Repo, 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)|{{appId}}, {{deploy.<target>}}, {{tests.<regression|smoke|performance>}}, {{dast}}; Jenkinsfile passes {{securityPipeline: '<job>'}} (or runs standalone)|{{report/pipeline-report.html}}, {{appscan-dast-report*.html/.pdf}}, {{pipeline-config.yaml}}, {{release-gate.json}}, DAST PR|
 |{{devSecOpsSASTScanningPipeline}} *(SAST-Only Pipeline)*|Stages: 1 (Monitor), 0 (Node.js optional when {{asoc.doCompile: true}} on Linux), 4 (AppScan SAST)|{{appId}} (and {{build.<tool>}} / {{asoc.<tool>}} when {{asoc.doCompile: true}})|{{report/pipeline-report.html}} (SAST-only view), {{appscan-report*.html}}, {{pipeline-config.yaml}}, {{release-gate.json}}|
 |{{devSecOpsNexusIqGoldenFixPipeline}} *(Nexus IQ + GoldenFix Pipeline)*|Stages: 1 (Monitor), 0 (Node.js optional), 2 (Build artifact), 3 (Nexus IQ scan + GoldenFix remediation & PR)|{{tools.nexusIq.application}} + {{scanPatterns}}, {{goldenFix}}, {{scm.bitbucket}} ({{buildTool}} auto-resolved if omitted)|{{report/pipeline-report.html}} (Nexus IQ + GoldenFix view), {{pipeline-config.yaml}}, {{release-gate.json}}, GoldenFix PR|
 
@@ -267,7 +267,7 @@ When Nexus IQ reports a policy violation the library prepares the upgrade itself
 * Manifests are updated across the whole source tree: {{pom.xml}}, {{build.gradle}}/{{.kts}}, {{gradle.properties}}, Gradle version catalogs, {{package.json}} (with its {{overrides}} and {{resolutions}}), {{requirements*.txt}}, {{pyproject.toml}}, {{pubspec.yaml}}, and NuGet / .NET manifests ({{*.csproj}}, {{*.fsproj}}, {{*.vbproj}}, {{Directory.Packages.props}}, {{Directory.Build.props}}, and {{packages.config}}).
 * *Shared version catalogs are raised once.* In a repository that holds several services, a version that a shared catalog defines is raised in the catalog, consistently for every service that uses it: a Gradle version catalog, the catalog of {{settings.gradle}}, a build file that other builds apply, a {{java-platform}} module, a Maven parent or BOM pom, or a .NET {{Directory.Packages.props}} / {{Directory.Build.props}}. A declaration of the same dependency outside the catalog is raised to the same version and named in the pull request, so that a reviewer can move it into the catalog.
 * The version is chosen by two rules: *only the last number of the version (the patch) may change*, so {{1.2.3}} may become {{1.2.4}} but never {{1.3.0}}, and of those the *newest one without known vulnerabilities* wins. A dependency without such a version is left untouched and listed for a developer.
-* Before anything is proposed the project is *built with the new versions*: every changed manifest in its own folder, and a shared catalog in every build that uses it. A failing build lowers the versions and retries, and if nothing builds, no pull request is opened. No pull request is ever opened without a passing pre-check build: when no build can be run for a changed file, the run ends {{NOT_VERIFIED}}.
+* Before anything is proposed the project is *built with the new versions and its unit tests are run*: every changed manifest in its own folder, and a shared catalog in every build that uses it. A failing build or test lowers the versions and retries, and if nothing builds, no pull request is opened. No pull request is ever opened without a passing pre-check build: when no build can be run for a changed file, the run ends {{NOT_VERIFIED}}.
 * The services of one build that share a repository share one pull request. Each later service adds its upgrades to it and says so in a comment.
 
 The Nexus IQ GoldenFix pipeline runs the dependency scan and this remediation on their own, after building the artifact, without the other stages.
@@ -450,7 +450,7 @@ devSecOpsPipeline(
 # In the Monitor stage, after the checkout, {{ConfigLoader.initialize()}} reads {{devsecops_config.yaml}} at the root of the workspace or, when there is none, {{config.yaml}}, the name the file had in the earlier releases of the library. When both are there it reads {{devsecops_config.yaml}} and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds {{Config.yaml}}, a Linux agent does not.
 # Only the {{projects:}} section of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} of the library; the console says so: "[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)". A {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses, the OIS host and the iOS build agent are the values of the agent environment, of the optional {{platform:}} section of the bundled defaults, or the library's own.
 # The services of the run are merged with the global defaults, the values of a service winning over the defaults, and written to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags. Every message that says where a setting lives names the file that was read.
-# An extended pipeline whose Jenkinsfile names a security job copies {{pipeline-config.yaml}} and {{release-gate.json}} from the last successful build of that job and takes from the copy only the run-time tags of its own services: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the VM delivery version in {{delivery}}, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
+# An extended pipeline whose Jenkinsfile names a security job copies {{pipeline-config.yaml}}, {{release-gate.json}} and, when the security build published a snapshot, {{build.tag}} from the last successful build of that job and takes from the copy only the run-time tags of its own services: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the VM delivery version in {{delivery}}, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
 # The report header says "Settings from devsecops_config.yaml in the repository", with the name of the file that was read, and {{build_evidence}} carries {{config_file}}. The settings follow the branch and the commit: a replayed build reads the file of its commit.
 # A custom Jenkinsfile that calls {{devSecOpsApi.initialize()}} without {{configure()}} reads the file too. The Nexus IQ GoldenFix pipeline needs {{tools.nexusIq.application}} and its {{scanPatterns}} for every service of the run.
 
@@ -521,7 +521,7 @@ Besides the standard pipeline steps, the library calls the following. A missing 
 |{{nexusPolicyEvaluation}}, {{selectedApplication}}|Nexus Platform plugin|Dependency scan|
 |{{withSonarQubeEnv}}, {{waitForQualityGate}}|SonarQube Scanner plugin|SonarQube analysis and quality gate|
 |{{triggerRemoteJob}}|Parameterized Remote Trigger plugin|Remote smoke, regression and performance jobs|
-|{{copyArtifacts}}, {{lastSuccessful}}|Copy Artifact plugin|Passing {{pipeline-config.yaml}} and the release gate verdict downstream|
+|{{copyArtifacts}}, {{lastSuccessful}}|Copy Artifact plugin|Passing {{pipeline-config.yaml}}, {{build.tag}} and the release gate verdict downstream|
 |{{publishHTML}}|HTML Publisher plugin|Publishing the pipeline report|
 |{{junit}}|JUnit plugin|Unit test results|
 |{{readYaml}}, {{readJSON}}, {{writeJSON}}, {{findFiles}}|Pipeline Utility Steps plugin|Configuration and report state|
@@ -1013,7 +1013,7 @@ h3. Specific to this pipeline
 * *Do not add a commit trigger.* This job is started by the security pipeline or by a person.
 * *Copy Artifact permission.* This job reads files archived by the security job, which on some Jenkins instances requires the upstream job to permit it. If the first run reports that it cannot copy artifacts, that is the setting to ask the administrators about.
 * *Connect the two jobs* by naming this job in {{jenkins.pipeline.extendedPipeline}} of the service, in the {{devsecops_config.yaml}} that the security job reads. From then on, running the security pipeline with {{RUN_EXTENDED_PIPELINE}} ticked starts this one automatically.
-* *A frontend built with Node.js.* This pipeline has no Node.js build stage, because it builds nothing until the release. The release delivery stage runs the Node.js build of each service with {{build.node.enabled: true}} right before {{./gradlew publish}} or {{mvn deploy}} rebuilds the artifact, so the released artifact holds the frontend. A service without it publishes as before.
+* *A frontend built with Node.js.* This pipeline has no Node.js build stage, because it builds nothing until the release. The release delivery stage runs the Node.js build of each service with {{build.node.enabled: true}} only when a release delivery is available for a service of the run, today the NuGet push of a .NET service with {{delivery.nuget.source}}. For Gradle and Maven the release delivery is not implemented yet, so no Node.js build runs and the snapshot of the security pipeline, which already holds the frontend, stays the delivered artifact.
 
 ----
 
@@ -1179,7 +1179,7 @@ The catalog must live in the same repository as the services. A catalog publishe
 
 h3. Specific to this pipeline
 
-* *Linux or macOS agent.* GoldenFix works in a git worktree and runs the pre-check build with the shell, so the agent of {{AGENT_NAME}} needs git, {{curl}} and the build tool.
+* *Linux or macOS agent.* GoldenFix works in a git worktree and runs the pre-check build with the shell, so the agent of {{AGENT_NAME}} needs git, {{curl}}, the build tool and what the unit tests of the service need, such as a headless browser for Karma or {{python3}} with {{venv}}.
 * *This pipeline checks out the source itself* and sets up the JDK, because there is no unit test stage. The *Build artifact* stage then builds every project with the command of its {{build}} section, so Nexus IQ evaluates what was built. It checks no coverage, but the command runs as configured: Gradle {{build}} and Maven {{verify}} or {{package}} run the unit tests as well, so use Gradle {{assemble}} or Maven {{package -DskipTests}} to build without them. A build error, a failing test included, is a red stage and stops the pipeline, because there is nothing to scan.
 * *The Nexus IQ stage is the one of the other pipelines.* It turns orange on a policy violation and GoldenFix raises one pull request for the projects of the build that share a repository, as described in [the stage reference|#ch16]. GoldenFix never changes the stage result.
 * *Put it on a schedule* if the dependencies should be checked independently of commits, for example {{H 3 * * *}} under *Build periodically* for a nightly run: Nexus IQ learns about new vulnerabilities in components that did not change.
@@ -1422,11 +1422,32 @@ projects:
         timeoutMin:       30         # minutes for all commands of the service together
         nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
 
-    delivery:                        # Maven upload of the snapshot artifact (deployTarget: vm, buildTool: maven)
-      maven:
-        goals: ['deploy:deploy-file']
-        flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
-                '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+    delivery:                        # Nexus snapshot delivery of stage 6 and the download of the extended pipeline (deployTarget: vm)
+      nexusDeliveryEnabled: true     # false: stage 6 publishes nothing and the extended pipeline downloads nothing [default: deploy.<target>.rd.nexusDeliveryEnabled, then true]
+      push:
+        maven:                       # buildTool: maven - one deploy-file upload, every file with its own classifier
+          goals: ['deploy:deploy-file']
+          flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
+                  '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+          artifacts:
+            - path: "target/*.jar"   # glob; the classifier is the file name without its extension
+            # classifier: "app"     # optional; the path must then match one file
+        # gradle:                    # buildTool: gradle - maven-publish run with the Gradle wrapper of the service
+        #   group:         "com.bbh.myapp"
+        #   artifact:      "myapp"
+        #   repositoryUrl: "https://tools.bbh.com/nexus/repository/snapshots"
+        #   artifacts: [{path: "build/libs/*.jar"}]
+      pull:                          # devSecOpsExtendedPipeline, stage Download artifacts from Nexus Repo
+        outputDirectory: "downloaded-artifacts"
+        group:    "com.bbh.myapp"    # Maven: the groupId and artifactId of the upload
+        artifact: "myapp"
+        maven:
+          goals: ['org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get']
+          flags: ['-DremoteRepositories=bbh-snapshots::default::https://tools.bbh.com/nexus/repository/snapshots']
+          artifacts:
+            - path: "myapp.jar"      # file name in outputDirectory; the classifier is the name without its extension
+        # gradle: {group: "com.bbh.myapp", artifact: "myapp", repositoryUrl: "https://...", artifacts: [{path: "myapp.jar"}]}
+      # maven: {goals: [...], flags: [...]}   # without push.maven: one upload of build.buildPath without a classifier, as before
       # group:    ""                 # Flutter only: groupId of the APK and IPA upload
       # artifact: ""                 # Flutter only: artifactId, -android or -ios is appended
       # plugin:   "deploy:deploy-file"   # Flutter only: the Maven goal of the upload
@@ -1453,17 +1474,17 @@ projects:
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
       excludeDirs:            []     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]
-      verify:                        # the pre-check build of the proposed versions
-        maxAttempts:    3            # version sets tried; each failed build lowers every proposed version; the build with the Nexus IQ
+      verify:                        # the pre-check build and unit tests of the proposed versions
+        maxAttempts:    3            # version sets tried; each failed build or test run lowers every proposed version; the build with the Nexus IQ
                                      # version instead of a catalog version comes on top
         timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
         commands:                    # replaces the default check of one ecosystem; runs in the folder of the check
-          maven:  ""                 # [default: mvn -B -q -DskipTests compile]
-          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
-          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
-          pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
-          pub:    ""                 # [default: flutter pub get, or dart pub get]
-          nuget:  ""                 # [default on Windows: nuget restore & MSBuild.exe (else dotnet build); on Linux: dotnet build --no-incremental or nuget restore]
+          maven:  ""                 # [default: mvn -B -q test]
+          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain test, or gradle without a wrapper]
+          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file, then npm test]
+          pip:    ""                 # [default: pip install -r <file> (or . for pyproject.toml) in a temporary venv, then pytest]
+          pub:    ""                 # [default: flutter pub get and flutter test, or dart for a Dart package]
+          nuget:  ""                 # [default: dotnet test, or nuget restore for packages.config; on Windows with MSBuild.exe: nuget restore & MSBuild.exe, build only]
       commitAuthorName:       "DevSecOps GoldenFix"
       commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
@@ -1533,7 +1554,7 @@ projects:
 
     deploy:
       vm:                            # used when deployTarget: vm
-        dod:                         # UrbanCode Deploy, used by devSecOpsPipeline for the lower test region
+        dod:                         # UrbanCode Deploy, used by devSecOpsPipeline and devSecOpsExtendedPipeline for the lower test region
           siteName:      "deploy.bbh.com"        # UrbanCode Deploy site configured in Jenkins
           deployProcess: "tomcat-app-process"
           skipWait:            false
@@ -1557,15 +1578,15 @@ projects:
                   fileIncludePatterns: "*.jar"
                   fileExcludePatterns: ""
                   versionPrefix:       ""        # [default: fileIncludePatterns]
-                  version:             ""        # [default: <versionPrefix>_<BUILD_ID>]
+                  version:             ""        # [default: <versionPrefix>_<build tag of build.tag>, without it <versionPrefix>_<BUILD_ID>]
                   incrementalVersion:  true
                   pushDescription:     ""        # optional fields of the UrbanCode component push
                   extensions:          ""
                   charset:             ""
                   versionProperties:   ""
                   versionDescription:  ""
-        rd:                          # lower test environment over SSH (devSecOpsExtendedPipeline)
-          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus
+        rd:                          # lower test environment over SSH (deployRD() of a custom pipeline)
+          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus; delivery.nexusDeliveryEnabled wins when set
           host:         ""
           user:         "taadmin"
           deployDir:    ""           # remote directory for deployment scripts
@@ -1579,13 +1600,13 @@ projects:
           versionFile:  "scripts/deployment/version.properties"
       openshift:                     # used when deployTarget: openshift
         rd:
-          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service
+          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service; delivery.nexusDeliveryEnabled wins when set
           buildTag:           ""     # the image tag RD, and QC without its own buildTag, deploy when nexusDeliveryEnabled is false; a region without a tag is skipped as not required
           projectBuildR:      ""     # namespace where the image is built
           buildConfigPath:    ""     # BuildConfig template in the repository
           dockerFilePath:     ""     # Dockerfile in the repository
           buildContext:       ""     # directory prepared for the binary build
-          # addFile: ""              # optional extra file copied into the build context; leave the key out when there is none
+          # addFile: ""              # optional extra files copied into the build context, separated by spaces; each keeps only its file name
           qcDockerRepoPush:   ""     # Nexus docker repository the image is pushed to
           qcDockerRepoPull:   ""     # docker repository the deployment pulls from
           openshiftCertDir:   ""     # certificate directory for skopeo
@@ -1612,7 +1633,7 @@ projects:
 
     appName:      ""                 # OpenShift application name (BuildConfig, deployment, image stream)
     artifactName: ""                 # OpenShift: artifact file name copied into the build context
-    baseArtifactName: ""             # OpenShift: original artifact name, renamed to artifactName when set
+    baseArtifactName: ""             # OpenShift: original artifact name, found anywhere in the workspace and renamed to artifactName when set
 
     flutter:                         # Flutter-specific settings (only when buildTool: flutter)
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
@@ -1756,7 +1777,11 @@ h3. Which fields are required
 |{{deploy.vm.dod}}|Only if {{deployTarget: vm}} and you use {{devSecOpsPipeline}}|The lower test region deployment of the full pipeline uses UrbanCode Deploy|
 |{{deploy.vm.rd}}, {{deploy.vm.qc}}|Only if {{deployTarget: vm}}|SSH deployment of the extended pipeline and of the QC stage|
 |{{deploy.openshift.*}}|Only if {{deployTarget: openshift}}|Auto-detected when container files or manifests are found; {{appName}} and {{artifactName}} are required as well|
-|{{delivery.maven}}|Only if {{deployTarget: vm}} and {{buildTool: maven}}|Snapshot upload of the artifact to Nexus|
+|{{delivery.nexusDeliveryEnabled}}|NO (default {{true}})|{{false}}: stage 6 publishes nothing for the service and the extended pipeline downloads nothing; wins over {{deploy.<target>.rd.nexusDeliveryEnabled}}, which is read without it|
+|{{delivery.push.maven}}|Only if {{deployTarget: vm}} and {{buildTool: maven}}|Snapshot upload with {{goals}} (e.g. {{deploy:deploy-file}}) and {{flags}}; {{artifacts}} lists globs, and every file is uploaded under the one snapshot version of the run with the classifier of its entry or, without it, its file name without the extension|
+|{{delivery.push.gradle}}|Only if {{deployTarget: vm}} and {{buildTool: gradle}}|Snapshot upload with {{maven-publish}}, run by the Gradle wrapper of the service on a project the library writes to the temporary folder of the build: {{group}}, {{artifact}}, {{repositoryUrl}} and {{artifacts}} as for Maven; without {{artifacts}} the service is not required in stage 6|
+|{{delivery.pull}}|Only for the extended pipeline|The download of the snapshot of the security run into {{outputDirectory}} (default {{downloaded-artifacts}}): {{maven}} with {{goals}} (e.g. {{maven-dependency-plugin:get}}), {{flags}} and {{artifacts}} plus {{group}} and {{artifact}}, or {{gradle}} with {{group}}, {{artifact}}, {{repositoryUrl}} and {{artifacts}}; each artifact is named by its file name, and the classifier is its name without the extension unless the entry sets one|
+|{{delivery.maven}}|Only without {{delivery.push.maven}}|The upload of release b815d55: one {{deploy-file}} of {{build.buildPath}} without a classifier|
 |{{delivery.nuget}}|Only if {{buildTool: dotnet}} / {{msbuild}} and publishing {{*.nupkg}} to Nexus|NuGet package push via {{nuget.exe push}} or {{dotnet nuget push}}|
 |{{jenkins.pipeline.extendedPipeline}}|Only for {{devSecOpsSecurityPipeline}}|The job it starts when {{RUN_EXTENDED_PIPELINE}} is selected; it may be set in any service of the run, the current service first|
 |{{scm.bitbucket.url}}|Only for GoldenFix|Without it the fixes are listed in the report but no pull request is raised|
@@ -1833,6 +1858,8 @@ Performs:
 * Detects the agent operating system and makes {{gradlew}} executable
 * Sets the tool environment: ASoC URLs, proxy host, port and user (a value in the agent's environment first, then {{platform.environment}} of the bundled defaults, then the library's own BBH value), and the AppScan working directories
 * {{devSecOpsSASTScanningPipeline}} and {{devSecOpsNexusIqGoldenFixPipeline}} also run {{checkout scm}} and pin {{JAVA_HOME}} before this
+* Checks out the deployment repository of every service that sets {{deploy.openshift.rd.deploymentPath}} ({{deploymentRepo.url}}, {{branch}}, {{credentials}}) into that folder, so the Dockerfile and the templates are there before stage 6 builds the image; the SAST-only and the Nexus IQ GoldenFix pipelines do not
+* {{devSecOpsExtendedPipeline}} copies {{pipeline-config.yaml}}, {{release-gate.json}} and {{build.tag}} from the last successful build of its security job first
 
 Fails if:
 * neither {{devsecops_config.yaml}} nor {{config.yaml}} is at the workspace root, or the file read is not valid YAML or has no {{projects:}} section
@@ -1861,7 +1888,7 @@ Its effect on the later stages:
 * *Nexus IQ (stage 3):* the {{package-lock.json}} of the frontend folder joins the scan patterns of the service.
 * *SAST (stage 4):* every IRX archive of the run leaves out {{node_modules}}.
 * *GoldenFix:* the npm pre-check of the service runs with the Node.js, the registry or {{.npmrc}} and the environment of its Node.js build.
-* *Release delivery (stage 12):* the extended pipeline runs the Node.js build again before it publishes.
+* *Release delivery (stage 12):* the extended pipeline runs the Node.js build again before a release delivery that is available, today the NuGet push of a .NET service.
 
 h3. Stage 2: Unit tests
 
@@ -2002,28 +2029,28 @@ What GoldenFix does not raise, and the reason the report gives instead:
 
 A catalog in another repository and a BOM or parent resolved from Nexus are not raised: GoldenFix changes only the repository of the service.
 
-h4. Step 3: the pre-check build
+h4. Step 3: the pre-check build and unit tests
 
-GoldenFix builds the project with the new versions before it proposes anything, so a pull request never breaks the build. The pre-check cannot be switched off: when no build can be run for a changed file, nothing is proposed and the run ends {{NOT_VERIFIED}}.
+GoldenFix builds the project with the new versions and runs its unit tests before it proposes anything, so a pull request never breaks the build or the tests. A failing test counts as a failed build: the versions are lowered and the build is repeated as described below. The pre-check cannot be switched off: when no build can be run for a changed file, nothing is proposed and the run ends {{NOT_VERIFIED}}.
 
 A shared version catalog repository ({{goldenFix.versionCatalogRepo}}) is verified the same way before its pull request is raised: its own build runs when it has one (a Maven BOM, a Gradle platform or catalog build, a .NET solution), otherwise the application is built in a worktree of its own with the changed catalog files copied over its copies of them. When neither is possible, or the build fails, no pull request is raised in the catalog repository. *Every ecosystem whose manifest was changed is verified*, not only the main build tool of the service, and each check runs where the change takes effect, once for each kind of manifest and folder:
 
 ||Changed file||Where the check runs||Default pre-check||
-|{{pom.xml}}|Its own folder|{{mvn -B -q -DskipTests compile}}|
-|A parent or BOM {{pom.xml}} of the repository, or a listed {{.xml}} file such as {{platform/bom.xml}}|The aggregator that builds it with the poms that use it: the folder of the nearest {{pom.xml}} whose {{<modules>}} reach both the shared pom and a pom that uses it. Without such an aggregator, the folder of the root {{pom.xml}} when the repository has one, otherwise the folder of the shared pom; there only the shared pom itself is built, not the poms that use it|{{mvn -B -q -DskipTests compile}}; in the folder of a shared pom with another name than {{pom.xml}}, {{mvn -B -q -DskipTests compile -f '<file>'}}|
-|{{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{settings.gradle}}, {{settings.gradle.kts}}|Its own folder|{{./gradlew --no-daemon --console=plain classes}} (or {{gradle}} without a wrapper)|
+|{{pom.xml}}|Its own folder|{{mvn -B -q test}}|
+|A parent or BOM {{pom.xml}} of the repository, or a listed {{.xml}} file such as {{platform/bom.xml}}|The aggregator that builds it with the poms that use it: the folder of the nearest {{pom.xml}} whose {{<modules>}} reach both the shared pom and a pom that uses it. Without such an aggregator, the folder of the root {{pom.xml}} when the repository has one, otherwise the folder of the shared pom; there only the shared pom itself is built, not the poms that use it|{{mvn -B -q test}}; in the folder of a shared pom with another name than {{pom.xml}}, {{mvn -B -q test -f '<file>'}}|
+|{{build.gradle}}, {{build.gradle.kts}}, {{gradle.properties}}, {{settings.gradle}}, {{settings.gradle.kts}}|Its own folder|{{./gradlew --no-daemon --console=plain test}} (or {{gradle}} without a wrapper; {{gradlew.bat}} on Windows)|
 |A Gradle catalog: a {{*.versions.toml}}, an imported or listed catalog, an applied build file, a {{java-platform}} module|Every build that uses it: the folder of each {{settings.gradle}} that imports it; for {{<root>/gradle/libs.versions.toml}} the folder {{<root>}} when {{<root>/settings.gradle}} exists; for an applied file the folder of the nearest {{settings.gradle}} of the build that applies it; for a {{java-platform}} module the folder of its nearest {{settings.gradle}}. Without such a build the check is left out, with the console line {{GoldenFix: no Gradle build found for <file> - not verified}}|The Gradle pre-check above|
-|{{package.json}}|Its own folder. When a {{package-lock.json}} lies next to it and {{goldenFix.verify.commands.npm}} is not set, {{npm install --package-lock-only --ignore-scripts}} refreshes the lock file first|{{npm ci --ignore-scripts}}, or {{npm install --ignore-scripts}} without a lock file|
-|{{requirements*.txt}}, {{constraints*.txt}}|Its own folder|{{python3 -m pip install --dry-run -r <file>}}|
-|{{pyproject.toml}}|Its own folder|{{python3 -m pip install --dry-run .}}|
-|{{*.csproj}}, {{*.fsproj}}, {{*.vbproj}}|Its own folder|On Windows: {{nuget restore}} & {{MSBuild.exe <file> /t:Build /nologo /v:minimal}} (falls back to {{dotnet build --no-incremental <file>}}); on Linux: {{dotnet build --no-incremental <file>}}|
-|{{Directory.Packages.props}}, {{Directory.Build.props}}|Its own folder|On Windows: {{MSBuild.exe /t:Restore,Build /nologo /v:minimal}} (else {{dotnet build --no-incremental}}); on Linux: {{dotnet build --no-incremental}}|
-|{{packages.config}}|Its own folder|On Windows: {{nuget restore <file> -NonInteractive}} & {{msbuild /t:Build /nologo /v:minimal}}; on Linux: {{nuget restore <file> -NonInteractive}}|
-|{{pubspec.yaml}}|Its own folder|{{flutter pub get}} (or {{dart pub get}})|
+|{{package.json}}|Its own folder. When a {{package-lock.json}} lies next to it and {{goldenFix.verify.commands.npm}} is not set, {{npm install --package-lock-only --ignore-scripts}} refreshes the lock file first|{{npm ci --ignore-scripts}}, or {{npm install --ignore-scripts}} without a lock file, then {{npm test}} with {{CI=true}} when {{package.json}} has a {{test}} script other than the {{no test specified}} placeholder of {{npm init}}|
+|{{requirements*.txt}}, {{constraints*.txt}}|Its own folder|In a new virtual environment of the temporary folder, removed afterwards: {{pip install -q -r <file>}}, {{pip install -q pytest}} and {{python -m pytest -q}}; no collected test (exit code 5) passes|
+|{{pyproject.toml}}|Its own folder|As above with {{pip install -q .}}|
+|{{*.csproj}}, {{*.fsproj}}, {{*.vbproj}}|Its own folder|{{dotnet test <file>}}, which builds the project and runs the tests of a test project; on Windows with {{MSBuild.exe}}: {{nuget restore}} & {{MSBuild.exe <file> /t:Build /nologo /v:minimal}}, a build without tests|
+|{{Directory.Packages.props}}, {{Directory.Build.props}}|Its own folder|{{dotnet test}}, the solution or project of that folder; on Windows with {{MSBuild.exe}}: {{MSBuild.exe /t:Restore,Build /nologo /v:minimal}}, a build without tests|
+|{{packages.config}}|Its own folder|On Windows: {{nuget restore <file> -NonInteractive}} & {{msbuild /t:Build /nologo /v:minimal}}; on Linux: {{nuget restore <file> -NonInteractive}}; no tests|
+|{{pubspec.yaml}}|Its own folder|{{flutter pub get}}, then {{flutter test}} when a {{test}} folder exists; {{dart}} instead of {{flutter}} when {{pubspec.yaml}} does not name {{sdk: flutter}}|
 
 A refreshed {{package-lock.json}} is committed with the change, the notes say {{<folder>/package-lock.json refreshed}}, and the lock file note of the pull request leaves {{package-lock.json}} out. While {{build.node.enabled}} is true for the service, the npm check, the refresh included, runs with the Node.js, the registry or {{.npmrc}} and the environment of its Node.js build (stage 0); otherwise with the {{npm}} of the agent.
 
-Each command is replaceable per ecosystem under {{goldenFix.verify.commands}}, for example {{commands: { npm: "npm run build" }}} to compile an Angular application rather than only resolving its dependencies. A Maven command set there gets the same {{-f '<file>'}} at its end in the folder of a shared pom with another name than {{pom.xml}}, so write it as one {{mvn}} call, such as {{mvn -B -q -DskipTests verify}}. An npm command set there runs as it is: no lock file refresh runs in front of it and {{package-lock.json}} is not committed, so the pull request keeps {{package-lock.json}} in its lock file note. A command that needs a current lock file refreshes it itself, for example {{npm install --package-lock-only --legacy-peer-deps --ignore-scripts && npm ci --legacy-peer-deps --ignore-scripts}}; to have the refreshed lock file in the pull request, leave {{goldenFix.verify.commands.npm}} empty. When a build fails while a declaration outside a catalog carries the version of the catalog (see *Shared version catalogs*), the next attempt builds that declaration with the Nexus IQ version instead, and the later attempts keep it so; the note {{declared outside the catalog}} stays. That build comes on top of {{goldenFix.verify.maxAttempts}}, so the lower versions get as many builds as without a catalog, and the console counts one build more, for example {{Pre-check build 2 of 4}}. The console lines {{[GOLDENFIX] Pre-check build <n> of <m> for ...}} name the versions that were built. When a build fails otherwise, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to {{goldenFix.verify.maxAttempts}} times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, *no pull request is opened* and the run ends with {{BUILD_FAILED}}. Each check may take {{goldenFix.verify.timeoutMinutes}} (default 20). The pre-check cannot be switched off: without a passing build no pull request is opened.
+Each command is replaceable per ecosystem under {{goldenFix.verify.commands}}, for example {{commands: { npm: "npm ci --ignore-scripts && npm run build && npm test -- --watch=false" }}} to also compile an Angular application, or {{commands: { maven: "mvn -B -q verify" }}} to run the integration tests as well. The unit tests run with the default timeout of {{goldenFix.verify.timeoutMinutes}} (20 minutes) for each check, so raise it for a slow test suite. On a Windows agent with {{MSBuild.exe}}, a .NET project is built without its tests, because the classic {{vstest.console.exe}} run needs the test assemblies of {{tests.unitTests.dotnet.testAssemblies}}; set {{goldenFix.verify.commands.nuget}} to run them, or let the agent use {{dotnet test}}. A Maven command set there gets the same {{-f '<file>'}} at its end in the folder of a shared pom with another name than {{pom.xml}}, so write it as one {{mvn}} call, such as {{mvn -B -q -DskipTests verify}}. An npm command set there runs as it is: no lock file refresh runs in front of it and {{package-lock.json}} is not committed, so the pull request keeps {{package-lock.json}} in its lock file note. A command that needs a current lock file refreshes it itself, for example {{npm install --package-lock-only --legacy-peer-deps --ignore-scripts && npm ci --legacy-peer-deps --ignore-scripts}}; to have the refreshed lock file in the pull request, leave {{goldenFix.verify.commands.npm}} empty. When a build fails while a declaration outside a catalog carries the version of the catalog (see *Shared version catalogs*), the next attempt builds that declaration with the Nexus IQ version instead, and the later attempts keep it so; the note {{declared outside the catalog}} stays. That build comes on top of {{goldenFix.verify.maxAttempts}}, so the lower versions get as many builds as without a catalog, and the console counts one build more, for example {{Pre-check build 2 of 4}}. The console lines {{[GOLDENFIX] Pre-check build <n> of <m> for ...}} name the versions that were built. When a build fails otherwise, every proposed version is lowered to the next lower one Nexus IQ offers, the worktree is reverted, the manifests are updated again and the build is repeated, up to {{goldenFix.verify.maxAttempts}} times (default 3). A dependency that runs out of lower versions is dropped from the change set and listed as not applied, so its vulnerability stays visible. If no version set builds, *no pull request is opened* and the run ends with {{BUILD_FAILED}}. Each check may take {{goldenFix.verify.timeoutMinutes}} (default 20). The pre-check cannot be switched off: without a passing build no pull request is opened.
 
 h4. Step 4: the commit and the pull request
 
@@ -2094,9 +2121,11 @@ h3. Stages 6–10: Delivery and tests
 
 Stage 6 publishes the snapshot artifact and stage 7 deploys to the lower test region. Both always run, even when an earlier stage is orange, so developers always get a build on the lower test region.
 
-A service with {{deploy.<target>.rd.nexusDeliveryEnabled: false}} is not published to Nexus: stage 6 still reports its build and unit tests and logs {{[NEXUS] <service>: Nexus delivery is disabled}}, and the stage is {{NOT_REQUIRED}} when Nexus delivery is off for every service of the run. An OpenShift service without delivery has no image of this run: RD deploys a pinned {{deploy.openshift.rd.buildTag}}, and QC its own {{deploy.openshift.qc.buildTag}} or, without it, the RD tag. A region without a tag is skipped as not required with an {{[OPENSHIFT]}} line, and its deployment stage is {{NOT_REQUIRED}} when every service of the run skipped it. The release delivery of stage 12 is not affected.
+A service with {{delivery.nexusDeliveryEnabled: false}} (or, without that key, {{deploy.<target>.rd.nexusDeliveryEnabled: false}}) is not published to Nexus: stage 6 still reports its build and unit tests and logs {{[NEXUS] <service>: Nexus delivery is disabled by <setting>}}, and the stage is {{NOT_REQUIRED}} when Nexus delivery is off for every service of the run. An OpenShift service without delivery has no image of this run: RD deploys a pinned {{deploy.openshift.rd.buildTag}}, and QC its own {{deploy.openshift.qc.buildTag}} or, without it, the RD tag. A region without a tag is skipped as not required with an {{[OPENSHIFT]}} line, and its deployment stage is {{NOT_REQUIRED}} when every service of the run skipped it. The release delivery of stage 12 is not affected.
 
-What stage 6 does depends on the project: a Maven project on a VM is uploaded to the Nexus snapshot repository with the {{delivery.maven}} command and the delivered version is written back into {{pipeline-config.yaml}}; an OpenShift project has its image built in the build namespace and copied to the Nexus docker registry with {{skopeo}}; a Gradle project on a VM reports the build and the unit test results, and is published to Nexus by the release delivery ({{./gradlew publish}}). Stage 7 deploys with UrbanCode Deploy ({{devSecOpsPipeline}}, {{deploy.vm.dod}}), over SSH ({{devSecOpsExtendedPipeline}}, {{deploy.vm.rd}}) or to OpenShift ({{deploy.openshift.rd}}).
+What stage 6 does depends on the project. A Maven project on a VM is uploaded to the Nexus snapshot repository with {{delivery.push.maven}} (or, without it, the single {{build.buildPath}} upload of {{delivery.maven}}), a Gradle project on a VM with {{delivery.push.gradle}}; a Gradle project without {{delivery.push.gradle.artifacts}} is not required in stage 6. Every service of the run is uploaded under one snapshot version, {{<BUILD_NUMBER>-<yyyyMMdd-HHmmss UTC>-SNAPSHOT}}, and the tag without {{-SNAPSHOT}} is written to {{build.tag}}, which the security pipeline archives for its extended pipeline. A .NET project pushes its {{*.nupkg}} with {{delivery.nuget}}, a Flutter project its APK and IPA. An OpenShift project has its image built in the build namespace, from the artifact at {{build.buildPath}} or, when it is not there, the first file named {{artifactName}} in the workspace ({{baseArtifactName}} is renamed to it wherever it is), with every file of {{addFile}} in the build context, and copied to the Nexus docker registry with {{skopeo}}.
+
+The extended pipeline then downloads the snapshot of its security run in the stage *Download artifacts from Nexus Repo*: a VM service with {{delivery.pull}} gets the files of {{delivery.pull.maven}} or {{delivery.pull.gradle}} of the version in {{build.tag}} in {{delivery.pull.outputDirectory}}. An OpenShift service, a service without Nexus delivery and a service without {{delivery.pull}} are not required in that stage; a {{delivery.pull}} without its group, artifact, goals or artifacts stops it with a message that names the missing keys, and so does a run without {{build.tag}}. Stage 7 deploys with UrbanCode Deploy ({{devSecOpsPipeline}} and {{devSecOpsExtendedPipeline}}, {{deploy.vm.dod}}) or to OpenShift ({{deploy.openshift.rd}}).
 
 Then the tests run in the order regression, smoke, performance, followed by DAST. Each test stage needs at least one configured job.
 
@@ -2110,9 +2139,9 @@ The report is downloaded twice: as HTML (parsed for the vulnerability counts) an
 
 h3. Stage 12: Nexus delivery (safe artifact)
 
-This is the second delivery to Nexus, into the release repository. It is skipped as soon as *any* earlier stage is orange, so a build with open findings, failed tests or missing coverage is never released.
+This is the second delivery to Nexus, into the release repository. It is skipped as soon as *any* earlier stage is orange, so a build with open findings, failed tests or missing coverage is never released. A .NET service with {{delivery.nuget.source}} pushes its {{*.nupkg}}; for every other service the release delivery of the safe artifact is not implemented yet, so the service is not required with a {{[NEXUS]}} line and the snapshot of stage 6 stays the delivered artifact. The stage no longer runs {{./gradlew publish}} or {{mvn deploy}}.
 
-In the extended pipeline, which has no stage 0, this stage first runs the Node.js build of each service with {{build.node.enabled: true}}, exactly as stage 0 would, and then publishes the service; a service without it publishes as before. The full pipeline built the frontend in stage 0 of the same workspace and does not build it twice.
+In the extended pipeline, which has no stage 0, this stage first runs the Node.js build of each service with {{build.node.enabled: true}}, exactly as stage 0 would, when a release delivery is available for a service of the run (the NuGet push); while every service is not required, no Node.js build runs. The full pipeline built the frontend in stage 0 of the same workspace and does not build it twice.
 
 h3. Stage 13: Higher test environment deployment
 
@@ -2425,7 +2454,7 @@ h1. 19. Supported Deployment Targets
 
 h3. VM deployment over SSH
 
-Used by {{devSecOpsExtendedPipeline}} for the lower test region and by every pipeline for the QC deployment. Set {{deployTarget: vm}} (the default) and fill in {{deploy.vm.rd}} and {{deploy.vm.qc}}.
+Used by every pipeline for the QC deployment, and by {{deployRD()}} of a custom pipeline for the lower test region. Set {{deployTarget: vm}} (the default) and fill in {{deploy.vm.qc}} (and {{deploy.vm.rd}} for {{deployRD()}}).
 
 The library connects over SSH and:
 # Verifies connectivity ({{ssh ... uptime}})
@@ -2440,12 +2469,14 @@ For this to work:
 
 h3. VM deployment with UrbanCode Deploy
 
-Used by {{devSecOpsPipeline}} for the lower test region (environment {{DV}}). Fill in {{deploy.vm.dod}}.
+Used by {{devSecOpsPipeline}} and {{devSecOpsExtendedPipeline}} for the lower test region (environment {{DV}}). Fill in {{deploy.vm.dod}}.
 
 For every application of {{deploy.vm.dod.applications}}, ordered by {{order}}, the library:
 # Checks that each component has files matching {{fileIncludePatterns}} under {{baseDir}}
-# Publishes every component as a new version named {{<versionPrefix>_<BUILD_ID>}} ({{UCDeployPublisher}} push)
-# Creates the snapshot {{<applicationName>_snapshot_<BUILD_ID>}} and starts {{deployProcess}} on the environment
+# Publishes every component as a new version named {{<versionPrefix>_<build tag>}} ({{UCDeployPublisher}} push, with {{baseDir}} made absolute below the workspace)
+# Creates the snapshot {{<applicationName>_snapshot_<build tag>}} and starts {{deployProcess}} on the environment
+
+The build tag is the tag of the Nexus snapshot of the run, read from {{build.tag}}, so the UrbanCode versions match the Nexus version; without {{build.tag}} the library logs {{[DOD] No build.tag ...}} and uses {{BUILD_ID}} as before.
 
 For this to work:
 * The UrbanCode Deploy plugin must be installed and the site of {{siteName}} configured in Jenkins
@@ -2574,7 +2605,8 @@ h3. Complete method reference
 |{{eachProject(Closure body)}}|Run the body once per configured project, switching the project context first|
 |{{finishPipeline(Map options)}}|Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call|
 |{{deployTarget()}}|{{vm}} or {{openshift}} for the current project|
-|{{nexusDeliveryEnabled()}}|{{false}} when {{deploy.<target>.rd.nexusDeliveryEnabled}} is false for the current project|
+|{{nexusDeliveryEnabled()}}|{{false}} when {{delivery.nexusDeliveryEnabled}}, or without it {{deploy.<target>.rd.nexusDeliveryEnabled}}, is false for the current project|
+|{{nexusDeliverySetting()}}|The name of the setting {{nexusDeliveryEnabled()}} read, for a log line|
 |{{notRequired(String reason)}}|Log the reason and mark the current project not required in the current stage; the stage ends {{NOT_REQUIRED}} when every project is|
 |{{nodeBuildRequired()}}|{{true}} when a service of the run needs the Node.js build in this pipeline; the {{when}} guard of the Node.js build stage. It runs no step and logs nothing|
 |{{nodeBuildEnabled()}}|{{true}} when {{build.node.enabled}} is true for the current project|
@@ -2605,12 +2637,15 @@ h3. Complete method reference
 |{{deployDvWithDodPlugin()}}|Deploy to the lower test region with UrbanCode Deploy ({{deploy.vm.dod}})|
 |{{deployQC()}}|Deploy to the QC environment|
 |{{deployOpenshift(String env)}}|Deploy to OpenShift, env {{rd}} or {{qc}}|
-|{{publishArtifactQC()}}|Release delivery: {{./gradlew publish}} or {{mvn deploy}}|
-|{{pushToNexus(String projectName)}}|Snapshot delivery of a Maven or Flutter artifact with the {{delivery}} command. It does not check {{nexusDeliveryEnabled()}}: a custom stage guards it with that method, as {{devSecOpsSteps.nexusSnapshotDelivery}} does|
+|{{publishArtifactQC()}}|Release delivery: the NuGet push of a .NET service with {{delivery.nuget.source}}; any other service is marked not required|
+|{{releaseDeliveryAvailable()}}|True when the current project has a release delivery that is implemented, today a .NET service with {{delivery.nuget.source}}|
+|{{pushToNexus(String projectName)}}|Snapshot delivery of a Maven, Gradle, .NET or Flutter artifact ({{delivery.push}}, {{delivery.maven}}, {{delivery.nuget}}) that writes {{build.tag}}. It does not check {{nexusDeliveryEnabled()}}: a custom stage guards it with that method, as {{devSecOpsSteps.nexusSnapshotDelivery}} does|
+|{{pullFromNexus(String projectName)}}|Download of the snapshot named in {{build.tag}} with {{delivery.pull}}; marks the project not required for OpenShift, without Nexus delivery or without {{delivery.pull}}|
 |{{vulnerabilitySummary()}}|One line with the SAST and DAST findings above the policy severity; in the Nexus IQ GoldenFix pipeline the Nexus IQ critical, high and medium counts|
 |{{runExtendedPipeline()}}|Start the job of {{jenkins.pipeline.extendedPipeline}} when {{RUN_EXTENDED_PIPELINE}} is selected|
 |{{nexusDelivery(String env)}}|Tag the image in the registry|
-|{{buildDockerImage(String projectName)}}, {{copyImageToNexus()}}, {{checkDeploymentRepo()}}|OpenShift image build and promotion. {{buildDockerImage}} and {{copyImageToNexus}} do not check {{nexusDeliveryEnabled()}}: a custom stage guards them with that method, as {{devSecOpsSteps.nexusSnapshotDelivery}} does|
+|{{buildDockerImage(String projectName)}}, {{copyImageToNexus()}}, {{checkDeploymentRepo()}}|OpenShift image build and promotion; both skip the service with an {{[OPENSHIFT]}} line when {{nexusDeliveryEnabled()}} is false|
+|{{checkDeploymentRepos()}}|Check out the deployment repository of every service that sets {{deploy.openshift.rd.deploymentPath}}, without switching the project; the Monitor stage calls it|
 |{{bumpVersion(String file, String version)}}|Update {{APP_VERSION}} in version.properties|
 |{{generateHtmlReport()}}|Generate the HTML pipeline report|
 |{{feedInfluxDB(String pipelineType)}}|Send DORA metrics to InfluxDB|
@@ -2622,7 +2657,7 @@ h3. Complete method reference
 |{{logStageResult(String name, String status)}}|Print the stage result and the scanner summary|
 |{{section(String text)}}, {{startSection(String text)}}, {{endSection(String text)}}|Console separators|
 
-{{devSecOpsSteps.nodeBuild(devSecOpsApi)}} is the body of the Node.js build stage: it runs {{nodeBuild()}} for every project that needs it and marks the others not required. {{devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true])}} runs the Node.js build of each project that enables it before {{publishArtifactQC()}}, as the extended pipeline does; without the option it publishes only.
+{{devSecOpsSteps.pullNexusSnapshot(devSecOpsApi)}} is the body of the stage *Download artifacts from Nexus Repo*: it runs {{pullFromNexus()}} for every project. {{devSecOpsSteps.monitorSources(devSecOpsApi, [skipDeploymentRepo: true])}} leaves the deployment repositories out. {{devSecOpsSteps.nodeBuild(devSecOpsApi)}} is the body of the Node.js build stage: it runs {{nodeBuild()}} for every project that needs it and marks the others not required. {{devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true])}} runs the Node.js build of each project that enables it before {{publishArtifactQC()}}, as the extended pipeline does, but only when {{releaseDeliveryAvailable()}} is true for a project of the run; without the option it publishes only.
 
 ----
 

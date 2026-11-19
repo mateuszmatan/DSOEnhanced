@@ -21,7 +21,7 @@ def call(Map config = [:]) {
 
         stages {
             stage('Monitor source changes (download sources)') {
-                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [checkoutScm: true, setupJava: true]) } }
+                steps { script { devSecOpsSteps.monitorSources(devSecOpsApi, [checkoutScm: true, setupJava: true, skipDeploymentRepo: true]) } }
             }
 
             stage('Build artifact') {

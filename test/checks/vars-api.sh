@@ -43,11 +43,13 @@ build = 'Build artifact'
 security = [monitor, build, 'Static analysis', 'Unit tests', 'Dependencies scan (Nexus IQ)',
             'SAST - Static Application Security Tests - HCL AppScan', 'SCA (SonarQube)',
             'Nexus delivery (Static analysis passed)']
-extended = [monitor, 'Lower test region deployment', 'Regression tests (>60% user stories coverage)',
+# The full pipeline deploys the artifact it has just built, so only the extended pipeline downloads it from Nexus.
+pull = 'Download artifacts from Nexus Repo'
+extended = [monitor, pull, 'Lower test region deployment', 'Regression tests (>60% user stories coverage)',
             'Smoke tests', 'Performance tests', 'DAST - Dynamic Application Security Tests - HCL AppScan',
             'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities', 'Higher test environment deployment']
 expected = {
-    'vars/devSecOpsPipeline.groovy': security + extended[1:],
+    'vars/devSecOpsPipeline.groovy': security + [s for s in extended[1:] if s != pull],
     'vars/devSecOpsSecurityPipeline.groovy': security,
     'vars/devSecOpsExtendedPipeline.groovy': extended,
     'vars/devSecOpsSASTScanningPipeline.groovy': [monitor, build, 'SAST - Static Application Security Tests - HCL AppScan'],
@@ -69,5 +71,5 @@ if problems:
     for p in problems:
         print("  " + p)
     sys.exit(1)
-print("VARS API CHECK PASSED - shared methods resolve and the full pipeline equals security plus extended")
+print("VARS API CHECK PASSED - shared methods resolve and the full pipeline equals security plus extended, without the Nexus download")
 PY

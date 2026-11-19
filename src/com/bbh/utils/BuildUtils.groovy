@@ -33,6 +33,7 @@ class BuildUtils implements Serializable {
         return null
     }
 
+    @NonCPS
     static List<String> normalizeTokens(def v) {
         if (v == null) return []
         if (v instanceof List) return v.collect { it.toString() }.findAll { it?.trim() }
@@ -50,6 +51,7 @@ class BuildUtils implements Serializable {
         return items.collect { it?.toString()?.trim() }.findAll { it } as List<String>
     }
 
+    @NonCPS
     static String shellQuoteIfNeeded(String token) {
         if (token == null) return ""
         if (token ==~ /^A-Za-z0-9._\/:=+-$/) return token
@@ -73,6 +75,12 @@ class BuildUtils implements Serializable {
         String normalized = (path ?: '').replace('\\', '/')
         int index = normalized.lastIndexOf('/')
         return index >= 0 ? normalized.substring(0, index) : ''
+    }
+
+    @NonCPS
+    static boolean isAbsolutePath(String path) {
+        String p = (path ?: '').trim()
+        return p.startsWith('/') || p.startsWith('\\') || (p ==~ /^[A-Za-z]:[\\\/].*/)
     }
 
     @NonCPS
@@ -168,7 +176,18 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static boolean nexusDeliveryEnabled(Map cfg) {
+        def delivery = cfg.delivery
+        if (delivery instanceof Map && (delivery as Map).nexusDeliveryEnabled != null) {
+            return booleanValue((delivery as Map).nexusDeliveryEnabled, true)
+        }
         return booleanValue(cfg.deploy?.get(cfg.deployTarget ?: 'vm')?.rd?.nexusDeliveryEnabled, true)
+    }
+
+    @NonCPS
+    static String nexusDeliverySetting(Map cfg) {
+        def delivery = cfg.delivery
+        if (delivery instanceof Map && (delivery as Map).nexusDeliveryEnabled != null) return 'delivery.nexusDeliveryEnabled'
+        return "deploy.${cfg.deployTarget ?: 'vm'}.rd.nexusDeliveryEnabled".toString()
     }
 
     @NonCPS

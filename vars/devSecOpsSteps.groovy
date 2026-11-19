@@ -8,10 +8,13 @@ def monitorSources(def api, Map options = [:]) {
         }
         String upstream = (options.copyArtifactsFrom ?: '') as String
         if (upstream) {
-            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json', selector: lastSuccessful())
+            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json,build.tag', selector: lastSuccessful())
         }
         api.initialize()
         api.checkoutAdditionalRepositories()
+        if (!options.skipDeploymentRepo) {
+            api.checkDeploymentRepos()
+        }
     }
 }
 
@@ -125,7 +128,7 @@ def nexusSnapshotDelivery(def api) {
             api.reportArtifactBuild()
             api.reportUnitTests()
             if (!api.nexusDeliveryEnabled()) {
-                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
+                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by ${api.nexusDeliverySetting()} - the artifact is not published")
             } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
                 api.copyImageToNexus()
@@ -136,11 +139,18 @@ def nexusSnapshotDelivery(def api) {
     }
 }
 
+def pullNexusSnapshot(def api) {
+    api.runStage('Download artifacts from Nexus Repo') {
+        api.eachProject { String projectName ->
+            api.pullFromNexus(projectName)
+        }
+    }
+}
+
 def lowerRegionDeployment(def api, String vmMode = 'ssh') {
     api.runStage('Lower test region deployment') {
         api.eachProject {
             if (api.deployTarget() == 'openshift') {
-                api.checkDeploymentRepo()
                 api.deployOpenshift('rd')
             } else if (vmMode == 'dod') {
                 api.deployDvWithDodPlugin()
@@ -190,7 +200,7 @@ def dast(def api, Map options = [:]) {
 def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
-            if (options.nodeBuild && api.nodeBuildEnabled()) {
+            if (options.nodeBuild && api.nodeBuildEnabled() && api.releaseDeliveryAvailable()) {
                 api.nodeBuild()
             }
             api.publishArtifactQC()

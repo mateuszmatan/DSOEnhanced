@@ -261,7 +261,7 @@ run = apiRun(j) { fake ->
 ['password', 'prodLicense', 'testLicense'].each { (run.api as Script).binding.setVariable(it, "fake-${it}".toString()) }
 String iosError = attempt(run.harness as SandboxHarness) { j.onAgent('linux-agent') { run.api.@_build.buildArtifact() } }
 String oisError = attempt(run.harness as SandboxHarness) { j.onAgent('linux-agent') { run.api.@_appScan.setup() } }
-attempt(run.harness as SandboxHarness) { j.onAgent('linux-agent') { run.api.@_vmDeploy.pushToNexus('app') } }
+attempt(run.harness as SandboxHarness) { j.onAgent('linux-agent') { run.api.@_delivery.pushToNexus('app') } }
 String snapshot = j.calls.find { it.contains('deploy:deploy-file') && it.contains('-DartifactId=app-android') } ?: ''
 
 List<String> ois = j.calls.findAll { it.contains('ois.bbh.example') }
@@ -351,15 +351,16 @@ Map copied = [projects: [gui: [appId: 'taken-from-the-security-run', delivery: '
 Map extendedFile = agents + [projectNames: 'gui,backend-api', securityPipeline: securityJob]
 Map handoff = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump(copied)])
 Map handoffRd = ((((handoff.state?.projectsAllCfg as Map)?.get('backend-api') as Map)?.deploy as Map)?.openshift as Map)?.rd as Map
-check('extended handoff: only the run-time tags of the security run are laid over the services of the file',
-        !handoff.initError && handoff.j.env.Security_Pipeline == securityJob && (handoff.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500'
+check('extended handoff: only the run-time tags of the security run are laid over the services of the file, and a delivery value of the security run never replaces the delivery settings',
+        !handoff.initError && handoff.j.env.Security_Pipeline == securityJob && (handoff.state.projectsAllCfg.gui as Map).delivery != '57-20261006-081500'
                 && (handoff.state.projectsAllCfg.gui as Map).appId == '209f44ac-dd06-4ca0-884e-d944904f8020'
                 && handoffRd?.buildTag == '213-20261006-081500' && (handoffRd?.internalDockerUrl as String)?.endsWith('@sha256:5f1c0ffee')
                 && handoffRd?.projectBuildR == 'ta-certscanner-build',
         "${handoff.initError} | ${handoffRd}")
 check('extended handoff: the extended run writes its own run-state file with the overlay',
-        (runStateOf(handoff.j).gui as Map)?.delivery == '57-20261006-081500' && (runStateOf(handoff.j).gui as Map)?.appId == '209f44ac-dd06-4ca0-884e-d944904f8020',
-        runStateOf(handoff.j).gui)
+        ((((runStateOf(handoff.j)['backend-api'] as Map)?.deploy as Map)?.openshift as Map)?.rd as Map)?.buildTag == '213-20261006-081500'
+                && (runStateOf(handoff.j).gui as Map)?.delivery != '57-20261006-081500' && (runStateOf(handoff.j).gui as Map)?.appId == '209f44ac-dd06-4ca0-884e-d944904f8020',
+        runStateOf(handoff.j))
 Map foreign = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump([projects: [gui: copied.projects.gui]])])
 check('extended handoff: a security run that lacks a service of this run is refused',
         foreign.initError == "[INIT] Security pipeline ${securityJob} builds gui, this run builds backend-api".toString(), foreign.initError)
@@ -413,7 +414,7 @@ Map backRun = apiRun(back) { fake ->
 }
 check('configure() twice: the second call wins for pipelineConfig(), PROJECT_NAMES and the extended handoff, and nothing is read before initialize()',
         !twiceRun.error && secondCfg.agentNames == ['l2'] && secondCfg.projectNames == 'gui,backend-api' && placeTwice == 'devsecops_config.yaml or config.yaml'
-                && (twiceRun.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500'
+                && ((((twiceRun.state.projectsAllCfg['backend-api'] as Map).deploy as Map)?.openshift as Map)?.rd as Map)?.buildTag == '213-20261006-081500'
                 && !backRun.error && backCfg.securityPipeline == null && back.env.PROJECT_NAMES == 'gui' && (backRun.state.projectsAllCfg as Map).keySet().toList() == ['gui']
                 && !(backRun.state.projectsAllCfg.gui as Map).delivery && !back.probes.contains('fileExists pipeline-config.yaml'),
         "${twiceRun.error} | ${secondCfg} | ${placeTwice} | ${backRun.error} | ${backCfg} | ${back.probes}")

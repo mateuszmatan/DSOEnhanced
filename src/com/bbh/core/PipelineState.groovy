@@ -12,6 +12,8 @@ class PipelineState implements Serializable {
     String currentProjectName = 'unknown'
     Map  platform           = [:]
     String configFile       = ''
+    String buildTag         = ''
+    Map  deliveredBuildTags = [:]
 
     String currentStage = ''
     Map stageResults = [:]

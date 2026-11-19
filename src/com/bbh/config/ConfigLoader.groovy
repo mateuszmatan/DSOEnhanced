@@ -144,7 +144,7 @@ class ConfigLoader implements Serializable {
     @NonCPS
     private String overlay(Map projects, Map copied, String job) {
         List paths = [['deploy', 'openshift', 'rd', 'buildTag'], ['deploy', 'openshift', 'rd', 'internalDockerUrl'],
-                      ['delivery'], ['delivery', 'buildTagAndroid'], ['delivery', 'buildTagIOS']]
+                      ['delivery', 'buildTagAndroid'], ['delivery', 'buildTagIOS']]
         for (def name : projects.keySet()) {
             if (!(copied[name] instanceof Map)) {
                 return "Security pipeline ${job} builds ${copied.keySet().join(', ')}, this run builds ${name}".toString()

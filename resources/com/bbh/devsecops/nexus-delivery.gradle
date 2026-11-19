@@ -1,0 +1,69 @@
+import groovy.json.JsonSlurper
+import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.tasks.GenerateModuleMetadata
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+plugins {
+    id 'maven-publish'
+}
+
+def manifest = new JsonSlurper().parse(file(providers.gradleProperty('nexusManifest').get()))
+
+publishing {
+    publications {
+        nexusDelivery(MavenPublication) {
+            groupId = manifest.group
+            artifactId = manifest.artifact
+            version = manifest.version
+            manifest.artifacts.each { item ->
+                if (item.path != null) {
+                    artifact(file(item.path)) {
+                        classifier = item.classifier
+                        extension = item.extension
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'nexus'
+            url = uri(manifest.repositoryUrl)
+            allowInsecureProtocol = manifest.allowInsecureProtocol
+        }
+    }
+}
+
+tasks.withType(GenerateModuleMetadata).configureEach { enabled = false }
+
+repositories {
+    maven {
+        url = uri(manifest.repositoryUrl)
+        allowInsecureProtocol = manifest.allowInsecureProtocol
+        metadataSources {
+            mavenPom()
+            artifact()
+            ignoreGradleMetadataRedirection()
+        }
+    }
+}
+
+tasks.register('pullNexusArtifacts') {
+    doLast {
+        def resolved = manifest.artifacts.collect { item ->
+            def dependency = dependencies.create(
+                    "${manifest.group}:${manifest.artifact}:${manifest.version}:${item.classifier}@${item.extension}")
+            def configuration = configurations.detachedConfiguration(dependency)
+            configuration.transitive = false
+            configuration.resolutionStrategy.cacheChangingModulesFor(0, 'seconds')
+            [item: item, source: configuration.singleFile]
+        }
+        File output = file(manifest.outputDirectory)
+        Files.createDirectories(output.toPath())
+        resolved.each { result ->
+            Files.copy(result.source.toPath(), new File(output, result.item.fileName).toPath(),
+                    StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}

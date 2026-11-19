@@ -151,11 +151,36 @@ projects:
         timeoutMin:       30         # minutes for all commands of the service together
         nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
 
-    delivery:                        # Maven upload of the snapshot artifact (deployTarget: vm, buildTool: maven)
-      maven:
-        goals: ['deploy:deploy-file']
-        flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
-                '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+    delivery:                        # Nexus snapshot delivery of stage 6 and the download of the extended pipeline (deployTarget: vm)
+      nexusDeliveryEnabled: true     # false: stage 6 publishes nothing and the extended pipeline downloads nothing [default: deploy.<target>.rd.nexusDeliveryEnabled, then true]
+      push:
+        gradle:                      # buildTool: gradle - maven-publish run with the Gradle wrapper of the service
+          group:         "com.bbh.myapp"
+          artifact:      "myapp"
+          repositoryUrl: "https://tools.bbh.com/nexus/repository/snapshots"
+          artifacts:
+            - path: "build/libs/*.jar"   # glob; the classifier is the file name without its extension
+              # classifier: "app"       # optional; the path must then match one file
+        # maven:                     # buildTool: maven - one deploy-file upload, every file with its own classifier
+        #   goals: ['deploy:deploy-file']
+        #   flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
+        #           '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
+        #   artifacts: [{path: "target/*.jar"}]
+      pull:                          # devSecOpsExtendedPipeline, stage Download artifacts from Nexus Repo
+        outputDirectory: "downloaded-artifacts"
+        gradle:
+          group:         "com.bbh.myapp"
+          artifact:      "myapp"
+          repositoryUrl: "https://tools.bbh.com/nexus/repository/snapshots"
+          artifacts:
+            - path: "myapp.jar"      # file name in outputDirectory; the classifier is the name without its extension
+        # group:    "com.bbh.myapp"  # Maven: the groupId and artifactId of the upload
+        # artifact: "myapp"
+        # maven:
+        #   goals: ['org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get']
+        #   flags: ['-DremoteRepositories=bbh-snapshots::default::https://tools.bbh.com/nexus/repository/snapshots']
+        #   artifacts: [{path: "myapp.jar"}]
+      # maven: {goals: ['deploy:deploy-file'], flags: [...]}   # without push.maven: one upload of build.buildPath without a classifier
       # nuget:                       # C#/.NET NuGet package push (nuget.exe push / dotnet nuget push)
       #   source:         ""         # Nexus NuGet hosted repository URL
       #   credentialsId:  ""         # Jenkins Secret text credential holding NuGet API key
@@ -186,16 +211,16 @@ projects:
         - recommended-non-breaking-with-dependencies
         - recommended-non-breaking
       excludeDirs:            []     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]
-      verify:                        # the pre-check build of the proposed versions
-        maxAttempts:    3            # version sets tried; each failed build lowers every proposed version
+      verify:                        # the pre-check build and unit tests of the proposed versions
+        maxAttempts:    3            # version sets tried; each failed build or test run lowers every proposed version
         timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
         commands:                    # replaces the default check of one ecosystem; runs with bash or PowerShell (Windows) in the folder of the check
-          maven:  ""                 # [default: mvn -B -q -DskipTests compile]
-          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain classes, or gradle without a wrapper]
-          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file]
-          pip:    ""                 # [default: python3 -m pip install --dry-run -r <file>, or --dry-run . for pyproject.toml]
-          pub:    ""                 # [default: flutter pub get, or dart pub get]
-          nuget:  ""                 # [default: nuget restore & MSBuild /t:Build (Windows) or dotnet build --no-incremental]
+          maven:  ""                 # [default: mvn -B -q test]
+          gradle: ""                 # [default: ./gradlew --no-daemon --console=plain test, or gradle without a wrapper]
+          npm:    ""                 # [default: npm ci --ignore-scripts, or npm install --ignore-scripts without a lock file, then npm test]
+          pip:    ""                 # [default: pip install -r <file> (or . for pyproject.toml) in a temporary venv, then pytest]
+          pub:    ""                 # [default: flutter pub get and flutter test, or dart for a Dart package]
+          nuget:  ""                 # [default: dotnet test; on Windows with MSBuild.exe nuget restore & MSBuild /t:Build, build only]
       commitAuthorName:       "DevSecOps GoldenFix"
       commitAuthorEmail:      "devsecops-goldenfix@noreply.local"
       timeZone:               ""     # time zone of the GoldenFix-YYYYMMDDHHMM name
@@ -280,7 +305,7 @@ projects:
 
     deploy:
       vm:                            # used when deployTarget: vm
-        dod:                         # UrbanCode Deploy, used by devSecOpsPipeline for the lower test region
+        dod:                         # UrbanCode Deploy, used by devSecOpsPipeline and devSecOpsExtendedPipeline for the lower test region
           siteName:      "deploy.bbh.com"        # UrbanCode Deploy site configured in Jenkins
           deployProcess: "tomcat-app-process"
           skipWait:            false
@@ -304,15 +329,15 @@ projects:
                   fileIncludePatterns: "*.jar"
                   fileExcludePatterns: ""
                   versionPrefix:       ""        # [default: fileIncludePatterns]
-                  version:             ""        # [default: <versionPrefix>_<BUILD_ID>]
+                  version:             ""        # [default: <versionPrefix>_<build tag of build.tag>, without it <versionPrefix>_<BUILD_ID>]
                   incrementalVersion:  true
                   pushDescription:     ""        # optional fields of the UrbanCode component push
                   extensions:          ""
                   charset:             ""
                   versionProperties:   ""
                   versionDescription:  ""
-        rd:                          # lower test environment over SSH (devSecOpsExtendedPipeline)
-          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus
+        rd:                          # lower test environment over SSH (deployRD() of a custom pipeline)
+          nexusDeliveryEnabled: true # false: stage 6 does not publish this service to Nexus; delivery.nexusDeliveryEnabled wins when set
           host:         ""
           user:         "taadmin"
           deployDir:    ""           # remote directory for deployment scripts
@@ -326,13 +351,13 @@ projects:
           versionFile:  "scripts/deployment/version.properties"
       openshift:                     # used when deployTarget: openshift
         rd:
-          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service
+          nexusDeliveryEnabled: true # false: stage 6 builds and publishes no image of this service; delivery.nexusDeliveryEnabled wins when set
           buildTag:           ""     # the image tag RD, and QC without its own buildTag, deploy when nexusDeliveryEnabled is false
           projectBuildR:      ""     # namespace where the image is built
           buildConfigPath:    ""     # BuildConfig template in the repository
           dockerFilePath:     ""     # Dockerfile in the repository
           buildContext:       ""     # directory prepared for the binary build
-          # addFile: ""              # optional extra file copied into the build context; leave the key out when there is none
+          # addFile: ""              # optional extra files copied into the build context, separated by spaces; each keeps only its file name
           qcDockerRepoPush:   ""     # Nexus docker repository the image is pushed to
           qcDockerRepoPull:   ""     # docker repository the deployment pulls from
           openshiftCertDir:   ""     # certificate directory for skopeo
@@ -359,7 +384,7 @@ projects:
 
     appName:      ""                 # OpenShift application name (BuildConfig, deployment, image stream)
     artifactName: ""                 # OpenShift: artifact file name copied into the build context
-    baseArtifactName: ""             # OpenShift: original artifact name, renamed to artifactName when set
+    baseArtifactName: ""             # OpenShift: original artifact name, found anywhere in the workspace and renamed to artifactName when set
 
     flutter:                         # Flutter-specific settings (only when buildTool: flutter)
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web

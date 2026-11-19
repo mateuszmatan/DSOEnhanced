@@ -77,14 +77,46 @@ Write-Output "DEVSECOPS_EXIT=\$LASTEXITCODE"
     private static String windowsPrecheckCommand(Map check) {
         String kind = check.name as String
         String file = (check.file ?: '') as String
+        String quoted = BuildUtils.psSingleQuote(file)
         if (kind == 'nuget') {
             if (file.equalsIgnoreCase('packages.config')) {
-                return "nuget restore '${BuildUtils.psSingleQuote(file)}' -NonInteractive\nif (\$LASTEXITCODE -eq 0) { msbuild /t:Build /nologo /v:minimal }"
+                return "nuget restore '${quoted}' -NonInteractive\nif (\$LASTEXITCODE -eq 0) { msbuild /t:Build /nologo /v:minimal }"
             }
+            boolean props = file.toLowerCase().endsWith('.props')
             return "if (Test-Path 'packages.config') { nuget restore -NonInteractive }\n" +
                     "if (Get-Command MSBuild.exe -ErrorAction SilentlyContinue) { " +
-                    (file.toLowerCase().endsWith('.props') ? 'MSBuild.exe /t:Restore,Build /nologo /v:minimal' : "nuget restore '${BuildUtils.psSingleQuote(file)}' -NonInteractive; MSBuild.exe '${BuildUtils.psSingleQuote(file)}' /t:Build /nologo /v:minimal") +
-                    " } else { dotnet build --no-incremental" + (file.toLowerCase().endsWith('.props') ? '' : " '${BuildUtils.psSingleQuote(file)}'") + " }"
+                    (props ? 'MSBuild.exe /t:Restore,Build /nologo /v:minimal' : "nuget restore '${quoted}' -NonInteractive; MSBuild.exe '${quoted}' /t:Build /nologo /v:minimal") +
+                    " } else { dotnet test" + (props ? '' : " '${quoted}'") + " }"
+        }
+        if (kind == 'gradle') {
+            return "if (Test-Path '.\\gradlew.bat') { .\\gradlew.bat --no-daemon --console=plain test } else { gradle --no-daemon --console=plain test }"
+        }
+        if (kind == 'npm') {
+            String install = "if (Test-Path 'package-lock.json') { npm ci --ignore-scripts } else { npm install --ignore-scripts }\n" +
+                    "if (\$LASTEXITCODE -eq 0) {\n" +
+                    "    \$test = ''\n" +
+                    "    try { \$test = [string]((Get-Content 'package.json' -Raw | ConvertFrom-Json).scripts.test) } catch { \$test = '' }\n" +
+                    "    if (\$test -and \$test -notmatch 'no test specified') { \$env:CI = 'true'; npm test }\n" +
+                    "}"
+            return check.lockRefresh ? "npm install --package-lock-only --ignore-scripts\nif (\$LASTEXITCODE -eq 0) {\n${install}\n}".toString() : install
+        }
+        if (kind == 'pip') {
+            String target = file == 'pyproject.toml' ? '.' : "-r '${quoted}'".toString()
+            return "\$venv = Join-Path ([System.IO.Path]::GetTempPath()) ('goldenfix-venv-' + [guid]::NewGuid().ToString('N'))\n" +
+                    "python -m venv \$venv\n" +
+                    "\$python = Join-Path \$venv 'Scripts\\python.exe'\n" +
+                    "if (\$LASTEXITCODE -eq 0) { & \$python -m pip install -q ${target} }\n" +
+                    "if (\$LASTEXITCODE -eq 0) { & \$python -m pip install -q pytest }\n" +
+                    "if (\$LASTEXITCODE -eq 0) { & \$python -m pytest -q; if (\$LASTEXITCODE -eq 5) { \$global:LASTEXITCODE = 0 } }\n" +
+                    "\$code = \$LASTEXITCODE\n" +
+                    "Remove-Item -Recurse -Force \$venv -ErrorAction SilentlyContinue\n" +
+                    "\$global:LASTEXITCODE = \$code"
+        }
+        if (kind == 'pub') {
+            return "\$tool = 'dart'\n" +
+                    "if (Select-String -Path '${quoted}' -Pattern 'sdk:\\s*flutter' -Quiet) { \$tool = 'flutter' }\n" +
+                    "& \$tool pub get\n" +
+                    "if (\$LASTEXITCODE -eq 0 -and (Test-Path 'test')) { & \$tool test }"
         }
         return check.command as String
     }
@@ -120,7 +152,7 @@ Write-Output "DEVSECOPS_EXIT=\$LASTEXITCODE"
                 if (kind == 'maven' && shared && root == path && name != 'pom.xml') command += " -f '${BuildUtils.escapeForSingleQuotes(name)}'"
                 String lock = (subDir ? subDir + '/' : '') + 'package-lock.json'
                 if (kind == 'npm' && !override && lockFiles?.contains(lock)) {
-                    checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock], file: name, overrideCommand: override]
+                    checks << [name: kind, command: "npm install --package-lock-only --ignore-scripts || exit \$?\n${command}".toString(), subDir: subDir, files: [lock], file: name, overrideCommand: override, lockRefresh: true]
                 } else {
                     checks << [name: kind, command: command, subDir: subDir, file: name, overrideCommand: override]
                 }
@@ -153,16 +185,32 @@ Write-Output "DEVSECOPS_EXIT=\$LASTEXITCODE"
 
     @NonCPS
     String defaultCommand(String kind, String name) {
-        if (kind == 'maven') return 'mvn -B -q -DskipTests compile'
-        if (kind == 'gradle') return '[ -x ./gradlew ] && ./gradlew --no-daemon --console=plain classes || gradle --no-daemon --console=plain classes'
-        if (kind == 'npm') return '[ -f package-lock.json ] && npm ci --ignore-scripts || npm install --ignore-scripts'
-        if (kind == 'pip') return name == 'pyproject.toml' ? 'python3 -m pip install --dry-run .' : "python3 -m pip install --dry-run -r '${name}'".toString()
-        if (kind == 'pub') return '[ -f pubspec.yaml ] && flutter pub get || dart pub get'
+        String quoted = BuildUtils.escapeForSingleQuotes(name)
+        if (kind == 'maven') return 'mvn -B -q test'
+        if (kind == 'gradle') return 'if [ -x ./gradlew ]; then ./gradlew --no-daemon --console=plain test; else gradle --no-daemon --console=plain test; fi'
+        if (kind == 'npm') {
+            return '{ [ -f package-lock.json ] && npm ci --ignore-scripts || npm install --ignore-scripts; } || exit $?\n' +
+                    'if node -e "const t = (require(\'./package.json\').scripts || {}).test || \'\'; process.exit(t && !/no test specified/.test(t) ? 0 : 1)"; then CI=true npm test; fi'
+        }
+        if (kind == 'pip') {
+            String target = name == 'pyproject.toml' ? '.' : "-r '${quoted}'".toString()
+            return 'venv="$(mktemp -d)" || exit 1\n' +
+                    'python3 -m venv "$venv" && "$venv/bin/python" -m pip install -q ' + target + ' && "$venv/bin/python" -m pip install -q pytest\n' +
+                    'status=$?\n' +
+                    'if [ "$status" -eq 0 ]; then "$venv/bin/python" -m pytest -q; status=$?; [ "$status" -eq 5 ] && status=0; fi\n' +
+                    'rm -rf "$venv"\n' +
+                    'exit "$status"'
+        }
+        if (kind == 'pub') {
+            return "if grep -qs 'sdk: *flutter' '${quoted}'; then tool=flutter; else tool=dart; fi\n".toString() +
+                    '"$tool" pub get || exit $?\n' +
+                    'if [ -d test ]; then "$tool" test; fi'
+        }
         if (kind == 'nuget') {
             String low = (name ?: '').toLowerCase()
-            if (low == 'packages.config') return "nuget restore '${BuildUtils.escapeForSingleQuotes(name)}' -NonInteractive"
-            if (low.endsWith('.props')) return 'dotnet build --no-incremental'
-            return "dotnet build --no-incremental '${BuildUtils.escapeForSingleQuotes(name)}'".toString()
+            if (low == 'packages.config') return "nuget restore '${quoted}' -NonInteractive".toString()
+            if (low.endsWith('.props')) return 'dotnet test'
+            return "dotnet test '${quoted}'".toString()
         }
         return ''
     }

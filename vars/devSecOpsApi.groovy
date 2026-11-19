@@ -7,6 +7,7 @@ import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
 import com.bbh.core.ReleaseGate
+import com.bbh.deploy.NexusDeliveryService
 import com.bbh.deploy.OpenshiftService
 import com.bbh.deploy.VmDeployService
 import com.bbh.metrics.InfluxDbService
@@ -37,6 +38,7 @@ import com.bbh.utils.BuildUtils
 @Field SonarService        _sonar
 @Field NexusIqService      _nexusIq
 @Field VmDeployService     _vmDeploy
+@Field NexusDeliveryService _delivery
 @Field OpenshiftService    _openshift
 @Field InfluxDbService     _influx
 @Field SecurityPullRequestService _securityPr
@@ -61,6 +63,7 @@ private void _setup() {
             [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater(), new NugetUpdater()],
             new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
     _vmDeploy  = new VmDeployService(this, _state, _os)
+    _delivery  = new NexusDeliveryService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
 }
@@ -305,13 +308,21 @@ def performanceTests() { _setup(); _build.runTestJobs('Performance tests', 'Perf
 def deployRD()                         { _setup(); _vmDeploy.deployRd() }
 def deployDvWithDodPlugin()            { _setup(); _vmDeploy.deployDvWithDodPlugin() }
 def deployQC()                         { _setup(); _vmDeploy.deployQc() }
-def publishArtifactQC()                { _setup(); _vmDeploy.publishToNexus() }
-def pushToNexus(String projectName)    { _setup(); _vmDeploy.pushToNexus(projectName) }
+def publishArtifactQC()                { _setup(); _delivery.publishRelease(_state.currentProjectName) }
+def pushToNexus(String projectName)    { _setup(); _delivery.pushToNexus(projectName) }
+def pullFromNexus(String projectName)  { _setup(); _delivery.pullFromNexus(projectName) }
+def releaseDeliveryAvailable()         { _setup(); return _delivery.releaseAvailable() }
 def bumpVersion(String vf, String ver) { _setup(); _vmDeploy.bumpVersion(vf, ver) }
 
 def buildDockerImage(String projectName) { _setup(); _openshift.buildDockerImage(projectName) }
 def copyImageToNexus()                   { _setup(); _openshift.copyImageToNexus() }
 def checkDeploymentRepo()                { _setup(); _openshift.checkDeploymentRepo() }
+def checkDeploymentRepos() {
+    _setup()
+    for (def name : _config.resolveProjectNames()) {
+        _openshift.checkDeploymentRepo((_state.projectsAllCfg[name] ?: [:]) as Map)
+    }
+}
 def deployOpenshift(String envName)      { _setup(); _openshift.deploy(envName) }
 def nexusDelivery(String envName)        { _setup(); _openshift.deliverToNexus(envName) }
 def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipeline() }
@@ -337,6 +348,7 @@ def getCFG()                          { _setup(); return _state.cfg }
 def switchProject(String projectName) { _setup(); _config.switchProject(projectName) }
 def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
 def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
+def nexusDeliverySetting()            { _setup(); return BuildUtils.nexusDeliverySetting(_state.cfg) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
 def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
 def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
