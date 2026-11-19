@@ -159,6 +159,13 @@ check('G8 without a Gradle repository (pluginRepositories.enabled: false, or gra
         off.error == 'script returned exit code 1' && off.builds == ['as set'] && noGradle.error == 'script returned exit code 1' && noGradle.builds == ['as set'],
         "${off.builds} | ${noGradle.builds}")
 
+Map rejected = run('gradle', [failFirst: true, diagnosis: gradleMissing, repositories: [gradle: GRADLE_URL, maven: MAVEN_URL, invalid: [gradle: 'tools.bbh.com/nexus']]])
+check('G9 a plugin repository of the service that is not a plain http or https address is named when the step needs it, and the library default is used instead',
+        !rejected.error && rejected.builds == ['as set', 'check', 'with BBH Nexus']
+                && rejected.warnings.contains("[WARN] [BUILD] pluginRepositories.gradle: tools.bbh.com/nexus is not an http or https address of letters, digits and . _ / + @ : = , ~ % - only - the library default ${GRADLE_URL} is used instead".toString())
+                && found.warnings == [],
+        "${rejected.error} | ${rejected.builds} | ${rejected.warnings}")
+
 Map maven = run('maven', [failFirst: true, diagnosis: mavenMissing, m2: ownSettings])
 String merged = (maven.seen.settings ?: '') as String
 check('M1 a Maven plugin that the build does not find: the step runs again with a copy of the user settings that adds the BBH Nexus in an active profile, and the copy is removed',
@@ -198,6 +205,11 @@ inSandbox {
     u.none = utils.pluginRepositories([:])
     u.fallback = utils.pluginRepositories([:], [pluginRepositories: [gradle: GRADLE_URL]])
     u.ownWins = utils.pluginRepositories([pluginRepositories: [enabled: false]], defaults)
+    u.perKey = utils.pluginRepositories([pluginRepositories: [enabled: true]], defaults)
+    u.blank = utils.pluginRepositories([pluginRepositories: [gradle: '  ', maven: 'https://nexus.example.com/repository/maven-plugins/']], defaults)
+    u.invalid = utils.pluginRepositories([pluginRepositories: [gradle: "https://tools.bbh.com/nexus/'; rm -rf /", maven: 'ftp://tools.bbh.com/maven/']], defaults)
+    u.invalidAlone = utils.pluginRepositories([pluginRepositories: [gradle: 'tools.bbh.com/nexus']])
+    u.invalidDefault = utils.pluginRepositories([:], [pluginRepositories: [gradle: 'https://tools.bbh.com/<nexus>']])
     u.gradle = utils.missingPlugins('gradle', gradleMissing)
     u.gradleNoVersion = utils.missingPlugins('gradle', "Plugin [id: 'com.github.ben-manes.versions'] was not found in any of the following sources:")
     u.gradleClasspath = utils.missingPlugins('gradle', gradleClasspath)
@@ -211,7 +223,14 @@ check('U1 the bundled defaults hold the plugin repositories of the BBH Nexus, sw
         u.bundled == [gradle: GRADLE_URL, maven: MAVEN_URL] && u.off == [:] && u.offText == [:] && u.none == [gradle: '', maven: '']
                 && u.fallback == [gradle: GRADLE_URL, maven: ''] && u.ownWins == [:],
         u)
-check('U2 a missing plugin is told apart from other failures',
+check('U2 each repository falls back on its own: an empty one takes the library default, and an address that is not a plain http or https address is named and replaced by the library default, or left empty without one',
+        u.perKey == [gradle: GRADLE_URL, maven: MAVEN_URL]
+                && u.blank == [gradle: GRADLE_URL, maven: 'https://nexus.example.com/repository/maven-plugins/']
+                && u.invalid == [gradle: GRADLE_URL, maven: MAVEN_URL, invalid: [gradle: "https://tools.bbh.com/nexus/'; rm -rf /", maven: 'ftp://tools.bbh.com/maven/']]
+                && u.invalidAlone == [gradle: '', maven: '', invalid: [gradle: 'tools.bbh.com/nexus']]
+                && u.invalidDefault == [gradle: '', maven: ''],
+        u)
+check('U3 a missing plugin is told apart from other failures',
         u.gradle == ['org.springframework.boot:3.3.4'] && u.gradleNoVersion == ['com.github.ben-manes.versions']
                 && u.gradleClasspath == ['com.bbh.gradle:bbh-conventions:2.1.0'] && u.gradleCompile == [] && u.gradleEmpty == []
                 && u.maven == ['org.jacoco:jacoco-maven-plugin:0.8.12', 'prefix spotless'] && u.mavenDescriptor == ['org.example:demo-maven-plugin:1.0']
@@ -219,8 +238,8 @@ check('U2 a missing plugin is told apart from other failures',
         u)
 
 List<String> callers = ['src/com/bbh/build/BuildService.groovy', 'src/com/bbh/scanner/SonarService.groovy', 'src/com/bbh/scanner/AppScanService.groovy']
-Map<String, Integer> passing = callers.collectEntries { [(it): (new File(root, it).text =~ /new BuildRunner\([^\n]*BuildUtils\.pluginRepositories\(state\.cfg(, state\.libraryDefaults)?\)\)/).size()] }
-check('U3 the build, the unit tests, SonarQube and the SAST compile give the plugin repositories of the service to every Gradle and Maven step',
+Map<String, Integer> passing = callers.collectEntries { [(it): (new File(root, it).text =~ /new BuildRunner\([^\n]*BuildUtils\.pluginRepositories\(state\.cfg, state\.(cfgDefaults|libraryDefaults)\)\)/).size()] }
+check('U4 the build, the unit tests, SonarQube and the SAST compile give the plugin repositories of the service to every Gradle and Maven step',
         passing['src/com/bbh/build/BuildService.groovy'] == 2 && passing['src/com/bbh/scanner/SonarService.groovy'] == 1 && passing['src/com/bbh/scanner/AppScanService.groovy'] == 1,
         passing)
 

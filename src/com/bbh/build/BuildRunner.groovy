@@ -90,6 +90,8 @@ class BuildRunner implements Serializable {
                 steps.echo "[WARN] [BUILD] ${name} did not find the plugin(s) ${missing.join(', ')} in the repositories of the build, which sets its own settings file - add the plugin repository ${url} of the BBH Nexus to it"
                 throw e
             }
+            String rejected = ((((repositories.invalid ?: [:]) as Map)[tool] ?: '') as String)
+            if (rejected) steps.echo "[WARN] [BUILD] pluginRepositories.${tool}: ${rejected} is not an http or https address of letters, digits and . _ / + @ : = , ~ % - only - the library default ${url} is used instead"
             steps.echo "[WARN] [BUILD] ${name} did not find the plugin(s) ${missing.join(', ')} in the repositories of the build - trying again with the plugin repository ${url} of the BBH Nexus"
             try {
                 runWithPlugins(cmd, "${label} (BBH Nexus plugins)".toString(), folder, url)

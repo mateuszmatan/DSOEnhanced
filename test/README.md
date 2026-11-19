@@ -144,8 +144,9 @@ Drives `BuildRunner` with a fake Jenkins whose build step fails until it runs wi
 - a Gradle build that finds its plugins runs once, with the same steps as without the BBH Nexus, no check and no file;
 - a missing Gradle plugin (`Plugin [id: ...] was not found`) or a missing module of the `classpath` configuration runs `./gradlew --console=plain help`, names the plugin in an `[WARN] [BUILD]` line, runs the step again with `--init-script` of `<workspace>@tmp/dso-plugin-repositories/bbh-nexus-plugins.gradle` (which puts the repository first for the settings and every buildscript and keeps the Gradle Plugin Portal when the settings name none), says where to add the repository, and a later step of the same folder uses it at once;
 - another failure, a second failure, a switched-off or empty repository fail as before; the second failure is named;
+- each repository falls back on its own: an empty one takes the library default, and an address that is not a plain http or https address (a quote, another scheme, no scheme) is named in a `[WARN] [BUILD]` line when the step needs it and replaced by the library default, or left empty without one;
 - a missing Maven plugin or prefix runs `maven-dependency-plugin:3.8.1:resolve-plugins` and the step again with `-s` and a copy of `~/.m2/settings.xml` that adds the active profile `bbh-nexus-plugins` before the other profiles and keeps the servers, or with a new file without user settings; the copy is removed after the step; a step with its own `-s` is not run again;
-- the bundled defaults hold `pluginRepositories` switched on, `BuildUtils.missingPlugins` tells a missing plugin from other failures, and the build, the unit tests, SonarQube and the SAST compile give `BuildUtils.pluginRepositories(state.cfg)` to `BuildRunner`.
+- the bundled defaults hold `pluginRepositories` switched on, `BuildUtils.missingPlugins` tells a missing plugin from other failures, and the build, the unit tests, SonarQube and the SAST compile give `BuildUtils.pluginRepositories(state.cfg, state.cfgDefaults)` to `BuildRunner`.
 
 ## The fake Jenkins
 

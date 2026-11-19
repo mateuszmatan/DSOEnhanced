@@ -396,11 +396,31 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static Map pluginRepositories(Map cfg, Map fallback = null) {
-        def raw = cfg?.get('pluginRepositories')
-        if (!(raw instanceof Map)) raw = fallback?.get('pluginRepositories')
-        Map repositories = (raw instanceof Map ? raw : [:]) as Map
-        if (!booleanValue(repositories.enabled, true)) return [:]
-        return [gradle: ((repositories.gradle ?: '') as String).trim(), maven: ((repositories.maven ?: '') as String).trim()]
+        def ownRaw = cfg?.get('pluginRepositories')
+        def otherRaw = fallback?.get('pluginRepositories')
+        Map own = (ownRaw instanceof Map ? ownRaw : [:]) as Map
+        Map other = (otherRaw instanceof Map ? otherRaw : [:]) as Map
+        def enabled = own.get('enabled') != null ? own.get('enabled') : other.get('enabled')
+        if (!booleanValue(enabled, true)) return [:]
+        Map out = [:]
+        Map invalid = [:]
+        for (String tool : ['gradle', 'maven']) {
+            String set = ((own.get(tool) ?: '') as String).trim()
+            String standby = ((other.get(tool) ?: '') as String).trim()
+            if (!pluginRepositoryUrl(standby)) standby = ''
+            if (set && !pluginRepositoryUrl(set)) {
+                invalid[tool] = set
+                set = ''
+            }
+            out[tool] = set ?: standby
+        }
+        if (invalid) out.invalid = invalid
+        return out
+    }
+
+    @NonCPS
+    static boolean pluginRepositoryUrl(String url) {
+        return (url ?: '') ==~ "https?://[A-Za-z0-9._/+@:=,~%-]+"
     }
 
     @NonCPS
