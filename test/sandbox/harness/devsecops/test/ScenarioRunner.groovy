@@ -25,7 +25,10 @@ class ScenarioRunner {
         Map projects = yaml.load(configText) as Map
         if (spec.coverageMinLine) (((defaults.defaults as Map).coverage as Map)).minLine = spec.coverageMinLine
         if (spec.defaults) (spec.defaults as Closure).call(defaults.defaults as Map)
-        if (spec.parallel) (defaults.defaults as Map).staticAnalysis = [parallel: true]
+        if (!spec.parallel) {
+            (defaults.defaults as Map).staticAnalysis = [parallel: false]
+            (defaults.defaults as Map).dynamicAnalysis = [parallel: false]
+        }
         if (spec.dastDisabledFor) (((projects.projects as Map)[spec.dastDisabledFor] as Map).dast as Map).enabled = false
         if (spec.mavenVmDelivery) {
             Map backend = (projects.projects as Map)['backend-api'] as Map
@@ -90,6 +93,7 @@ class ScenarioRunner {
             if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakSast && text.contains('Account/ApiKeyLogin')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakSastWait && text.contains('/api/v4/Scans/Sast/')) throw new FakeAbort('script returned exit code 1')
+            if (spec.breakSastCopy && label == 'Copy the workspace for the SAST compile and scan') throw new FakeAbort('tar: write error: No space left on device')
             if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakNode && label.startsWith('Node.js: ')) throw new FakeAbort('script returned exit code 1')
             if (a.returnStatus) return 0
@@ -200,6 +204,9 @@ class ScenarioRunner {
                 rule('InfluxDB points carry the epoch second of the run', /(?m) \d{10}$/, ' <s>'),
                 rule('stage and job timings are measured on the wall clock', /\b(start_time|end_time|duration_ms|duration_s|lead_time_s)=\d+i/, '$1=<n>i'),
                 rule('durations in the log are measured on the wall clock', /duration=\S+/, 'duration=<d>'),
+                rule('the times of the parallel stages are measured on the wall clock', /(?m)^(\[PARALLEL\] [^:\n]+: one after another ).*$/, '$1<times>'),
+                rule('the Manual actions vs DevSecOps Automated Actions table at the bottom of the report is newer than every golden and is checked on its own',
+                        /\n<section id='manual-vs-automated'.*?<\/section>/, ''),
                 rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
                 rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
                 rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',

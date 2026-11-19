@@ -10,6 +10,7 @@ import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.RestClient
 import com.bbh.utils.BuildUtils
 import com.bbh.utils.LiquibaseOutput
+import com.cloudbees.groovy.cps.NonCPS
 
 class AppScanService implements Serializable {
     private final def script
@@ -50,6 +51,16 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
 
     void sastLogin() {
         ensureToken('SAST')
+    }
+
+    @NonCPS
+    void shareSession(AppScanService other) {
+        if (other == null) return
+        if (other.token && other.tokenIssuedAt >= tokenIssuedAt) {
+            token = other.token
+            tokenIssuedAt = other.tokenIssuedAt
+        }
+        if (other.proxyPass) proxyPass = other.proxyPass
     }
 
     void ensureToken(String type) {

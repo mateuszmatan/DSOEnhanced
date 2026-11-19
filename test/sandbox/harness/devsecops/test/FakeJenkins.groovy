@@ -141,10 +141,16 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Set<String> missingCredentials = [] as Set
     List<Object> timeouts = []
 
+    String agentWorkspace = ''
+
     private String norm(Object path) {
         String p = String.valueOf(path)
         String ws = env.vars.get('WORKSPACE') ?: ''
-        if (ws && p.startsWith(ws + '/')) p = p.substring(ws.length() + 1)
+        if (ws && p.startsWith(ws + '/')) {
+            p = p.substring(ws.length() + 1)
+        } else if (agentWorkspace && p.startsWith(agentWorkspace + '/')) {
+            p = p.substring(agentWorkspace.length() + 1)
+        }
         return p.startsWith('./') ? p.substring(2) : p
     }
 
@@ -329,9 +335,12 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def onAgent(Object label, Closure body) {
         Map<String, String> saved = [NODE_NAME: env.vars.get('NODE_NAME'), WORKSPACE: env.vars.get('WORKSPACE'), WORKSPACE_TMP: env.vars.get('WORKSPACE_TMP')]
         env.vars.putAll([NODE_NAME: String.valueOf(label), WORKSPACE: '/ws', WORKSPACE_TMP: '/ws@tmp'])
+        String savedAgentWorkspace = agentWorkspace
+        agentWorkspace = '/ws'
         try {
             return body.call()
         } finally {
+            agentWorkspace = savedAgentWorkspace
             saved.each { k, v -> if (v == null) env.vars.remove(k) else env.vars.put(k, v) }
         }
     }
@@ -387,9 +396,17 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def lastSuccessful() { [:] }
     def parallel(Map branches) {
         calls << "parallel ${branches.keySet().findAll { it != 'failFast' }.size()}".toString()
+        boolean failFast = branches.failFast == true
+        Throwable first = null
         branches.each { name, body ->
-            if (name != 'failFast' && body instanceof Closure) body.call()
+            if (name == 'failFast' || !(body instanceof Closure) || (failFast && first != null)) return
+            try {
+                body.call()
+            } catch (Throwable t) {
+                if (first == null) first = t
+            }
         }
+        if (first != null) throw first
     }
 
     Object methodMissing(String name, Object args) {

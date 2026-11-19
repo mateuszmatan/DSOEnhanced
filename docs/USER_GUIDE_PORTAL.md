@@ -187,10 +187,11 @@ The library automatically enforces test coverage across all project modules:
 Static security analysis inspects application source code for security vulnerabilities.
 
 ### Key Capabilities:
-- **Background Parallel Scanning:**
-  - The IRX archive is generated immediately after build.
-  - The HCL ASOC cloud scan is queued in the background and runs **in parallel** with Nexus IQ and SonarQube.
-  - Results are fetched at the end of the static analysis stage, significantly reducing overall pipeline duration.
+- **Stages at the same time (default):**
+  - Unit tests, Nexus IQ, SAST and SonarQube run **in parallel** in the stage *Static analysis*; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.
+  - The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (*Dynamic analysis*).
+  - The report shows the time one after another and in parallel, and ends with the table **Manual actions vs DevSecOps Automated Actions** and the time recovered by the run.
+  - Both are on by default. Unticking **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** or **Run the regression, smoke and performance tests and DAST at the same time** in the Global Settings (`staticAnalysis.parallel`, `dynamicAnalysis.parallel`) runs the stages one after another again; without a key, `false` in `devsecops_config.yaml` does the same.
 - **Streamlined Configuration:**
   - The **main SAST section** holds only the AppScan application ID (`appId`) of the service.
   - `sast.scanName` is available in **Advanced Settings** for custom scan naming.
@@ -246,13 +247,13 @@ Nexus IQ identifies known open-source vulnerabilities (CVEs) and license complia
 
 ### Decoupled Pipeline Execution Order:
 1. **Stage 1: Build Artifact (without tests):** The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (`build.node.enabled: true`), npm commands run as step 0 at the start of this stage before compiling backend code.
-2. **Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):**
-   - **Unit Tests:** Runs automated tests (including Node.js & Cypress tests) and aggregates JaCoCo & LCOV code coverage.
-   - **SAST (HCL AppScan):** Queues static application security analysis in the background and retrieves findings.
+2. **Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):** by default the four run as parallel branches of the Jenkins stage *Static analysis* (unticking *Run unit tests, Nexus IQ, SAST and SonarQube at the same time* in the Global Settings runs them one after another).
+   - **Unit Tests:** Runs automated unit tests (including Node.js & Cypress tests) and aggregates JaCoCo & LCOV code coverage.
    - **Nexus IQ:** Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.
-3. **Stage 3: SonarQube (Static Code Analysis & Quality Gate):**
-   - Runs last after Unit tests, SAST, and Nexus IQ have concluded.
-   - Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.
+   - **SAST (HCL AppScan):** Compiles and queues the scan of every service in a copy of the workspace (`<WORKSPACE_TMP>/dso-sast-workspace`), so its compile never touches the files the other branches read, then waits for the results and the reports.
+   - **SonarQube:** Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.
+3. **Stage 3: Results:** A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.
+   - The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (*Dynamic analysis*, *Run the regression, smoke and performance tests and DAST at the same time* in the Global Settings).
 
 ---
 

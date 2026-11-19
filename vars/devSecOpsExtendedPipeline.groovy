@@ -38,19 +38,28 @@ def call(Map config = [:]) {
                 steps { script { devSecOpsSteps.lowerRegionDeployment(devSecOpsApi, 'dod') } }
             }
 
+            stage('Dynamic analysis') {
+                when { expression { return devSecOpsApi.parallelTests() } }
+                steps { script { devSecOpsSteps.dynamicAnalysis(devSecOpsApi, [setupTools: true]) } }
+            }
+
             stage('Regression tests (>60% user stories coverage)') {
+                when { expression { return !devSecOpsApi.parallelTests() } }
                 steps { script { devSecOpsSteps.regressionTests(devSecOpsApi) } }
             }
 
             stage('Smoke tests') {
+                when { expression { return !devSecOpsApi.parallelTests() } }
                 steps { script { devSecOpsSteps.smokeTests(devSecOpsApi) } }
             }
 
             stage('Performance tests') {
+                when { expression { return !devSecOpsApi.parallelTests() } }
                 steps { script { devSecOpsSteps.performanceTests(devSecOpsApi) } }
             }
 
             stage('DAST - Dynamic Application Security Tests - HCL AppScan') {
+                when { expression { return !devSecOpsApi.parallelTests() } }
                 steps { script { devSecOpsSteps.dast(devSecOpsApi, [setupTools: true]) } }
             }
 

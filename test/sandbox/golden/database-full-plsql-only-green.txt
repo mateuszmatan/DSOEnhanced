@@ -833,6 +833,7 @@ cleanWs
 [STAGE]  Build artifact
 [RESULT] PASS
 ------------------------------------------------------------
+[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
 [DB] orders-db test: 10 changesets pending before the update
 [DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
 [DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
@@ -905,6 +906,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-snapsho
 [STAGE]  Lower test region deployment
 [RESULT] PASS
 ------------------------------------------------------------
+[DYNAMIC] The Global Settings set dynamicAnalysis.parallel: false - Regression, Smoke and Performance tests and DAST run one after another
 [TEST] orders-db: no Regression Tests jobs for a SQL and PL/SQL service - not required
 ------------------------------------------------------------
 [STAGE]  Regression tests (>60% user stories coverage)

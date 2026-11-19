@@ -31,6 +31,7 @@ String NIQ = 'Dependencies scan (Nexus IQ)'
 String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
 String STATIC = 'Static analysis'
+String DYNAMIC = 'Dynamic analysis'
 String SNAPSHOT = 'Nexus delivery (Static analysis passed)'
 String PULL = 'Download artifacts from Nexus Repo'
 String RD = 'Lower test region deployment'
@@ -86,6 +87,8 @@ Closure runPipeline = { Map spec -> ScenarioRunner.runPipeline(spec, runnerConte
 List<String> staticStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
 List<String> extendedStages = [MONITOR, PULL, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 List<String> fullStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+List<String> declaredFull = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, DYNAMIC, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+List<String> testStages = [REGRESSION, SMOKE, PERFORMANCE, DAST]
 
 File goldenDir = new File(root, 'test/sandbox/golden')
 
@@ -107,7 +110,18 @@ Closure sectionsOf = { String view ->
 String stagedCopy = 'sh rm -rf "$WORKSPACE/appscan-source-staged"'
 String orderLine = '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run one after another while AppScan scans, and SAST reads the results last'
 String stopLine = '[STATIC] SAST stopped while it prepared its scans: Unit tests and Nexus IQ do not run in this build'
-Closure reordered = { List<String> lines -> lines.findAll { !it.startsWith('[STATIC] ') && it != stagedCopy }.sort() }
+String sastCopy = '/ws@tmp/dso-sast-workspace'
+List<String> parallelOnly = ['[STATIC] ', '[DYNAMIC] ', '[PARALLEL] ', '[INFO] [STATIC] ', '[INFO] [DYNAMIC] ', 'parallel ', 'withEnv [DSO_PARALLEL_BRANCH=',
+                             'withEnv [CURRENT_PROJECT_NAME=', 'withEnv [DSO_SAST_WORKSPACE=', 'withEnv [WORKSPACE=',
+                             'sh [Copy the workspace for the SAST compile and scan]', 'sh [Remove the SAST copy of the workspace]']
+List<String> copyScript = ['set -euo pipefail', 'rm -rf "$DSO_SAST_WORKSPACE"', 'mkdir -p "$DSO_SAST_WORKSPACE"', '']
+Closure reordered = { List<String> lines ->
+    List<String> kept = lines.findAll { String line -> line != stagedCopy && !parallelOnly.any { line.startsWith(it) } && !line.startsWith('tar -C "$WORKSPACE" --exclude=./.appscan-tools ') }
+    int copies = lines.count { it.startsWith('sh [Copy the workspace for the SAST compile and scan]') } as int
+    copyScript.each { String line -> copies.times { kept.remove(line) } }
+    kept.sort()
+}
+Closure sequentialView = { String text -> text.replaceAll(/<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
 
 Closure goldenView = { Map r -> ScenarioRunner.goldenView(r) }
 
@@ -127,6 +141,8 @@ Map headerRule = rule('the report header names the portal keys or keyless marker
 List<Map> portalRules = [
         bootstrapRule,
         portalLogRule,
+        rule('the run names the order of its static analysis and of its tests and DAST, which were not switchable then',
+                /(?m)^\[(STATIC|DYNAMIC)\] [^\n]*\n/, ''),
         rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
                 /(?m)(^sh \[Read the commit under test\].*\n)writeYaml pipeline-config\.yaml\n/, '$1'),
         rule('the run-state file is pipeline-config.yaml instead of config.yaml (accepted difference 3)',
@@ -171,7 +187,7 @@ Map baselines = [
         b815d55: [recorded: 'on the library before the portal integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: portalRules],
         nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
         catalog: [recorded: 'when shared version catalogs were added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
-        parallel: [recorded: 'when Nexus IQ and SonarQube were moved into the AppScan wait', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
+        parallel: [recorded: 'when the static analysis and the tests with DAST became parallel branches', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
 ]
 
 List<Map> specs = [
@@ -198,21 +214,21 @@ List<Map> specs = [
          post: ['always', 'unstable'], baseline: 'catalog'],
         [name: 'extended pipeline, green', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 118,
          params: [DEPLOY_HIGHER_ENV: true],
-         executed: extendedStages, skipped: [], result: 'SUCCESS', post: ['always', 'success'], dastDisabledFor: 'backend-api'],
+         executed: extendedStages, skipped: [DYNAMIC], result: 'SUCCESS', post: ['always', 'success'], dastDisabledFor: 'backend-api'],
         [name: 'extended pipeline, orange', var: 'devSecOpsExtendedPipeline', fail: true, job: 'CertScanner-extended-pipeline', buildNumber: 119,
          params: [DEPLOY_HIGHER_ENV: true],
-         upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [RELEASE, QC], result: 'UNSTABLE',
+         upstreamViolations: ['gui SAST (AppScan) high 3 > 0'], executed: extendedStages - [RELEASE, QC], skipped: [DYNAMIC, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 341,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [STATIC], result: 'SUCCESS', post: ['always', 'success'],
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages, skipped: [STATIC, DYNAMIC], result: 'SUCCESS', post: ['always', 'success'],
          files: ['devsecops_config.yaml': 'projects: [', 'config.yaml': 'projects: [']],
         [name: 'full pipeline, orange', var: 'devSecOpsPipeline', fail: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 342,
-         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [STATIC, RELEASE, QC], result: 'UNSTABLE',
+         params: [DEPLOY_HIGHER_ENV: true], executed: fullStages - [RELEASE, QC], skipped: [STATIC, DYNAMIC, RELEASE, QC], result: 'UNSTABLE',
          post: ['always', 'unstable']],
         [name: 'full pipeline, green but QC not selected', var: 'devSecOpsPipeline', fail: false, job: 'CertScanner-devsecops-pipeline', buildNumber: 343,
-         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [STATIC, QC], result: 'SUCCESS', post: ['always', 'success']],
+         params: [DEPLOY_HIGHER_ENV: false], executed: fullStages - [QC], skipped: [STATIC, DYNAMIC, QC], result: 'SUCCESS', post: ['always', 'success']],
         [name: 'full pipeline, stage failure', var: 'devSecOpsPipeline', fail: false, breakSast: true, job: 'CertScanner-devsecops-pipeline', buildNumber: 344,
-         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, BUILD, UNIT, NIQ], skipped: [STATIC] + (fullStages - [MONITOR, BUILD, UNIT, NIQ, SAST]),
+         params: [DEPLOY_HIGHER_ENV: true], executed: [MONITOR, BUILD, UNIT, NIQ], skipped: [STATIC] + (declaredFull - [MONITOR, BUILD, UNIT, NIQ, SAST]),
          result: 'FAILURE', post: ['always', 'failure'], failedStage: SAST]
 ]
 
@@ -252,7 +268,8 @@ Closure verify = { Map spec ->
     int greyBoxes = flow.split('>SKIP<', -1).length - 1
     // Only a stage that never started may stay grey, and a blocked or skipped one is amber or red,
     // so the bound holds from both sides: a state that was never filled turns every box grey.
-    int expectedGrey = ((spec.skipped as List) - NODE - STATIC - (spec.executed.contains(STATIC) ? [NIQ, SAST, SONAR] : [])).size() * 2
+    int expectedGrey = ((spec.skipped as List) - NODE - STATIC - DYNAMIC - (spec.executed.contains(STATIC) ? [NIQ, SAST, SONAR] : [])
+            - (spec.executed.contains(DYNAMIC) ? testStages : [])).size() * 2
     check("${name}: the stage flow shows what the stages collected, not empty grey boxes",
             flow && greyBoxes <= expectedGrey && flow.contains('&#9201;')
                     && (!spec.executed.contains(UNIT) || !flow.contains('not measured')),
@@ -374,20 +391,67 @@ Closure verify = { Map spec ->
     }
     if (spec.executed.contains(STATIC)) {
         List<String> calls = j.calls
+        int copied = calls.findIndexOf { it.startsWith('sh [Copy the workspace for the SAST compile and scan]') }
+        int started = calls.indexOf('parallel 4')
+        List<Integer> branches = [UNIT, NIQ, SAST, SONAR].collect { calls.indexOf("withEnv [DSO_PARALLEL_BRANCH=${it}]".toString()) }
+        int intoCopy = calls.indexOf("withEnv [WORKSPACE=${sastCopy}]".toString())
+        int removed = calls.findIndexOf { it.startsWith('sh [Remove the SAST copy of the workspace]') }
         int chmod = calls.indexOf('sh chmod +x "$APPSCAN_BIN_DIR/gradle"')
-        List<Integer> queued = calls.findIndexValues { it.startsWith('sh [Gradle: clean build bootJar]') || it.startsWith('sh [Maven: clean verify]') || it.endsWith('/api/v4/Scans/Sast"') }
-                .findAll { it > chmod } as List<Integer>
-        int removal = calls.indexOf(stagedCopy)
+        List<Integer> queued = calls.findIndexValues { it.endsWith('/api/v4/Scans/Sast"') } as List<Integer>
+        List<Integer> prepared = calls.findIndexValues { it.startsWith('withEnv [APPSCAN_CMD_RUNTIME=') && it.contains("APPSCAN_SOURCE_DIR_RUNTIME=${sastCopy},".toString()) } as List<Integer>
+        int polled = calls.findIndexOf { it.contains('/api/v4/Scans/Sast/') }
         List<Integer> evaluated = r.evaluatedAt as List<Integer>
         int sonarFirst = calls.findIndexOf { it.startsWith('sh [Gradle: sonarqube]') }
-        int sonarLast = calls.findLastIndexOf { it.startsWith('sh [Maven: sonar:sonar]') }
-        int polled = calls.findIndexOf { it.contains('/api/v4/Scans/Sast/') }
-        check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, SonarQube runs, and only then SAST polls its scans",
-                chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < sonarFirst && sonarLast < polled,
-                [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, polled: polled, sonar: [sonarFirst, sonarLast]])
-        List<String> staticLines = log.findAll { it.startsWith('[STATIC] ') }
-        check("${name}: the log names the new order once, without a fallback or a SAST stop", staticLines == [orderLine], staticLines)
+        int unitLast = calls.findLastIndexOf { it.startsWith('sh [Maven: test') || it.startsWith('sh [Gradle: test') }
+        check("${name}: the workspace is copied before Unit tests, Nexus IQ, SAST and SonarQube start in parallel, SAST compiles, prepares and queues every scan in the copy, removes it and only then polls, and SonarQube runs after the unit tests",
+                copied >= 0 && copied < started && branches == branches.sort(false) && branches[0] > started && evaluated && evaluated.min() > branches[1]
+                        && chmod > branches[2] && chmod < intoCopy && prepared.size() == 2 && prepared.min() > intoCopy && queued.size() == 2 && queued.max() < removed
+                        && removed < polled && sonarFirst > branches[3] && sonarFirst > unitLast,
+                [copied: copied, started: started, branches: branches, chmod: chmod, intoCopy: intoCopy, prepared: prepared, queued: queued, removed: removed, polled: polled,
+                 evaluated: evaluated, sonar: sonarFirst, unitLast: unitLast])
+        List<String> staticLines = log.findAll { it.startsWith('[STATIC] ') || it.startsWith('[PARALLEL] Static analysis') }
+        check("${name}: the log says that the four stages run at the same time by default, where SAST works, and how long they took one after another and in parallel",
+                staticLines.size() == 4 && staticLines[0] == '[STATIC] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)'
+                        && staticLines[1] == "[STATIC] SAST compiles and prepares its scans in a copy of the workspace (${sastCopy}), so Unit tests, Nexus IQ and SonarQube run at the same time on the workspace".toString()
+                        && staticLines[2] == '[PARALLEL] Static analysis: Unit tests, Dependencies scan (Nexus IQ), SAST - Static Application Security Tests - HCL AppScan, SCA (SonarQube) run at the same time'
+                        && staticLines[3] ==~ /\[PARALLEL\] Static analysis: one after another \d+s, in parallel \d+s.*/,
+                staticLines)
+        check("${name}: the report shows the stages that ran in parallel with the time one after another and in parallel",
+                html.contains("<section id='parallel-stages'") && html.contains('<h2>Parallel stages</h2>') && html.contains('>Static analysis</div>')
+                        && html.contains('One after another <b>'), 'no Parallel stages section in the report')
     }
+    if (spec.executed.contains(DYNAMIC)) {
+        List<String> calls = j.calls
+        List<Integer> branches = testStages.collect { calls.indexOf("withEnv [DSO_PARALLEL_BRANCH=${it}]".toString()) }
+        List<String> dynamicLines = log.findAll { it.startsWith('[DYNAMIC] ') || it.startsWith('[PARALLEL] Dynamic analysis') }
+        check("${name}: Regression, Smoke and Performance tests and DAST run as four parallel branches, which the log and the report name with their times",
+                branches.every { it >= 0 } && branches == branches.sort(false)
+                        && dynamicLines[0] == '[DYNAMIC] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)'
+                        && dynamicLines[1] == "[PARALLEL] Dynamic analysis: ${testStages.join(', ')} run at the same time".toString()
+                        && dynamicLines[2] ==~ /\[PARALLEL\] Dynamic analysis: one after another \d+s, in parallel \d+s.*/
+                        && html.contains('>Dynamic analysis</div>'),
+                [branches: branches, log: dynamicLines])
+    }
+    List<String> manualRows = (html =~ /<tr><td style='padding:8px 12px;vertical-align:top;font-weight:600;'>([^<]+)<\/td>/).collect { it[1] as String }
+    Map loggedResults = [:]
+    (log.join('\n') =~ /\[STAGE\]  ([^\n]+)\n\[RESULT\] (\S+)/).each { loggedResults[it[1] as String] = it[2] as String }
+    Closure loggedRun = { String stage -> loggedResults.containsKey(stage) && !(loggedResults[stage] in ['SKIP', 'NOT_REQUIRED', 'BLOCKED']) }
+    List<String> expectedRows = []
+    if (loggedResults.containsKey(BUILD) && loggedResults[BUILD] != 'SKIP') expectedRows << 'Code Build Trigger'
+    if (loggedRun(UNIT)) expectedRows << 'Unit Test + Code Coverage'
+    List<String> scansRan = [[SAST, 'SAST'], [NIQ, 'Nexus IQ'], [SONAR, 'SonarQube']].findAll { loggedRun(it[0] as String) }.collect { it[1] as String }
+    if (scansRan) expectedRows << scansRan.join(' + ')
+    if (loggedRun(RD)) expectedRows << 'Deploy lower test region'
+    List<String> testsRan = [[REGRESSION, 'Regression'], [SMOKE, 'Smoke'], [PERFORMANCE, 'Performance'], [DAST, 'DAST']].findAll { loggedRun(it[0] as String) }.collect { it[1] as String }
+    if (testsRan) expectedRows << testsRan.join(' + ')
+    int manualAt = html.indexOf("<section id='manual-vs-automated'")
+    String manualSection = manualAt < 0 ? '' : html.substring(manualAt, html.indexOf('</section>', manualAt))
+    check("${name}: the report ends with the Manual actions vs DevSecOps Automated Actions table, one line per step that ran (${expectedRows.join('; ')}), its totals and the time recovered",
+            manualRows == expectedRows && manualAt > html.indexOf("<div style='flex:1.4;min-width:620px;'>") && manualAt < html.indexOf('</body>')
+                    && manualSection.contains('<h2>Manual actions vs DevSecOps Automated Actions</h2>') && manualSection.contains('>Total</td>')
+                    && manualSection.contains('Time recovered in this run: <b>')
+                    && (testsRan != ['Regression', 'Smoke', 'Performance', 'DAST'] || manualSection.contains("<b>6h 30m</b><span style='display:block;margin-top:2px;color:#64748b;font-size:0.74rem;'>the 4 runs one after another + 3 x 10 min to start them by hand + 360 min for the DAST by hand</span>")),
+            [rows: manualRows, expected: expectedRows, results: loggedResults])
     Map files = (spec.files ?: [:]) as Map
     List<String> probed = j.probes.findAll { it.tokenize(' ').last() in repositoryFiles }
     if (files && !spec.keyless) {
@@ -418,13 +482,13 @@ Closure verify = { Map spec ->
     if (spec.compare == 'sections') {
         File sequential = new File(goldenDir, "${slugOf(spec.golden as String)}.txt")
         Map expected = sectionsOf(normalise(sequential.text, portalRules + keylessMarks))
-        Map got = sectionsOf(normalise(actual, portalRules + keylessMarks))
+        Map got = sectionsOf(normalise(sequentialView(actual), portalRules + keylessMarks))
         boolean sameOutputs = ['release-gate.json', 'influx', 'report'].every { expected[it] == got[it] }
         boolean sameSteps = ['calls', 'log'].every { reordered(expected[it] as List<String>) == reordered(got[it] as List<String>) }
         sectionsDiffer = !(sameOutputs && sameSteps)
         if (sectionsDiffer) diffFile.text = actual else diffFile.delete()
         check("${name}: release-gate.json, the InfluxDB lines and the report equal those of ${spec.golden}", sameOutputs, "compare ${sequential} with ${diffFile}")
-        check("${name}: the steps and the log are those of ${spec.golden} in another order, without the [STATIC] lines and the removal of the staging copy",
+        check("${name}: the steps and the log are those of ${spec.golden} in another order, without the lines of the parallel stages and of the SAST copy of the workspace",
                 sameSteps, "compare ${sequential} with ${diffFile}")
         if (!spec.baseline) return
     }
@@ -436,7 +500,8 @@ Closure verify = { Map spec ->
         println "      note: golden output recorded at ${golden}"
     }
     if (!golden.exists()) {
-        check("${name}: a golden output recorded ${baseline.recorded} exists", false, "${golden} is missing; ${baseline.record}")
+        diffFile.text = actual
+        check("${name}: a golden output recorded ${baseline.recorded} exists", false, "${golden} is missing; ${baseline.record}, or review ${diffFile} and rename it")
         return
     }
     boolean same = normalise(golden.text, rules) == normalise(actual, rules)
@@ -458,14 +523,20 @@ String readByMistake = 'projects:\n  gui:\n    appId: read-config-yaml-by-mistak
     verify(base + k + [keyless: true, golden: k.from, name: "${k.from}, without a key (${(k.files as Map).keySet().join(' and ')})".toString()])
 }
 
-['security pipeline, green', 'security pipeline, orange', 'full pipeline, green', 'full pipeline, orange'].each { String from ->
-    Map base = specs.find { it.name == from } as Map
-    verify(base + [name: "${from}, parallel scans".toString(), parallel: true, golden: from, compare: 'sections',
-                   executed: (base.executed as List).collectMany { it == NIQ ? [STATIC] : (it in [UNIT, SAST, SONAR] ? [] : [it]) },
-                   skipped: [UNIT, NIQ, SAST, SONAR] + ((base.skipped as List) - [STATIC])] + (from == 'full pipeline, orange' ? [baseline: 'parallel'] : [:]))
+Closure inParallel = { List stages -> stages.collectMany { it == NIQ ? [STATIC] : (it == REGRESSION ? [DYNAMIC] : (it in [UNIT, SAST, SONAR, SMOKE, PERFORMANCE, DAST] ? [] : [it])) } }
+Closure skippedInParallel = { Map base ->
+    List left = (base.skipped as List) - [STATIC, DYNAMIC]
+    List declared = (base.var == 'devSecOpsExtendedPipeline' ? [] : [UNIT, NIQ, SAST, SONAR]) + ((base.executed as List).contains(REGRESSION) ? testStages : [])
+    declared + left
 }
-verify((specs.find { it.name == 'full pipeline, green' } as Map) + [name: 'full pipeline, green, parallel scans switched off by the environment',
-                                                                     golden: 'full pipeline, green', parallel: true, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'false']])
+['security pipeline, green', 'security pipeline, orange', 'full pipeline, green', 'full pipeline, orange', 'extended pipeline, green', 'extended pipeline, orange'].each { String from ->
+    Map base = specs.find { it.name == from } as Map
+    verify(base + [name: "${from}, parallel stages".toString(), parallel: true, golden: from, compare: 'sections',
+                   executed: inParallel(base.executed as List), skipped: skippedInParallel(base)] + (from == 'full pipeline, orange' ? [baseline: 'parallel'] : [:]))
+}
+verify((specs.find { it.name == 'full pipeline, green' } as Map) + [name: 'full pipeline, green, parallel stages switched off by the environment',
+                                                                     golden: 'full pipeline, green', parallel: true,
+                                                                     env: [DSO_STATIC_ANALYSIS_PARALLEL: 'false', DSO_DYNAMIC_ANALYSIS_PARALLEL: 'false']])
 
 Map noFile = runPipeline([name: 'full pipeline without a key and without a file', var: 'devSecOpsPipeline', keyless: true, fail: false,
                           job: 'CertScanner-devsecops-pipeline', buildNumber: 345, params: [DEPLOY_HIGHER_ENV: true]])
@@ -701,7 +772,7 @@ Map nodeFailure = runPipeline([name: 'full pipeline, Node.js build failure', var
                                buildNumber: 358, params: [DEPLOY_HIGHER_ENV: true], configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
 FakeCpsScript nodeFailureVar = nodeFailure.var as FakeCpsScript
 check('full pipeline, Node.js build failure: the stage fails hard and the later stages are skipped',
-        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == [STATIC] + fullStages.drop(2)
+        !nodeFailure.crash && nodeFailureVar.executedStages == [MONITOR] && nodeFailureVar.skippedStages == [STATIC] + declaredFull.drop(2)
                 && nodeFailureVar.stageFailures.size() == 1 && nodeFailureVar.stageFailures[0].startsWith(BUILD)
                 && (nodeFailure.j as FakeScript).currentBuild.currentResult == 'FAILURE',
         [nodeFailure.crash, nodeFailureVar.executedStages, nodeFailureVar.stageFailures])
@@ -777,62 +848,92 @@ check('extended pipeline, Node.js build: while no release delivery is implemente
 
 Closure staticLog = { Map r -> (r.j as FakeScript).log.findAll { it.startsWith('[STATIC] ') } }
 Closure stagesOf = { Map r -> [(r.var as FakeCpsScript).executedStages, (r.var as FakeCpsScript).skippedStages] }
-Map otherTasks = focused([name: 'full pipeline, parallel scans, SAST compile with other Gradle tasks', buildNumber: 361, parallel: true,
+Map otherTasks = focused([name: 'full pipeline, parallel stages, SAST compile with other Gradle tasks', buildNumber: 361, parallel: true,
                           configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = [tasks: ['compileJava']] }])
 FakeScript otherTasksJenkins = otherTasks.j as FakeScript
-check('full pipeline, parallel scans, SAST compile with other Gradle tasks: the run names the service and keeps Nexus IQ, SAST and SonarQube one after another, Nexus IQ before the SAST compile',
-        staticLog(otherTasks) == ['[STATIC] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: ' +
-                                  'Nexus IQ, SAST and SonarQube run one after another'] && stagesOf(otherTasks) == [fullStages, [STATIC]]
-                && (otherTasks.evaluatedAt as List<Integer>).min() < otherTasksJenkins.calls.findIndexOf { it.startsWith('sh [Gradle: compileJava]') }
-                && !otherTasksJenkins.calls.contains(stagedCopy),
-        staticLog(otherTasks) + stagesOf(otherTasks))
-Map equalCompile = focused([name: 'full pipeline, parallel scans, SAST compile equal to the build command', buildNumber: 362, parallel: true,
+int otherCopy = otherTasksJenkins.calls.indexOf("withEnv [WORKSPACE=${sastCopy}]".toString())
+int otherRemoved = otherTasksJenkins.calls.findIndexOf { it.startsWith('sh [Remove the SAST copy of the workspace]') }
+int otherCompile = otherTasksJenkins.calls.findIndexOf { it.startsWith('sh [Gradle: compileJava]') }
+check('full pipeline, parallel stages, SAST compile with other Gradle tasks: the SAST compile runs in the copy of the workspace, so the four stages stay parallel and Nexus IQ scans the files of Build artifact',
+        stagesOf(otherTasks)[0].contains(STATIC) && !staticLog(otherTasks).any { it.contains('other Gradle tasks') }
+                && otherCopy >= 0 && otherCopy < otherCompile && otherCompile < otherRemoved
+                && (otherTasks.evaluatedAt as List<Integer>).max() < otherCompile,
+        staticLog(otherTasks) + stagesOf(otherTasks) + [otherCopy, otherCompile, otherRemoved])
+Map noCopy = focused([name: 'full pipeline, parallel stages, the SAST copy cannot be made', buildNumber: 368, parallel: true, breakSastCopy: true])
+FakeScript noCopyJenkins = noCopy.j as FakeScript
+check('full pipeline, parallel stages, the SAST copy cannot be made: the [WARN] names the reason and the fallback, and SAST queues first while Unit tests, Nexus IQ and SonarQube run one after another as before',
+        stagesOf(noCopy)[0].contains(STATIC) && !noCopyJenkins.calls.contains("withEnv [DSO_PARALLEL_BRANCH=${UNIT}]".toString()) && noCopyJenkins.log.contains(orderLine)
+                && noCopyJenkins.log.contains('[WARN] [STATIC] The workspace could not be copied for SAST (tar: write error: No space left on device) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans'),
+        staticLog(noCopy) + noCopyJenkins.log.findAll { it.startsWith('[WARN] [STATIC]') })
+Map noCopyOther = focused([name: 'full pipeline, parallel stages, no SAST copy and a SAST compile with other Gradle tasks', buildNumber: 369, parallel: true, breakSastCopy: true,
+                           configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = [tasks: ['compileJava']] }])
+FakeScript noCopyOtherJenkins = noCopyOther.j as FakeScript
+check('full pipeline, parallel stages, no SAST copy and a SAST compile with other Gradle tasks: the run names the service and runs the four stages one after another, Nexus IQ before the SAST compile',
+        staticLog(noCopyOther).contains('[STATIC] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command in the workspace, so it may not rebuild the files Nexus IQ scans: ' +
+                                        'Unit tests, Nexus IQ, SAST and SonarQube run one after another')
+                && (noCopyOther.evaluatedAt as List<Integer>).max() < noCopyOtherJenkins.calls.findIndexOf { it.startsWith('sh [Gradle: compileJava]') }
+                && !noCopyOtherJenkins.calls.contains("withEnv [DSO_PARALLEL_BRANCH=${UNIT}]".toString()),
+        staticLog(noCopyOther))
+String defaultLine = '[STATIC] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)'
+Map equalCompile = focused([name: 'full pipeline, parallel stages, SAST compile equal to the build command', buildNumber: 362, parallel: true,
                             configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = PortalFixtures.copy((((p.gui as Map).build as Map).gradle) as Map) }])
-Map envOn = focused([name: 'full pipeline, parallel scans switched on by the environment', buildNumber: 363, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'true']])
-Map optOut = focused([name: 'full pipeline, parallel scans, one service opts out', buildNumber: 364, parallel: true,
+Map envOn = focused([name: 'full pipeline, parallel stages switched on by the environment', buildNumber: 363, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'true']])
+Map optOut = focused([name: 'full pipeline, parallel stages, one service opts out', buildNumber: 364, parallel: true,
                       configure: { Map p -> (p['backend-api'] as Map).staticAnalysis = [parallel: false] }])
-check('full pipeline, parallel scans: a SAST compile equal to the build command and DSO_STATIC_ANALYSIS_PARALLEL=true without the key run the Static analysis stage, ' +
-        'and one service with staticAnalysis.parallel false keeps the three stages without a [STATIC] line',
-        [equalCompile, envOn].every { stagesOf(it)[0].contains(STATIC) && staticLog(it) == [orderLine] } && stagesOf(optOut) == [fullStages, [STATIC]] && !staticLog(optOut),
+Map wrongValue = focused([name: 'full pipeline, parallel stages, a value that is not a boolean', buildNumber: 370, parallel: true,
+                          env: [DSO_DYNAMIC_ANALYSIS_PARALLEL: 'sometimes'], configure: { Map p -> (p.gui as Map).staticAnalysis = [parallel: 'often'] }])
+List<String> wrongLines = (wrongValue.j as FakeScript).log.findAll { it.startsWith('[WARN] [STATIC]') || it.startsWith('[WARN] [DYNAMIC]') }
+check('full pipeline, parallel stages: a SAST compile equal to the build command runs the Static analysis stage by default, DSO_STATIC_ANALYSIS_PARALLEL=true over a false default says that the variable decides, ' +
+        'and one service with staticAnalysis.parallel false keeps the four stages one after another and names itself',
+        stagesOf(equalCompile)[0].contains(STATIC) && staticLog(equalCompile)[0] == defaultLine
+                && stagesOf(envOn)[0].contains(STATIC) && staticLog(envOn)[0] == '[STATIC] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (DSO_STATIC_ANALYSIS_PARALLEL=true)'
+                && !stagesOf(optOut)[0].contains(STATIC) && stagesOf(optOut)[0].contains(DYNAMIC)
+                && staticLog(optOut) == ['[STATIC] backend-api: staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another'],
         [equalCompile, envOn, optOut].collect { stagesOf(it)[0] + staticLog(it) })
+check('full pipeline, parallel stages, a value that is not a boolean: each wrong value gets a [WARN] with the default it falls back to, and the run stays parallel',
+        stagesOf(wrongValue)[0].containsAll([STATIC, DYNAMIC])
+                && wrongLines == ["[WARN] [STATIC] gui: staticAnalysis.parallel: 'often' is neither true nor false - the default true is used",
+                                  "[WARN] [DYNAMIC] DSO_DYNAMIC_ANALYSIS_PARALLEL='sometimes' is neither true nor false - it is ignored and dynamicAnalysis.parallel of the services decides, by default true"],
+        wrongLines)
 
 Closure parallelRun = { Map spec -> runPipeline([var: 'devSecOpsPipeline', fail: false, parallel: true, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec) }
-Closure viewOf = { Map r -> sectionsOf(normalise(normalise(goldenView(r), baseRules), portalRules)) }
-Map stopped = parallelRun([name: 'full pipeline, stage failure, parallel scans', breakSast: true, buildNumber: 344])
+Closure viewOf = { Map r -> sectionsOf(normalise(sequentialView(normalise(goldenView(r), baseRules)), portalRules)) }
+Map stopped = parallelRun([name: 'full pipeline, stage failure, parallel stages', breakSast: true, buildNumber: 344])
 FakeScript stoppedJenkins = stopped.j as FakeScript
 List<String> stoppedFailures = (stopped.var as FakeCpsScript).stageFailures
 String stoppedHtml = stopped.html as String
-check('full pipeline, stage failure, parallel scans: a SAST failure before the scans are queued fails Static analysis before Nexus IQ, which shows SKIP, and SonarQube is blocked as before',
-        !stopped.crash && stoppedFailures.size() == 1 && stoppedFailures[0].startsWith(STATIC) && stagesOf(stopped) == [[MONITOR, BUILD], (fullStages - [MONITOR, BUILD])]
-                && (stopped.evaluatedAt as List).isEmpty() && !stoppedJenkins.calls.any { it.startsWith('sh [Gradle: sonarqube]') } && stoppedJenkins.log.contains(stopLine)
-                && boxOf(stoppedHtml, "${NIQ} - gui").contains('>SKIP<') && boxOf(stoppedHtml, "${SONAR} - gui").contains('pipeline blocked by previous failure'),
-        [stopped.crash, stoppedFailures, stagesOf(stopped), staticLog(stopped)])
-Map failureGolden = sectionsOf(normalise(new File(goldenDir, 'full-pipeline-stage-failure.txt').text, portalRules))
-check('full pipeline, stage failure, parallel scans: release-gate.json equals that of the run one scan after another, and pipeline_run counts three stages',
-        viewOf(stopped)['release-gate.json'] == failureGolden['release-gate.json']
-                && influxOf(stoppedJenkins).readLines().any { it.startsWith('pipeline_run,') && it.contains(',stages_total=3i,passed=1i,warned=0i,failed=1i,') },
-        viewOf(stopped)['release-gate.json'] + influxOf(stoppedJenkins).readLines().findAll { it.startsWith('pipeline_run,') })
+check('full pipeline, stage failure, parallel stages: a SAST failure before the scans are queued fails Static analysis after Unit tests, Nexus IQ and SonarQube have finished, and the later stages are skipped',
+        !stopped.crash && stoppedFailures.size() == 1 && stoppedFailures[0].startsWith(STATIC)
+                && stagesOf(stopped) == [[MONITOR, BUILD], [UNIT, NIQ, SAST, SONAR] + (declaredFull - [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR])]
+                && (stopped.evaluatedAt as List).size() == 2 && stoppedJenkins.calls.any { it.startsWith('sh [Gradle: sonarqube]') }
+                && [UNIT, NIQ, SAST, SONAR].collect { resultOf(stopped, it) } == ['PASS', 'PASS', 'FAIL', 'PASS']
+                && stoppedJenkins.calls.any { it.startsWith('sh [Remove the SAST copy of the workspace]') },
+        [stopped.crash, stoppedFailures, stagesOf(stopped), [UNIT, NIQ, SAST, SONAR].collect { resultOf(stopped, it) }])
+check('full pipeline, stage failure, parallel stages: release-gate.json lists the SAST failure, and pipeline_run counts the six stages that ran, Nexus IQ of the OpenShift service not required',
+        (((stoppedJenkins.jsonFiles['release-gate.json'] as Map).violations as List).contains("stage '${SAST}' is FAIL".toString()))
+                && influxOf(stoppedJenkins).readLines().any { it.startsWith('pipeline_run,') && it.contains(',stages_total=6i,passed=4i,warned=0i,failed=1i,blocked=0i,skipped=0i,not_required=1i,') },
+        [stoppedJenkins.jsonFiles['release-gate.json']] + influxOf(stoppedJenkins).readLines().findAll { it.startsWith('pipeline_run,') })
 
-Map waitFails = parallelRun([name: 'full pipeline, SAST wait fails, parallel scans', breakSastWait: true, buildNumber: 366])
+Map waitFails = parallelRun([name: 'full pipeline, SAST wait fails, parallel stages', breakSastWait: true, buildNumber: 366])
 List<String> waitFailures = (waitFails.var as FakeCpsScript).stageFailures
-check('full pipeline, SAST wait fails, parallel scans: SAST fails after its scans are queued, Nexus IQ and SonarQube keep the results they had before the wait, and the release gate lists the SAST failure',
+check('full pipeline, SAST wait fails, parallel stages: SAST fails after its scans are queued, Nexus IQ and SonarQube keep the results they had before the wait, and the release gate lists the SAST failure',
         !waitFails.crash && waitFailures.size() == 1 && waitFailures[0].startsWith(STATIC) && [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) } == ['PASS', 'FAIL', 'PASS']
                 && (((waitFails.j as FakeScript).jsonFiles['release-gate.json'] as Map).violations as List).contains("stage '${SAST}' is FAIL".toString()),
         [waitFails.crash, waitFailures] + [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) })
 
 List<Map> goldenFixRuns = [false, true].collect { boolean on -> parallelRun([name: 'full pipeline, orange, GoldenFix', fail: true, goldenFix: true, parallel: on, buildNumber: 367]) }
 List<Map> goldenFixViews = goldenFixRuns.collect { viewOf(it) }
-check('full pipeline, orange, GoldenFix, parallel scans: the release gate, the InfluxDB lines, the report and the GoldenFix pull request equal those of the run one scan after another',
+check('full pipeline, orange, GoldenFix, parallel stages: the release gate, the InfluxDB lines, the report and the GoldenFix pull request equal those of the run one scan after another',
         ['release-gate.json', 'influx', 'report'].every { goldenFixViews[0][it] == goldenFixViews[1][it] } && goldenFixRuns.every { (it.goldenFixCalls as List).any { it.startsWith('PR ') } }
                 && goldenFixRuns[0].goldenFixCalls == goldenFixRuns[1].goldenFixCalls && stagesOf(goldenFixRuns[1])[0].contains(STATIC),
         goldenFixRuns.collect { it.goldenFixCalls })
 
 Closure sastNamesOf = { Map r ->
     FakeScript j = r.j as FakeScript
-    [loginsOf(j), r.sastQueued, j.files.keySet().findAll { it.contains('scan-sast-') || it.startsWith('appscan-report-') }.sort()]
+    [loginsOf(j), (r.sastQueued as List<String>).collect { it.replace(sastCopy, '/ws') }, j.files.keySet().findAll { it.contains('scan-sast-') || it.startsWith('appscan-report-') }.sort()]
 }
-Map perServiceParallel = focused([name: 'full pipeline, AppScan settings per service, parallel scans', buildNumber: 351, parallel: true, configure: perServiceSettings])
-check('full pipeline, AppScan settings per service, parallel scans: the same logins, queued scan names, scan ID files and report names as one scan after another',
+Map perServiceParallel = focused([name: 'full pipeline, AppScan settings per service, parallel stages', buildNumber: 351, parallel: true, configure: perServiceSettings])
+check('full pipeline, AppScan settings per service, parallel stages: the same logins, queued scan names, scan ID files and report names as one scan after another',
         stagesOf(perServiceParallel)[0].contains(STATIC) && sastNamesOf(perServiceParallel) == sastNamesOf(perService), sastNamesOf(perServiceParallel))
 
 println "\n${failures == 0 ? 'ALL PIPELINE SCENARIOS PASSED' : failures + ' PIPELINE SCENARIO CHECK(S) FAILED'}"

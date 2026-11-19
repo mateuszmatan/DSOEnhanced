@@ -522,9 +522,9 @@ devSecOpsPipeline(
 <h2 id="7-static-application-security-testing-sast-hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</h2>
 <p>Static security analysis executed in the cloud:</p>
 <ul>
-<li><strong>Parallel Background Scanning:</strong></li>
-<li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
-<li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
+<li><strong>Stages at the same time:</strong></li>
+<li>By default SAST runs at the same time as the unit tests, Nexus IQ and SonarQube, as a parallel branch of <em>Static analysis</em>: it generates the IRX archive in a copy of the workspace, submits the scan to HCL ASOC and reads the results when the scan ends.</li>
+<li><code>staticAnalysis.parallel: false</code> in any service runs the four stages one after another; the report shows how long they took one after another and in parallel.</li>
 <li><strong>Credentials Configuration:</strong></li>
 <li>SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (<code>asoc.keyId</code> and the Jenkins Secret text credential named in <code>asoc.token</code> of <code>resources/com/bbh/devsecops/defaults.yaml</code>).</li>
 <li>A service sets only its application ID; a <code>keyId</code>, <code>token</code> or <code>credentialsId</code> of a service is ignored with a <code>[WARN]</code> line:
@@ -589,17 +589,17 @@ devSecOpsPipeline(
 <h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
 <ol>
 <li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling the backend application.</li>
-<li><strong>Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):</strong>
+<li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (<code>staticAnalysis.parallel: false</code> in any service runs them one after another).
   <ul>
     <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
-    <li><strong>SAST (HCL AppScan):</strong> Queues static application security analysis in the background and retrieves findings.</li>
     <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
+    <li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
+    <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.</li>
   </ul>
 </li>
-<li><strong>Stage 3: SonarQube (Static Code Analysis &amp; Quality Gate):</strong>
+<li><strong>Stage 3: Results:</strong> A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.
   <ul>
-    <li>Runs last after Unit tests, SAST, and Nexus IQ have concluded.</li>
-    <li>Ingests test execution results and JaCoCo/LCOV/Cypress coverage reports to enforce the SonarQube Quality Gate.</li>
+    <li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <code>dynamicAnalysis.parallel</code>).</li>
   </ul>
 </li>
 </ol>
@@ -628,6 +628,11 @@ devSecOpsPipeline(
 - <strong>DORA Metrics:</strong> Deployment Frequency, Lead Time for Changes, Change Failure Rate, Time to Restore Service (MTTR).
 - <strong>Quality &amp; Duration Metrics:</strong> Build duration, test counts, JaCoCo/LCOV coverage points, vulnerability totals.
 - Visualize results across BBH enterprise Grafana dashboards.</p>
+<p>The pipeline report of every run also shows:</p>
+<ul>
+<li><strong>Parallel stages:</strong> the stages that ran at the same time, how long they would take one after another and how long they took, and the time saved.</li>
+<li><strong>Manual actions vs DevSecOps Automated Actions</strong> (at the bottom): for every step that ran, the time it would take by hand next to the time the pipeline took, recalculated on every run. By hand, each build, scan, deployment and test adds 10 minutes to start it and a DAST takes 6 x 60 minutes; automated, the scans and the tests with DAST take the longest of their stages when they ran at the same time. The table ends with the totals and the time recovered by the run. The minutes are <code>report.manualEffort</code> of the library defaults.</li>
+</ul>
 <hr />
 <h2 id="13-complete-devsecops_configyaml-template-with-field-reference">13. Complete devsecops_config.yaml Template with Field Reference</h2>
 <pre><code class="language-yaml"># ==============================================================================
@@ -665,6 +670,10 @@ projects:
       appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
+
+    # Stages at the same time: both are on by default, set false only to run the stages one after another
+    # staticAnalysis:  {parallel: false}          # Unit tests, Nexus IQ, SAST and SonarQube one after another
+    # dynamicAnalysis: {parallel: false}          # Regression, smoke and performance tests and DAST one after another
 
     # 5. Security &amp; Code Quality Tools
     tools:

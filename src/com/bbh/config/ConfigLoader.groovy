@@ -115,7 +115,7 @@ class ConfigLoader implements Serializable {
 
         Map primary = state.configFile ? repositoryConfig() : (state.portalDocuments[0] as Map).config as Map
         state.cfgDefaults = (primary.defaults ?: [:]) as Map
-        state.libraryDefaults = state.configFile ? state.cfgDefaults : repositoryReader.appScanKeyDefaults()
+        state.libraryDefaults = state.configFile ? state.cfgDefaults : repositoryReader.libraryOnlyDefaults()
         if (!state.cfgDefaults && !state.configFile) {
             script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
         }
@@ -301,6 +301,16 @@ class ConfigLoader implements Serializable {
         state.currentProjectName = projectName
         script.env.CURRENT_PROJECT_NAME = projectName
         script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
+    }
+
+    List<String> switchProject(String projectName, PipelineState branch) {
+        if (!state.projectsAllCfg.containsKey(projectName)) {
+            script.error "[SWITCH] Project '${projectName}' not loaded."
+        }
+        branch.cfg = state.projectsAllCfg[projectName]
+        branch.currentProjectName = projectName
+        return ["CURRENT_PROJECT_NAME=${projectName}".toString(),
+                "APPSCAN_SCAN_NAME=${BuildUtils.scanName(branch.cfg.tools?.sonar?.projectName ?: projectName)}".toString()]
     }
 
     void refreshAutoResolvedConfig(String projectName, String targetDir = '') {

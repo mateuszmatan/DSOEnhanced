@@ -51,30 +51,61 @@ import com.bbh.utils.BuildUtils
 @Field Map                 _pipelineConfig = [:]
 @Field String              _variant = 'full'
 @Field Boolean             _parallelScans = null
+@Field Boolean             _parallelTests = null
+@Field Map                 _main = [:]
+@Field Map                 _branches = [:]
+@Field Map                 _branchEnv = [:]
+@Field List                _unitTestsDone = []
+@Field List                _branchesEnded = []
+@Field String              _sastWorkspace = ''
 
 private void _setup() {
     if (_state != null) return
     _state     = new PipelineState()
     _os        = new OsHelper(this)
-    _policy    = new PolicyEngine(this, _state, _os)
     _config    = new ConfigLoader(this, _state)
-    _build     = new BuildService(this, _state, _os, _policy)
-    _appScan   = new AppScanService(this, _state, _os, _policy, _build)
-    _sonar     = new SonarService(this, _state, _os, _build)
-    BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
-    GitSourceRepository gitRepo = new GitSourceRepository(this, _state)
-    _securityPr = new SecurityPullRequestService(this, _state, publisher, gitRepo)
-    _nexusIq   = new NexusIqService(this, _state, _policy, new GoldenFixService(this, _state,
-            new NexusIqGoldenFixSource(this), gitRepo, publisher,
-            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater(), new NugetUpdater()],
-            new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
+    _main      = _kitFor(_state)
+    _policy    = _main.policy as PolicyEngine
+    _build     = _main.build as BuildService
+    _appScan   = _main.appScan as AppScanService
+    _sonar     = _main.sonar as SonarService
+    _securityPr = _main.securityPr as SecurityPullRequestService
+    _nexusIq   = _main.nexusIq as NexusIqService
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _delivery  = new NexusDeliveryService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
     _portalReport = new PortalReportService(this, _state, _os)
-    _database       = new DatabaseBuild(this, _state, _os, _policy, _build)
-    _databaseDeploy = new DatabaseDeployService(this, _state, _policy, _database)
+    _database       = _main.database as DatabaseBuild
+    _databaseDeploy = _main.databaseDeploy as DatabaseDeployService
+}
+
+private Map _kitFor(PipelineState state) {
+    PolicyEngine policy = new PolicyEngine(this, state, _os)
+    BuildService build = new BuildService(this, state, _os, policy)
+    BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
+    GitSourceRepository gitRepo = new GitSourceRepository(this, state)
+    NexusIqService nexusIq = new NexusIqService(this, state, policy, new GoldenFixService(this, state,
+            new NexusIqGoldenFixSource(this), gitRepo, publisher,
+            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater(), new NugetUpdater()],
+            new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
+    DatabaseBuild database = new DatabaseBuild(this, state, _os, policy, build)
+    return [state     : state,
+            policy    : policy,
+            build     : build,
+            database  : database,
+            databaseDeploy: new DatabaseDeployService(this, state, policy, database),
+            appScan   : new AppScanService(this, state, _os, policy, build),
+            sonar     : new SonarService(this, state, _os, build),
+            securityPr: new SecurityPullRequestService(this, state, publisher, gitRepo),
+            nexusIq   : nexusIq]
+}
+
+private Map _kit() {
+    if (!_branches) return _main
+    String branch = (env.DSO_PARALLEL_BRANCH ?: '') as String
+    Map kit = branch ? (_branches[branch] as Map) : null
+    return kit ?: _main
 }
 
 def configure(String variant, Map config) {
@@ -128,24 +159,175 @@ def setupJavaVersion(String javaHome = '/usr/lib/jvm/java-17-openjdk-17.0.19.0.1
 
 def runStage(String name, Closure body) {
     _setup()
-    _state.stageStart(name)
+    Map kit = _kit()
+    PipelineState state = kit.state as PipelineState
+    PolicyEngine policy = kit.policy as PolicyEngine
+    state.stageStart(name)
     try {
         body()
-        _policy.finishStage(name)
+        policy.finishStage(name)
     } catch (Throwable t) {
-        _policy.failStage(name)
+        policy.failStage(name)
         throw t
     } finally {
-        _state.stageDone(name)
+        state.stageDone(name)
     }
 }
 
 def eachProject(Closure body) {
     _setup()
     def projects = _config.resolveProjectNames()
+    Map kit = _kit()
+    if (!kit.branch) {
+        for (pName in projects) {
+            _config.switchProject(pName)
+            body(pName)
+        }
+        return
+    }
     for (pName in projects) {
-        _config.switchProject(pName)
-        body(pName)
+        List vars = _config.switchProject(pName as String, kit.state as PipelineState) + _branchToolEnv((kit.state as PipelineState).cfg)
+        withEnv(vars) {
+            body(pName)
+        }
+    }
+}
+
+private List _branchToolEnv(Map cfg) {
+    String tool = ((cfg?.buildTool ?: '') as String).toLowerCase()
+    String javaPath = ((cfg?.javaPath ?: '') as String).trim()
+    String javaHome = (_branchEnv.JAVA_HOME ?: '') as String
+    String path = (_branchEnv.PATH ?: '') as String
+    if (javaPath && (tool in ['liquibase', 'npm', 'node', 'pip', 'ios'] || BuildUtils.isDotnetTool(tool))) {
+        javaHome = javaPath
+        path = "${javaPath}/bin:${path}"
+    }
+    List vars = ["PATH=${path}".toString()]
+    if (javaHome) vars << "JAVA_HOME=${javaHome}".toString()
+    return vars
+}
+
+def runInParallel(String group, List names, Map bodies, List scanners = []) {
+    _setup()
+    if (_branches) error "[PARALLEL] ${group} cannot start inside another group of parallel stages"
+    _branchEnv = [JAVA_HOME: (env.JAVA_HOME ?: '') as String, PATH: (env.PATH ?: '') as String]
+    _unitTestsDone = []
+    _branchesEnded = []
+    Map timings = [:]
+    Map branches = [failFast: false]
+    for (int i = 0; i < names.size(); i++) {
+        String name = names[i] as String
+        Closure body = bodies[name] as Closure
+        Map kit = _kitFor(_state.fork())
+        (kit.appScan as AppScanService).shareSession(_appScan)
+        kit.waitMs = 0L
+        kit.branch = name
+        _branches[name] = kit
+        branches[name] = {
+            long start = System.currentTimeMillis()
+            try {
+                withEnv(["DSO_PARALLEL_BRANCH=${name}"]) {
+                    body()
+                }
+            } finally {
+                timings[name] = [stage: name, ms: System.currentTimeMillis() - start, waitMs: (kit.waitMs ?: 0L) as long]
+                _branchesEnded << name
+            }
+        }
+    }
+    echo "[PARALLEL] ${group}: ${names.join(', ')} run at the same time"
+    long started = System.currentTimeMillis()
+    try {
+        parallel(branches)
+    } finally {
+        long ended = System.currentTimeMillis()
+        for (int i = 0; i < names.size(); i++) {
+            Map kit = _branches[names[i] as String] as Map
+            _state.absorb(kit.state as PipelineState)
+            _appScan.shareSession(kit.appScan as AppScanService)
+        }
+        _branches = [:]
+        _state.settle(names, scanners)
+        List measured = []
+        for (int i = 0; i < names.size(); i++) {
+            if (timings[names[i] as String]) measured << timings[names[i] as String]
+        }
+        _state.recordParallelGroup(group, started, ended, measured)
+        Map recorded = _state.parallelGroups[-1] as Map
+        echo "[PARALLEL] ${group}: one after another ${BuildUtils.formatDuration(recorded.sequentialMs as long)}, in parallel ${BuildUtils.formatDuration(recorded.actualMs as long)}${BuildUtils.parallelSaving(recorded.sequentialMs as long, recorded.actualMs as long)}"
+    }
+}
+
+def unitTestsFinished() {
+    _setup()
+    if (_branches) _unitTestsDone << (_kit().state as PipelineState).currentProjectName
+}
+
+def awaitUnitTests(String unitBranch) {
+    _setup()
+    if (!_branches) return
+    Map kit = _kit()
+    String name = (kit.state as PipelineState).currentProjectName
+    List peers = BuildUtils.sameSourceProjects(_state.projectsAllCfg, name)
+    if (_unitTestsReady(unitBranch, peers)) return
+    echo "[STATIC] ${name}: SonarQube waits until the unit tests of ${peers.join(', ')} have written their coverage"
+    long start = System.currentTimeMillis()
+    waitUntil(quiet: true) { _unitTestsReady(unitBranch, peers) }
+    long waited = System.currentTimeMillis() - start
+    kit.waitMs = ((kit.waitMs ?: 0L) as long) + waited
+    echo "[STATIC] ${name}: SonarQube starts after waiting ${BuildUtils.formatDuration(waited)} for the unit tests"
+}
+
+private boolean _unitTestsReady(String unitBranch, List peers) {
+    if (_branchesEnded.contains(unitBranch)) return true
+    for (int i = 0; i < peers.size(); i++) {
+        if (!_unitTestsDone.contains(peers[i])) return false
+    }
+    return true
+}
+
+def prepareSastWorkspace() {
+    _setup()
+    _sastWorkspace = ''
+    String base = (env.WORKSPACE_TMP ?: "${env.WORKSPACE}@tmp") as String
+    String copy = "${base}/dso-sast-workspace".toString()
+    try {
+        withEnv(["DSO_SAST_WORKSPACE=${copy}"]) {
+            sh(label: 'Copy the workspace for the SAST compile and scan', script: '''#!/usr/bin/env bash
+set -euo pipefail
+rm -rf "$DSO_SAST_WORKSPACE"
+mkdir -p "$DSO_SAST_WORKSPACE"
+tar -C "$WORKSPACE" --exclude=./.appscan-tools --exclude=./.appscan-logs --exclude=./.appscan-home --exclude=./.appscan-bin --exclude=./appscan-source-staged -cf - . | tar -C "$DSO_SAST_WORKSPACE" -xf -
+''')
+        }
+        _sastWorkspace = copy
+        echo "[STATIC] SAST compiles and prepares its scans in a copy of the workspace (${copy}), so Unit tests, Nexus IQ and SonarQube run at the same time on the workspace"
+        return true
+    } catch (Throwable t) {
+        if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+        echo "[WARN] [STATIC] The workspace could not be copied for SAST (${t.message ?: t.getClass().getSimpleName()}) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans"
+        return false
+    }
+}
+
+def inSastWorkspace(Closure body) {
+    _setup()
+    String copy = _sastWorkspace
+    if (!copy || !_branches) {
+        body()
+        return
+    }
+    try {
+        dir(copy) {
+            withEnv(["WORKSPACE=${copy}"]) {
+                body()
+            }
+        }
+    } finally {
+        _sastWorkspace = ''
+        withEnv(["DSO_SAST_WORKSPACE=${copy}"]) {
+            sh(label: 'Remove the SAST copy of the workspace', script: 'rm -rf "$DSO_SAST_WORKSPACE"')
+        }
     }
 }
 
@@ -190,12 +372,53 @@ def checkoutAdditionalRepositories() {
 def parallelScans() {
     _setup()
     if (_parallelScans == null) {
-        boolean wanted = BuildUtils.parallelStaticAnalysis(_state.projectsAllCfg, env.DSO_STATIC_ANALYSIS_PARALLEL)
-        List names = wanted && !_os.isWindows() ? BuildUtils.sastCompileOverrides(_state.projectsAllCfg) : []
-        if (names) echo "[STATIC] ${names.join(', ')}: the SAST compile runs other Gradle tasks or Maven goals than the build command, so it may not rebuild the files Nexus IQ scans: Nexus IQ, SAST and SonarQube run one after another"
-        _parallelScans = wanted && !names
+        boolean wanted = _parallelSwitch('staticAnalysis', env.DSO_STATIC_ANALYSIS_PARALLEL, 'DSO_STATIC_ANALYSIS_PARALLEL',
+                'Unit tests, Nexus IQ, SAST and SonarQube run at the same time', 'Unit tests, Nexus IQ, SAST and SonarQube run one after another')
+        if (wanted && _os.isWindows()) {
+            echo '[STATIC] Windows agent: Unit tests, Nexus IQ, SAST and SonarQube run one after another, as the SAST staging of Windows uses the workspace'
+            wanted = false
+        }
+        _parallelScans = wanted
     }
     return _parallelScans
+}
+
+def parallelTests() {
+    _setup()
+    if (_parallelTests == null) {
+        _parallelTests = _parallelSwitch('dynamicAnalysis', env.DSO_DYNAMIC_ANALYSIS_PARALLEL, 'DSO_DYNAMIC_ANALYSIS_PARALLEL',
+                'Regression, Smoke and Performance tests and DAST run at the same time', 'Regression, Smoke and Performance tests and DAST run one after another')
+    }
+    return _parallelTests
+}
+
+private boolean _parallelSwitch(String block, def forced, String envName, String parallelText, String sequentialText) {
+    Map decision = BuildUtils.parallelSwitch(_state.projectsAllCfg, _state.cfgDefaults, block, forced, envName)
+    String tag = block == 'staticAnalysis' ? '[STATIC]' : '[DYNAMIC]'
+    for (def warning : (decision.warnings as List)) echo "[WARN] ${tag} ${warning}"
+    for (def note : (decision.notes as List)) {
+        if (_state.configFile || !(note as String).startsWith('defaults.')) echo "[INFO] ${tag} ${note}"
+    }
+    if (!_state.projectsAllCfg) return false
+    if (decision.enabled) {
+        echo "${tag} ${parallelText}${decision.source == envName ? " (${envName}=true)" : " (${decision.key}: true, the default)"}"
+    } else if (decision.source == envName) {
+        echo "${tag} ${envName}=false: ${sequentialText}"
+    } else if (decision.source == 'defaults') {
+        echo "${tag} ${_defaultsOrigin()}${decision.key}: false - ${sequentialText}"
+    } else {
+        echo "${tag} ${(decision.optedOut as List).join(', ')}: ${decision.key}: false - ${sequentialText}"
+    }
+    return decision.enabled as boolean
+}
+
+private String _defaultsOrigin() {
+    return _state.configFile ? 'defaults.' : 'The Global Settings set '
+}
+
+def sastCompileOverrides() {
+    _setup()
+    return BuildUtils.sastCompileOverrides(_state.projectsAllCfg)
 }
 
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
@@ -274,50 +497,50 @@ def vulnerabilitySummary() {
     return "Vulnerabilities above the policy severity: SAST=${sastTotal}, DAST=${dastTotal}"
 }
 
-def appscanSetup()                           { _setup(); _appScan.setup() }
-def appscanLogin()                           { _setup(); _appScan.sastLogin() }
-def appscanResolveSourceDir(String p = null) { _setup(); _appScan.resolveSourceDir(p) }
-def appscanGenerateIRX(int timeoutMin = 120) { _setup(); _appScan.generateIrx(timeoutMin) }
-def appscanQueue(Map config)                 { _setup(); _appScan.queueSast(config) }
-def appscanWait()                            { _setup(); _appScan.waitSast() }
-def appscanDownloadReports()                 { _setup(); _appScan.downloadSastReports() }
-def appscanRenameSastReport()                { _setup(); _appScan.renameSastReport() }
-def appscanRenameDastReport()                { _setup(); _appScan.renameDastReport() }
+def appscanSetup()                           { _setup(); (_kit().appScan as AppScanService).setup() }
+def appscanLogin()                           { _setup(); (_kit().appScan as AppScanService).sastLogin() }
+def appscanResolveSourceDir(String p = null) { _setup(); (_kit().appScan as AppScanService).resolveSourceDir(p) }
+def appscanGenerateIRX(int timeoutMin = 120) { _setup(); (_kit().appScan as AppScanService).generateIrx(timeoutMin) }
+def appscanQueue(Map config)                 { _setup(); (_kit().appScan as AppScanService).queueSast(config) }
+def appscanWait()                            { _setup(); (_kit().appScan as AppScanService).waitSast() }
+def appscanDownloadReports()                 { _setup(); (_kit().appScan as AppScanService).downloadSastReports() }
+def appscanRenameSastReport()                { _setup(); (_kit().appScan as AppScanService).renameSastReport() }
+def appscanRenameDastReport()                { _setup(); (_kit().appScan as AppScanService).renameDastReport() }
 
 def appscanEnforcePolicy() {
     _setup()
-    _policy.enforceScanner('sast')
-    def counts = _state.vulnCounts.sast ?: [critical: 0, high: 0, medium: 0, low: 0]
+    (_kit().policy as PolicyEngine).enforceScanner('sast')
+    def counts = (_kit().state as PipelineState).vulnCounts.sast ?: [critical: 0, high: 0, medium: 0, low: 0]
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
 def sonarscanEnforcePolicy() {
     _setup()
-    _policy.enforceScanner('sca')
-    def counts = _state.vulnCounts.sca ?: [critical: 0, high: 0, medium: 0, low: 0]
+    (_kit().policy as PolicyEngine).enforceScanner('sca')
+    def counts = (_kit().state as PipelineState).vulnCounts.sca ?: [critical: 0, high: 0, medium: 0, low: 0]
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
 def dastScan() {
     _setup()
-    _appScan.dastScan()
-    def counts = _state.vulnCounts.dast ?: [critical: 0, high: 0, medium: 0, low: 0]
+    (_kit().appScan as AppScanService).dastScan()
+    def counts = (_kit().state as PipelineState).vulnCounts.dast ?: [critical: 0, high: 0, medium: 0, low: 0]
     return (counts.critical as int) + (counts.high as int) + (counts.medium as int)
 }
 
-def nodeBuild()           { _setup(); _state.stageResults['Node.js build'] = 'PASS'; _build.nodeBuild() }
-def buildArtifact()       { _setup(); _build.buildArtifact() }
-def unitTests()           { _setup(); _build.unitTests() }
-def checkCoverage()       { _setup(); _build.checkCoverage() }
-def reportArtifactBuild() { _setup(); _build.reportArtifactBuild() }
-def reportUnitTests()     { _setup(); _build.reportUnitTests() }
+def nodeBuild()           { _setup(); (_kit().state as PipelineState).stageResults['Node.js build'] = 'PASS'; (_kit().build as BuildService).nodeBuild() }
+def buildArtifact()       { _setup(); (_kit().build as BuildService).buildArtifact() }
+def unitTests()           { _setup(); (_kit().build as BuildService).unitTests() }
+def checkCoverage()       { _setup(); (_kit().build as BuildService).checkCoverage() }
+def reportArtifactBuild() { _setup(); (_kit().build as BuildService).reportArtifactBuild() }
+def reportUnitTests()     { _setup(); (_kit().build as BuildService).reportUnitTests() }
 
-def depVulnScan()         { _setup(); _nexusIq.scan() }
-def codeQualityScan()     { _setup(); _sonar.scan() }
+def depVulnScan()         { _setup(); (_kit().nexusIq as NexusIqService).scan() }
+def codeQualityScan()     { _setup(); (_kit().sonar as SonarService).scan() }
 
-def smokeTests()       { _setup(); _build.runTestJobs('Smoke tests', 'Smoke Tests', _state.cfg.tests?.smoke ?: [:]) }
-def regressionTests()  { _setup(); _build.runTestJobs('Regression tests (>60% user stories coverage)', 'Regression Tests', _state.cfg.tests?.regression ?: [:]) }
-def performanceTests() { _setup(); _build.runTestJobs('Performance tests', 'Performance Tests', _state.cfg.tests?.performance ?: [:]) }
+def smokeTests()       { _setup(); (_kit().build as BuildService).runTestJobs('Smoke tests', 'Smoke Tests', (_kit().state as PipelineState).cfg.tests?.smoke ?: [:]) }
+def regressionTests()  { _setup(); (_kit().build as BuildService).runTestJobs('Regression tests (>60% user stories coverage)', 'Regression Tests', (_kit().state as PipelineState).cfg.tests?.regression ?: [:]) }
+def performanceTests() { _setup(); (_kit().build as BuildService).runTestJobs('Performance tests', 'Performance Tests', (_kit().state as PipelineState).cfg.tests?.performance ?: [:]) }
 
 def deployRD()                         { _setup(); _vmDeploy.deployRd() }
 def deployDvWithDodPlugin()            { _setup(); _vmDeploy.deployDvWithDodPlugin() }
@@ -345,7 +568,7 @@ def generateHtmlReport()                       { _setup(); reportService().gener
 def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
 def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
 def publishStaticSecurityPullRequest()         { _setup(); _securityPr.publishStaticSecurityPullRequest() }
-def publishDastPullRequest()                   { _setup(); _securityPr.publishDastPullRequest() }
+def publishDastPullRequest()                   { _setup(); (_kit().securityPr as SecurityPullRequestService).publishDastPullRequest() }
 
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }
@@ -359,30 +582,30 @@ def nodeBuildRequired() {
 }
 
 def getProjects()                     { _setup(); return _config.resolveProjectNames() }
-def getCFG()                          { _setup(); return _state.cfg }
+def getCFG()                          { _setup(); return (_kit().state as PipelineState).cfg }
 def switchProject(String projectName) { _setup(); _config.switchProject(projectName) }
-def deployTarget()                    { _setup(); return (_state.cfg.deployTarget ?: 'vm') as String }
-def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled(_state.cfg) }
-def nexusDeliverySetting()            { _setup(); return BuildUtils.nexusDeliverySetting(_state.cfg) }
-def databaseBlock()                   { _setup(); return BuildUtils.databaseBlock(_state.cfg) }
-def databaseBuild()                   { _setup(); _database.build(_variant) }
-def databaseTests()                   { _setup(); _database.tests() }
-def databaseDelivery(String kind)     { _setup(); _databaseDeploy.deliver(kind) }
-def databaseDeploy(String envName)    { _setup(); _databaseDeploy.deploy(envName) }
-def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled(_state.cfg) }
-def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded(_state.cfg, _variant, _os.isWindows()) }
-def notRequired(String reason)        { _setup(); echo reason; _state.projectNotRequired() }
+def deployTarget()                    { _setup(); return ((_kit().state as PipelineState).cfg.deployTarget ?: 'vm') as String }
+def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliveryEnabled((_kit().state as PipelineState).cfg) }
+def nexusDeliverySetting()            { _setup(); return BuildUtils.nexusDeliverySetting((_kit().state as PipelineState).cfg) }
+def databaseBlock()                   { _setup(); return BuildUtils.databaseBlock((_kit().state as PipelineState).cfg) }
+def databaseBuild()                   { _setup(); (_kit().database as DatabaseBuild).build(_variant) }
+def databaseTests()                   { _setup(); (_kit().database as DatabaseBuild).tests() }
+def databaseDelivery(String kind)     { _setup(); (_kit().databaseDeploy as DatabaseDeployService).deliver(kind) }
+def databaseDeploy(String envName)    { _setup(); (_kit().databaseDeploy as DatabaseDeployService).deploy(envName) }
+def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled((_kit().state as PipelineState).cfg) }
+def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded((_kit().state as PipelineState).cfg, _variant, _os.isWindows()) }
+def notRequired(String reason)        { _setup(); echo reason; (_kit().state as PipelineState).projectNotRequired() }
 
-def stagePass(String name)                 { _setup(); _state.stagePass(name) }
-def stageFail(String name)                 { _setup(); _state.stageFail(name) }
-def stageWarn(String name)                 { _setup(); _state.stageWarn(name) }
-def stageError(String name, String reason) { _setup(); _state.stageError(name, reason) }
-def stageStart(String name)                { _setup(); _state.stageStart(name) }
-def stageDone(String name)                 { _setup(); _state.stageDone(name) }
-def finishStage(String name)               { _setup(); _policy.finishStage(name) }
-def failStage(String name)                 { _setup(); _policy.failStage(name) }
+def stagePass(String name)                 { _setup(); (_kit().state as PipelineState).stagePass(name) }
+def stageFail(String name)                 { _setup(); (_kit().state as PipelineState).stageFail(name) }
+def stageWarn(String name)                 { _setup(); (_kit().state as PipelineState).stageWarn(name) }
+def stageError(String name, String reason) { _setup(); (_kit().state as PipelineState).stageError(name, reason) }
+def stageStart(String name)                { _setup(); (_kit().state as PipelineState).stageStart(name) }
+def stageDone(String name)                 { _setup(); (_kit().state as PipelineState).stageDone(name) }
+def finishStage(String name)               { _setup(); (_kit().policy as PolicyEngine).finishStage(name) }
+def failStage(String name)                 { _setup(); (_kit().policy as PolicyEngine).failStage(name) }
 
-def logStageResult(String stageName, String status) { _setup(); _policy.logStageResult(stageName, status) }
-def section(String text)      { _setup(); _policy.section(text) }
-def startSection(String text) { _setup(); _policy.startSection(text) }
-def endSection(String text)   { _setup(); _policy.endSection(text) }
+def logStageResult(String stageName, String status) { _setup(); (_kit().policy as PolicyEngine).logStageResult(stageName, status) }
+def section(String text)      { _setup(); (_kit().policy as PolicyEngine).section(text) }
+def startSection(String text) { _setup(); (_kit().policy as PolicyEngine).startSection(text) }
+def endSection(String text)   { _setup(); (_kit().policy as PolicyEngine).endSection(text) }

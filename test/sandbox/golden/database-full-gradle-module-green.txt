@@ -1315,6 +1315,7 @@ Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-depende
 [STAGE]  Build artifact
 [RESULT] PASS
 ------------------------------------------------------------
+[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
 [DB] orders-db test: 10 changesets pending before the update
 [DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
 [DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
@@ -1443,6 +1444,7 @@ CertScanner-GUI-app:*.jar_341
 [STAGE]  Lower test region deployment
 [RESULT] PASS
 ------------------------------------------------------------
+[DYNAMIC] The Global Settings set dynamicAnalysis.parallel: false - Regression, Smoke and Performance tests and DAST run one after another
 [TEST] orders-db: no Regression Tests jobs for a SQL and PL/SQL service - not required
 [Regression Tests] Project 'orders-app': 2 job(s), max 2 running in parallel
 [Regression Tests/CertScanner-GUI - regression] Triggering local job 'cert-scanner/regression-tests'

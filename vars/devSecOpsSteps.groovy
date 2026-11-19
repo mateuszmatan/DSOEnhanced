@@ -41,6 +41,7 @@ def unitTests(def api) {
                 api.unitTests()
                 api.checkCoverage()
             }
+            api.unitTestsFinished()
         }
     }
 }
@@ -80,11 +81,30 @@ def staticAnalysis(def api) {
         sonarQube(api)
         return
     }
-    api.scanWhileSastRuns({ sastQueue(api) }, {
+    if (api.prepareSastWorkspace()) {
+        String unit = 'Unit tests'
+        String niq = 'Dependencies scan (Nexus IQ)'
+        String sastStage = 'SAST - Static Application Security Tests - HCL AppScan'
+        String sonar = 'SCA (SonarQube)'
+        api.runInParallel('Static analysis', [unit, niq, sastStage, sonar], [
+                (unit)     : { unitTests(api) },
+                (niq)      : { dependenciesScan(api) },
+                (sastStage): { sast(api) },
+                (sonar)    : { sonarQube(api) }
+        ], [['coverage', 'unit'], ['niq'], ['sast'], ['sonar', 'sca']])
+    } else if (api.sastCompileOverrides()) {
+        echo "[STATIC] ${api.sastCompileOverrides().join(', ')}: the SAST compile runs other Gradle tasks or Maven goals than the build command in the workspace, so it may not rebuild the files Nexus IQ scans: Unit tests, Nexus IQ, SAST and SonarQube run one after another"
         unitTests(api)
         dependenciesScan(api)
+        sast(api)
         sonarQube(api)
-    }, { sastResults(api) })
+    } else {
+        api.scanWhileSastRuns({ sastQueue(api) }, {
+            unitTests(api)
+            dependenciesScan(api)
+            sonarQube(api)
+        }, { sastResults(api) })
+    }
     decorateStaticPullRequests(api)
 }
 
@@ -92,6 +112,26 @@ def decorateStaticPullRequests(def api) {
     api.eachProject {
         api.publishStaticSecurityPullRequest()
     }
+}
+
+def dynamicAnalysis(def api, Map options = [:]) {
+    if (!api.parallelTests()) {
+        regressionTests(api)
+        smokeTests(api)
+        performanceTests(api)
+        dast(api, options)
+        return
+    }
+    String regression = 'Regression tests (>60% user stories coverage)'
+    String smoke = 'Smoke tests'
+    String performance = 'Performance tests'
+    String dastStage = 'DAST - Dynamic Application Security Tests - HCL AppScan'
+    api.runInParallel('Dynamic analysis', [regression, smoke, performance, dastStage], [
+            (regression) : { regressionTests(api) },
+            (smoke)      : { smokeTests(api) },
+            (performance): { performanceTests(api) },
+            (dastStage)  : { dast(api, options) }
+    ], [['dast']])
 }
 
 def sast(def api) {
@@ -104,11 +144,13 @@ def sast(def api) {
 def sastQueue(def api) {
     Map config = api.pipelineConfig()
     api.appscanSetup()
-    api.eachProject {
-        api.appscanResolveSourceDir()
-        api.appscanLogin()
-        api.appscanGenerateIRX()
-        api.appscanQueue(config)
+    api.inSastWorkspace {
+        api.eachProject {
+            api.appscanResolveSourceDir()
+            api.appscanLogin()
+            api.appscanGenerateIRX()
+            api.appscanQueue(config)
+        }
     }
 }
 
@@ -125,6 +167,7 @@ def sastResults(def api) {
 def sonarQube(def api) {
     api.runStage('SCA (SonarQube)') {
         api.eachProject {
+            api.awaitUnitTests('Unit tests')
             api.codeQualityScan()
             api.sonarscanEnforcePolicy()
         }

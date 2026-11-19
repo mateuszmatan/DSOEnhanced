@@ -41,6 +41,7 @@ String NIQ = 'Dependencies scan (Nexus IQ)'
 String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
 String STATIC = 'Static analysis'
+String DYNAMIC = 'Dynamic analysis'
 String SNAPSHOT = 'Nexus delivery (Static analysis passed)'
 String PULL = 'Download artifacts from Nexus Repo'
 String RD = 'Lower test region deployment'
@@ -301,7 +302,7 @@ List<Map> goldenSpecs = [
             check('D1: the Database changes card has one package row, with the review SQL and utPLSQL not run, and no deployments table',
                     card.count('<tr><td') == 1 && card.contains('>review SQL</a>') && card.contains('>not run<') && !card.contains('<th>Database</th>'), card)
         }],
-        full + [name: 'D2 full, PL/SQL only, Liquibase 5.0.4, green', layout: 'a', executed: fullStages, skipped: [STATIC], result: 'SUCCESS',
+        full + [name: 'D2 full, PL/SQL only, Liquibase 5.0.4, green', layout: 'a', executed: fullStages, skipped: [STATIC, DYNAMIC], result: 'SUCCESS',
                 golden: 'full-plsql-only-green', demo: 'database-plsql-green', defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4'] },
                 configure: { Map p -> (p['orders-db'] as Map).influx = [enabled: true, project: 'orders', env: 'dev', credentialsId: 'orders-influx-token',
                                                                         url: 'https://influx.bbh.com/api/v2/write?org=DevSecOps&bucket=devsecops&precision=s'] }, checks: { Map r ->
@@ -323,7 +324,7 @@ List<Map> goldenSpecs = [
             check('D2: the release publishes the zip of the snapshot under the version of the build',
                     callsOf(r).count { it.contains("'-Dversion=341-") && !it.contains('SNAPSHOT') && it.contains("'-Dfile=/ws/.dso-db/orders-db/orders-db-341-") } == 1, null)
         }],
-        full + [name: 'D3 full, Gradle module and Node.js, green', layout: 'b', executed: fullStages, skipped: [STATIC], result: 'SUCCESS',
+        full + [name: 'D3 full, Gradle module and Node.js, green', layout: 'b', executed: fullStages, skipped: [STATIC, DYNAMIC], result: 'SUCCESS',
                 golden: 'full-gradle-module-green', prepare: { FakeScript j -> j.files['/opt/liquibase/4.33.0/internal/lib/ojdbc8.jar'] = 'jar' }, checks: { Map r ->
             List<String> late = []
             List<String> block = []
@@ -370,7 +371,7 @@ List<Map> goldenSpecs = [
                     has(planted, '[DB] orders-db: 1 liquibase*.properties file(s) were left out of the package: the pipeline passes every Liquibase setting itself, and a properties file may hold a password'),
                     logOf(planted).findAll { it.startsWith('[DB]') })
         }],
-        full + [name: 'D5 full, compile errors on RD', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8), result: 'FAILURE',
+        full + [name: 'D5 full, compile errors on RD', layout: 'a', executed: fullStages.take(7), skipped: [STATIC, DYNAMIC] + fullStages.drop(8), result: 'FAILURE',
                 failedStage: RD, golden: 'full-rd-compile-failure',
                 compile: [rd: [before: [oldView], updated: [oldView, 'PACKAGE BODY PKG_ORDERS 20261031101502'], invalid: ['PACKAGE BODY PKG_ORDERS', 'VIEW V_LEGACY_REPORT'],
                                errors: [pkgError, viewError]]], checks: { Map r ->
@@ -391,7 +392,7 @@ List<Map> goldenSpecs = [
                     stageOf(r, BUILD) == 'WARN' && logOf(r).any { it.contains('6 static check finding(s) in the SQL and PL/SQL sources (.dso-db/orders-db/static-checks.txt)') }
                             && found.readLines() == staticFindings && callsOf(r).contains('archiveArtifacts .dso-db/orders-db/static-checks.txt'), found)
         }],
-        extended + [name: 'D7 extended, the delivered package', layout: 'a', executed: extendedStages, skipped: [], result: 'SUCCESS', golden: 'extended-green', checks: { Map r ->
+        extended + [name: 'D7 extended, the delivered package', layout: 'a', executed: extendedStages, skipped: [DYNAMIC], result: 'SUCCESS', golden: 'extended-green', checks: { Map r ->
             List fetch = (r.shells as List<Map>).findAll { (it.label as String).startsWith('DB: fetch the delivered package ') && (it.script as String).contains("'dependency:") }
             String zip = ".dso-db/orders-db/orders-db-${delivered}-SNAPSHOT.zip"
             List<String> online = callsOf(r).findAll { it.startsWith('sh [DB: Liquibase') && it.contains('$DSO_STEP') }
@@ -421,7 +422,7 @@ List<Map> goldenSpecs = [
                             && has(r, '[DEP-SCAN] orders-db: SQL and PL/SQL have no dependency components - Nexus IQ is not required')
                             && (r.evaluations as List<Map>).collect { it.iqApplication } == ['CertValidityMonitoring-GUI'], (r.evaluations as List<Map>).collect { it.iqApplication })
         }],
-        full + [name: 'N1 full, a Liquibase service without a database block', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8),
+        full + [name: 'N1 full, a Liquibase service without a database block', layout: 'a', executed: fullStages.take(7), skipped: [STATIC, DYNAMIC] + fullStages.drop(8),
                 result: 'FAILURE', failedStage: RD, golden: 'full-liquibase-commands-rd-failure',
                 configure: { Map p -> noBlock(p); ((((p['orders-db'] as Map).tools as Map).sonar as Map)).liquibase = [sources: 'db'] }, checks: { Map r ->
             List<String> steps = callsOf(r).findAll { it.startsWith('sh [Liquibase') }.collect { it.substring(4, it.indexOf(']')) }
@@ -434,7 +435,7 @@ List<Map> goldenSpecs = [
         }]
 ]
 goldenSpecs.each { verify(it) }
-Map textKey = verify(full + [name: 'N1 full, a Liquibase service whose database key is a text', layout: 'a', executed: fullStages.take(7), skipped: [STATIC] + fullStages.drop(8),
+Map textKey = verify(full + [name: 'N1 full, a Liquibase service whose database key is a text', layout: 'a', executed: fullStages.take(7), skipped: [STATIC, DYNAMIC] + fullStages.drop(8),
                              result: 'FAILURE', failedStage: RD, configure: { Map p -> noBlock(p); (p['orders-db'] as Map).database = 'ORDERS' }])
 check('N1: a database key that is not a map is ignored as on main: no database step, and RD fails as in N1',
         !logOf(textKey).any { it.startsWith('[DB]') } && errorOf(textKey) == '[error] [DOD] No UrbanCode Deploy applications are configured', errorOf(textKey))

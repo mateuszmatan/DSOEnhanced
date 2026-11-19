@@ -356,6 +356,7 @@ Execute Liquibase Command: 'liquibase' '--changelog-file=db/changelog-master.xml
 [STAGE]  Build artifact
 [RESULT] NOT_REQUIRED
 ------------------------------------------------------------
+[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
 Detected tool from config file is liquibase
 [TEST] Tool: liquibase
 Execute Liquibase Command: 'liquibase' '--changelog-file=db/changelog-master.xml' 'validate'
