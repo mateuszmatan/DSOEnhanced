@@ -38,7 +38,7 @@ class GoldenFixService implements DependencyRemediation {
         this.publisher            = publisher
         this.updaters             = updaters
         this.verifier             = verifier
-        this.sharedCatalogService = new SharedCatalogRepositoryService(script, state, repository, publisher, updaters)
+        this.sharedCatalogService = new SharedCatalogRepositoryService(script, state, repository, publisher, updaters, verifier)
     }
 
     void remediate(List<Map> scanRefs) {
@@ -66,6 +66,7 @@ class GoldenFixService implements DependencyRemediation {
             result.message = ((e instanceof Exception ? e.message : null) ?: e.getClass().getSimpleName()) as String
             script.echo "[GOLDENFIX] Remediation failed: ${result.message}"
         } finally {
+            result.unresolved = ((result.remove('untouched') ?: []) as List) + ((result.unresolved ?: []) as List)
             state.recordGoldenFix(result)
         }
     }
@@ -81,7 +82,8 @@ class GoldenFixService implements DependencyRemediation {
         for (int i = 0; i < scanRefs.size(); i++) {
             fixes.addAll(source.fetchGoldenFixes(scanRefs[i], cfg))
         }
-        fixes = mergeFixes(fixes)
+        result.untouched = untouchedRows(fixes)
+        fixes = mergeFixes(actionableFixes(fixes))
         result.fixes = fixes
         if (!fixes) {
             finish(result, 'NO_FIXES', 'Nexus IQ returned no GoldenFix versions for the violating direct dependencies')
@@ -157,6 +159,11 @@ class GoldenFixService implements DependencyRemediation {
             result.verifyLog  = attempt.log ?: (extOutcome.verifyLog ?: '')
             if (attempt.verified == false) {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
+                return
+            }
+            if (applied.files && attempt.verified == null) {
+                script.echo "[GOLDENFIX] Pre-check build could not run (${attempt.reason}) - no pull request is raised without a passing build"
+                finish(result, 'NOT_VERIFIED', "The proposed upgrades were not raised: the pre-check build could not run (${attempt.reason})".toString())
                 return
             }
             List<Map> covered = pr.url ? coveredFixes(remainingFixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
@@ -237,7 +244,6 @@ class GoldenFixService implements DependencyRemediation {
 
     private Map applyVerifiedFixes(String dir, List<Map> fixes, Map cfg) {
         Map verifyCfg = (cfg.verify ?: [:]) as Map
-        boolean enabled = BuildUtils.booleanValue(verifyCfg.enabled, true)
         int maxAttempts = (verifyCfg.maxAttempts != null ? verifyCfg.maxAttempts.toString().toInteger() : 3)
         if (maxAttempts < 1) maxAttempts = 1
 
@@ -245,27 +251,26 @@ class GoldenFixService implements DependencyRemediation {
         List dropped = []
         boolean align = true
         Map applied = applyFixes(dir, current, cfg)
-        if (!enabled || verifier == null) {
-            script.echo "[GOLDENFIX] Pre-check build skipped (${enabled ? 'no build verifier is wired in' : 'goldenFix.verify.enabled is false'})"
-            return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
+        if (verifier == null) {
+            return [applied: applied, verified: null, dropped: dropped, reason: 'no build verifier is wired in', log: '']
         }
 
         String reason = ''
         String log = ''
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             if (!applied.files) {
-                script.echo '[GOLDENFIX] Pre-check build skipped - no manifest changed'
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
             script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)}"
             Map verdict = verifier.verify(dir, applied.files as List<String>,
                     verifyCfg + [catalogConsumers: applied.consumers, lockFiles: applied.locks, node: state.cfg?.build?.node])
             log = verdict.log as String
+            if (verdict.ok && verdict.skipped) {
+                return [applied: applied, verified: null, dropped: dropped, reason: log, log: log]
+            }
             if (verdict.ok) {
-                script.echo verdict.skipped
-                        ? "[GOLDENFIX] Pre-check build skipped - ${log}"
-                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)}"
-                return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log, refreshed: verdict.files ?: []]
+                script.echo "[GOLDENFIX] Pre-check build passed (${log}) with ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)}"
+                return [applied: applied, verified: true, dropped: dropped, reason: '', log: log, refreshed: verdict.files ?: []]
             }
             reason = "the build failed with ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)} (${log})".toString()
             if (align && applied.alignedUp) {
@@ -442,7 +447,8 @@ class GoldenFixService implements DependencyRemediation {
         List<Map> out = []
         for (Map fix : fixes) {
             Map known = versions[fix.key] as Map
-            out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String) ? fix + [targetVersion: known.version, alignedTo: known.file] : fix)
+            out << (known && GoldenFix.isUpgrade(fix.targetVersion as String, known.version as String)
+                    && GoldenFix.patchLevelChange(fix.currentVersion as String, known.version as String) ? fix + [targetVersion: known.version, alignedTo: known.file] : fix)
         }
         return [fixes: out, versions: versions]
     }
@@ -657,6 +663,23 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
+    static List<Map> actionableFixes(List<Map> fixes) {
+        List<Map> out = []
+        for (Map fix : fixes) {
+            if (!fix.untouched) out << fix
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<Map> untouchedRows(List<Map> fixes) {
+        List<Map> out = []
+        for (Map fix : fixes) {
+            if (fix.untouched) out << [component: fix.displayName, ecosystem: fix.ecosystem, from: fix.currentVersion, to: fix.targetVersion, reason: fix.untouched]
+        }
+        return out
+    }
+
     static List<Map> unresolvedFixes(List<Map> fixes, List<Map> changes, List<Map> notes, List<Map> propertyRequests, Map discovery = [:]) {
         Map externals = (discovery?.externals ?: [:]) as Map
         List resolved = []

@@ -234,7 +234,7 @@ Closure sectionsOf = { String view ->
     return out
 }
 String stagedCopy = 'sh rm -rf "$WORKSPACE/appscan-source-staged"'
-String orderLine = '[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last'
+String orderLine = '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run one after another while AppScan scans, and SAST reads the results last'
 String stopLine = '[STATIC] SAST stopped while it prepared its scans: Unit tests and Nexus IQ do not run in this build'
 Closure reordered = { List<String> lines -> lines.findAll { !it.startsWith('[STATIC] ') && it != stagedCopy }.sort() }
 
@@ -445,7 +445,7 @@ Closure verify = { Map spec ->
         String catalog = (j.files["${GoldenFixResponder.WORKTREE}/gradle/libs.versions.toml".toString()] ?: '') as String
         List<String> preChecks = j.calls.findAll { it.startsWith('sh [GoldenFix: pre-check gradle]') }
         check("${name}: both services raise the shared catalog in one pull request and the second service adds a comment listing its upgrade",
-                catalog.contains('jackson = "2.13.5"') && catalog.contains('strictly = "4.1.108.Final"') && catalog.contains('commons-text:1.10.0')
+                catalog.contains('jackson = "2.13.5"') && catalog.contains('strictly = "4.1.108.Final"') && catalog.contains('commons-text = "org.apache.commons:commons-text:1.9"')
                         && catalog.contains('version = "42.5.6"') && gfCalls.count { it.startsWith('PR ') } == 1
                         && gfCalls.contains('COMMENT ### GoldenFix for backend-api')
                         && influxOf(j).readLines().any { it.startsWith('goldenfix,') && it.contains(',module=backend-api,') && it.contains(',status=PR_UPDATED ') }
@@ -498,8 +498,8 @@ Closure verify = { Map spec ->
         int sonarFirst = calls.findIndexOf { it.startsWith('sh [Gradle: sonarqube]') }
         int sonarLast = calls.findLastIndexOf { it.startsWith('sh [Maven: sonar:sonar]') }
         int polled = calls.findIndexOf { it.contains(' status -i ') }
-        check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, and only then SAST polls its scans before SonarQube runs last",
-                chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < polled && polled <= sonarFirst,
+        check("${name}: SAST compiles, prepares and queues every scan, the staging copy is removed, Nexus IQ evaluates, SonarQube runs, and only then SAST polls its scans",
+                chmod >= 0 && queued.size() == 4 && queued.max() < removal && removal < evaluated.min() && evaluated.max() < sonarFirst && sonarLast < polled,
                 [chmod: chmod, queued: queued, removal: removal, evaluated: evaluated, polled: polled, sonar: [sonarFirst, sonarLast]])
         List<String> staticLines = log.findAll { it.startsWith('[STATIC] ') }
         check("${name}: the log names the new order once, without a fallback or a SAST stop", staticLines == [orderLine], staticLines)
@@ -844,9 +844,8 @@ check('full pipeline, stage failure, parallel scans: release-gate.json equals th
 
 Map waitFails = parallelRun([name: 'full pipeline, SAST wait fails, parallel scans', breakSastWait: true, buildNumber: 366])
 List<String> waitFailures = (waitFails.var as FakeCpsScript).stageFailures
-check('full pipeline, SAST wait fails, parallel scans: SAST fails after its scans are queued, Nexus IQ keeps its result, SonarQube is blocked and the release gate lists the SAST failure',
-        !waitFails.crash && waitFailures.size() == 1 && waitFailures[0].startsWith(STATIC) && [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) } == ['PASS', 'FAIL', 'not run']
-                && boxOf(waitFails.html as String, "${SONAR} - gui").contains('pipeline blocked by previous failure')
+check('full pipeline, SAST wait fails, parallel scans: SAST fails after its scans are queued, Nexus IQ and SonarQube keep the results they had before the wait, and the release gate lists the SAST failure',
+        !waitFails.crash && waitFailures.size() == 1 && waitFailures[0].startsWith(STATIC) && [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) } == ['PASS', 'FAIL', 'PASS']
                 && (((waitFails.j as FakeScript).jsonFiles['release-gate.json'] as Map).violations as List).contains("stage '${SAST}' is FAIL".toString()),
         [waitFails.crash, waitFailures] + [NIQ, SAST, SONAR].collect { resultOf(waitFails, it) })
 

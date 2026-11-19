@@ -35,7 +35,7 @@ class PubUpdater implements ManifestUpdater {
                     notes << UpdaterSupport.note(relativePath, fix, "version constraint '${declared}' is not a simple version".toString())
                     return null
                 }
-                if (!GoldenFix.isUpgrade(declared, target)) return null
+                if (!GoldenFix.patchLevelChange(declared, target)) return null
                 changes << UpdaterSupport.change(relativePath, fix, declared, target)
                 return (groups[1] as String) + target + (groups[3] as String)
             }

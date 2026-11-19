@@ -180,7 +180,6 @@ projects:
 
     goldenFix:                       # library defaults shown, values of the service override them
       enabled:                true
-      onlyDirectDependencies: true
       minThreatLevel:         2      # 2+ medium, 4+ high, 8+ critical
       ecosystems:             [maven, npm, pypi, nuget]   # supported: maven, npm, pypi, pub, nuget; a Flutter service lists pub here
       goldenVersionTypes:            # Nexus IQ remediation types taken as they are (the Golden Version)
@@ -188,7 +187,6 @@ projects:
         - recommended-non-breaking
       excludeDirs:            []     # [default: .git, node_modules, target, build, .gradle, dist, venv, ...]
       verify:                        # the pre-check build of the proposed versions
-        enabled:        true         # false: no pre-check, the pull request is raised unverified
         maxAttempts:    3            # version sets tried; each failed build lowers every proposed version
         timeoutMinutes: 20           # for each check, that is each kind of manifest and folder
         commands:                    # replaces the default check of one ecosystem; runs with bash or PowerShell (Windows) in the folder of the check

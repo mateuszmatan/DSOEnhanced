@@ -68,7 +68,7 @@ class MavenPomUpdater implements ManifestUpdater {
                 return null
             }
             String target = fix.targetVersion as String
-            boolean upgrade = GoldenFix.isUpgrade(declared, target)
+            boolean upgrade = GoldenFix.patchLevelChange(declared, target)
             found << UpdaterSupport.found(relativePath, [fix.key], upgrade ? target : declared, '')
             if (!upgrade) return null
 
@@ -91,7 +91,7 @@ class MavenPomUpdater implements ManifestUpdater {
                 String regex = '(<' + UpdaterSupport.quote(name) + '>\\s*)([^<]*?)(\\s*</' + UpdaterSupport.quote(name) + '>)'
                 newSection = UpdaterSupport.replaceValue(newSection, regex) { String value ->
                     if (!GoldenFix.isConcreteVersion(value)) return null
-                    boolean upgrade = GoldenFix.isUpgrade(value, target)
+                    boolean upgrade = GoldenFix.patchLevelChange(value, target)
                     found << UpdaterSupport.found(relativePath, property.componentKeys as List, upgrade ? target : value, name)
                     if (!upgrade) return null
                     changes << UpdaterSupport.propertyChange(relativePath, property, value)

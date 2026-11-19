@@ -58,7 +58,7 @@ postgresql = { name = "postgresql", group = "org.postgresql", version = "42.5.0"
             'commons-text'    : [['next-no-violations', '1.10.0']],
             'jackson-databind': [['next-non-failing', '2.13.5'], ['next-no-violations', '2.15.4']],
             'netty-codec-http': [['next-no-violations-with-dependencies', '4.1.108.Final']],
-            'snakeyaml'       : [['next-no-violations', '2.2']],
+            'snakeyaml'       : [['next-no-violations', '1.33.2']],
             'postgresql'      : [['next-no-violations', '42.5.6']]
     ]
 

@@ -2,7 +2,6 @@ package com.bbh.scanner
 
 import com.bbh.remediation.model.GoldenFix
 import com.bbh.remediation.port.GoldenFixSource
-import com.bbh.utils.BuildUtils
 import com.bbh.utils.RestClient
 import com.cloudbees.groovy.cps.NonCPS
 
@@ -25,7 +24,6 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
             return []
         }
         int minThreat          = cfg.minThreatLevel != null ? cfg.minThreatLevel.toString().toInteger() : 2
-        boolean onlyDirect     = BuildUtils.booleanValue(cfg.onlyDirectDependencies, true)
         List ecosystems        = (cfg.ecosystems ?: GoldenFix.supportedEcosystems()) as List
         List goldenTypes       = (cfg.goldenVersionTypes ?: GoldenFix.defaultGoldenVersionTypes()) as List
         String stageId         = (scanRef.stage ?: 'build') as String
@@ -41,8 +39,8 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
             if (!internalId) script.error("[GOLDENFIX] Nexus IQ application '${application}' not found")
 
             def report = rest.getJson("${server}/api/v2/applications/${appEnc}/reports/${RestClient.urlEncode(scanId)}/policy", auth, "Nexus IQ: policy report ${scanId}")
-            List<Map> candidates = selectCandidates(report, minThreat, onlyDirect, ecosystems)
-            script.echo "[GOLDENFIX] ${application}: ${candidates.size()} violating ${onlyDirect ? 'direct ' : ''}component(s) eligible for GoldenFix (threat level >= ${minThreat})"
+            List<Map> candidates = selectCandidates(report, minThreat, ecosystems)
+            script.echo "[GOLDENFIX] ${application}: ${candidates.size()} violating direct component(s) eligible for GoldenFix (threat level >= ${minThreat})"
 
             String remediationUrl = "${server}/api/v2/components/remediation/application/${RestClient.urlEncode(internalId)}?stageId=${RestClient.urlEncode(stageId)}"
             List requests = []
@@ -60,9 +58,18 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
                     lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: remediation lookup failed - HTTP ${response.status ?: 0} ${response.error ?: ''}".toString()
                     continue
                 }
-                Map pick = GoldenFix.selectRemediation(candidateVersions(response.json), c.version as String, goldenTypes)
+                List offered = candidateVersions(response.json)
+                Map pick = GoldenFix.selectRemediation(offered, c.version as String, goldenTypes)
                 if (!pick) {
-                    lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: Nexus IQ offers no remediation version".toString()
+                    String newest = newestUpgrade(offered, c.version as String)
+                    if (newest) {
+                        fixes << GoldenFix.create(c.ecosystem as String, c.group as String, c.name as String, c.version as String, newest, '',
+                                c.packageUrl as String, c.threatLevel as int, c.direct as Boolean, application) +
+                                [untouched: "Nexus IQ offers only ${newest}, which changes more than the last number of the version, so it is left for a developer".toString()]
+                        lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: Nexus IQ offers only ${newest}, which changes more than the patch level (only the last number of the version may change), left untouched".toString()
+                    } else {
+                        lines << "[GOLDENFIX]   ${c.displayName} ${c.version}: Nexus IQ offers no newer version, left untouched".toString()
+                    }
                     continue
                 }
                 Map fix = GoldenFix.create(c.ecosystem as String, c.group as String, c.name as String, c.version as String,
@@ -78,13 +85,23 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
     }
 
     @NonCPS
+    static String newestUpgrade(List offered, String current) {
+        String newest = ''
+        for (def candidate : (offered ?: [])) {
+            String version = (candidate?.version ?: '') as String
+            if (GoldenFix.isUpgrade(current, version) && (!newest || GoldenFix.isUpgrade(newest, version))) newest = version
+        }
+        return newest
+    }
+
+    @NonCPS
     static String firstApplicationId(def json) {
         def apps = json?.applications
         return (apps instanceof List && !apps.isEmpty()) ? (apps[0]?.id as String) : null
     }
 
     @NonCPS
-    static List<Map> selectCandidates(def report, int minThreat, boolean onlyDirect, List ecosystems) {
+    static List<Map> selectCandidates(def report, int minThreat, List ecosystems) {
         List<Map> out = []
         List seen = []
         List components = (report?.components ?: []) as List
@@ -100,7 +117,7 @@ class NexusIqGoldenFixSource implements GoldenFixSource {
             if (threat < minThreat) continue
 
             Boolean direct = comp?.dependencyData != null ? (comp.dependencyData.directDependency as Boolean) : null
-            if (onlyDirect && direct == false) continue
+            if (direct == false) continue
 
             Map coordinates = (identifier.coordinates ?: [:]) as Map
             String group = ''

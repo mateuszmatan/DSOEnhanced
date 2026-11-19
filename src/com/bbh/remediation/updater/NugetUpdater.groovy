@@ -86,7 +86,7 @@ class NugetUpdater implements ManifestUpdater {
                 return null
             }
             String target = fix.targetVersion as String
-            boolean upgrade = GoldenFix.isUpgrade(declared, target)
+            boolean upgrade = GoldenFix.patchLevelChange(declared, target)
             found << UpdaterSupport.found(relativePath, [fix.key], upgrade ? target : declared, '')
             if (!upgrade) return null
 
@@ -144,7 +144,7 @@ class NugetUpdater implements ManifestUpdater {
                 return null
             }
             String target = fix.targetVersion as String
-            boolean upgrade = GoldenFix.isUpgrade(declared, target)
+            boolean upgrade = GoldenFix.patchLevelChange(declared, target)
             found << UpdaterSupport.found(relativePath, [fix.key], upgrade ? target : declared, '')
             if (!upgrade) return null
 
@@ -176,7 +176,7 @@ class NugetUpdater implements ManifestUpdater {
                 newSection = UpdaterSupport.replaceValue(newSection, tagRe(name)) { String value ->
                     String trimmed = (value ?: '').trim()
                     if (!GoldenFix.isConcreteVersion(trimmed)) return null
-                    boolean upgrade = GoldenFix.isUpgrade(trimmed, target)
+                    boolean upgrade = GoldenFix.patchLevelChange(trimmed, target)
                     found << UpdaterSupport.found(relativePath, property.componentKeys as List, upgrade ? target : trimmed, name)
                     if (!upgrade) return null
                     changes << UpdaterSupport.propertyChange(relativePath, property, trimmed)

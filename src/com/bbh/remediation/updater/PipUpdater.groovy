@@ -23,9 +23,11 @@ class PipUpdater implements ManifestUpdater {
         List changes = []
         List notes = []
         boolean pyproject = UpdaterSupport.fileName(relativePath) == 'pyproject.toml'
+        boolean constraints = UpdaterSupport.fileName(relativePath) ==~ /(?i)constraints.*\.txt/
         String updated = content
 
         fixes.each { fix ->
+            if (constraints && fix.direct != true) return
             String namePattern = namePattern(fix.name as String)
             if (!pyproject) {
                 String regex = '(?im)(^[ \\t]*' + namePattern + '(?:[ \\t]*\\[[^\\]\\r\\n]*\\])?[ \\t]*)(===|==|~=|>=)([ \\t]*)([^\\s;,#\\\\]+)([^\\r\\n]*)'
@@ -75,7 +77,7 @@ class PipUpdater implements ManifestUpdater {
             notes << UpdaterSupport.note(path, fix, "declared version '${declared}' is not a simple version".toString())
             return null
         }
-        if (!GoldenFix.isUpgrade(declared, target)) return null
+        if (!GoldenFix.patchLevelChange(declared, target)) return null
         changes << UpdaterSupport.change(path, fix, declared, target)
         return target
     }

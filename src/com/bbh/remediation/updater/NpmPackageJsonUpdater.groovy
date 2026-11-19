@@ -41,7 +41,7 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
                 boolean handled = false
                 newSection = UpdaterSupport.replaceValue(newSection, '("' + name + '"\\s*:\\s*"(?:\\^|~|>=|=)?\\s*v?)(\\d[\\w.\\-+]*)(")') { String declared ->
                     handled = true
-                    if (!GoldenFix.isConcreteVersion(declared) || !GoldenFix.isUpgrade(declared, target)) return null
+                    if (!GoldenFix.isConcreteVersion(declared) || !GoldenFix.patchLevelChange(declared, target)) return null
                     changes << UpdaterSupport.change(relativePath, fix, declared, target)
                     return target
                 }
@@ -61,7 +61,7 @@ class NpmPackageJsonUpdater implements ManifestUpdater {
                 String regex = '(\\{[^{}]*\\})|("' + UpdaterSupport.quote(fix.name as String) + '"\\s*:\\s*"(?:\\^|~|>=|=)?\\s*v?)(\\d[\\w.\\-+]*)(")'
                 newSection = UpdaterSupport.replaceMatch(newSection, regex) { List g ->
                     String declared = g[3] as String
-                    if (g[1] || !GoldenFix.isConcreteVersion(declared) || !GoldenFix.isUpgrade(declared, fix.targetVersion as String)) return null
+                    if (g[1] || fix.direct != true || !GoldenFix.isConcreteVersion(declared) || !GoldenFix.patchLevelChange(declared, fix.targetVersion as String)) return null
                     changes << UpdaterSupport.change(relativePath, fix, declared, fix.targetVersion as String) + [property: s[2]]
                     return (g[2] as String) + fix.targetVersion + (g[4] as String)
                 }

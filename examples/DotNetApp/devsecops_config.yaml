@@ -56,8 +56,6 @@ projects:
     goldenFix:
       enabled:    true
       ecosystems: [nuget, npm]
-      verify:
-        enabled: true
 
     scm:
       bitbucket:
@@ -126,8 +124,6 @@ projects:
     goldenFix:
       enabled:    true
       ecosystems: [nuget]
-      verify:
-        enabled: true
 
     scm:
       bitbucket:
