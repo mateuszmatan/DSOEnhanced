@@ -1142,7 +1142,6 @@ sh [DB: publish orders-db-341-<stamp>.zip to Nexus]
             'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-releases' '-Durl=https://tools.bbh.com/nexus/repository/db-releases' '-DgroupId=com.bbh.orders' '-DartifactId=orders-db' '-Dversion=341-<stamp>' '-Dpackaging=zip' '-Dfile=/ws/.dso-db/orders-db/orders-db-341-<stamp>.zip' '-DgeneratePom=true'
         
 deleteDir <tmp>/dso-db/orders-db
-sh ./gradlew publish
 withCredentials [orders-db-qc]
 withEnv [JAVA_HOME=/usr/lib/jvm/java-17-openjdk, PATH+DSOJDK=/usr/lib/jvm/java-17-openjdk/bin, LIQUIBASE_ANALYTICS_ENABLED=false, DSO_LOCK_ID=jenkins-DevSecOps-orders-db-devsecops-pipeline-341, DSO_TMP=<tmp>/dso-db/orders-db, DSO_PROPS=qc.properties]
 sh [DB: Liquibase status on qc] #!/usr/bin/env bash
@@ -1414,6 +1413,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-snapsho
 Detected tool from config file is gradle
 [REPORT] No artifact found for gradle/apk
 Detected tool from config file is gradle
+[NEXUS] orders-app: delivery.push.gradle.artifacts is not set in the DevSecOps portal - the Gradle artifact is not published
 ------------------------------------------------------------
 [STAGE]  Nexus delivery (Static analysis passed)
 [RESULT] PASS
@@ -1423,6 +1423,7 @@ Detected tool from config file is gradle
 [DB] orders-db rd: compile check: 0 invalid objects, 0 compile errors
 [DB] orders-db rd: up to date after the update
 [DB] orders-db rd: tagged orders-db-341-<stamp>
+[DOD] No build.tag from a Nexus delivery: the versions use the build number 341
 [DOD] Environment: DV
 [DOD] Applications to deploy: [CertScanner-GUI]
 [DOD] Publishing 1 component(s) for CertScanner-GUI
@@ -1507,6 +1508,7 @@ CertScanner-GUI-app:*.jar_341
 [NEXUS] orders-db: publishing orders-db-341-<stamp>.zip as com.bbh.orders:orders-db:341-<stamp> to bbh-db-releases
 Maven is installed on this agent
 Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-releases' '-Durl=https://tools.bbh.com/nexus/repository/db-releases' '-DgroupId=com.bbh.orders' '-DartifactId=orders-db' '-Dversion=341-<stamp>' '-Dpackaging=zip' '-Dfile=/ws/.dso-db/orders-db/orders-db-341-<stamp>.zip' '-DgeneratePom=true'
+[NEXUS] orders-app: the release delivery of the safe artifact is not implemented yet for the build tool gradle - the snapshot published by the security pipeline stays the delivered artifact
 ------------------------------------------------------------
 [STAGE]  Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities
 [RESULT] PASS

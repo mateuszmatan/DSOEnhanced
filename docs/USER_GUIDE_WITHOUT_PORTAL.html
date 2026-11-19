@@ -385,6 +385,7 @@ pre code {
 <li><a href='#10-dependency-security--goldenfix--nexus-iq' ><span style='color:#94a3b8;font-weight:600;'>10.</span> Dependency Security &amp; GoldenFix – Nexus IQ</a></li>
 <li><a href='#11-deployments-and-disable-nexus-delivery-openshift--vm' ><span style='color:#94a3b8;font-weight:600;'>11.</span> Deployments and &quot;Disable Nexus Delivery&quot; (OpenShift &amp; VM)</a></li>
 <li><a href='#skipping-nexus-artifact-publishing' style='padding-left: 20px; font-size: 0.8rem;'>Skipping Nexus Artifact Publishing:</a></li>
+<li><a href='#snapshot-tag-download-and-release' style='padding-left: 20px; font-size: 0.8rem;'>Snapshot tag, download and release:</a></li>
 <li><a href='#optional-openshift-qc-region' style='padding-left: 20px; font-size: 0.8rem;'>Optional OpenShift QC Region:</a></li>
 <li><a href='#12-telemetry-dora-metrics-influxdb-and-grafana' ><span style='color:#94a3b8;font-weight:600;'>12.</span> Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
 <li><a href='#13-complete-devsecops_configyaml-template-with-field-reference' ><span style='color:#94a3b8;font-weight:600;'>13.</span> Complete devsecops_config.yaml Template with Field Reference</a></li>
@@ -608,7 +609,15 @@ devSecOpsPipeline(
 <p>If your deployment does not require publishing binaries to Nexus, toggle delivery off:
 - For Virtual Machines (VM): <code>deploy.vm.rd.nexusDeliveryEnabled: false</code>
 - For OpenShift containers: <code>deploy.openshift.rd.nexusDeliveryEnabled: false</code>
+- <code>delivery.nexusDeliveryEnabled</code> of the service wins over both settings.
 - The pipeline skips artifact upload and suppresses delivery validation errors.</p>
+<h3 id="snapshot-tag-download-and-release">Snapshot tag, download and release:</h3>
+<ul>
+<li>Stage 6 publishes the snapshot of every service under one tag per run, <code>&lt;BUILD_NUMBER&gt;-&lt;yyyyMMdd-HHmmss&gt;</code> (UTC), and writes it to <code>build.tag</code>. A Gradle service names the files to publish in <code>delivery.push.gradle.artifacts</code>; without them it is not required. A Maven service uses <code>delivery.push.maven</code> (or the earlier <code>delivery.maven</code> with <code>build.buildPath</code>).</li>
+<li>The extended pipeline copies <code>build.tag</code> from the security job. Its stage <em>Download artifacts from Nexus Repo</em> downloads that snapshot into <code>delivery.pull.outputDirectory</code> when <code>delivery.pull</code> is set; an OpenShift service deploys its image instead.</li>
+<li>A VM service is deployed to the lower test region with UrbanCode Deploy (DOD); the component versions carry the tag of <code>build.tag</code>, otherwise the build number.</li>
+<li>Stage 12 pushes the NuGet release of a .NET service with <code>delivery.nuget.source</code>. For the other build tools the release delivery is not implemented yet: the stage is not required and the snapshot stays the delivered artifact.</li>
+</ul>
 <h3 id="optional-openshift-qc-region">Optional OpenShift QC Region:</h3>
 <ul>
 <li>The <code>deploy.openshift.rd.regions.qc</code> block is entirely optional. Omitting it will not cause validation errors.</li>

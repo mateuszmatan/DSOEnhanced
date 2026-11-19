@@ -645,7 +645,6 @@ sh [Maven: deploy:deploy-file]
             set -euo pipefail
             'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots' '-Durl=https://tools.bbh.com/nexus/repository/snapshots' '-DgroupId=com.bbh.certscanner' '-DartifactId=certscanner-api' '-DgeneratePom=true' '-Dversion=214-<stamp>-SNAPSHOT' '-Dpackaging=jar' '-Dfile=target/certscanner-api.jar'
         
-writeYaml pipeline-config.yaml
 sh mkdir -p /ws/report
 withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
 sh set +x
@@ -654,7 +653,7 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
 publishHTML pipeline-report.html
 cleanWs
 == log
@@ -780,6 +779,7 @@ Execute Maven Command: 'mvn' 'sonar:sonar'
 Detected tool from config file is gradle
 [REPORT] No artifact found for gradle/apk
 Detected tool from config file is gradle
+[NEXUS] gui: delivery.push.gradle.artifacts is not set in the DevSecOps portal - the Gradle artifact is not published
 Detected tool from config file is maven
 Detected tool from config file is maven
 Report files found: 0
@@ -850,7 +850,7 @@ coverage_report,project=CertScannersecurity,env=test,module=backend-api,report=t
 test_execution,project=CertScannersecurity,env=test,module=gui,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
 test_execution,project=CertScannersecurity,env=test,module=backend-api,suite=unit total=214i,passed=211i,failed=0i,skipped=3i,not_configured=0i,duration_ms=<n>i,success_rate=98.59813084112149 <s>
 build_evidence,project=CertScannersecurity,env=test,module=gui artifact_version="214",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/214/artifact/appscan-report-certscanner-gui.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
-build_evidence,project=CertScannersecurity,env=test,module=backend-api artifact_version="214",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/214/artifact/appscan-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
+build_evidence,project=CertScannersecurity,env=test,module=backend-api artifact_version="214-<stamp>",sonar_quality_gate="OK",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-security-pipeline/214/artifact/appscan-report-certscanner-backend.html",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",sonar_report_url="https://tools.bbh.com/sonar/dashboard?id=cert-scanner-backend",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
 release_gate,project=CertScannersecurity,env=test,allowed=yes allowed=1i,blocked=0i,violations=0i,reason="" <s>
 == report
 <!DOCTYPE html>

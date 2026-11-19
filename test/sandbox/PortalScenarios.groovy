@@ -406,15 +406,16 @@ r = load(j, 'extended', [pipelineKeys: keys])
 initError = r.error ?: initialize(r)
 runState = j.files['pipeline-config.yaml'] ? yaml.load(j.files['pipeline-config.yaml']) as Map : [:]
 Map backendRd = ((((r.state.projectsAllCfg as Map)['backend-api'] as Map)?.deploy as Map)?.openshift as Map)?.rd as Map
-check('extended handoff: only the run-time tags of the security run are laid over the own documents',
-        !initError && j.env.Security_Pipeline == securityJob && (r.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500'
+check('extended handoff: only the run-time tags of the security run are laid over the own documents, and a delivery value of the security run never replaces the delivery settings',
+        !initError && j.env.Security_Pipeline == securityJob && (r.state.projectsAllCfg.gui as Map).delivery != '57-20261006-081500'
                 && (r.state.projectsAllCfg.gui as Map).appId == '209f44ac-dd06-4ca0-884e-d944904f8020'
                 && backendRd?.buildTag == '213-20261006-081500' && (backendRd?.internalDockerUrl as String)?.endsWith('@sha256:5f1c0ffee')
                 && backendRd?.projectBuildR == 'ta-certscanner-build',
         "${initError} | ${backendRd}")
 check('extended handoff: the extended run writes its own run-state file with the overlay',
-        ((runState.projects as Map)?.gui as Map)?.delivery == '57-20261006-081500' && ((runState.projects as Map)?.gui as Map)?.appId == '209f44ac-dd06-4ca0-884e-d944904f8020',
-        runState.projects?.gui)
+        (((((runState.projects as Map)?.get('backend-api') as Map)?.deploy as Map)?.openshift as Map)?.rd as Map)?.buildTag == '213-20261006-081500'
+                && ((runState.projects as Map)?.gui as Map)?.delivery != '57-20261006-081500' && ((runState.projects as Map)?.gui as Map)?.appId == '209f44ac-dd06-4ca0-884e-d944904f8020',
+        runState.projects)
 
 j = jenkins([:])
 r = load(j, 'extended', [pipelineKeys: [PortalFixtures.publish(j, extendedGui)]])
@@ -628,8 +629,8 @@ check('the Nexus IQ GoldenFix pipeline without a key names the file for a servic
 Map extendedFile = agents + [projectNames: 'gui,backend-api', securityPipeline: securityJob]
 Map handoff = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump(copied)])
 Map handoffRd = ((((handoff.state?.projectsAllCfg as Map)?.get('backend-api') as Map)?.deploy as Map)?.openshift as Map)?.rd as Map
-check('extended without a key: the run-time tags of the security run are laid over the services of the file',
-        !handoff.initError && handoffRd?.buildTag == '213-20261006-081500' && (handoff.state.projectsAllCfg.gui as Map).delivery == '57-20261006-081500',
+check('extended without a key: the run-time tags of the security run are laid over the services of the file, and a delivery value of the security run never replaces the delivery settings',
+        !handoff.initError && handoffRd?.buildTag == '213-20261006-081500' && (handoff.state.projectsAllCfg.gui as Map).delivery != '57-20261006-081500',
         "${handoff.initError} | ${handoffRd}")
 Map foreign = fromFile('extended', extendedFile, ['devsecops_config.yaml': configText, 'pipeline-config.yaml': yaml.dump([projects: [gui: copied.projects.gui]])])
 check('extended without a key: a security run that lacks a service of this run is refused',

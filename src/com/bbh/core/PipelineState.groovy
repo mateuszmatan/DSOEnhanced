@@ -13,6 +13,8 @@ class PipelineState implements Serializable {
     List portalDocuments    = []
     Map  platform           = [:]
     String configFile       = ''
+    String buildTag         = ''
+    Map  deliveredBuildTags = [:]
 
     String currentStage = ''
     Map stageResults = [:]

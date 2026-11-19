@@ -223,7 +223,14 @@ tools:
 If your deployment does not require publishing binaries to Nexus, toggle delivery off:
 - For Virtual Machines (VM): `deploy.vm.rd.nexusDeliveryEnabled: false`
 - For OpenShift containers: `deploy.openshift.rd.nexusDeliveryEnabled: false`
+- `delivery.nexusDeliveryEnabled` of the service wins over both settings.
 - The pipeline skips artifact upload and suppresses delivery validation errors.
+
+### Snapshot tag, download and release:
+- Stage 6 publishes the snapshot of every service under one tag per run, `<BUILD_NUMBER>-<yyyyMMdd-HHmmss>` (UTC), and writes it to `build.tag`. A Gradle service names the files to publish in `delivery.push.gradle.artifacts`; without them it is not required. A Maven service uses `delivery.push.maven` (or the earlier `delivery.maven` with `build.buildPath`).
+- The extended pipeline copies `build.tag` from the security job. Its stage *Download artifacts from Nexus Repo* downloads that snapshot into `delivery.pull.outputDirectory` when `delivery.pull` is set; an OpenShift service deploys its image instead.
+- A VM service is deployed to the lower test region with UrbanCode Deploy (DOD); the component versions carry the tag of `build.tag`, otherwise the build number.
+- Stage 12 pushes the NuGet release of a .NET service with `delivery.nuget.source`. For the other build tools the release delivery is not implemented yet: the stage is not required and the snapshot stays the delivered artifact.
 
 ### Optional OpenShift QC Region:
 - The `deploy.openshift.rd.regions.qc` block is entirely optional. Omitting it will not cause validation errors.

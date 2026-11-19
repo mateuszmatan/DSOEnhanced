@@ -291,7 +291,7 @@ class PipelineMetrics implements Serializable {
             Map niq = ((state.projectsNexusIqResults ?: [:]).get(module) ?: [:]) as Map
             Map document = (documents.get(module) ?: [:]) as Map
             def delivery = cfg.delivery
-            String version = (cfg.deploy?.openshift?.rd?.buildTag ?: (delivery instanceof String ? delivery : null) ?: context.buildNumber ?: '') as String
+            String version = (cfg.deploy?.openshift?.rd?.buildTag ?: (state.deliveredBuildTags ?: [:]).get(module) ?: (delivery instanceof String ? delivery : null) ?: context.buildNumber ?: '') as String
             String qualityGate = (sonar.qualityGate ?: '') as String
             out << MetricLine.of('build_evidence', base + [module: module], [
                     artifact_version  : optional(version),

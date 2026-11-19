@@ -47,6 +47,7 @@ class ReportViewModel implements Serializable {
         String sast        = 'SAST - Static Application Security Tests - HCL AppScan'
         String sonar       = 'SCA (SonarQube)'
         String snapshot    = 'Nexus delivery (Static analysis passed)'
+        String pull        = 'Download artifacts from Nexus Repo'
         String deployRd    = 'Lower test region deployment'
         String regression  = 'Regression tests (>60% user stories coverage)'
         String smoke       = 'Smoke tests'
@@ -98,11 +99,11 @@ class ReportViewModel implements Serializable {
         if (variant == 'extended') {
             return [
                     appscanScnrs  : [dastScanner],
-                    stageOrder    : [monitor, deployRd, regression, smoke, performance, dast, release, deployQc],
+                    stageOrder    : [monitor, pull, deployRd, regression, smoke, performance, dast, release, deployQc],
                     secStageNames : [dast],
                     phaseGroups   : [
                             [label: 'Dev', color: '#3b82f6', stages: [monitor]],
-                            [label: 'Delivery', color: '#1d4ed8', stages: [deployRd]],
+                            [label: 'Delivery', color: '#1d4ed8', stages: [pull, deployRd]],
                             [label: 'Tests', color: '#1e40af', stages: [regression, smoke, performance]],
                             [label: 'Security', color: '#1e3a8a', stages: [dast]],
                             [label: 'Delivery', color: '#172554', stages: [release, deployQc]]

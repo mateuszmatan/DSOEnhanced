@@ -684,7 +684,8 @@ find '.' -type f -path '*/target/surefire-reports/*.xml' \
 junit surefire-reports/*.xml
 reportSurefireTest
 sh 
-            ART_FILE=$(ls target/certscanner-api.jar | head -n 1)
+            ART_FILE=$(ls target/certscanner-api.jar 2>/dev/null | head -n 1)
+            if [ -z "$ART_FILE" ]; then ART_FILE=$(find . -type f -name 'certscanner-api.jar' | head -n 1); fi
 
             echo "Detected artifact: $ART_FILE"
             echo "Dockerfile path: openshift/Dockerfile"
@@ -697,8 +698,6 @@ sh
             #Copy Dockerfile
             cp openshift/Dockerfile target/docker/Dockerfile
 
-            #Copy additional files
-            if [ "null" != "null" ]; then cp null target/docker/null; fi
 
             echo "Build context content:"
             ls -la "target/docker"
@@ -725,7 +724,7 @@ if [ "$code" -ge 300 ]; then
 fi
 
 sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
 publishHTML pipeline-report.html
 cleanWs
 == log
@@ -846,6 +845,9 @@ The parameter 'appVersion'          = 212
 The parameter 'dockerFilePath'      = openshift/Dockerfile
 The parameter 'buildContext'        = target/docker
 The parameter 'projectBuildR'       = ta-certscanner-build
+The parameter 'buildPath'           = target
+The parameter 'baseArtifactName'    = null
+The parameter 'artifactName'        = certscanner-api.jar
         
 Project ta-certscanner in cluster ocp
 OpenShift build phase: Complete

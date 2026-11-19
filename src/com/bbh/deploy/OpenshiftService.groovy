@@ -13,6 +13,10 @@ class OpenshiftService implements Serializable {
     }
 
     void buildDockerImage(String projectName) {
+        if (!BuildUtils.nexusDeliveryEnabled(state.cfg)) {
+            script.echo "[OPENSHIFT] ${projectName}: Nexus delivery is disabled by ${BuildUtils.nexusDeliverySetting(state.cfg)} - no image is built"
+            return
+        }
         String baseArtifactName = state.cfg.baseArtifactName
         def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def osCfg = state.cfg.deploy?.openshift?.rd ?: [:]
@@ -29,7 +33,7 @@ class OpenshiftService implements Serializable {
         String buildContext = osCfg.buildContext
         String projectBuildR = osCfg.projectBuildR
         String appVersion = script.env.BUILD_NUMBER
-        String addFile = osCfg.addFile
+        String addFile = (osCfg.addFile ?: '') as String
 
         script.echo """
 The parameter 'appName'             = ${appName}
@@ -37,12 +41,24 @@ The parameter 'appVersion'          = ${appVersion}
 The parameter 'dockerFilePath'      = ${dockerFilePath}
 The parameter 'buildContext'        = ${buildContext}
 The parameter 'projectBuildR'       = ${projectBuildR}
+The parameter 'buildPath'           = ${buildPath}
+The parameter 'baseArtifactName'    = ${baseArtifactName}
+The parameter 'artifactName'        = ${artifactName}
         """
-        if(baseArtifactName){
-            script.sh "mv ${buildPath}/${baseArtifactName} ${buildPath}/${artifactName}"
+        if (baseArtifactName && baseArtifactName != artifactName) {
+            String baseFileName = baseArtifactName.contains('/') ? baseArtifactName.substring(baseArtifactName.lastIndexOf('/') + 1) : baseArtifactName
+            script.sh "find . -type f -name '${baseFileName}' -execdir mv -- '{}' '${artifactName}' ';'"
         }
+        String addFileCopy = addFile.trim() ? """
+            #Copy additional files
+            for full_path in ${addFile}; do
+                file_name="\${full_path##*/}"
+                cp "\${full_path}" ${buildContext}/\$file_name
+            done
+""" : ''
         script.sh """
-            ART_FILE=\$(ls ${buildPath}/${artifactName} | head -n 1)
+            ART_FILE=\$(ls ${buildPath}/${artifactName} 2>/dev/null | head -n 1)
+            if [ -z "\$ART_FILE" ]; then ART_FILE=\$(find . -type f -name '${artifactName}' | head -n 1); fi
 
             echo "Detected artifact: \$ART_FILE"
             echo "Dockerfile path: ${dockerFilePath}"
@@ -55,9 +71,7 @@ The parameter 'projectBuildR'       = ${projectBuildR}
             #Copy Dockerfile
             cp ${dockerFilePath} ${buildContext}/Dockerfile
 
-            #Copy additional files
-            if [ "${addFile}" != "null" ]; then cp ${addFile} ${buildContext}/${addFile}; fi
-
+${addFileCopy}
             echo "Build context content:"
             ls -la "${buildContext}"
         """
@@ -77,8 +91,8 @@ The parameter 'projectBuildR'       = ${projectBuildR}
         script.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
-    def checkDeploymentRepo() {
-        def osCfg = state.cfg.deploy?.openshift?.rd ?: [:]
+    def checkDeploymentRepo(Map cfg = null) {
+        def osCfg = (cfg ?: state.cfg).deploy?.openshift?.rd ?: [:]
         String deploymentPath = osCfg?.deploymentPath
         if (deploymentPath) {
             script.dir(deploymentPath) {
@@ -162,6 +176,11 @@ The parameter 'projectBuildR'       = ${projectBuildR}
     }
 
     def copyImageToNexus() {
+        if (!BuildUtils.nexusDeliveryEnabled(state.cfg)) {
+            script.echo "[OPENSHIFT] ${state.currentProjectName}: Nexus delivery is disabled by ${BuildUtils.nexusDeliverySetting(state.cfg)} - no image is copied to Nexus"
+            state.projectNotRequired()
+            return
+        }
         def osCfg = state.cfg.deploy?.openshift?.rd ?: [:]
         String internalDockerUrl = osCfg.internalDockerUrl
 
@@ -212,7 +231,7 @@ The parameter 'openshiftCertDir'  = ${openshiftCertDir}
         boolean skipConfigDeploy = osCfg.skipConfigDeploy
 
         if (!buildTag && !BuildUtils.nexusDeliveryEnabled(state.cfg)) {
-            script.echo "[OPENSHIFT] ${state.currentProjectName}: ${envName.toUpperCase()} deployment not required - Nexus delivery is disabled by deploy.openshift.rd.nexusDeliveryEnabled and no buildTag is pinned"
+            script.echo "[OPENSHIFT] ${state.currentProjectName}: ${envName.toUpperCase()} deployment not required - Nexus delivery is disabled by ${BuildUtils.nexusDeliverySetting(state.cfg)} and no buildTag is pinned"
             state.projectNotRequired()
             return
         }

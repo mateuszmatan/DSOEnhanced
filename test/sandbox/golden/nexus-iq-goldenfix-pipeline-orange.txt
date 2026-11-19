@@ -109,12 +109,12 @@ find . \( -name '.git' -o -name 'node_modules' -o -name 'bower_components' -o -n
 sh [GoldenFix: pre-check gradle] #!/bin/bash
 set +e
 cd '/ws@tmp/goldenfix/GoldenFix-202609191405/gui' || exit 1
-[ -x ./gradlew ] && ./gradlew --no-daemon --console=plain classes || gradle --no-daemon --console=plain classes
+if [ -x ./gradlew ]; then ./gradlew --no-daemon --console=plain test; else gradle --no-daemon --console=plain test; fi
 
 sh [GoldenFix: pre-check gradle] #!/bin/bash
 set +e
 cd '/ws@tmp/goldenfix/GoldenFix-202609191405' || exit 1
-[ -x ./gradlew ] && ./gradlew --no-daemon --console=plain classes || gradle --no-daemon --console=plain classes
+if [ -x ./gradlew ]; then ./gradlew --no-daemon --console=plain test; else gradle --no-daemon --console=plain test; fi
 
 sh [GoldenFix: commit changes] #!/bin/bash
 set -euo pipefail

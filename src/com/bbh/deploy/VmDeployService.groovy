@@ -3,8 +3,6 @@ package com.bbh.deploy
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
-import com.bbh.utils.FlutterUtils
-import com.bbh.build.BuildRunner
 
 class VmDeployService implements Serializable {
     private final def         script
@@ -38,122 +36,6 @@ class VmDeployService implements Serializable {
         scpTo("./${scr}",     host, user, "${dir}/")
         scpTo("./${verFile}", host, user, "${dir}/")
         sshRun(host, user, "${dir}/${scr.tokenize('/').last()}")
-    }
-
-    void publishToNexus() {
-        def tool = state.cfg.buildTool ?: 'gradle'
-        if (BuildUtils.isDotnetTool(tool as String)) {
-            deliverDotnetNuget()
-            return
-        }
-        def cmd
-        if (os.isWindows()) {
-            cmd = (tool == 'maven')
-                ? (script.fileExists('mvnw.cmd') ? '.\\mvnw.cmd' : 'mvn')
-                : (script.fileExists('gradlew.bat') ? '.\\gradlew.bat' : 'gradle')
-        } else {
-            cmd = (tool == 'maven')
-                ? (script.fileExists('mvnw') ? './mvnw' : 'mvn')
-                : (script.fileExists('gradlew') ? './gradlew' : 'gradle')
-        }
-        switch (tool) {
-            case 'gradle': os.run("${cmd} publish"); break
-            case 'maven':  os.run("${cmd} deploy");  break
-            default:       script.echo "[NEXUS] Publish not configured for build tool: ${tool}"
-        }
-    }
-
-    void pushToNexus(String projectName) {
-        def buildNumber = script.env.BUILD_NUMBER
-        String tool = (state.cfg.buildTool ?: '') as String
-        if (BuildUtils.isDotnetTool(tool)) {
-            deliverDotnetNuget()
-            return
-        }
-        if (tool.trim() == 'maven') {
-            String filePathPattern = (state.cfg.build?.buildPath ?: '') as String
-            if (!filePathPattern) {
-                script.error "[NEXUS] build.buildPath must point at the artifact to publish, for example target/*.jar"
-            }
-            def file = filePathPattern
-            if (filePathPattern.contains("*")){
-                def files = script.findFiles(glob: filePathPattern)
-                if (files.length == 0){
-                    script.error("[NEXUS] No artifact matches build.buildPath '${filePathPattern}'")
-                }
-                file = files[0].path
-                script.echo "Found a file: ${file}."
-            }
-            deliverToNexusMaven(buildNumber, file, projectName)
-        }
-        if (tool.trim() == 'flutter') {
-            script.echo "${script.env.version}"
-            FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName, state.platform)
-            FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName, state.platform)
-        }
-    }
-
-    private void deliverDotnetNuget() {
-        Map nugetCfg = (state.cfg.delivery?.nuget ?: state.cfg.delivery?.dotnet ?: [:]) as Map
-        String source = (nugetCfg.source ?: nugetCfg.repositoryUrl ?: '') as String
-        if (!source) {
-            script.echo '[NEXUS] .NET NuGet publish not configured (set delivery.nuget.source)'
-            return
-        }
-        String pattern = (nugetCfg.packagePattern ?: state.cfg.build?.buildPath ?: '**/*.nupkg') as String
-        List<String> nupkgs = []
-        try {
-            for (def f : script.findFiles(glob: pattern)) {
-                String p = (f?.path ?: '') as String
-                if (p && p.toLowerCase().endsWith('.nupkg')) nupkgs << p
-            }
-        } catch (Exception ignored) {}
-        if (!nupkgs) {
-            script.error "[NEXUS] No .nupkg package matching '${pattern}' found for delivery.nuget"
-        }
-        String credId = (nugetCfg.credentialsId ?: nugetCfg.apiKeyCredentialsId ?: '') as String
-        boolean useCli = !os.isWindows() || BuildUtils.booleanValue(state.cfg.build?.dotnet?.useDotnetCli, false)
-        Closure pushAll = { String keyExpr ->
-            for (String pkg : nupkgs) {
-                if (useCli) {
-                    String args = keyExpr ? " --api-key ${keyExpr}" : ''
-                    os.run("dotnet nuget push '${pkg}' --source '${source}'${args}")
-                } else {
-                    String args = keyExpr ? " -ApiKey ${keyExpr}" : ''
-                    os.run("nuget.exe push '${pkg}' -Source '${source}'${args} -NonInteractive")
-                }
-            }
-        }
-        if (credId) {
-            script.withCredentials([script.string(credentialsId: credId, variable: 'NUGET_API_KEY')]) {
-                pushAll(os.isWindows() ? '$env:NUGET_API_KEY' : '$NUGET_API_KEY')
-            }
-        } else {
-            pushAll('')
-        }
-    }
-
-    void deliverToNexusMaven(String version, String filePath, String projectName){
-        String extension = filePath.substring(filePath.lastIndexOf('.')+1)
-        Map mavenCfg = ((state.cfg.delivery ?: [:]).maven ?: [:]) as Map
-        if (!mavenCfg.goals) {
-            script.error "[NEXUS] delivery.maven.goals must be set for the service in ${state.settingsPlace()} to publish the Maven artifact"
-        }
-        def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
-        def now = new Date()
-        def nowFormat = now.format("yyyyMMdd-HHmmss", TimeZone.getTimeZone('UTC'))
-        def  buildTag= "$version-$nowFormat"
-        Map runnerCfg = [maven: [:] + mavenCfg]
-        runnerCfg.maven.flags = ((mavenCfg.flags ?: []) as List) + ["-Dversion=${buildTag}-SNAPSHOT".toString(),
-                                                                    "-Dpackaging=${extension}".toString(),
-                                                                    "-Dfile=${filePath}".toString()]
-        BuildRunner runner = new BuildRunner(script, runnerCfg, 'maven')
-        if (!runner.ifExist()) {
-            script.error "[BUILD] Build tool is NOT installed on an agent"
-        }
-        runner.run()
-        baseConfig.projects[projectName].delivery = buildTag
-        script.writeYaml file: BuildUtils.runStateFile(), data: baseConfig, overwrite: true
     }
 
     void bumpVersion(String versionFile, String newVersion) {
@@ -319,7 +201,7 @@ class VmDeployService implements Serializable {
                 componentName: componentName,
                 delivery: [
                     $class              : "Push",
-                    baseDir             : baseDir,
+                    baseDir             : absolutePath(baseDir),
                     fileIncludePatterns : fileIncludePatterns,
                     fileExcludePatterns : fileExcludePatterns,
                     pushVersion         : version,
@@ -435,13 +317,29 @@ if (\$hit) { Write-Output '0' } else { Write-Output '1' }
     }
 
     private String resolveBuildId() {
-        String buildId = script.env.BUILD_ID ?: script.env.BUILD_NUMBER
-
-        if (!buildId) {
-            script.error '[DOD] Neither BUILD_ID nor BUILD_NUMBER is available'
+        String buildTag = state.buildTag
+        if (!buildTag && script.fileExists(NexusDeliveryService.buildTagFile())) {
+            buildTag = ((script.readFile(file: NexusDeliveryService.buildTagFile()) ?: '') as String).trim()
+            if (buildTag) state.buildTag = buildTag
         }
-
+        if (buildTag) {
+            script.echo "[DOD] Build tag: ${buildTag}"
+            state.deliveredBuildTags[state.currentProjectName] = buildTag
+            return buildTag
+        }
+        String buildId = script.env.BUILD_ID ?: script.env.BUILD_NUMBER
+        if (!buildId) {
+            script.error "[DOD] There is no ${NexusDeliveryService.buildTagFile()}, and neither BUILD_ID nor BUILD_NUMBER is available"
+        }
+        script.echo "[DOD] No ${NexusDeliveryService.buildTagFile()} from a Nexus delivery: the versions use the build number ${buildId}"
         return buildId
+    }
+
+    private String absolutePath(String path) {
+        if (BuildUtils.isAbsolutePath(path)) return path
+        String base = (script.pwd() as String).replaceAll(/[\\\/]+$/, '')
+        String relative = path.replaceFirst(/^\.[\\\/]/, '')
+        return relative in ['', '.'] ? base : "${base}/${relative}".toString()
     }
 
     private void sshRun(String host, String user, String remoteCmd) {

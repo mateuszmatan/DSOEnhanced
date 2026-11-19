@@ -40,7 +40,7 @@ class ScenarioRunner {
             Map archived = yaml.load(yaml.dump(projects)) as Map
             (context.archive as Closure).call(archived.projects as Map, spec)
             Map gate = [job: securityJob, build: '213', allowed: !spec.upstreamViolations, violations: spec.upstreamViolations ?: []]
-            j.upstream[securityJob] = ['pipeline-config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)]
+            j.upstream[securityJob] = ['pipeline-config.yaml': yaml.dump(archived), 'release-gate.json': groovy.json.JsonOutput.toJson(gate)] + ((spec.upstreamFiles ?: [:]) as Map)
         }
         Map upstreamJob = spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:]
         Map jenkinsfile = spec.keyless ?
@@ -101,6 +101,13 @@ class ScenarioRunner {
                 j.files[relative(out)] = out.endsWith('.pdf') ? '%PDF-1.7' : issuesHtml((out.contains('dast') ? d.dast : d.sast) as List)
             }
             if (text.contains('.irx')) j.files["${j.env.APPSCAN_SCAN_NAME}.irx".toString()] = 'irx'
+            def helpOutput = text =~ /-Dexpression=settings\.localRepository'? '?-Doutput=([^\s']+)/
+            if (helpOutput.find()) j.files[helpOutput.group(1)] = '/home/jenkins/.m2/repository\n'
+            def fetched = text =~ /-Dartifact=([^:\s']+):([^:\s']+):([^:\s']+):([^:\s']+):([^:\s']+)'? '?-Dmaven\.repo\.local=([^\s']+)/
+            if (fetched.find()) {
+                String g = fetched.group(1), art = fetched.group(2), v = fetched.group(3), ext = fetched.group(4), cls = fetched.group(5)
+                j.files["${fetched.group(6)}/${g.replace('.', '/')}/${art}/${v}/${art}-${v}-${cls}.${ext}".toString()] = 'downloaded'
+            }
             if (!a.returnStdout) return null
             Object goldenFix = spec.goldenFix ? GoldenFixResponder.sh(j, a, goldenFixCalls, manifests, reports) : null
             if (goldenFix != null) return goldenFix
@@ -129,6 +136,7 @@ class ScenarioRunner {
             if (text.contains('/policy')) return '{"components":[]}\n200'
             if (text.contains('print -quit')) return '0'
             if (text.contains('date +%Y%m%d%H%M')) return '202609191405'
+            if (text.contains('mktemp -d')) return '/ws@tmp/nexus-gradle.Ab12Cd34'
             if (text.contains('skopeo copy')) return 'Copying blob sha256:5f1c done'
             if (text.contains('head -n 1')) return project() == 'gui' ? 'build/libs/cert-scanner-gui.jar' : 'target/certscanner-api.jar'
             return ''

@@ -947,7 +947,7 @@ Map bomFileRun = catalogRun([
         'svc-a/pom.xml'   : platformChild('svc-a'),
         'svc-b/pom.xml'   : platformChild('svc-b')
 ], [[name: 'svc-a', goldenFix: [versionCatalogs: ['platform/bom.xml']], fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]],
-        [verify: true, fails: { Map w, String sh -> sh.contains("/platform' ||") && !sh.contains("mvn -B -q -DskipTests compile -f 'bom.xml'") }])
+        [verify: true, fails: { Map w, String sh -> sh.contains("/platform' ||") && !sh.contains("mvn -B -q test -f 'bom.xml'") }])
 check('GoldenFix catalogs: a listed parent pom with another file name is read, and verified in its own folder with mvn -f when no aggregator builds it',
         bomFileRun.errors.isEmpty() && gfOf(bomFileRun, 'svc-a').status == 'PR_CREATED' && !reasonsOf(bomFileRun, 'svc-a')
                 && ((bomFileRun.written as Map)['platform/bom.xml'] as String)?.contains('<jackson.version>2.13.5</jackson.version>') && bomFileRun.builds == [cdTo('platform')],
@@ -958,8 +958,31 @@ List bomPlans = verifierHarness.run {
 } as List
 check('GoldenFix pre-check: mvn -f builds a shared pom with another name only where no aggregator builds it, and the aggregator in its folder is built as it is',
         bomPlans.collect { (it as List).collect { "${it.subDir}: ${it.command}".toString() } } ==
-                [["platform: mvn -B -q -DskipTests compile -f 'bom.xml'"], ['platform: mvn -B -q -DskipTests compile']],
+                [["platform: mvn -B -q test -f 'bom.xml'"], ['platform: mvn -B -q test']],
         bomPlans)
+({ ->
+Map unitTestPlans = verifierHarness.run {
+    def testVerifier = verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript())
+    Map out = [:]
+    for (String file : ['pom.xml', 'build.gradle', 'web/package.json', 'requirements.txt', 'pyproject.toml', 'app/pubspec.yaml', 'src/App.csproj', 'Directory.Packages.props', 'packages.config']) {
+        Map planned = (testVerifier.plan([file], [:]) as List)[0] as Map
+        out[file] = [linux: planned.command, windows: testVerifier.windowsPrecheckCommand(planned)]
+    }
+    out
+} as Map
+check('GoldenFix pre-check: the default check of every ecosystem builds the project and runs its unit tests, on Linux and on Windows',
+        (unitTestPlans['pom.xml'] as Map).linux == 'mvn -B -q test' && (unitTestPlans['pom.xml'] as Map).windows == 'mvn -B -q test'
+                && ((unitTestPlans['build.gradle'] as Map).linux as String).contains('./gradlew --no-daemon --console=plain test;') && ((unitTestPlans['build.gradle'] as Map).windows as String).contains('.\\gradlew.bat --no-daemon --console=plain test')
+                && ((unitTestPlans['web/package.json'] as Map).linux as String).contains('then CI=true npm test; fi') && ((unitTestPlans['web/package.json'] as Map).windows as String).contains("\$env:CI = 'true'; npm test")
+                && ((unitTestPlans['requirements.txt'] as Map).linux as String).contains("pip install -q -r 'requirements.txt'") && ((unitTestPlans['requirements.txt'] as Map).linux as String).contains('-m pytest -q')
+                && ((unitTestPlans['requirements.txt'] as Map).windows as String).contains("pip install -q -r 'requirements.txt'") && ((unitTestPlans['pyproject.toml'] as Map).linux as String).contains('pip install -q . ')
+                && ((unitTestPlans['app/pubspec.yaml'] as Map).linux as String).contains('"$tool" test') && ((unitTestPlans['app/pubspec.yaml'] as Map).windows as String).contains('& $tool test')
+                && (unitTestPlans['src/App.csproj'] as Map).linux == "dotnet test 'App.csproj'" && ((unitTestPlans['src/App.csproj'] as Map).windows as String).contains("else { dotnet test 'App.csproj' }")
+                && ((unitTestPlans['src/App.csproj'] as Map).windows as String).contains("MSBuild.exe 'App.csproj' /t:Build")
+                && (unitTestPlans['Directory.Packages.props'] as Map).linux == 'dotnet test'
+                && (unitTestPlans['packages.config'] as Map).linux == "nuget restore 'packages.config' -NonInteractive",
+        unitTestPlans)
+})()
 List bomOverridePlans = verifierHarness.run {
     def bomVerifier = verifierHarness.type('com.bbh.build.ManifestBuildVerifier').newInstance(new FakeScript())
     Map maven = [maven: 'mvn -B -q -DskipTests verify']
@@ -2234,16 +2257,17 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
             def os = dnHarness.type('com.bbh.core.OsHelper').newInstance(deployWinScript)
             os.detect()
             def vm = dnHarness.type('com.bbh.deploy.VmDeployService').newInstance(deployWinScript, state, os)
+            def delivery = dnHarness.type('com.bbh.deploy.NexusDeliveryService').newInstance(deployWinScript, state, os)
             state.currentProjectName = 'orders-api'
             state.cfg = [
                     buildTool: 'dotnet',
                     delivery : [nuget: [source: 'https://tools.bbh.com/nexus/repository/nuget-hosted/', credentialsId: 'nuget-key', packagePattern: '**/*.nupkg']],
                     deploy   : [vm: [dod: [siteName: 'deploy.bbh.com', deployProcess: 'iis', applications: [[applicationName: 'Orders', components: [[componentName: 'OrdersPkg', baseDir: 'dist', fileIncludePatterns: '*.nupkg']]]]]]]
             ]
-            vm.pushToNexus('orders-api')
+            delivery.pushToNexus('orders-api')
             vm.verifyComponentFiles('OrdersPkg', 'dist', '*.nupkg')
             state.cfg.build = [dotnet: [useDotnetCli: true]]
-            vm.pushToNexus('orders-api')
+            delivery.pushToNexus('orders-api')
         }
 
         FakeScript ocpScript = new FakeScript(unix: true)

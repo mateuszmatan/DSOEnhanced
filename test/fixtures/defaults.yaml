@@ -65,16 +65,16 @@ defaults:
                                    # 1. only the patch version may change, x.y stays as it is
                                    # 2. of those, the newest one without known vulnerabilities
                                    # with no patch level offer the dependency is left untouched
-    verify:                          # pre-check: build the project with the proposed versions before opening the PR
+    verify:                          # pre-check: build the project with the proposed versions and run its unit tests before opening the PR
       maxAttempts:    3              # how many version sets are tried before giving up
       timeoutMinutes: 20
       commands:                      # one check per ecosystem whose manifest changed, defaults shown
-        maven:  ""                   # mvn -B -q -DskipTests compile
-        gradle: ""                   # ./gradlew --no-daemon --console=plain classes
-        npm:    ""                   # npm ci --ignore-scripts (npm install without a lock file)
-        pip:    ""                   # python3 -m pip install --dry-run -r <file>
-        pub:    ""                   # flutter pub get
-        nuget:  ""                   # nuget restore && MSBuild /t:Build (Windows) or dotnet build --no-incremental
+        maven:  ""                   # mvn -B -q test
+        gradle: ""                   # ./gradlew --no-daemon --console=plain test
+        npm:    ""                   # npm ci --ignore-scripts (npm install without a lock file), then npm test
+        pip:    ""                   # pip install -r <file> in a temporary venv, then pytest
+        pub:    ""                   # flutter pub get, then flutter test (dart for a Dart package)
+        nuget:  ""                   # dotnet test; nuget restore && MSBuild /t:Build on Windows with MSBuild.exe (build only)
     commitAuthorName:  "DevSecOps GoldenFix"
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default

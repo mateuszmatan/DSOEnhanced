@@ -321,7 +321,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         if (!ws) throw new FakeAbort('pwd needs a node: no workspace outside node')
         return ws
     }
-    def pwd(Map args) { args.tmp ? pwd() + '@tmp' : pwd() }
+    def pwd(Map args) { args?.tmp ? pwd() + '@tmp' : pwd() }
     def node(Object label, Closure body) {
         calls << "node ${label}".toString()
         return onAgent(label, body)
@@ -375,7 +375,8 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         }
         if (copied.isEmpty()) throw new FakeAbort("Failed to copy artifacts from ${args.projectName} with filter: ${args.filter}")
     }
-    def step(Map args) { calls << "step ${args.get('$class')}".toString() }
+    List<Map> stepArgs = []
+    def step(Map args) { stepArgs << args; calls << "step ${args.get('$class')}".toString() }
     def waitUntil(Closure body) {
         int attempts = 0
         while (!(body.call() as boolean)) {

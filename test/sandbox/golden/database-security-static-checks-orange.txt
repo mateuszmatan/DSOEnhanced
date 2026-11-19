@@ -388,7 +388,7 @@ if [ "$code" -ge 300 ]; then
 fi
 
 sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
 publishHTML pipeline-report.html
 cleanWs
 == log

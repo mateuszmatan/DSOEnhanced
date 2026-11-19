@@ -32,6 +32,7 @@ String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
 String STATIC = 'Static analysis'
 String SNAPSHOT = 'Nexus delivery (Static analysis passed)'
+String PULL = 'Download artifacts from Nexus Repo'
 String RD = 'Lower test region deployment'
 String REGRESSION = 'Regression tests (>60% user stories coverage)'
 String SMOKE = 'Smoke tests'
@@ -83,7 +84,7 @@ Map runnerContext = [root: root, defaultsText: defaultsText, configText: configT
 Closure runPipeline = { Map spec -> ScenarioRunner.runPipeline(spec, runnerContext) }
 
 List<String> staticStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
-List<String> extendedStages = [MONITOR, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+List<String> extendedStages = [MONITOR, PULL, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 List<String> fullStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 
 File goldenDir = new File(root, 'test/sandbox/golden')
@@ -141,7 +142,9 @@ List<Map> keylessMarks = [
         rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, ''),
         rule('a run without a key has no portal to send the report to', /(?ms)^withEnv \[PORTAL_URL=[^\n]*\n.*?^sh rm -f 'portal_report_[^\n]*\n/, ''),
         rule('a run without a key names its settings file in the warning about an AppScan key of a service',
-                /(?m)^(\[WARN\] [^:\n]+: [^\n]*?) in [\w-]*config\.yaml ignored - /, '$1 in the DevSecOps portal ignored - ')
+                /(?m)^(\[WARN\] [^:\n]+: [^\n]*?) in [\w-]*config\.yaml ignored - /, '$1 in the DevSecOps portal ignored - '),
+        rule('a run without a key names its settings file where a Gradle service lacks the artifacts of its Nexus delivery',
+                /(?m)^(\[NEXUS\] [^:\n]+: delivery\.push\.gradle\.artifacts is not set) in [\w-]*config\.yaml - /, '$1 in the DevSecOps portal - ')
 ]
 List<Map> keylessRules = [bootstrapRule, portalLogRule,
                           rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
@@ -339,13 +342,16 @@ Closure verify = { Map spec ->
                 log.findAll { it.startsWith('[DAST]') }.join(' | '))
     }
     if (spec.var == 'devSecOpsExtendedPipeline') {
-        check("${name}: the run-state file and the release gate are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json'),
+        check("${name}: the run-state file, the release gate and the build tag are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json,build.tag'),
                 j.calls.findAll { it.startsWith('copyArtifacts') })
     }
     if (spec.mavenVmDelivery) {
-        check("${name}: the Maven artifact is deployed to the Nexus snapshot repository and the version is written back",
-                j.calls.count('writeYaml pipeline-config.yaml') == 2 && (j.log.any { it.contains('deploy:deploy-file') && it.contains('-Dfile=') }),
-                j.log.findAll { it.contains('Execute Maven Command') }.join(' | '))
+        String deliveredTag = (j.files['build.tag'] ?: '') as String
+        check("${name}: the Maven artifact is deployed to the Nexus snapshot repository under the tag of the run, which goes to build.tag and not into the run-state file",
+                j.calls.count('writeYaml pipeline-config.yaml') == 1 && deliveredTag ==~ /${spec.buildNumber}-\d{8}-\d{6}/
+                        && j.log.any { it.contains('deploy:deploy-file') && it.contains("'-Dversion=${deliveredTag}-SNAPSHOT' '-Dpackaging=jar' '-Dfile=target/certscanner-api.jar'") }
+                        && !j.log.any { it.contains('-Dclassifier=') },
+                [deliveredTag] + j.log.findAll { it.contains('Execute Maven Command') })
     }
     if (spec.executed.contains(SNAPSHOT) && !spec.mavenVmDelivery) {
         check("${name}: the OpenShift image is built and copied to Nexus", (r.openshift as FakeOpenShift).calls.contains('startBuild certscanner-api')
@@ -582,15 +588,91 @@ String onlyBackendDora = influxOf(onlyBackend.j as FakeScript).readLines().find 
 check('full pipeline, Nexus delivery disabled for the only service: the dora point counts no deployment, because the deployment stages are NOT_REQUIRED',
         onlyBackendDora.contains(' deployment=0i,'), onlyBackendDora)
 
+Map guiGradlePush = [group: 'com.bbh.certscanner', artifact: 'certscanner-gui', repositoryUrl: 'https://tools.bbh.com/nexus/repository/snapshots',
+                     artifacts: [[path: 'build/libs/*.jar']]]
 Map oneDelivery = focused([name: 'full pipeline, Nexus delivery disabled for one service', buildNumber: 356, configure: { Map p ->
     rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+    (p.gui as Map).delivery = [push: [gradle: guiGradlePush]]
 }])
+FakeScript oneDeliveryJenkins = oneDelivery.j as FakeScript
+String oneDeliveryTag = (oneDeliveryJenkins.files['build.tag'] ?: '') as String
+Map gradleManifest = (oneDeliveryJenkins.jsonFiles['/ws@tmp/nexus-gradle.Ab12Cd34/manifest.json'] ?: [:]) as Map
+String gradlePush = oneDeliveryJenkins.calls.find { it.startsWith('sh [Nexus Gradle push] ') } ?: ''
 check('full pipeline, Nexus delivery disabled for one service: the stages stay PASS for the service that delivered and deployed, and the other service is skipped',
         [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) } == ['PASS'] * 3
                 && !(oneDelivery.openshift as FakeOpenShift).calls.any { it.startsWith('startBuild') || it.startsWith('rollout') }
-                && (oneDelivery.j as FakeScript).calls.count('step UCDeployPublisher') == 2
-                && (oneDelivery.j as FakeScript).log.count { it.startsWith('[OPENSHIFT] backend-api:') } == 2,
+                && oneDeliveryJenkins.calls.count('step UCDeployPublisher') == 2
+                && oneDeliveryJenkins.log.count { it.startsWith('[OPENSHIFT] backend-api:') } == 2,
         [SNAPSHOT, RD, QC].collect { resultOf(oneDelivery, it) })
+check('full pipeline, Gradle Nexus delivery: the wrapper of the service publishes the matched files under the tag of the run on a project of the temporary folder, which is removed, and build.tag names the tag',
+        oneDeliveryTag ==~ /356-\d{8}-\d{6}/
+                && gradlePush.contains("'./gradlew' 'publishNexusDeliveryPublicationToNexusRepository' '--no-daemon' '--no-configuration-cache' '--project-dir' '/ws@tmp/nexus-gradle.Ab12Cd34' '-PnexusManifest=/ws@tmp/nexus-gradle.Ab12Cd34/manifest.json'")
+                && gradleManifest == [group: 'com.bbh.certscanner', artifact: 'certscanner-gui', repositoryUrl: 'https://tools.bbh.com/nexus/repository/snapshots',
+                                      allowInsecureProtocol: false, version: "${oneDeliveryTag}-SNAPSHOT".toString(),
+                                      artifacts: [[fileName: 'cert-scanner-gui.jar', extension: 'jar', classifier: 'cert-scanner-gui', path: '/ws/build/libs/cert-scanner-gui.jar']]]
+                && oneDeliveryJenkins.files['/ws@tmp/nexus-gradle.Ab12Cd34/build.gradle']?.contains("tasks.register('pullNexusArtifacts')")
+                && oneDeliveryJenkins.calls.contains("sh [Nexus Gradle push: remove the project folder] rm -rf -- '/ws@tmp/nexus-gradle.Ab12Cd34'")
+                && oneDeliveryJenkins.log.any { it == "[NEXUS] gui: uploaded 1 artifact(s) as ${oneDeliveryTag}-SNAPSHOT".toString() }
+                && oneDeliveryJenkins.log.any { it == "[DOD] Build tag: ${oneDeliveryTag}".toString() },
+        [oneDeliveryTag, gradlePush, gradleManifest] + oneDeliveryJenkins.log.findAll { it.startsWith('[NEXUS]') || it.startsWith('[DOD] Build') })
+List<Map> dodPushes = oneDeliveryJenkins.stepArgs.findAll { it.get('$class') == 'UCDeployPublisher' && (it.component as Map)?.delivery }.collect { ((it.component as Map).delivery as Map) }
+check('full pipeline, Gradle Nexus delivery: DOD pushes the component from the absolute base directory of the workspace with a version of the build tag',
+        dodPushes.size() == 1 && dodPushes.every { it.baseDir == '/ws/gui/build/libs' && it.pushVersion == "*.jar_${oneDeliveryTag}".toString() },
+        dodPushes.collect { [it.baseDir, it.pushVersion] })
+Map gradleEvidence = focused([name: 'full pipeline, Gradle Nexus delivery without artifacts', buildNumber: 358, configure: { Map p ->
+    rdOf(p, 'backend-api', 'openshift').nexusDeliveryEnabled = false
+}])
+check('full pipeline, Gradle Nexus delivery without artifacts: the service is not required in stage 6, nothing is published and the UrbanCode versions use the build number',
+        resultOf(gradleEvidence, SNAPSHOT) == 'NOT_REQUIRED' && !(gradleEvidence.j as FakeScript).files.containsKey('build.tag')
+                && (gradleEvidence.j as FakeScript).log.contains('[NEXUS] gui: delivery.push.gradle.artifacts is not set in the DevSecOps portal - the Gradle artifact is not published')
+                && (gradleEvidence.j as FakeScript).log.any { it == '[DOD] No build.tag from a Nexus delivery: the versions use the build number 358' },
+        [resultOf(gradleEvidence, SNAPSHOT)] + (gradleEvidence.j as FakeScript).log.findAll { it.startsWith('[NEXUS]') || it.startsWith('[DOD] No') })
+
+Map pulled = runPipeline([name: 'extended pipeline, Nexus download', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 121,
+                          params: [:], upstreamFiles: ['build.tag': '213-20260919-081500'], configure: { Map p ->
+    (p.gui as Map).delivery = [pull: [outputDirectory: 'downloaded-artifacts', gradle: guiGradlePush + [artifacts: [[path: 'cert-scanner-gui.jar']]]]]
+}])
+FakeScript pulledJenkins = pulled.j as FakeScript
+Map pullManifest = (pulledJenkins.jsonFiles['/ws@tmp/nexus-gradle.Ab12Cd34/manifest.json'] ?: [:]) as Map
+check('extended pipeline, Nexus download: the snapshot named in build.tag of the security run is downloaded for the VM service, the OpenShift service is not required, and UrbanCode Deploy versions the components with the same tag',
+        !pulled.crash && (pulled.var as FakeCpsScript).executedStages[0..2] == [MONITOR, PULL, RD] && resultOf(pulled, PULL) == 'PASS'
+                && pulledJenkins.calls.any { it.startsWith('sh [Nexus Gradle pull] ') && it.contains("'./gradlew' 'pullNexusArtifacts' '--no-daemon'") }
+                && pullManifest.version == '213-20260919-081500-SNAPSHOT' && pullManifest.outputDirectory == '/ws/downloaded-artifacts'
+                && pullManifest.artifacts == [[fileName: 'cert-scanner-gui.jar', extension: 'jar', classifier: 'cert-scanner-gui']]
+                && pulledJenkins.log.contains('[NEXUS] backend-api: an OpenShift service deploys its image - no artifact is downloaded from Nexus')
+                && pulledJenkins.log.contains('[DOD] Build tag: 213-20260919-081500')
+                && pulledJenkins.calls.count('step UCDeployPublisher') == 2
+                && influxOf(pulledJenkins).readLines().any { it.startsWith('build_evidence,') && it.contains('module=gui artifact_version="213-20260919-081500"') },
+        [pulled.crash, (pulled.var as FakeCpsScript).executedStages, resultOf(pulled, PULL), pullManifest] + pulledJenkins.log.findAll { it.startsWith('[NEXUS]') || it.startsWith('[DOD]') })
+
+Map mavenPulled = runPipeline([name: 'extended pipeline, Maven Nexus download', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 122,
+                               params: [:], upstreamFiles: ['build.tag': '213-20260919-081500'], configure: { Map p ->
+    Map backend = p['backend-api'] as Map
+    backend.deployTarget = 'vm'
+    (backend.deploy as Map).vm = [dod: [siteName: 'deploy.bbh.com', applications: [[applicationName: 'CertScanner-API', components: [[componentName: 'CertScanner-API-app', baseDir: 'gui/build/libs', fileIncludePatterns: '*.jar']]]]]]
+    backend.delivery = [pull: [group: 'com.bbh.certscanner', artifact: 'certscanner-api',
+                               maven: [goals: ['org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get'], artifacts: [[path: 'certscanner-api.jar'], [path: 'config.zip', classifier: 'config']]]]]
+}])
+FakeScript mavenPulledJenkins = mavenPulled.j as FakeScript
+List<String> mavenGets = mavenPulledJenkins.calls.findAll { it.contains("'-Dartifact=") }
+check('extended pipeline, Maven Nexus download: every artifact is fetched by its classifier into the local repository Maven reports and copied into the output folder under its file name',
+        !mavenPulled.crash && resultOf(mavenPulled, PULL) == 'PASS' && mavenGets.size() == 2
+                && mavenGets[0].contains("'org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get' '-Dartifact=com.bbh.certscanner:certscanner-api:213-20260919-081500-SNAPSHOT:jar:certscanner-api' '-Dmaven.repo.local=/home/jenkins/.m2/repository'")
+                && mavenGets[1].contains("'-Dartifact=com.bbh.certscanner:certscanner-api:213-20260919-081500-SNAPSHOT:zip:config' ")
+                && mavenPulledJenkins.calls.any { it.contains("'org.apache.maven.plugins:maven-help-plugin:3.5.2:evaluate' '-Dexpression=settings.localRepository' '-Doutput=/ws@tmp/nexus-local-repository.txt'") }
+                && mavenPulledJenkins.calls.contains("sh cp -- '/home/jenkins/.m2/repository/com/bbh/certscanner/certscanner-api/213-20260919-081500-SNAPSHOT/certscanner-api-213-20260919-081500-SNAPSHOT-config.zip' 'downloaded-artifacts/config.zip'")
+                && mavenPulledJenkins.log.contains('[NEXUS] backend-api: downloaded 2 artifact(s) of 213-20260919-081500-SNAPSHOT to downloaded-artifacts')
+                && mavenPulledJenkins.log.contains('[NEXUS] gui: delivery.pull is not set - no artifact is downloaded from Nexus'),
+        [mavenPulled.crash, resultOf(mavenPulled, PULL)] + mavenGets + mavenPulledJenkins.log.findAll { it.startsWith('[NEXUS]') })
+
+Map pullWithoutTag = runPipeline([name: 'extended pipeline, Nexus download without build.tag', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 123,
+                                  params: [:], configure: { Map p ->
+    (p.gui as Map).delivery = [pull: [gradle: guiGradlePush + [artifacts: [[path: 'cert-scanner-gui.jar']]]]]
+}])
+check('extended pipeline, Nexus download without build.tag: the stage fails with the file it misses and what writes it',
+        (pullWithoutTag.j as FakeScript).log.any { it.contains('[NEXUS] gui: there is no build.tag - the security pipeline writes it when it publishes the snapshot') }
+                && resultOf(pullWithoutTag, PULL) == 'FAIL',
+        [resultOf(pullWithoutTag, PULL)] + (pullWithoutTag.j as FakeScript).log.findAll { it.contains('[NEXUS]') })
 
 Closure nodeOf = { Map p, String project -> (((p[project] as Map).build ?: [:]) as Map) }
 Closure firstCall = { FakeScript j, String prefix -> j.calls.findIndexOf { it.startsWith(prefix) } }
@@ -687,12 +769,11 @@ check('Nexus IQ GoldenFix pipeline, Node.js build: the Node.js build runs before
 Map extendedNode = runPipeline([name: 'extended pipeline, Node.js build', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 120,
                                 params: [DEPLOY_HIGHER_ENV: true], dastDisabledFor: 'backend-api', configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
 FakeScript extendedNodeJenkins = extendedNode.j as FakeScript
-check('extended pipeline, Node.js build: the release delivery builds Node.js once before the publish of the service that enables it, without a line for the other service',
-        !extendedNode.crash && (extendedNode.var as FakeCpsScript).executedStages == extendedStages && resultOf(extendedNode, RELEASE) == 'PASS'
-                && extendedNodeJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
-                && firstCall(extendedNodeJenkins, 'sh [Node.js: npm run build]') < firstCall(extendedNodeJenkins, 'sh ./gradlew publish')
-                && extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') } == ['[NODE] gui: Node.js from the agent PATH in the workspace: npm ci && npm run build'],
-        [extendedNode.crash, resultOf(extendedNode, RELEASE)] + extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') })
+check('extended pipeline, Node.js build: while no release delivery is implemented for Gradle, the release stage builds no Node.js frontend and runs no publish, and says so for every service',
+        !extendedNode.crash && (extendedNode.var as FakeCpsScript).executedStages == extendedStages && resultOf(extendedNode, RELEASE) == 'NOT_REQUIRED'
+                && !extendedNodeJenkins.calls.any { it.startsWith('sh [Node.js: ') || it.contains('gradlew publish') || it.contains('mvn deploy') }
+                && extendedNodeJenkins.log.count { it.contains('the release delivery of the safe artifact is not implemented yet for the build tool') } == 2,
+        [extendedNode.crash, resultOf(extendedNode, RELEASE)] + extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') || it.startsWith('[NEXUS]') })
 
 Closure staticLog = { Map r -> (r.j as FakeScript).log.findAll { it.startsWith('[STATIC] ') } }
 Closure stagesOf = { Map r -> [(r.var as FakeCpsScript).executedStages, (r.var as FakeCpsScript).skippedStages] }

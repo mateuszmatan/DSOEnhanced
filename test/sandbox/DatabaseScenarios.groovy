@@ -42,6 +42,7 @@ String SAST = 'SAST - Static Application Security Tests - HCL AppScan'
 String SONAR = 'SCA (SonarQube)'
 String STATIC = 'Static analysis'
 String SNAPSHOT = 'Nexus delivery (Static analysis passed)'
+String PULL = 'Download artifacts from Nexus Repo'
 String RD = 'Lower test region deployment'
 String REGRESSION = 'Regression tests (>60% user stories coverage)'
 String SMOKE = 'Smoke tests'
@@ -50,7 +51,7 @@ String DAST = 'DAST - Dynamic Application Security Tests - HCL AppScan'
 String RELEASE = 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities'
 String QC = 'Higher test environment deployment'
 List<String> securityStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT]
-List<String> extendedStages = [MONITOR, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+List<String> extendedStages = [MONITOR, PULL, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 List<String> fullStages = [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 
 int failures = 0
@@ -397,6 +398,10 @@ List<Map> goldenSpecs = [
             check('D7: dependency:get and dependency:copy fetch the coordinates of the delivery inside the DB work folder, and M-DB-63 names them',
                     fetch.size() == 2 && fetch.every { it.cwd == '/ws@tmp/dso-db/orders-db' && (it.script as String).contains("'-Dartifact=com.bbh.orders:orders-db:${delivered}-SNAPSHOT:zip'") }
                             && has(r, "[DB] orders-db: deploying the delivered package com.bbh.orders:orders-db:${delivered}-SNAPSHOT".toString()), fetch.collect { [it.cwd, it.script] })
+            check('D7: the Nexus download stage leaves the delivered package to the deployment, which still gets the version of the security run from the delivery of its run-state file',
+                    stageResults(r.j as FakeScript)[PULL] == 'NOT_REQUIRED'
+                            && has(r, '[NEXUS] orders-db: a Liquibase service fetches its delivered package when it is deployed - nothing is downloaded in this stage'),
+                    stageResults(r.j as FakeScript)[PULL])
             check('D7: RD, the release and QC use the fetched zip, and the run has no Unit tests stage',
                     online && online.every { it.contains("'--search-path=${zip}'") } && callsOf(r).any { it.contains("'-Dversion=${delivered}'") && it.contains("'-Dfile=/ws/${zip}'") }
                             && !stageResults(r.j as FakeScript).containsKey(UNIT) && !(r.j as FakeScript).files['release-gate.json'].contains(UNIT), online.take(1))

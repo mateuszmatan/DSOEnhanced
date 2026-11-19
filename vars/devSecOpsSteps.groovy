@@ -8,10 +8,13 @@ def monitorSources(def api, Map options = [:]) {
         }
         String upstream = (options.copyArtifactsFrom ?: '') as String
         if (upstream) {
-            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json', selector: lastSuccessful())
+            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json,build.tag', selector: lastSuccessful())
         }
         api.initialize()
         api.checkoutAdditionalRepositories()
+        if (!options.skipDeploymentRepo) {
+            api.checkDeploymentRepos()
+        }
     }
 }
 
@@ -139,12 +142,24 @@ def nexusSnapshotDelivery(def api) {
             if (api.databaseBlock()) {
                 api.databaseDelivery('snapshot')
             } else if (!api.nexusDeliveryEnabled()) {
-                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by deploy.${api.deployTarget()}.rd.nexusDeliveryEnabled - the artifact is not published")
+                api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by ${api.nexusDeliverySetting()} - the artifact is not published")
             } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
                 api.copyImageToNexus()
             } else {
                 api.pushToNexus(projectName)
+            }
+        }
+    }
+}
+
+def pullNexusSnapshot(def api) {
+    api.runStage('Download artifacts from Nexus Repo') {
+        api.eachProject { String projectName ->
+            if (api.databaseBlock()) {
+                api.notRequired("[NEXUS] ${projectName}: a Liquibase service fetches its delivered package when it is deployed - nothing is downloaded in this stage")
+            } else {
+                api.pullFromNexus(projectName)
             }
         }
     }
@@ -156,7 +171,6 @@ def lowerRegionDeployment(def api, String vmMode = 'ssh') {
             if (api.databaseBlock()) {
                 api.databaseDeploy('rd')
             } else if (api.deployTarget() == 'openshift') {
-                api.checkDeploymentRepo()
                 api.deployOpenshift('rd')
             } else if (vmMode == 'dod') {
                 api.deployDvWithDodPlugin()
@@ -209,7 +223,7 @@ def nexusReleaseDelivery(def api, Map options = [:]) {
             if (api.databaseBlock()) {
                 api.databaseDelivery('release')
             } else {
-                if (options.nodeBuild && api.nodeBuildEnabled()) {
+                if (options.nodeBuild && api.nodeBuildEnabled() && api.releaseDeliveryAvailable()) {
                     api.nodeBuild()
                 }
                 api.publishArtifactQC()
