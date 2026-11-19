@@ -9,6 +9,7 @@ import com.bbh.core.PolicyEngine
 import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.RestClient
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.LiquibaseOutput
 import com.cloudbees.groovy.cps.NonCPS
 
 class AppScanService implements Serializable {
@@ -95,11 +96,13 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
             state.sastScansByAppId[appId] = [primaryProject: state.currentProjectName, scanName: (script.env.APPSCAN_SCAN_NAME ?: '').trim(), completed: false, counts: null]
         }
         if (!script.env.APPSCAN_SOURCE_DIR_RESOLVED?.trim()) script.error "APPSCAN_SOURCE_DIR_RESOLVED not set"
+        boolean database = BuildUtils.databaseBlock(state.cfg)
         boolean doCompile = BuildUtils.booleanValue(state.cfg.asoc?.doCompile, true)
-        boolean sourceCodeOnly = BuildUtils.booleanValue(state.cfg.asoc?.sourceCodeOnly, false)
+        boolean sourceCodeOnly = BuildUtils.booleanValue(state.cfg.asoc?.sourceCodeOnly, false) || database
         boolean useAppScanConfig = BuildUtils.booleanValue(state.cfg.asoc?.useAppScanConfig, false)
         String scoOption = sourceCodeOnly ? '-sco' : ''
         def tm = timeoutMin ?: (state.cfgDefaults.sast?.prepareTimeoutMin ?: 120) as int
+        if (database) databaseSources()
         script.timeout(time: tm, unit: 'MINUTES') {
             script.withEnv([
                     "APPSCAN_CMD_RUNTIME=${appscanCmd()}",
@@ -439,6 +442,15 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         }
     }
 
+    private void databaseSources() {
+        String name = state.currentProjectName
+        script.echo "[SAST] ${name}: SQL and PL/SQL sources - the scan has no compile step"
+        String listed = script.sh(returnStdout: true, label: "DB: list the files AppScan does not scan for ${name}",
+                script: LiquibaseOutput.unscannedScript((state.cfg.sourceDir ?: '.') as String)) as String
+        String text = LiquibaseOutput.unscanned(name, listed)
+        if (text) script.echo text
+    }
+
     void removeStagedSources() {
         if (os.isWindows()) {
             script.powershell 'Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'
@@ -517,6 +529,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 state.sastScansByAppId[appId].counts = counts
             }
         } else {
+            if (BuildUtils.databaseBlock(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
         }
     }
@@ -551,6 +564,14 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void dastScan() {
         def cfgDast = state.cfg.dast ?: [:]
+        if (BuildUtils.databaseBlock(state.cfg) && !(cfgDast.enabled as boolean)) {
+            script.echo "[DAST] ${state.currentProjectName}: a SQL and PL/SQL service has no web application to scan - DAST is not required"
+            state.recordScan('dast', 'NOT_REQUIRED')
+            state.recordVulns('dast', [critical: 0, high: 0, medium: 0, low: 0])
+            state.projectNotRequired()
+            if (state.policyStatus['dast'] == 'SKIP') state.policyStatus['dast'] = 'NOT_REQUIRED'
+            return
+        }
         if (!(cfgDast.enabled as boolean)) {
             script.echo "[DAST] Disabled in config - not required for this project."
             state.stageResults['DAST - Dynamic Application Security Tests - HCL AppScan'] = 'NOT_REQUIRED'

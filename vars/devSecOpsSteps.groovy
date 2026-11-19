@@ -35,8 +35,12 @@ def nodeBuild(def api) {
 def unitTests(def api) {
     api.runStage('Unit tests') {
         api.eachProject {
-            api.unitTests()
-            api.checkCoverage()
+            if (api.databaseBlock()) {
+                api.databaseTests()
+            } else {
+                api.unitTests()
+                api.checkCoverage()
+            }
             api.unitTestsFinished()
         }
     }
@@ -45,14 +49,18 @@ def unitTests(def api) {
 def buildArtifacts(def api) {
     api.runStage('Build artifact') {
         api.eachProject { String projectName ->
-            if (api.nodeBuildNeeded()) {
-                api.nodeBuild()
-            } else if (api.nodeBuildEnabled()) {
-                api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
+            if (api.databaseBlock()) {
+                api.databaseBuild()
             } else {
-                api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+                if (api.nodeBuildNeeded()) {
+                    api.nodeBuild()
+                } else if (api.nodeBuildEnabled()) {
+                    api.notRequired("[NODE] ${projectName}: the SAST scan does not compile this service - no Node.js build")
+                } else {
+                    api.notRequired("[NODE] ${projectName}: build.node.enabled is not set - no Node.js build")
+                }
+                api.buildArtifact()
             }
-            api.buildArtifact()
         }
     }
 }
@@ -133,8 +141,6 @@ def sastQueue(def api) {
     api.inSastWorkspace {
         api.eachProject {
             api.appscanResolveSourceDir()
-        }
-        api.eachProject {
             api.appscanLogin()
             api.appscanGenerateIRX()
             api.appscanQueue(config)
@@ -170,7 +176,9 @@ def nexusSnapshotDelivery(def api) {
         api.eachProject { String projectName ->
             api.reportArtifactBuild()
             api.reportUnitTests()
-            if (!api.nexusDeliveryEnabled()) {
+            if (api.databaseBlock()) {
+                api.databaseDelivery('snapshot')
+            } else if (!api.nexusDeliveryEnabled()) {
                 api.notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by ${api.nexusDeliverySetting()} - the artifact is not published")
             } else if (api.deployTarget() == 'openshift') {
                 api.buildDockerImage(projectName)
@@ -185,7 +193,11 @@ def nexusSnapshotDelivery(def api) {
 def pullNexusSnapshot(def api) {
     api.runStage('Download artifacts from Nexus Repo') {
         api.eachProject { String projectName ->
-            api.pullFromNexus(projectName)
+            if (api.databaseBlock()) {
+                api.notRequired("[NEXUS] ${projectName}: a Liquibase service fetches its delivered package when it is deployed - nothing is downloaded in this stage")
+            } else {
+                api.pullFromNexus(projectName)
+            }
         }
     }
 }
@@ -193,7 +205,9 @@ def pullNexusSnapshot(def api) {
 def lowerRegionDeployment(def api, String vmMode = 'ssh') {
     api.runStage('Lower test region deployment') {
         api.eachProject {
-            if (api.deployTarget() == 'openshift') {
+            if (api.databaseBlock()) {
+                api.databaseDeploy('rd')
+            } else if (api.deployTarget() == 'openshift') {
                 api.deployOpenshift('rd')
             } else if (vmMode == 'dod') {
                 api.deployDvWithDodPlugin()
@@ -243,10 +257,14 @@ def dast(def api, Map options = [:]) {
 def nexusReleaseDelivery(def api, Map options = [:]) {
     api.runStage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
         api.eachProject {
-            if (options.nodeBuild && api.nodeBuildEnabled() && api.releaseDeliveryAvailable()) {
-                api.nodeBuild()
+            if (api.databaseBlock()) {
+                api.databaseDelivery('release')
+            } else {
+                if (options.nodeBuild && api.nodeBuildEnabled() && api.releaseDeliveryAvailable()) {
+                    api.nodeBuild()
+                }
+                api.publishArtifactQC()
             }
-            api.publishArtifactQC()
         }
     }
 }
@@ -254,7 +272,9 @@ def nexusReleaseDelivery(def api, Map options = [:]) {
 def higherEnvironmentDeployment(def api) {
     api.runStage('Higher test environment deployment') {
         api.eachProject {
-            if (api.deployTarget() == 'openshift') {
+            if (api.databaseBlock()) {
+                api.databaseDeploy('qc')
+            } else if (api.deployTarget() == 'openshift') {
                 api.deployOpenshift('qc')
             } else {
                 api.deployQC()

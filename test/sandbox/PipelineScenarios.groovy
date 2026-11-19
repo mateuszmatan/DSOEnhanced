@@ -925,7 +925,7 @@ check('SAST pipeline, Node.js build for the first service: the Node.js build run
         firstCall(sastFirstJenkins, 'sh [Node.js: npm run build]') < firstCall(sastFirstJenkins, 'sh [Gradle: ')
                 && sastFirstJenkins.calls.count { it.startsWith('sh [Node.js: npm ci]') } == 1
                 && sastFirstJenkins.log.contains('[NODE] backend-api: the SAST scan does not compile this service - no Node.js build')
-                && irxExcluded(sastFirstJenkins) == ['test,node_modules', 'test,node_modules'],
+                && irxExcluded(sastFirstJenkins) == ['node_modules', 'test,node_modules'],
         irxExcluded(sastFirstJenkins) + sastFirstJenkins.log.findAll { it.startsWith('[NODE]') })
 Map sastLast = sastRun('SAST pipeline, Node.js build for the last service', 90) { Map p ->
     nodeOf(p, 'backend-api').node = [enabled: true, nodePath: '/opt/node-20', npmrcCredentialsId: 'npmrc-file']
@@ -945,8 +945,8 @@ Map sastIncluded = sastRun('SAST pipeline, Node.js build with included folders',
     nodeOf(p, 'gui').node = [enabled: true]
     (p['backend-api'] as Map).includedDirs = 'src'
 }
-check('SAST pipeline, Node.js build with included folders: the IRX keeps its folders when includedDirs is set',
-        irxExcluded(sastIncluded.j as FakeScript) == ['', ''], irxExcluded(sastIncluded.j as FakeScript))
+check('SAST pipeline, Node.js build with included folders: the IRX of the service with includedDirs keeps its folders, and the other service excludes node_modules',
+        irxExcluded(sastIncluded.j as FakeScript) == ['node_modules', ''], irxExcluded(sastIncluded.j as FakeScript))
 
 check('full pipeline, Node.js build for one service: nexusIqScan false keeps the Nexus IQ scan patterns of the service',
         (nodeRun.evaluations as List<Map>).collect { it.iqScanPatterns } == [[[scanPattern: '**/gui/build/libs/*.jar']], [[scanPattern: '**/api/target/*.jar']]],

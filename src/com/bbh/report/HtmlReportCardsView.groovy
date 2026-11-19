@@ -239,8 +239,9 @@ class HtmlReportCardsView implements Serializable {
         Map projects = projectsCoverage ?: [:]
         StringBuilder body = new StringBuilder()
         if (projects.size() > 1) {
-            int met = projects.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
-            if (coverage?.get('enabled')) body.append(HtmlReportCardsView.coverageBar('All services', coverage + [met: met == projects.size(), note: "${met} of ${projects.size()} services meet it".toString()]))
+            Map scored = projects.findAll { k, v -> !((v as Map)?.get('notRequired')) }
+            int met = scored.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
+            if (coverage?.get('enabled')) body.append(HtmlReportCardsView.coverageBar('All services', coverage + [met: met == scored.size(), note: "${met} of ${scored.size()} services meet it".toString()]))
             projects.each { project, value -> body.append(HtmlReportCardsView.coverageBar(project as String, value as Map)) }
         } else if (coverage?.get('enabled')) {
             body.append(HtmlReportCardsView.coverageBar('', coverage))
@@ -255,6 +256,7 @@ class HtmlReportCardsView implements Serializable {
 
     @NonCPS
     static String coverageBar(String project, Map coverage) {
+        if (coverage?.get('notRequired')) return (project ? "<div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>${HtmlReportCardsView.esc(project)}</div>" : '') + "<div style='margin-bottom:6px;font-size:0.72rem;color:#64748b;'>not required &nbsp;&bull;&nbsp; no utPLSQL run for this SQL and PL/SQL service</div>"
         boolean measured = coverage?.get('enabled') ? true : false
         double pct = measured ? ((coverage.get('line') ?: 0.0) as double) : 0.0d
         def covered = coverage?.get('covered') ?: 0

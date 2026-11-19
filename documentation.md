@@ -28,26 +28,27 @@ This document is the complete documentation for the library. Part I states the p
 - [11. Integration Guide: Extended Pipeline](#11-integration-guide-extended-pipeline)
 - [12. Integration Guide: SAST Scanning Pipeline](#12-integration-guide-sast-scanning-pipeline)
 - [13. Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline)
-- [14. Reference Implementation Examples](#14-reference-implementation-examples)
+- [14. Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase)
+- [15. Reference Implementation Examples](#15-reference-implementation-examples)
 
 **Part III - Configuration and Behaviour Reference**
 
-- [15. Configuration Reference: devsecops_config.yaml](#15-configuration-reference-devsecops_configyaml)
-- [16. Pipeline Stage Reference](#16-pipeline-stage-reference)
-- [17. Security Policy Thresholds](#17-security-policy-thresholds)
-- [18. Supported Build Tools](#18-supported-build-tools)
-- [19. Supported Deployment Targets](#19-supported-deployment-targets)
-- [20. Programmatic API Reference](#20-programmatic-api-reference)
+- [16. Configuration Reference: devsecops_config.yaml](#16-configuration-reference-devsecops_configyaml)
+- [17. Pipeline Stage Reference](#17-pipeline-stage-reference)
+- [18. Security Policy Thresholds](#18-security-policy-thresholds)
+- [19. Supported Build Tools](#19-supported-build-tools)
+- [20. Supported Deployment Targets](#20-supported-deployment-targets)
+- [21. Programmatic API Reference](#21-programmatic-api-reference)
 
 **Part IV - Operations**
 
-- [21. Monitoring and Metrics](#21-monitoring-and-metrics)
-- [22. Grafana Dashboard Query Reference](#22-grafana-dashboard-query-reference)
-- [23. Troubleshooting Guide](#23-troubleshooting-guide)
+- [22. Monitoring and Metrics](#22-monitoring-and-metrics)
+- [23. Grafana Dashboard Query Reference](#23-grafana-dashboard-query-reference)
+- [24. Troubleshooting Guide](#24-troubleshooting-guide)
 
 **Part V - Library Development**
 
-- [24. Library Development and Test Suite](#24-library-development-and-test-suite)
+- [25. Library Development and Test Suite](#25-library-development-and-test-suite)
 
 ## 1. High Level Overview
 
@@ -76,7 +77,7 @@ The full and security pipelines declare one more Jenkins stage, **Static analysi
 
 ### Which pipeline to use
 
-The library ships five entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in `vars/devSecOpsSteps.groovy`. Each stage method takes the `devSecOpsApi` instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build](#20-programmatic-api-reference).
+The library ships five entry points. They share the same services, thresholds, release gate and report, and all of them are built from the same stage methods in `vars/devSecOpsSteps.groovy`. Each stage method takes the `devSecOpsApi` instance of its entry point as the first argument, for the reason explained in [one devSecOpsApi instance per build](#21-programmatic-api-reference).
 
 | Entry point | Runs | Use it when |
 |---|---|---|
@@ -93,7 +94,7 @@ After all stages, the library always:
 - Adds a **Nexus IQ GoldenFix** card with the pull request link, the applied dependency upgrades and the fixes that could not be applied automatically
 - Adds a **Release policy** card stating whether the artifact may be released to Nexus and deployed to QC
 - Archives the HTML reports, the DAST PDF report and the release gate verdict (`release-gate.json`) as build artifacts
-- Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#21-monitoring-and-metrics)
+- Sends the full pipeline telemetry and the four DORA metrics to InfluxDB (if configured), see [Monitoring and metrics](#22-monitoring-and-metrics)
 
 ### Quick Reference Index
 
@@ -136,7 +137,7 @@ The library reads `devsecops_config.yaml` (or `config.yaml` for full backward co
 
 ## 2. Benefits of DevSecOps at BBH
 
-This chapter states the business case for operating application delivery through the shared DevSecOps pipeline rather than through pipelines maintained independently by each application team. The figures quoted are published industry benchmarks, cited for order of magnitude; they are not measurements of BBH systems. Section [Monitoring and Metrics](#21-monitoring-and-metrics) describes how the equivalent figures are measured for BBH applications once the pipeline is in operation.
+This chapter states the business case for operating application delivery through the shared DevSecOps pipeline rather than through pipelines maintained independently by each application team. The figures quoted are published industry benchmarks, cited for order of magnitude; they are not measurements of BBH systems. Section [Monitoring and Metrics](#22-monitoring-and-metrics) describes how the equivalent figures are measured for BBH applications once the pipeline is in operation.
 
 ### Risk reduction
 
@@ -269,7 +270,7 @@ The Nexus IQ GoldenFix pipeline runs the dependency scan and this remediation on
 
 ### Build, test and delivery
 
-Gradle, Maven, C#/.NET (classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` on Windows or `dotnet` SDK CLI on Windows/Linux), Liquibase and Flutter builds with the project's own tasks. An optional Node.js build runs the npm commands of a frontend first, as stage 0, so that the Gradle or Maven build can package its output. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it (including NuGet push for .NET and Maven/Gradle publish), and container images built and copied to Nexus for OpenShift projects.
+Gradle, Maven, C#/.NET (classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` on Windows or `dotnet` SDK CLI on Windows/Linux) and Flutter builds with the project's own tasks, and Liquibase commands for SQL and PL/SQL; for Oracle a database block packages, tests, delivers and deploys the changes ([Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase)). An optional Node.js build runs the npm commands of a frontend first, as stage 0, so that the Gradle or Maven build can package its output. Three independent test job sets — smoke, regression and performance — running locally or on another Jenkins addressed by full URL, with configurable parallelism. Snapshot delivery after static analysis, release delivery only when the gate allows it (including NuGet push for .NET and Maven/Gradle publish), and container images built and copied to Nexus for OpenShift projects.
 
 ### Deployment
 
@@ -279,7 +280,7 @@ Virtual machines over SSH or through UrbanCode Deploy, and OpenShift with image 
 
 A single HTML report per build with the stage flow, finding counts against the policy, coverage bars with a row per coverage report (JaCoCo XML, Cobertura XML, OpenCover XML, LCOV), SonarQube badges, the remediation outcome, the release policy card and the full list of test jobs — written, archived and published even when the run failed. Every run also writes a full set of metrics to InfluxDB, including the four DORA figures.
 
-The report also shows how long the stages that ran at the same time took one after another and in parallel, and ends with the table **Manual actions vs DevSecOps Automated Actions**: recalculated on every run from the stage durations of that run, it sets the time the same steps would take by hand next to the time the pipeline took, and names the time the run recovered ([the stage reference](#16-pipeline-stage-reference)).
+The report also shows how long the stages that ran at the same time took one after another and in parallel, and ends with the table **Manual actions vs DevSecOps Automated Actions**: recalculated on every run from the stage durations of that run, it sets the time the same steps would take by hand next to the time the pipeline took, and names the time the run recovered ([the stage reference](#17-pipeline-stage-reference)).
 
 ### Automated Stack Discovery and Smart Auto-Resolve
 
@@ -314,7 +315,7 @@ The DevSecOps architecture aligns with the OWASP SAMM v2.0 framework across 5 bu
 | Dimension | Supported |
 |---|---|
 | Agent operating system | Linux, macOS and Windows; the library detects the agent and uses bash or PowerShell cleanly |
-| Build tools | Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), Liquibase, Flutter; Node.js with npm as an optional stage 0 before Gradle or Maven |
+| Build tools | Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), Flutter, Liquibase (SQL / PL/SQL); Node.js with npm as an optional stage 0 before Gradle or Maven |
 | Dependency ecosystems for remediation | Maven, npm, PyPI, NuGet, Dart/Flutter pub |
 | Shared version catalogs for remediation | Inside the repository: Gradle version catalogs (`*.versions.toml`, the files `settings.gradle` imports and its catalog DSL), Gradle build files named by `apply from`, `java-platform` modules, Maven parent and BOM poms, and .NET `Directory.Packages.props` / `Directory.Build.props` |
 | Projects per build | One or many, each with its own configuration, scans, coverage and report rows |
@@ -402,7 +403,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 ├── devsecops_config.yaml.template <- one commented service with every key the library reads
 ├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html and documentation.md
 ├── grafana/                       <- the dashboard definitions devSecOpsDashboard and devSecOpsSecurityDashboard
-├── test/                          <- the library test suite, see section 24
+├── test/                          <- the library test suite, see section 25
 │   ├── README.md                  <- what every check and scenario proves
 │   ├── run-all.sh                 <- one command: static checks, compilation, scenarios, demo reports, documentation
 │   ├── checks/                    <- static checks of the sources and of the generated documentation
@@ -440,13 +441,13 @@ devSecOpsPipeline(
 ```
 
 1. The entry point calls `devSecOpsApi.configure('<variant>', <the map of the Jenkinsfile>)` before `pipeline {}`. It keeps `projectNames`, `agentNames` and `securityPipeline` of the Jenkinsfile and reads nothing yet, because the repository is checked out on the agent in the first stage.
-2. `agentNames` is required: the Jenkins agent labels offered as the `AGENT_NAME` build parameter. Without it the build stops before `pipeline {}` with a message that shows the Jenkinsfile to write. A Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also with an empty value, stops there as well, with the message described under [Troubleshooting](#23-troubleshooting-guide).
+2. `agentNames` is required: the Jenkins agent labels offered as the `AGENT_NAME` build parameter. Without it the build stops before `pipeline {}` with a message that shows the Jenkinsfile to write. A Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also with an empty value, stops there as well, with the message described under [Troubleshooting](#24-troubleshooting-guide).
 3. `projectNames` names the services to build, the primary project first, as one string separated by commas or as a list. Without it the library builds the services of the `PROJECT_NAMES` or `PROJECT_NAME` environment variable or, without those, every service of the file in the order of the file. A name that is not a service of the file is left out with a `[WARN]` line, and when no name is left the run builds every service of the file, as without the parameter (see **How the library chooses a value** below).
 4. `securityPipeline` names the security job whose `pipeline-config.yaml` and `release-gate.json` an extended pipeline copies. In any entry point it also hides the Nexus IQ and SonarQube summary rows of the report.
 5. In the Monitor stage, after the checkout, `ConfigLoader.initialize()` reads `devsecops_config.yaml` at the root of the workspace or, when there is none, `config.yaml`, the name the file had in the earlier releases of the library. When both are there it reads `devsecops_config.yaml` and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds `Config.yaml`, a Linux agent does not.
 6. Only the `projects:` section of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the `defaults:` section of `resources/com/bbh/devsecops/defaults.yaml` of the library; the console says so: "\[INIT\] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)". A `defaults:`, `platform:` or `pipeline:` section of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses, the OIS host and the iOS build agent are the values of the agent environment, of the optional `platform:` section of the bundled defaults, or the library's own.
 7. The services of the run are merged with the global defaults, the values of a service winning over the defaults, and written to `pipeline-config.yaml`, the run-state file in which the snapshot stages record their build tags. Every message that says where a setting lives names the file that was read.
-8. An extended pipeline whose Jenkinsfile names a security job copies `pipeline-config.yaml`, `release-gate.json` and, when the security build published a snapshot, `build.tag` from the last successful build of that job and takes from the copy only the run-time tags of its own services: `deploy.openshift.rd.buildTag`, `deploy.openshift.rd.internalDockerUrl`, `delivery.buildTagAndroid` and `delivery.buildTagIOS`. Each must be a plain tag of letters, digits and `. _ : / @ + -`. A VM service gets the snapshot version from `build.tag`, and its `delivery` settings are never replaced by the copy. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
+8. An extended pipeline whose Jenkinsfile names a security job copies `pipeline-config.yaml`, `release-gate.json` and, when the security build published a snapshot, `build.tag` from the last successful build of that job and takes from the copy only the run-time tags of its own services: `deploy.openshift.rd.buildTag`, `deploy.openshift.rd.internalDockerUrl`, the delivered version in `delivery` of a Liquibase service, `delivery.buildTagAndroid` and `delivery.buildTagIOS`. Each must be a plain tag of letters, digits and `. _ : / @ + -`. A VM service gets the snapshot version from `build.tag`, and its `delivery` settings are never replaced by the copy. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
 9. The report header says "Settings from devsecops_config.yaml in the repository", with the name of the file that was read, and `build_evidence` carries `config_file`. The settings follow the branch and the commit: a replayed build reads the file of its commit.
 10. A custom Jenkinsfile that calls `devSecOpsApi.initialize()` without `configure()` reads the file too. The Nexus IQ GoldenFix pipeline needs `tools.nexusIq.application` and its `scanPatterns` for every service of the run.
 
@@ -454,9 +455,9 @@ devSecOpsPipeline(
 
 Every setting keeps working as it was written: a key that is set wins over the default, also when it equals the default, so a `devsecops_config.yaml`, a `config.yaml` and a `Jenkinsfile` of an earlier release load unchanged. The library then goes three steps further, and says so in the Monitor stage, in lines that start with `[INIT]`:
 
-1. **A value of the wrong kind falls back to the default.** When the bundled defaults hold a number, `true` or `false`, or a list for a key and a service sets something else, such as `sast.maxCritical: none`, `sca.enabled: enabled` or a map for `releaseGate.scanners`, the key of the service is left out, the default applies and the console says `[INIT] [WARN] <service>: <key>: <value> in devsecops_config.yaml is not a number - the library default <key>: <default> is used instead` (`is not true or false`, `is not a list`). A number in quotes, such as `"45"`, and `yes`, `no`, `on`, `off`, `1` and `0` for `true` and `false` are kept. An invalid `buildTool`, `deployTarget` or .NET build mode falls back to the auto-detected value, with a `[WARN] Invalid ...` line (**Automated Stack Discovery and Smart Auto-Resolve** in [chapter 15](#15-configuration-reference-devsecops_configyaml)). Only when the default does not work either does the stage that uses the value fail, with its own message.
+1. **A value of the wrong kind falls back to the default.** When the bundled defaults hold a number, `true` or `false`, or a list for a key and a service sets something else, such as `sast.maxCritical: none`, `sca.enabled: enabled` or a map for `releaseGate.scanners`, the key of the service is left out, the default applies and the console says `[INIT] [WARN] <service>: <key>: <value> in devsecops_config.yaml is not a number - the library default <key>: <default> is used instead` (`is not true or false`, `is not a list`). A number in quotes, such as `"45"`, and `yes`, `no`, `on`, `off`, `1` and `0` for `true` and `false` are kept. An invalid `buildTool`, `deployTarget` or .NET build mode falls back to the auto-detected value, with a `[WARN] Invalid ...` line (**Automated Stack Discovery and Smart Auto-Resolve** in [chapter 16](#16-configuration-reference-devsecops_configyaml)). Only when the default does not work either does the stage that uses the value fail, with its own message.
 2. **A name of the Jenkinsfile that the file does not have falls back too.** `projectNames`, `PROJECT_NAMES` or `PROJECT_NAME` that names a service the file does not have leaves it out: `[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have (it has gui, backend-api) - the run goes on with backend-api`. When none of the names is a service of the file, the run builds every service of the file: `[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have - the run goes on with the default, every service of the file: gui, backend-api`.
-3. **A key that the library would take anyway is named, so that it can be removed.** For every key of a service whose value is the value the library uses without it, the console says `[INIT] [INFO] <service>: <key>: <value> equals the library default - the key can be removed from devsecops_config.yaml`, or `equals the auto-detected value` when the auto-resolve of the settings ([chapter 15](#15-configuration-reference-devsecops_configyaml)) would find the same value in the repository, for example `buildTool: maven` next to a `pom.xml`, `deployTarget: openshift` next to a `Dockerfile`, or `tools.sonar.projectKey: com.bbh:<service>`. A `projectNames` that lists every service of the file in the order of the file gives `[INIT] [INFO] projectNames: gui, backend-api equals the default, every service of devsecops_config.yaml in its order - the parameter can be removed from the Jenkinsfile`. Removing such a key changes nothing in the run. The switches of the stages at the same time (`staticAnalysis.parallel`, `dynamicAnalysis.parallel`) have lines of their own (**Stages at the same time** in [chapter 15](#15-configuration-reference-devsecops_configyaml)), and the AppScan key settings that a service cannot set are named as ignored.
+3. **A key that the library would take anyway is named, so that it can be removed.** For every key of a service whose value is the value the library uses without it, the console says `[INIT] [INFO] <service>: <key>: <value> equals the library default - the key can be removed from devsecops_config.yaml`, or `equals the auto-detected value` when the auto-resolve of the settings ([chapter 16](#16-configuration-reference-devsecops_configyaml)) would find the same value in the repository, for example `buildTool: maven` next to a `pom.xml`, `deployTarget: openshift` next to a `Dockerfile`, or `tools.sonar.projectKey: com.bbh:<service>`. A `projectNames` that lists every service of the file in the order of the file gives `[INIT] [INFO] projectNames: gui, backend-api equals the default, every service of devsecops_config.yaml in its order - the parameter can be removed from the Jenkinsfile`. Removing such a key changes nothing in the run. The switches of the stages at the same time (`staticAnalysis.parallel`, `dynamicAnalysis.parallel`) have lines of their own (**Stages at the same time** in [chapter 16](#16-configuration-reference-devsecops_configyaml)), and the AppScan key settings that a service cannot set are named as ignored.
 
 Compared with release b815d55 of the library, which read `config.yaml` and `resources/defaults.yaml`, a run of this release: reads `devsecops_config.yaml` first and `config.yaml` only without it; writes its build tags to `pipeline-config.yaml` instead of the repository file, so the first extended build after the update needs one security build made by this release; signs in to AppScan on Cloud with the one API key of the functional user from `asoc.keyId` and `asoc.token` of the library defaults, so a service sets only its `appId`; requires `agentNames`; accepts `projectNames` as a list; reads its defaults from `com/bbh/devsecops/defaults.yaml`; names the file in the report header and in `build_evidence`; and names a file that is not valid YAML or has no `projects:`.
 
@@ -466,14 +467,15 @@ Before onboarding a project to the DevSecOps pipeline, the application and its r
 
 - **Git repository accessible from Jenkins.** The project must live in a Git repository that the Jenkins controller can clone. The `Jenkinsfile` must be committed at the repository root and pushed to the branch configured in the Jenkins job. `devsecops_config.yaml`, or the former `config.yaml`, is committed at the root as well.
 - **Supported build tool: Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), Liquibase, or Flutter.** The codebase must use one of the supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository; for C#/.NET on Windows, classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` works out of the box (with `dotnet` SDK CLI available via `useDotnetCli: true` or on Linux). The build tool is either set for the service in `devsecops_config.yaml` (`buildTool`) or auto-detected by `RepoStackAutoResolver`.
-- **Optional: a frontend that npm builds first.** When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first (`build.node.enabled: true`). It needs the folder of the `package.json` (`build.node.dir`) and, for the default command `npm ci`, a committed `package-lock.json`. The frontend build must write its output outside `build/` and `target/`, because the `clean` task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting](#23-troubleshooting-guide). Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
+- **SQL and PL/SQL with Liquibase.** A Liquibase service runs the `liquibase` CLI of the agent. With a database block, which delivers and deploys Oracle changes, a master changelog that includes other files is XML, YAML or JSON, the agent is Linux or macOS and the service names a JDK; see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
+- **Optional: a frontend that npm builds first.** When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first (`build.node.enabled: true`). It needs the folder of the `package.json` (`build.node.dir`) and, for the default command `npm ci`, a committed `package-lock.json`. The frontend build must write its output outside `build/` and `target/`, because the `clean` task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting](#24-troubleshooting-guide). Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
 - **Code must compile successfully.** The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven` / `asoc.dotnet`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus or NuGet repositories.
 - **Unit tests with JaCoCo (Gradle/Maven), Cobertura/OpenCover (C#/.NET), or LCOV (Flutter/JS/Python) coverage.** The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. For C#/.NET, `vstest.console.exe` + `OpenCover.Console.exe` (or `dotnet test --collect:"XPlat Code Coverage"`) produces OpenCover/Cobertura XML coverage and `.trx` test results automatically parsed by the pipeline. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the defaults that the library bundles only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs `flutter test --coverage` in the main package and in each tested plugin and module, and reads the `coverage/lcov.info` of each.
 - **A JDK on the agent, named in the configuration (not required for C#/.NET or Liquibase).** Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, Java/Gradle/Maven/Flutter Unit tests stop with **JAVA_HOME parameter is not specified**, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`. Services with `buildTool: dotnet` or `msbuild` never require `JAVA_HOME`.
 - **HCL AppScan on Cloud (ASoC) application registered.** The application must be registered in ASoC and have a known application ID (UUID), which is the `appId` of the service in `devsecops_config.yaml`. Every pipeline signs in with the one API key of the functional ASoC user: its key ID is `asoc.keyId` of the library defaults (`resources/com/bbh/devsecops/defaults.yaml`), and its secret stays in the Jenkins **Secret text** credential named in `asoc.token` of the same file. A service cannot change the key; a `keyId`, `token` or `credentialsId` under `asoc`, `sast` or `dast` of a service is ignored with a warning. Both SAST and DAST scans are uploaded to the application of the service.
 - **SonarQube project registered.** A project must exist in SonarQube with a unique `projectKey`. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins **Secret text** credential named in `badgeCredentialsId`, or the token itself in `badgeToken`. The SonarQube server must be reachable from the Jenkins agent.
 - **Nexus IQ application registered.** The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs, DLLs, `*.nupkg`, `packages.config`, `*.csproj`, `Directory.Packages.props`) must match the `scanPatterns` configured for the service in `devsecops_config.yaml`. The Nexus IQ server must be reachable from the Jenkins agent.
-- **Build artifacts produced in expected locations.** Gradle projects produce artifacts under `build/libs/`, Maven projects under `target/`, and .NET projects under `bin/Release/` (or `build.dotnet.publishDir` / `packages.config` for NuGet dependency scanning). These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the `package-lock.json` of its frontend folder scanned, see [the stage reference](#16-pipeline-stage-reference).
+- **Build artifacts produced in expected locations.** Gradle projects produce artifacts under `build/libs/`, Maven projects under `target/`, and .NET projects under `bin/Release/` (or `build.dotnet.publishDir` / `packages.config` for NuGet dependency scanning). These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the `package-lock.json` of its frontend folder scanned, see [the stage reference](#17-pipeline-stage-reference).
 - **Several services in one repository.** The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names all of them in `projectNames` and whose `devsecops_config.yaml` holds the settings of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline).
 - **Deployment script and version file (VM deployment over SSH).** For SSH deployment, the repository must contain a zero-downtime deployment shell script and a `version.properties` file with an `APP_VERSION=<version>` entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
 - **UrbanCode Deploy application (VM deployment in `devSecOpsPipeline`).** The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so `deploy.vm.dod` must name the site, the application and at least one component. The UrbanCode Deploy plugin (`UCDeployPublisher`) and the configured site must exist in Jenkins.
@@ -533,13 +535,14 @@ The last row is not a public plugin. Those four steps must exist as global varia
 - Flutter SDK (if building Flutter applications)
 - Node.js with `npm`, for a service with `build.node.enabled: true`: in the folder of `build.node.nodePath`, from the NodeJS installation of `build.node.installationName`, or on the agent `PATH`
 - `curl`, `python3`, `ssh`, `scp` (Linux agents)
+- For a Liquibase service: the `liquibase` CLI; with a database block Liquibase 4.33 or 5.0, an Oracle driver and utPLSQL-cli on the agent or downloaded from Nexus (`tools.liquibase`, `tools.oracleJdbc`, `tools.utplsql`), Maven for the zip, and Nexus repositories for database zips, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase)
 - PowerShell (Windows agents)
 
 ### Script security
 
 The library runs inside the Jenkins script sandbox and uses no construct that requires an administrator to approve a signature. Collections are built from literals, JSON is read and written with the `readJSON` and `writeJSON` steps, and regular expressions use the Groovy operators. Nothing has to be approved under **Manage Jenkins, In-process Script Approval** to onboard a new project.
 
-Every class of the library is loaded and every pipeline is executed under the real script-security sandbox by the test suite before a release, so a rejected signature is found in the test run and never in your build. [Library Development and Test Suite](#24-library-development-and-test-suite) lists the rules this imposes on the library code.
+Every class of the library is loaded and every pipeline is executed under the real script-security sandbox by the test suite before a release, so a rejected signature is found in the test run and never in your build. [Library Development and Test Suite](#25-library-development-and-test-suite) lists the rules this imposes on the library code.
 
 ### Jenkins global configuration
 
@@ -564,15 +567,15 @@ Every class of the library is loaded and every pipeline is executed under the re
 
 | Variable | Required | Value |
 |---|---|---|
-| `DSO_STATIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before `staticAnalysis.parallel` of the services, whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time. Unset, blank or another value (which the console names in a `[WARN]` line), `staticAnalysis.parallel` of the services decides, by default `true` ([the configuration reference](#15-configuration-reference-devsecops_configyaml)) |
+| `DSO_STATIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before `staticAnalysis.parallel` of the services, whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time. Unset, blank or another value (which the console names in a `[WARN]` line), `staticAnalysis.parallel` of the services decides, by default `true` ([the configuration reference](#16-configuration-reference-devsecops_configyaml)) |
 | `DSO_DYNAMIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before `dynamicAnalysis.parallel` of the services, whether the full and extended pipelines run the regression, smoke and performance tests and DAST at the same time. Unset, blank or another value, `dynamicAnalysis.parallel` of the services decides, by default `true` |
-| `SA_LINUX_URL`, `SA_WIN_URL`, `PROXY_HOST`, `PROXY_PORT`, `PROXY_USER`, `APPSCAN_HOST`, `APPSCAN_SERVER_URL` | no | The tool environment of AppScan: the download of the AppScan client for Linux and Windows, the BBH proxy and the AppScan host. A value set here wins over `platform.environment` of the bundled defaults and over the library's own BBH value, see [Stage 1](#16-pipeline-stage-reference) |
+| `SA_LINUX_URL`, `SA_WIN_URL`, `PROXY_HOST`, `PROXY_PORT`, `PROXY_USER`, `APPSCAN_HOST`, `APPSCAN_SERVER_URL` | no | The tool environment of AppScan: the download of the AppScan client for Linux and Windows, the BBH proxy and the AppScan host. A value set here wins over `platform.environment` of the bundled defaults and over the library's own BBH value, see [Stage 1](#17-pipeline-stage-reference) |
 
 ### Global settings: the bundled defaults
 
 The global settings of every pipeline are the `defaults:` section of `resources/com/bbh/devsecops/defaults.yaml` in the library: the security thresholds, the required coverage, the timeouts, the release gate, the GoldenFix policy and the tool defaults. The DevSecOps team owns the file and changes it with a library release; a project neither copies nor overrides the thresholds. A job uses the defaults of the library version it loads: the default version of **Global Pipeline Libraries**, or the version pinned in `@Library('DevSecOpsJenkinsLibrary@<version>') _`.
 
-The optional `platform:` section of the same file holds the platform values. The production file has no such section, so the library uses its built-in BBH values, and a value of the agent or Jenkins environment still wins for the tool environment. [The configuration reference](#15-configuration-reference-devsecops_configyaml) lists both sections.
+The optional `platform:` section of the same file holds the platform values. The production file has no such section, so the library uses its built-in BBH values, and a value of the agent or Jenkins environment still wins for the tool environment. [The configuration reference](#16-configuration-reference-devsecops_configyaml) lists both sections.
 
 ---
 
@@ -716,7 +719,7 @@ Ask them to confirm this is done before you create your job. The global settings
 
 Both files go in the **root** of the repository, on the branch the pipeline will build.
 
-**`devsecops_config.yaml` describes the services.** Copy `devsecops_config.yaml.template` from the library, keep one entry under `projects:` for each service of the repository and fill in the values you collected in the previous chapter. A repository that already holds a `config.yaml` of an earlier release can rename it to `devsecops_config.yaml`; until then the library reads `config.yaml`. **Do not add thresholds or a coverage minimum**: they are global settings of the library and a project cannot change them, and a `defaults:` section in the file is ignored. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference](#15-configuration-reference-devsecops_configyaml).
+**`devsecops_config.yaml` describes the services.** Copy `devsecops_config.yaml.template` from the library, keep one entry under `projects:` for each service of the repository and fill in the values you collected in the previous chapter. A repository that already holds a `config.yaml` of an earlier release can rename it to `devsecops_config.yaml`; until then the library reads `config.yaml`. **Do not add thresholds or a coverage minimum**: they are global settings of the library and a project cannot change them, and a `defaults:` section in the file is ignored. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference](#16-configuration-reference-devsecops_configyaml).
 
 ```yaml
 projects:
@@ -781,7 +784,7 @@ On the build page choose **Pipeline Report** in the left menu.
 3. **Check the Release policy card.** It lists every reason the release and the higher environment deployment are blocked. When it is empty, your application is releasable.
 4. **Read the times.** The box **Parallel stages** under the stage flow lists the stages that ran at the same time, how long they would have taken one after another and how long they took. The table **Manual actions vs DevSecOps Automated Actions** at the bottom of the report compares the run with the same steps done by hand and names the time the run recovered.
 
-**An initial run is unlikely to complete without findings.** The usual first run findings are coverage below the required minimum, dependencies with known vulnerabilities, and test jobs that do not exist yet. Work through them one at a time — the pipeline provides value before every finding is resolved. [Troubleshooting](#23-troubleshooting-guide) lists what each message means.
+**An initial run is unlikely to complete without findings.** The usual first run findings are coverage below the required minimum, dependencies with known vulnerabilities, and test jobs that do not exist yet. Work through them one at a time — the pipeline provides value before every finding is resolved. [Troubleshooting](#24-troubleshooting-guide) lists what each message means.
 
 ## 9. Integration Guide: Full Pipeline
 
@@ -791,7 +794,7 @@ On the build page choose **Pipeline Report** in the left menu.
 
 A single Jenkins job executing the complete delivery flow: build, unit testing, all three security controls, code quality analysis, artifact publication, deployment to two environments, functional and performance testing, and dynamic security testing. Select this entry point where a single job covering the entire flow is acceptable and the resulting execution time is acceptable to the team.
 
-**Thirteen stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares two more: **Static analysis**, which runs stages 2 to 5 at the same time, and **Dynamic analysis**, which runs stages 8 to 11 at the same time, both by default ([the stage reference](#16-pipeline-stage-reference)).
+**Thirteen stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares two more: **Static analysis**, which runs stages 2 to 5 at the same time, and **Dynamic analysis**, which runs stages 8 to 11 at the same time, both by default ([the stage reference](#17-pipeline-stage-reference)). For a Liquibase service with a database block every stage is described in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 ### Jenkinsfile
 
@@ -882,7 +885,7 @@ projects:
 
 Use `buildTool: maven` or `flutter` if that is what your project uses and replace the `build` and `tests` blocks accordingly.
 
-The listing leaves out the optional keys of a service: `sast.scanName` names the SAST scan in AppScan, `tools.sonar.badgeCredentialsId` names the Secret text with the SonarQube badge token, and `deploy.<target>.rd.nexusDeliveryEnabled: false` stops the snapshot delivery of the service. The [configuration reference](#15-configuration-reference-devsecops_configyaml) describes them.
+The listing leaves out the optional keys of a service: `sast.scanName` names the SAST scan in AppScan, `tools.sonar.badgeCredentialsId` names the Secret text with the SonarQube badge token, and `deploy.<target>.rd.nexusDeliveryEnabled: false` stops the snapshot delivery of the service. The [configuration reference](#16-configuration-reference-devsecops_configyaml) describes them.
 
 ### Optional: a frontend built with Node.js first
 
@@ -895,7 +898,7 @@ A service whose repository holds a frontend that npm builds, for example an Angu
         dir: frontend
 ```
 
-The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend` right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without `build.node.installationName` or `build.node.nodePath` the commands use the installation that the bundled defaults name in `build.node.installationName`, and without one the `node` and `npm` on the `PATH` of the agent. The other keys, such as `commands`, `env` and the `.npmrc` credentials, are in [the configuration reference](#15-configuration-reference-devsecops_configyaml). How the output reaches the jar is described under [Troubleshooting](#23-troubleshooting-guide), **The frontend is missing from the jar**.
+The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend` right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without `build.node.installationName` or `build.node.nodePath` the commands use the installation that the bundled defaults name in `build.node.installationName`, and without one the `node` and `npm` on the `PATH` of the agent. The other keys, such as `commands`, `env` and the `.npmrc` credentials, are in [the configuration reference](#16-configuration-reference-devsecops_configyaml). How the output reaches the jar is described under [Troubleshooting](#24-troubleshooting-guide), **The frontend is missing from the jar**.
 
 ### Specific to this pipeline
 
@@ -910,7 +913,7 @@ The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend`
 
 The first half of the delivery flow, intended for execution on **every commit**. It requires no deployed environment and returns a security verdict within a short execution time. It is operated together with the entry point described in the following chapter, which executes the remaining stages on demand.
 
-**Six stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with `build.node.enabled: true` adds the Node.js build before the unit tests, as in the full pipeline. Jenkins declares one more, **Static analysis**, which by default runs stages 2 to 5 at the same time ([the stage reference](#16-pipeline-stage-reference)).
+**Six stages:** source checkout · unit tests with the coverage gate · Nexus IQ · AppScan SAST · SonarQube · Nexus snapshot delivery. A service with `build.node.enabled: true` adds the Node.js build before the unit tests, as in the full pipeline. Jenkins declares one more, **Static analysis**, which by default runs stages 2 to 5 at the same time ([the stage reference](#17-pipeline-stage-reference)). For a Liquibase service with a database block it packages the changes, tests them on the test database and delivers the zip as a snapshot, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 It also archives `pipeline-config.yaml`, which holds the build tags of its snapshot stage, and the release decision so the extended pipeline can pick them up, and can start the extended job automatically.
 
@@ -953,7 +956,7 @@ You can add this later, once the extended job exists.
 
 The second half of the flow, started after the security pipeline. It deploys, runs the test suites, performs the dynamic security scan and then decides about the release and the promotion.
 
-**Eight stages:** source checkout · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares one more, **Dynamic analysis**, which by default runs the tests and DAST at the same time ([the stage reference](#16-pipeline-stage-reference)).
+**Eight stages:** source checkout · lower environment deployment · regression tests · smoke tests · performance tests · AppScan DAST · Nexus release delivery · higher environment deployment. Jenkins declares one more, **Dynamic analysis**, which by default runs the tests and DAST at the same time ([the stage reference](#17-pipeline-stage-reference)). For a Liquibase service with a database block it fetches the zip that the security pipeline delivered and deploys and releases exactly that zip, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 > **Note:** **The security pipeline must be working first.** This one copies the archived `pipeline-config.yaml` and the release decision from that job. It **inherits** the verdict rather than deciding again, so a security finding that blocked the release there also blocks it here.
 
@@ -975,7 +978,7 @@ Keep this Jenkinsfile in the repository of the service: the job reads `devsecops
 
 ### Settings in devsecops_config.yaml
 
-This pipeline needs the `deploy`, `tests.smoke`, `tests.regression`, `tests.performance` and `dast` blocks shown in the full pipeline chapter. It reads them from the file of its own checkout, so a change of the file applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference and the Flutter build tags, and `build.tag` with the snapshot version of a VM service. Run the security job once with this release of the library before the first extended build; a build of an earlier release archived `config.yaml` instead of `pipeline-config.yaml`, and the extended build stops with "\[INIT\] The last successful build of &lt;job&gt; has no pipeline-config.yaml: it was built by a library release that archived config.yaml instead; run &lt;job&gt; once with this release".
+This pipeline needs the `deploy`, `tests.smoke`, `tests.regression`, `tests.performance` and `dast` blocks shown in the full pipeline chapter. It reads them from the file of its own checkout, so a change of the file applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference, the delivered version of a Liquibase service and the Flutter build tags, and `build.tag` with the snapshot version of a VM service. Run the security job once with this release of the library before the first extended build; a build of an earlier release archived `config.yaml` instead of `pipeline-config.yaml`, and the extended build stops with "\[INIT\] The last successful build of &lt;job&gt; has no pipeline-config.yaml: it was built by a library release that archived config.yaml instead; run &lt;job&gt; once with this release".
 
 Without `securityPipeline` in the Jenkinsfile the extended pipeline runs on its own: it copies nothing and deploys what its own settings name, including a build tag pinned in `devsecops_config.yaml`.
 
@@ -995,7 +998,7 @@ Without `securityPipeline` in the Jenkinsfile the extended pipeline runs on its 
 
 The smallest option: it checks out your code and runs the AppScan static security scan, nothing else. Use it when you want a security scan of the source without building, testing or deploying — typically on a weekly schedule, for an application whose main pipeline lives elsewhere, or as the very first step of onboarding.
 
-**Two stages:** source checkout · AppScan SAST. A service with `build.node.enabled: true` adds the Node.js build before the SAST stage when the SAST scan compiles it.
+**Two stages:** source checkout · AppScan SAST. A service with `build.node.enabled: true` adds the Node.js build before the SAST stage when the SAST scan compiles it. A Liquibase service with a database block is scanned without a compile step, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 > **Note:** **Recommended starting point.** If you are onboarding a large application, running this pipeline first proves that the AppScan connection, the proxy and the certificates all work, before you invest time in the rest of the configuration.
 
@@ -1031,7 +1034,7 @@ projects:
 - **This pipeline checks out the source itself** and sets up the JDK, because there is no build stage to do it.
 - **Put it on a schedule.** In the job configuration tick **Build periodically** and enter something like `H 2 * * 1`, which runs it once a week early on Monday morning. Scanning source code does not need to happen on every commit.
 - The report shows only the source checkout and the SAST stage, with a link to the AppScan report. There is no release gate card, because this pipeline releases nothing.
-- **A frontend built with Node.js.** The Node.js build runs for a service only while the SAST stage compiles it: `asoc.doCompile` is not `false` and the agent is Linux or macOS. Otherwise the console says `[NODE] <service>: the SAST scan does not compile this service - no Node.js build`. After a Node.js build every IRX archive of the run leaves out `node_modules`, see [the stage reference](#16-pipeline-stage-reference).
+- **A frontend built with Node.js.** The Node.js build runs for a service only while the SAST stage compiles it: `asoc.doCompile` is not `false` and the agent is Linux or macOS. Otherwise the console says `[NODE] <service>: the SAST scan does not compile this service - no Node.js build`. After a Node.js build every IRX archive of the run leaves out `node_modules`, see [the stage reference](#17-pipeline-stage-reference).
 - **Optional scan name.** `sast.scanName` names the scan in AppScan; without it the scan is named after `tools.sonar.projectName` or the service, followed by `-sast`.
 
 ## 13. Integration Guide: Nexus IQ GoldenFix Pipeline
@@ -1042,7 +1045,7 @@ projects:
 
 The dependency check on its own: it builds the artifact, has Nexus IQ evaluate it, and when the policy is violated GoldenFix raises the golden pull request with the safe dependency versions. Use it when the third party dependencies of an application should be checked and upgraded on their own schedule, without the unit tests, AppScan, SonarQube, delivery or deployment of the other pipelines — typically nightly, for an application whose main pipeline lives elsewhere, or beside the SAST scanning pipeline, which covers the source code.
 
-**Three stages:** source checkout · artifact build · Nexus IQ with GoldenFix. A service with `build.node.enabled: true` adds the Node.js build before the artifact build.
+**Three stages:** source checkout · artifact build · Nexus IQ with GoldenFix. A service with `build.node.enabled: true` adds the Node.js build before the artifact build. A Liquibase service with a database block is not required in both stages, and a run of such services only is refused, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 ### Jenkinsfile
 
@@ -1095,7 +1098,7 @@ projects:
 - `tools.nexusIq` names the Nexus IQ application and the credential, and `scanPatterns` must match the artifacts the build produces. A service without the application or its scan patterns stops the pipeline at the start with **The Nexus IQ GoldenFix pipeline would scan nothing for &lt;service&gt;**, because a green run that scanned nothing would prove nothing.
 - `buildTool`, `build` and `javaPath` (or `buildToolAutoSetup: true`) build the artifact; without a JDK the Build artifact stage stops with **JAVA_HOME parameter is not specified**.
 - `scm.bitbucket` is where the `GoldenFix-YYYYMMDDHHMM` branch is pushed and the pull request is raised, into `targetBranch` or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
-- `goldenFix` is on by default; every setting of [the configuration reference](#15-configuration-reference-devsecops_configyaml) applies, such as `minThreatLevel`, `ecosystems` and the pre-check build under `goldenFix.verify`.
+- `goldenFix` is on by default; every setting of [the configuration reference](#16-configuration-reference-devsecops_configyaml) applies, such as `minThreatLevel`, `ecosystems` and the pre-check build under `goldenFix.verify`.
 - No AppScan key is needed: the key of the functional user is a setting of the library defaults and only AppScan stages read it. `appId` is shown so that one service entry serves every pipeline of the service.
 - `build.node` builds a frontend with Node.js before the artifact build, as in [the full pipeline](#9-integration-guide-full-pipeline). While `build.node.nexusIqScan` is not `false`, the `package-lock.json` of `build.node.dir` joins the scan patterns of the service, so that Nexus IQ also reports the npm dependencies and GoldenFix can raise them in `package.json`. The npm pre-check of GoldenFix then runs with the Node.js, the registry and the `.npmrc` of that build.
 
@@ -1118,7 +1121,7 @@ Without `projectNames` the job builds every service of the file, in the order of
 
 **Nothing to list for the usual catalogs.** GoldenFix finds by itself every `*.versions.toml`, the catalogs that a `settings.gradle` or `settings.gradle.kts` imports or declares, the files that a build names in `apply from`, `java-platform` modules, and the poms that another pom of the repository names as `<parent>` or imports with `<scope>import</scope>`.
 
-**List the others.** A shared file that GoldenFix cannot recognise goes into `goldenFix.versionCatalogs` of the service, one repository-relative path or glob per entry (`*` within a folder name, `**` across folders). A listed `.toml` file is read as a Gradle catalog whatever its name, an `.xml` file as a Maven pom and any other file as a Gradle build file. Listing a file makes it the place where its versions are raised. A listed Gradle file is verified only in a build that uses it; a listed pom in the aggregator that builds it with the poms that use it, otherwise in its own folder, as the [Pipeline Stage Reference](#16-pipeline-stage-reference) describes. For example:
+**List the others.** A shared file that GoldenFix cannot recognise goes into `goldenFix.versionCatalogs` of the service, one repository-relative path or glob per entry (`*` within a folder name, `**` across folders). A listed `.toml` file is read as a Gradle catalog whatever its name, an `.xml` file as a Maven pom and any other file as a Gradle build file. Listing a file makes it the place where its versions are raised. A listed Gradle file is verified only in a build that uses it; a listed pom in the aggregator that builds it with the poms that use it, otherwise in its own folder, as the [Pipeline Stage Reference](#17-pipeline-stage-reference) describes. For example:
 
 ```yaml
     goldenFix:
@@ -1135,19 +1138,1304 @@ What GoldenFix then does in one run:
 
 Separate jobs per service still work, but each raises its own pull request, and the pull requests change the same catalog line. Two such jobs that start in the same minute compute the same branch name; the second push is then refused with `[GOLDENFIX] The branch <branch> already exists in <repository> - another GoldenFix job of this repository ran in the same minute; run one GoldenFix job for all services of a repository (projectNames)`.
 
-The catalog must live in the same repository as the services. A catalog published as an artifact (`from("com.bbh:platform-catalog:1.2")` in `settings.gradle`), a BOM resolved from Nexus and a catalog in another repository are not raised; the card names them as the reason, see [the stage reference](#16-pipeline-stage-reference).
+The catalog must live in the same repository as the services. A catalog published as an artifact (`from("com.bbh:platform-catalog:1.2")` in `settings.gradle`), a BOM resolved from Nexus and a catalog in another repository are not raised; the card names them as the reason, see [the stage reference](#17-pipeline-stage-reference).
 
 ### Specific to this pipeline
 
 - **Linux or macOS agent.** GoldenFix works in a git worktree and runs the pre-check build with the shell, so the agent of `AGENT_NAME` needs git, `curl`, the build tool and what the unit tests of the service need, such as a headless browser for Karma or `python3` with `venv`.
 - **This pipeline checks out the source itself** and sets up the JDK, because there is no unit test stage. The **Build artifact** stage then builds every project with the command of its `build` section, so Nexus IQ evaluates what was built. It checks no coverage, but the command runs as configured: Gradle `build` and Maven `verify` or `package` run the unit tests as well, so use Gradle `assemble` or Maven `package -DskipTests` to build without them. A build error, a failing test included, is a red stage and stops the pipeline, because there is nothing to scan.
-- **The Nexus IQ stage is the one of the other pipelines.** It turns orange on a policy violation and GoldenFix raises one pull request for the projects of the build that share a repository, as described in [the stage reference](#16-pipeline-stage-reference). GoldenFix never changes the stage result.
+- **The Nexus IQ stage is the one of the other pipelines.** It turns orange on a policy violation and GoldenFix raises one pull request for the projects of the build that share a repository, as described in [the stage reference](#17-pipeline-stage-reference). GoldenFix never changes the stage result.
 - **Put it on a schedule** if the dependencies should be checked independently of commits, for example `H 3 * * *` under **Build periodically** for a nightly run: Nexus IQ learns about new vulnerabilities in components that did not change.
 - **The report** shows the source checkout, the Node.js build when it ran, the Build artifact stage and the Nexus IQ stage, one Nexus IQ row per project in the Security Gates table with a link to the Nexus IQ report, and on a violation the **Nexus IQ GoldenFix** card with the pull request, the applied upgrades, the fixes that could not be applied automatically and the notes of the run. There is no release policy card, because this pipeline releases nothing, and no SAST, SonarQube or test rows.
 - **Release gate.** The pipeline writes `release-gate.json` like every pipeline and does not archive it, because no pipeline takes it over. Its verdict follows the stages: allowed when every stage is green, blocked when the Nexus IQ stage is orange, including a scan that could not be completed.
-- **Metrics.** Every run writes the measurements of [Monitoring and Metrics](#21-monitoring-and-metrics) with `variant=nexusiq` and the project tag `influx.project` followed by `nexusiq`, for example `MyAppnexusiq`. The `goldenfix` point of a project also carries the address and the title of the pull request (`pr_url`, `pr_title`) when one was raised. The Nexus IQ counts of the run are in `vulnerabilities` with `scanner=nexusiq`; the `security_findings` points with `scanner=niq` carry the status of the stage with every count at 0, as in every pipeline, so panels built on `security_findings` show no Nexus IQ findings.
+- **Metrics.** Every run writes the measurements of [Monitoring and Metrics](#22-monitoring-and-metrics) with `variant=nexusiq` and the project tag `influx.project` followed by `nexusiq`, for example `MyAppnexusiq`. The `goldenfix` point of a project also carries the address and the title of the pull request (`pr_url`, `pr_title`) when one was raised. The Nexus IQ counts of the run are in `vulnerabilities` with `scanner=nexusiq`; the `security_findings` points with `scanner=niq` carry the status of the stage with every count at 0, as in every pipeline, so panels built on `security_findings` show no Nexus IQ findings.
 
-## 14. Reference Implementation Examples
+## 14. Integration Guide: SQL and PL/SQL with Liquibase
+
+**Build tool:** `liquibase` · **Pipelines:** all five · **Agents:** Linux, macOS or Windows for the Liquibase commands; Linux or macOS for a database block
+
+This chapter is the complete description of services made of SQL and PL/SQL: what each pipeline does with them, the two ways to configure them, three complete repository layouts, the rules for a changelog, every setting, the credentials, the deployments, the report, the metrics and the messages. It assumes no earlier use of the library with a database. The general concepts of the pipelines are in chapters 9 to 13, and the settings of `devsecops_config.yaml` in chapter 16.
+
+### 14.1 What the library does with SQL and PL/SQL
+
+A service with `buildTool: liquibase` is a folder of Liquibase changelogs and the SQL and PL/SQL sources they deploy. It is configured in one of two ways:
+
+| Way | What the service sets | What the pipelines do | Databases |
+|---|---|---|---|
+| **Liquibase commands** | `buildTool: liquibase` and, as needed, the commands of `build.liquibase`, `tests.unitTests.liquibase`, `asoc.liquibase` and `tools.sonar.liquibase` | run the `liquibase` CLI with these commands in the Build artifact, Unit tests and SAST stages, scan the sources with AppScan and `sonar-scanner`, and skip the coverage requirement; the library packages, delivers and deploys nothing | every database that Liquibase supports, with the commands of the team |
+| **Database block** | the same, and `database.changelogFile` with the other keys of the `database:` block | in addition: in Build artifact an offline validation, static checks of the sources, the review SQL and a zip with a deployment manifest; in Unit tests the deployment to a test database and utPLSQL with coverage; the zip to Nexus as a snapshot and a release; the deployment of the delivered zip to RD and QC with Jenkins credentials and a compile check | Oracle only |
+
+Choose the Liquibase commands when the team deploys the changes itself, or for a database other than Oracle. Choose the database block when the pipelines are to test, deliver and deploy Oracle changes.
+
+The commands of the first way stay in force with a database block: a command of `build.liquibase` runs first in Build artifact, a command of `tests.unitTests.liquibase` runs first in Unit tests, the command of `asoc.liquibase` runs before the SAST scan, and the arguments of `tools.sonar.liquibase` win over those the block adds. With a block, a command of `build.liquibase` or `tests.unitTests.liquibase` runs only when the service sets its commands or its flags. Without a block, the auto-resolve of the settings ([chapter 16](#16-configuration-reference-devsecops_configyaml), on unless the service sets `autoresolve parameters: false`) fills a missing `build.liquibase.commands` with `updateSQL`, a missing `tests.unitTests.liquibase.commands` with `validate`, and their missing flags with `--changelog-file=` and the changelog it finds in the repository (`src/main/resources/changelog.xml` when it finds none); with the auto-resolve off, Build artifact runs `liquibase validate` when `build.liquibase` sets no command, and Unit tests runs `liquibase validate` when `tests.unitTests.liquibase` sets flags but no command, else nothing.
+
+The library never deploys to production and never rolls back. A database block deploys only to the databases that the DevSecOps team allows in the library defaults (`defaults.database.allowedTargets` of `resources/com/bbh/devsecops/defaults.yaml`).
+
+**Detection of the build tool.** When `buildTool` is empty, the library detects it from the files at the root of the workspace, in one of two orders:
+
+- **With the auto-resolve of the settings on** (the default, [chapter 16](#16-configuration-reference-devsecops_configyaml)), it decides at the start of the run, in this order: `pubspec.yaml` → `flutter`; then `Podfile`, `Package.swift`, a `*.xcodeproj` or a `*.xcworkspace` → `ios`; then `pom.xml` → `maven`; then `build.gradle`, `build.gradle.kts` or `gradle/wrapper/gradle-wrapper.properties` → `gradle` (`android` with an `AndroidManifest.xml`); then `global.json`, `packages.config`, `Directory.Packages.props`, `Directory.Build.props`, `build.cake`, `.nuke`, a `*.sln` or a `*.csproj` / `*.fsproj` / `*.vbproj` → `dotnet`; then `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.yml`, `changelog.json`, `db/changelog.xml`, `db/changelog/db.changelog-master.xml`, `src/main/resources/db/changelog/db.changelog-master.xml` or `src/main/resources/changelog.xml` → `liquibase`; then `requirements.txt`, `pyproject.toml`, `setup.py` or `Pipfile` → `pip`; then `package.json` or `angular.json` → `npm`. The application build files come **before** the Liquibase files. When none of them is there, `buildTool` stays empty and the order below applies. The auto-resolve fills the Liquibase commands and flags only for a service whose `buildTool` is `liquibase` at the start of the run, set in its settings or found from the list above. A service that the stages find to be Liquibase only from the longer list below, such as one with only `sql/changelog.xml`, runs `liquibase validate` in Build artifact and no Unit tests command, as with the auto-resolve off.
+- **With the auto-resolve off** (`autoresolve parameters: false`), each stage detects it in this order: `pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` or `build.gradle.kts` → Gradle; then `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.yml`, `changelog.json`, `changelog.sql`, `db/changelog.xml`, `db/changelog.yaml`, `db/changelog.sql`, `db/changelog/db.changelog-master.xml`, `db/changelog/db.changelog-master.yaml`, `sql/changelog.xml`, `sql/changelog.sql`, `liquibase/changelog.xml`, `src/main/resources/db/changelog/db.changelog-master.xml`, `src/main/resources/db/changelog/db.changelog-master.yaml` or `src/main/resources/changelog.xml` → Liquibase; otherwise Gradle.
+
+Because the application build files come first, a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service: a Spring Boot application with the standard `src/main/resources/db/changelog/db.changelog-master.xml` next to its `pom.xml` is built with Maven. Set `buildTool: liquibase` for a database service. Detection never switches a database block on: the block needs `buildTool: liquibase` in the settings of the service. The auto-resolve keeps to this: for a service with `database.changelogFile` and one of its Liquibase files it leaves `buildTool` empty, so that service runs without the block, with the tool that the stages detect in the second order; and it adds no Liquibase command, no Node.js stage 0 and no `deployTarget` to a service with a block.
+
+| Stage | Liquibase commands only | With a database block |
+|---|---|---|
+| Monitor source changes | as for every service | checks the settings of every service with a block and, in the full and security pipelines, that the changelog and the utPLSQL folders exist; each problem is one line, and the build stops after the list; a Windows agent stops it as well |
+| Build artifact | `liquibase <flags> <commands>` of `build.liquibase`; without commands, with the auto-resolve on and `buildTool: liquibase` at the start of the run `updateSQL` (and `--changelog-file=` of the changelog it finds when no flags are set), otherwise `validate` | the command of `build.liquibase` when it is set; in the full and security pipelines the offline validation, the static checks, the review SQL, the zip and its validation; in the SAST and Nexus IQ GoldenFix pipelines **not required** unless `build.liquibase` ran |
+| Unit tests | the command of `tests.unitTests.liquibase`; without commands, with the auto-resolve on and `buildTool: liquibase` at the start of the run `validate` (and `--changelog-file=` of the changelog it finds when no flags are set), otherwise `validate` when its flags are set, else none; the coverage requirement is skipped when no report has measured lines | the command of `tests.unitTests.liquibase` when it is set; then the deployment to the test database and utPLSQL with coverage, or **not required** without a test database |
+| Dependencies scan (Nexus IQ) | as for every service (`tools.nexusIq`) | **not required**: SQL and PL/SQL have no dependency components, unless `tools.nexusIq.scanPatterns` is set |
+| SAST - HCL AppScan | the command of `asoc.liquibase`, else of `build.liquibase`, when one is set and `asoc.doCompile` is not false; then the scan of the sources without a Gradle or Maven compile | the same; the scan is always of source code only (`-sco`) |
+| SCA (SonarQube) | `sonar-scanner` on the sources, with the arguments of `tools.sonar.liquibase` | `sonar-scanner` when the service has `tools.sonar.projectKey` (the auto-resolve sets `com.bbh:<service>` when it is missing, so it is missing only with `autoresolve parameters: false`) and the server has a PL/SQL analyzer, else **not required** |
+| Nexus delivery (Static analysis passed) | publishes nothing for a Liquibase service | the zip as `<version>-SNAPSHOT` to the snapshot repository |
+| Lower test region deployment | the deployment of `deployTarget` and `deploy`, as for every service | the delivered zip to the RD database; `deployTarget` and `deploy` are not used |
+| Regression, smoke and performance tests | the jobs of `tests.<suite>`, as for every service | the jobs of `tests.<suite>`; without jobs **not required**, unless `tests.<suite>.required` is true |
+| DAST - HCL AppScan | as for every service | **not required**, unless `dast.enabled` is true |
+| Nexus delivery - Safe Artifact | publishes nothing for a Liquibase service | the same zip as `<version>` to the release repository, when the release gate allows it |
+| Higher test environment deployment | the deployment of `deployTarget` and `deploy`, as for every service | the delivered zip to the QC database, with `DEPLOY_HIGHER_ENV` and an allowed release gate |
+
+A Liquibase service without a database block and without deployment settings therefore fails **Lower test region deployment** of the full pipeline (in the test suite with **\[DOD\] No UrbanCode Deploy applications are configured**). Run such a service in the security or SAST pipeline, give it the deployment settings of its `deployTarget`, or give it a database block.
+
+In a run of several services each stage result is formed from all services, as for any run: a stage is **not required** only when it is not required for every service.
+
+### 14.2 Before you start
+
+**For the Liquibase commands:**
+
+- The `liquibase` CLI on the `PATH` of the agent (Linux, macOS or Windows), with the JDBC driver that its commands need.
+- Java for Liquibase: `javaPath` is optional; when it is set, the library exports it as `JAVA_HOME`, otherwise Liquibase uses the Java runtime of the agent.
+
+**For a database block:**
+
+- **Agent.** Linux or macOS: a service with a database block on a Windows agent stops in the Monitor stage. JDK 17 or newer, named by `javaPath`, or found by `buildToolAutoSetup: true` with the Java version of `tools.liquibase.javaVersion` (17). Maven for the Nexus upload and fetch (`database.package.mvnPath`, else `build.maven.mvnPath`, else `mvn` of the agent), and `curl`, `tar` and `unzip` when the tools are downloaded.
+- **Tools.** Liquibase 4.33.x or 5.0.x (`tools.liquibase`), an Oracle driver ojdbc11 or ojdbc17 (`tools.oracleJdbc`, required by Liquibase 5, which ships no driver, and by a trimmed Liquibase 4.33.0), and utPLSQL-cli 3.2.2 when utPLSQL runs (`tools.utplsql`). Each comes from `home` or `path` on the agent, else from a Nexus `url` with its `sha256` (downloaded into `<workspace>@tmp/dso-tools` and kept there), else from the `PATH` of the agent.
+- **The DevSecOps team** fills the library defaults (`resources/com/bbh/devsecops/defaults.yaml` of the library release): `defaults.database.allowedTargets`, the tool locations and the Nexus repositories for database zips (`defaults.database.package`). The agents reach only the BBH network, so the team downloads the tools from GitHub and Maven Central and uploads them to a raw hosted Nexus repository.
+- **The DBA** creates a schema and a deploy user per target (the owner, or a proxy user, 14.8), one test schema per pipeline with the utPLSQL framework installed, and the grants of 14.8 and 14.9, and opens the database ports (usually 1521, or 2484 for TCPS) to the agents.
+- **Jenkins.** One **Username with password** credential per target in the folder of the product. No folder that runs the library may hold production credentials.
+
+**Which Liquibase.** Liquibase 4.33.0 installed on the agents is recommended: it is the last release whose core is under the Apache-2.0 licence. Its bundle also holds `internal/lib/liquibase-commercial.jar` and the folder `internal/extensions` under the Liquibase Pro licence, and JDBC drivers under other licences. The **trimmed install** removes those two, `internal/lib/ojdbc8.jar` and the drivers of the other databases, keeps `LICENSE.txt` and the folder `licenses`, and takes its Oracle driver from `tools.oracleJdbc`. A full 4.33.0 uses its bundled `internal/lib/ojdbc8.jar` before the configured driver, and the console says so. Liquibase 5.0.x is under the Functional Source License FSL-1.1-ALv2, which becomes Apache-2.0 two years after each release: internal use is allowed, offering Liquibase itself as a competing product is not. Use Liquibase 5.x only after the BBH open-source office has accepted FSL-1.1-ALv2.
+
+| Component | Licence | Note |
+|---|---|---|
+| Liquibase 4.33.0 | core Apache-2.0; the bundle also holds commercial jars under the Liquibase Pro licence and drivers under the IPLA, FUTC, LGPL, EPL and CDDL licences | recommended, as the trimmed install |
+| Liquibase 5.0.x | FSL-1.1-ALv2 | only after the BBH open-source office has accepted the licence; needs `tools.oracleJdbc` |
+| utPLSQL-cli 3.2.2 | Apache-2.0 | bundles its own Oracle driver |
+| ojdbc11, ojdbc17 | Oracle Free Use Terms and Conditions | – |
+
+The SHA-256 of the files from GitHub and Maven Central, which a copy in Nexus keeps; a trimmed 4.33.0 is a new file whose SHA-256 the DevSecOps team computes with `sha256sum`:
+
+| File | SHA-256 |
+|---|---|
+| Liquibase 4.33.0, `liquibase-4.33.0.tar.gz` | `689acfcdc97bad0d4c150d1efab9c851e251b398cb3d6326f75e8aafe40ed578` |
+| Liquibase 5.0.4, `liquibase-5.0.4.tar.gz` | `bb08638d70dddd6af8cca6e033148576f8214b5996831b1f8864eb3528f4cfce` |
+| utPLSQL-cli 3.2.2, `utPLSQL-cli.zip` | `15a3addd921b7f2e415537b47c18a4a9d3e0b70ff0e403943fd4c03b0ba02006` |
+| ojdbc11 23.26.4.0.0, `ojdbc11-23.26.4.0.0.jar` | `df977e9291499cd4ceee7d577462c285987dd2ad0216637c0865eb98956a9e6e` |
+
+The library prints the licence it found, for example `Liquibase 4.33.0, licence Apache-2.0 (core; bundle includes third-party and commercial components)`. It refuses Liquibase older than 4.33.0 and Liquibase 6 or newer; a version other than 4.33.x and 5.0.x runs with a line that it has not been tested.
+
+### 14.3 Repository layouts
+
+Each folder of changelogs is a service of its own. A repository of only PL/SQL is one service. A repository with an application and a database folder has two or more services: the Liquibase service of the database folder, and the Gradle or Maven service of the application. **List the database service first**: the services of a run run in their order, so the database changes then reach RD and QC before the application that needs them; otherwise the console warns at the start of the build.
+
+Three terms describe where Liquibase finds the files:
+
+- **Search root:** `sourceDir`, joined with `database.searchPath` (default `.`). It is the folder that Liquibase sees as its root, and every path of the changelog is relative to it.
+- **Changelog:** `database.changelogFile`, the master changelog, relative to the search root. Liquibase records this path with every applied changeset, unless the master sets `logicalFilePath`.
+- **Package folder:** the first folder of the changelog path (`db` for `db/changelog-master.xml`). The zip holds that folder, so the changelog path is the same inside the zip. A changelog without a folder puts the whole search root into the zip; the search root must then not be the repository root.
+
+The three layouts below are complete: each file shown is a file of `test/fixtures/database`, and the test suite runs layout (a) in all five pipelines, layout (b) in the full, security and Nexus IQ GoldenFix pipelines and layout (c) in the security pipeline. The SQL and PL/SQL files of layouts (b) and (c) are those of layout (a), in the folder of their changelog.
+
+#### Layout (a): only PL/SQL packages
+
+One service, `orders-db`, with `sourceDir: "."`: the search root is the repository root, the package folder is `db`, and the utPLSQL folders are relative to the search root (`db/code`, `db/test`).
+
+Files of layout (a) (`test/fixtures/database/layout-a`):
+
+```text
+devsecops_config.yaml
+Jenkinsfile
+db/changelog-master.xml
+db/tables/001-create-orders.sql
+db/tables/002-create-order-items.sql
+db/code/pkg_orders.pks
+db/code/pkg_orders.pkb
+db/code/v_order_totals.vw
+db/code/trg_orders_bi.trg
+db/test/ut_pkg_orders.pks
+db/test/ut_pkg_orders.pkb
+```
+
+File `devsecops_config.yaml` (`test/fixtures/database/layout-a/devsecops_config.yaml`):
+
+```yaml
+projects:
+  orders-db:
+    appId:     "6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+    buildTool: liquibase
+    sourceDir: "."
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+    database:
+      changelogFile: db/changelog-master.xml
+      parameters:
+        app_role: orders_app_role
+      package:
+        groupId: com.bbh.orders
+        snapshotRepository: {id: bbh-db-snapshots, url: "https://tools.bbh.com/nexus/repository/db-snapshots"}
+        releaseRepository:  {id: bbh-db-releases,  url: "https://tools.bbh.com/nexus/repository/db-releases"}
+      test:
+        url:           "jdbc:oracle:thin:@//dev-db.bbh.com:1521/ORDERS_CI"
+        credentialsId: orders-db-test
+        utplsql:
+          enabled:    true
+          sourcePath: db/code
+          testPath:   db/test
+      rd:
+        url:           "jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD"
+        credentialsId: orders-db-rd
+      qc:
+        url:           "jdbc:oracle:thin:@tcps://qc-db.bbh.com:2484/ORDERS_QC?ssl_server_dn_match=true"
+        credentialsId: orders-db-qc
+        parameters:
+          app_role: orders_qc_role
+```
+
+- The three database hosts must be in `defaults.database.allowedTargets`.
+- The `asoc` block holds no API key: SAST signs in with the API key of the functional user, `asoc.keyId` and `asoc.token` of the library defaults, as for every service.
+- `database.test.utplsql.paths` is left out, so utPLSQL runs the suites of the login schema, which is the owner with a proxy login (14.8).
+- QC has a changelog parameter of its own; the other targets use `database.parameters`.
+
+The Jenkinsfile names the service:
+
+File `Jenkinsfile` (`test/fixtures/database/layout-a/Jenkinsfile`):
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+devSecOpsPipeline(projectNames: 'orders-db', agentNames: ['linux-agent'])
+```
+
+**The library defaults** come from `resources/com/bbh/devsecops/defaults.yaml` of the library release (chapter 4). This release ships it without allowed databases, tools and Nexus repositories for database packages, so the file above stops in Monitor source changes with **defaults.database.allowedTargets is empty** until the DevSecOps team fills them in. Until then, leave out `test`, `rd` and `qc`, put Liquibase on the `PATH` of the agent or set `tools.liquibase` and `tools.oracleJdbc` under the service, and set `database.package.snapshotRepository` and `database.package.releaseRepository` under the service, or `database.package.nexusDelivery: false`. The pipelines then validate, package and deliver the changes, and deploy them nowhere.
+
+The master changelog deploys the tables through `includeAll` and every code object through a `sqlFile` changeset of its own (14.4):
+
+File `db/changelog-master.xml` (`test/fixtures/database/layout-a/db/changelog-master.xml`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <includeAll path="tables/" relativeToChangelogFile="true" errorIfMissingOrEmpty="true"/>
+
+    <changeSet id="pkg_orders.pks" author="orders-team" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pks" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="pkg_orders.pkb" author="orders-team" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pkb" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="v_order_totals.vw" author="orders-team" runOnChange="true">
+        <sqlFile path="code/v_order_totals.vw" relativeToChangelogFile="true" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="trg_orders_bi.trg" author="orders-team" runOnChange="true">
+        <sqlFile path="code/trg_orders_bi.trg" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+
+    <changeSet id="ut_pkg_orders.pks" author="orders-team" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pks" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="ut_pkg_orders.pkb" author="orders-team" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pkb" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+</databaseChangeLog>
+```
+
+A table file in formatted SQL, one DDL per changeset, each with its rollback:
+
+File `db/tables/001-create-orders.sql` (`test/fixtures/database/layout-a/db/tables/001-create-orders.sql`):
+
+```text
+--liquibase formatted sql
+
+--changeset orders-team:001-create-orders-seq
+--comment: Sequence for order ids
+CREATE SEQUENCE orders_seq START WITH 1 INCREMENT BY 1;
+--rollback DROP SEQUENCE orders_seq;
+
+--changeset orders-team:001-create-orders
+CREATE TABLE orders (
+  order_id    NUMBER(19)    NOT NULL,
+  customer    VARCHAR2(100) NOT NULL,
+  amount      NUMBER(12,2)  DEFAULT 0 NOT NULL,
+  created_at  DATE,
+  CONSTRAINT orders_pk PRIMARY KEY (order_id)
+);
+--rollback DROP TABLE orders;
+
+--changeset orders-team:001-create-orders-idx
+CREATE INDEX orders_customer_ix ON orders (customer);
+--rollback DROP INDEX orders_customer_ix;
+```
+
+A package specification, with the `/` on a line of its own at the end:
+
+File `db/code/pkg_orders.pks` (`test/fixtures/database/layout-a/db/code/pkg_orders.pks`):
+
+```text
+CREATE OR REPLACE PACKAGE pkg_orders AS
+  -- Public API for orders. This comment must stay in USER_SOURCE.
+  FUNCTION total_for(p_customer IN VARCHAR2) RETURN NUMBER;
+  PROCEDURE add_order(p_customer IN VARCHAR2, p_amount IN NUMBER);
+END pkg_orders;
+/
+```
+
+A utPLSQL test package, deployed only with the context `test`:
+
+File `db/test/ut_pkg_orders.pks` (`test/fixtures/database/layout-a/db/test/ut_pkg_orders.pks`):
+
+```text
+CREATE OR REPLACE PACKAGE ut_pkg_orders AS
+  --%suite(Orders package)
+  --%suitepath(orders)
+
+  --%test(Total of a customer without orders is zero)
+  PROCEDURE total_without_orders;
+
+  --%test(Adding an order raises the total)
+  PROCEDURE add_order_raises_total;
+END ut_pkg_orders;
+/
+```
+
+#### Layout (b): Gradle multi-module with a Java module, a Liquibase module and a Node.js frontend
+
+A Gradle build with the Java module `app`, the Liquibase module `orders-db` and an npm frontend in `frontend`. Two services, in this order:
+
+1. `orders-db`: `buildTool: liquibase`, `sourceDir: orders-db`, `database.searchPath: src/main/resources` and `database.changelogFile: db/changelog/db.changelog-master.xml`. The search root is `orders-db/src/main/resources` and the package folder `db`. The master sets `logicalFilePath="orders-db"`, so the identity of its changesets does not depend on the folder.
+2. `orders-app`: `buildTool: gradle`, `sourceDir: "."`, the Gradle build of the whole repository and the Node.js build of `frontend` (`build.node`). It is the service `gui` of the reference implementation ([chapter 15](#15-reference-implementation-examples), `test/fixtures/CertScanner/config.yaml`) with these changes: `excludedDirs: orders-db`, so that its SAST scan leaves the database folder to `orders-db`; `build.node` with `enabled: true` and `dir: frontend`; `app/build/libs`, the folder of the jar of `app`, in `tools.nexusIq.scanPatterns` and as the `baseDir` of its UrbanCode Deploy component; no AppScan key (`asoc.keyId`, `asoc.token`, `asoc.keySecret`), because SAST signs in with the key of the functional user from the library defaults; and no `influx` block, because a documented example holds no secret value.
+
+The pipeline never runs the Liquibase Gradle plugin of `orders-db/build.gradle`: it is there for the developers. A Spring Boot application of the same repository sets `spring.liquibase.enabled=false`, because the pipeline deploys the changes.
+
+Files of layout (b) (`test/fixtures/database/layout-b`):
+
+```text
+devsecops_config.yaml
+Jenkinsfile
+settings.gradle
+app/build.gradle
+frontend/package.json
+orders-db/build.gradle
+orders-db/src/main/resources/db/changelog/db.changelog-master.xml
+orders-db/src/main/resources/db/changelog/tables/001-create-orders.sql
+orders-db/src/main/resources/db/changelog/tables/002-create-order-items.sql
+orders-db/src/main/resources/db/changelog/code/pkg_orders.pks
+orders-db/src/main/resources/db/changelog/code/pkg_orders.pkb
+orders-db/src/main/resources/db/changelog/code/v_order_totals.vw
+orders-db/src/main/resources/db/changelog/code/trg_orders_bi.trg
+orders-db/src/main/resources/db/changelog/test/ut_pkg_orders.pks
+orders-db/src/main/resources/db/changelog/test/ut_pkg_orders.pkb
+```
+
+File `settings.gradle` (`test/fixtures/database/layout-b/settings.gradle`):
+
+```groovy
+include 'app', 'orders-db'
+```
+
+File `orders-db/build.gradle` (`test/fixtures/database/layout-b/orders-db/build.gradle`):
+
+```groovy
+plugins { id 'org.liquibase.gradle' version '3.0.2' }
+liquibase { activities { main { changelogFile 'db/changelog/db.changelog-master.xml' } } }
+```
+
+File `devsecops_config.yaml` (`test/fixtures/database/layout-b/devsecops_config.yaml`):
+
+```yaml
+projects:
+  orders-db:
+    appId:     "6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+    buildTool: liquibase
+    sourceDir: orders-db
+    buildToolAutoSetup: true
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+    database:
+      searchPath:    src/main/resources
+      changelogFile: db/changelog/db.changelog-master.xml
+      package:
+        groupId: com.bbh.orders
+        snapshotRepository: {id: bbh-db-snapshots, url: "https://tools.bbh.com/nexus/repository/db-snapshots"}
+        releaseRepository:  {id: bbh-db-releases,  url: "https://tools.bbh.com/nexus/repository/db-releases"}
+      test:
+        url:           "jdbc:oracle:thin:@//dev-db.bbh.com:1521/ORDERS_CI"
+        credentialsId: orders-db-test
+        utplsql:
+          enabled:    true
+          sourcePath: db/changelog/code
+          testPath:   db/changelog/test
+      rd:
+        url:           "jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD"
+        credentialsId: orders-db-rd
+      qc:
+        url:           "jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_QC"
+        credentialsId: orders-db-qc
+
+  orders-app:
+    appId:        "209f44ac-dd06-4ca0-884e-d944904f8020"
+    buildTool:    gradle
+    deployTarget: vm
+    sourceDir:    "."
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+    excludedDirs: orders-db
+
+    jenkins:
+      pipeline:
+        extendedPipeline: "DevSecOps/CertScanner-extended-pipeline"
+
+    asoc:
+      url:         "https://bbh.cloud.appscan.com"
+      insecureTls: false
+
+    tools:
+      sonar:
+        projectName:      "CertScanner-GUI"
+        projectKey:       "cert-scanner-gui"
+        serverUrl:        "https://tools.bbh.com/sonar"
+        credentialsId:    "sonarqube-token"
+        installationName: "SonarQube"
+        authToken:        "sonarqube-token"
+        badgeToken:       "sqb_95b6b9cfb2fe8f3fa0e45261ece1856d3fb1ebc"
+        addBadges:        true
+        fullBadges:       true
+        gradle:
+          tasks: ['sonarqube']
+      nexusIq:
+        application:        "CertValidityMonitoring-GUI"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/app/build/libs/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "CertScanner-GUI-SAST"
+
+    sca:
+      scanName: "CertScanner-GUI-SCA"
+
+    dast:
+      enabled:    true
+      scanName:   "CertScanner-GUI-DAST"
+      targetUrl:  "http://rdltaapps1.testbbh.com"
+      presenceId: ""
+
+    build:
+      node: {enabled: true, dir: frontend}
+      gradle:
+        tasks: ['clean','build','bootJar']
+        flags: ['--refresh-dependencies']
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/TA/repos/cert-scanner"
+        credentialsId: "bitbucket-http-credentials"
+        authType:      basic
+        targetBranch:  ""
+        reviewers:     []
+
+    goldenFix:
+      enabled: true
+
+    tests:
+      unitTests:
+        gradle:
+          tasks: ['test','jacocoTestReport','jacocoTestCoverageVerification']
+        unitTestResult: 'build/test-results/test/*.xml'
+      regression:
+        maxParallel: 5
+        jobs:
+          - name:       "CertScanner-GUI - regression"
+            type:       local
+            job:        "cert-scanner/regression-tests"
+            timeoutMin: 60
+          - name:       "CertScanner-GUI - regression (certificates)"
+            type:       local
+            job:        "cert-scanner/regression-certificates"
+            parameters: "ENV=rd"
+            timeoutMin: 60
+      smoke:
+        maxParallel: 20
+        defaults:
+          type:          remote
+          timeoutMin:    15
+          credentialsId: "remote-jenkins-api-token"
+        jobs:
+          - name: "CertScanner-GUI - login smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-login"
+          - name: "CertScanner-GUI - certificate list smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-list"
+          - name:          "CertScanner-GUI - notification smoke"
+            job:           "smoke/cert-scanner-notifications"
+            remoteJenkins: "jenkins-b"
+            parameters:    "ENV=rd"
+          - name:       "CertScanner-GUI - local smoke"
+            type:       local
+            job:        "cert-scanner/smoke-tests"
+            timeoutMin: 15
+          - "https://jenkins-c.bbh.com/job/smoke/job/cert-scanner-dashboard"
+        urls:
+          - "https://jenkins-b.bbh.com/job/smoke/job/cert-scanner-expiry"
+      performance:
+        jobs:
+          - name:       "CertScanner-GUI - performance"
+            type:       local
+            job:        "cert-scanner/performance-tests"
+            timeoutMin: 120
+
+    deploy:
+      vm:
+        dod:
+          siteName:      "deploy.bbh.com"
+          deployProcess: "tomcat-app-process"
+          applications:
+            - applicationName: "CertScanner-GUI"
+              components:
+                - componentName:       "CertScanner-GUI-app"
+                  baseDir:             "app/build/libs"
+                  fileIncludePatterns: "*.jar"
+        rd:
+          host:         "rdltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/CertScanner/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+        qc:
+          host:         "qcltaapps1.testbbh.com"
+          user:         "taadmin"
+          deployDir:    "/opt/ta/CertScanner/gui/deployment"
+          deployScript: "scripts/deployment/zero-downtime-deployment.sh"
+          versionFile:  "scripts/deployment/version.properties"
+```
+
+File `orders-db/src/main/resources/db/changelog/db.changelog-master.xml` (`test/fixtures/database/layout-b/orders-db/src/main/resources/db/changelog/db.changelog-master.xml`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog logicalFilePath="orders-db"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <includeAll path="tables/" relativeToChangelogFile="true" errorIfMissingOrEmpty="true"/>
+
+    <changeSet id="pkg_orders.pks" author="orders-team" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pks" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="pkg_orders.pkb" author="orders-team" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pkb" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="v_order_totals.vw" author="orders-team" runOnChange="true">
+        <sqlFile path="code/v_order_totals.vw" relativeToChangelogFile="true" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="trg_orders_bi.trg" author="orders-team" runOnChange="true">
+        <sqlFile path="code/trg_orders_bi.trg" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+
+    <changeSet id="ut_pkg_orders.pks" author="orders-team" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pks" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="ut_pkg_orders.pkb" author="orders-team" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pkb" relativeToChangelogFile="true"
+                 splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+</databaseChangeLog>
+```
+
+File `Jenkinsfile` (`test/fixtures/database/layout-b/Jenkinsfile`):
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+devSecOpsPipeline(projectNames: 'orders-db,orders-app', agentNames: ['linux-agent'])
+```
+
+Console of `test/sandbox/golden/database-full-gradle-module-green.txt` (shortened):
+
+```text
+[DB] orders-db: Liquibase service with a database block - changelog db/changelog/db.changelog-master.xml in orders-db/src/main/resources, package folder db, test database yes, RD yes, QC yes
+...
+[DB] orders-db: package .dso-db/orders-db/orders-db-341-<stamp>.zip (folder db of orders-db/src/main/resources), validated from the package
+[NODE] orders-app: Node.js from the agent PATH in frontend: npm ci && npm run build
+[BUILD] Tool: gradle OS: linux
+Execute Gradle Command: './gradlew' 'clean' 'build' 'bootJar' '--refresh-dependencies'
+...
+[COVERAGE] orders-db: Line coverage 88.2% meets the required 60%.
+...
+[COVERAGE] orders-app: Line coverage 82.4% meets the required 60%.
+...
+[DEP-SCAN] orders-db: SQL and PL/SQL have no dependency components - Nexus IQ is not required
+[DEP-SCAN] Application: CertValidityMonitoring-GUI | Server: https://tools.bbh.com/IQ
+```
+
+#### Layout (c): Maven with a database module
+
+Independent folders: the changelog in `orders-db` next to a Maven API in `api` and an npm frontend in `web`. Two services, in this order:
+
+1. `orders-db`: `buildTool: liquibase`, `sourceDir: orders-db` and `database.changelogFile: changelog-master.yaml`. The changelog has no folder, so the zip holds the whole search root `orders-db`. No test database is configured, so tests and coverage are **not required** for it.
+2. `orders-api`: `buildTool: maven`, `sourceDir: "."`. It is the service `backend-api` of the reference implementation with these changes: `excludedDirs: orders-db`; `build.maven.dir`, `tests.unitTests.maven.dir` and `tools.sonar.maven.dir` set to `api`, the folder of the `pom.xml`, and `tests.unitTests.unitTestResult` set to `api/target/surefire-reports/*.xml`; `build.node` with `enabled: true` and `dir: web`; and no AppScan key and no `influx` block. Its SAST scope is the repository without `orders-db`, so `api` and `web` are scanned with it, and the PL/SQL is scanned once, by `orders-db`.
+
+The identity of a changeset of this layout is `changelog-master.yaml` for the master and `tables/...` for the table files: valid, but not the identities that layout (a) gives the same files. Choose the layout before the first deployment and do not change it afterwards.
+
+Files of layout (c) (`test/fixtures/database/layout-c`):
+
+```text
+devsecops_config.yaml
+Jenkinsfile
+api/pom.xml
+web/package.json
+orders-db/changelog-master.yaml
+orders-db/tables/001-create-orders.sql
+orders-db/tables/002-create-order-items.sql
+orders-db/code/pkg_orders.pks
+orders-db/code/pkg_orders.pkb
+orders-db/code/v_order_totals.vw
+orders-db/code/trg_orders_bi.trg
+orders-db/test/ut_pkg_orders.pks
+orders-db/test/ut_pkg_orders.pkb
+```
+
+File `devsecops_config.yaml` (`test/fixtures/database/layout-c/devsecops_config.yaml`):
+
+```yaml
+projects:
+  orders-db:
+    appId:     "6f0c2a9e-4b1d-4e57-9a43-0d8e2f6b7c10"
+    buildTool: liquibase
+    sourceDir: orders-db
+    javaPath:  /usr/lib/jvm/java-17-openjdk
+    asoc:
+      url:   "https://bbh.cloud.appscan.com"
+    database:
+      changelogFile: changelog-master.yaml
+      package:
+        groupId: com.bbh.orders
+        snapshotRepository: {id: bbh-db-snapshots, url: "https://tools.bbh.com/nexus/repository/db-snapshots"}
+        releaseRepository:  {id: bbh-db-releases,  url: "https://tools.bbh.com/nexus/repository/db-releases"}
+      rd:
+        url:           "jdbc:oracle:thin:@//rd-db.bbh.com:1521/ORDERS_RD"
+        credentialsId: orders-db-rd
+      qc:
+        url:           "jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_QC"
+        credentialsId: orders-db-qc
+
+  orders-api:
+    appId:        "209f44ac-dd06-4ca0-884e-d944904f8021"
+    buildTool:    maven
+    deployTarget: openshift
+    sourceDir:    "."
+    javaPath:     /usr/lib/jvm/java-17-openjdk
+    excludedDirs: orders-db
+    appName:      "certscanner-api"
+    artifactName: "certscanner-api.jar"
+
+    asoc:
+      url:       "https://bbh.cloud.appscan.com"
+
+    tools:
+      sonar:
+        projectName:      "CertScanner-Backend"
+        projectKey:       "cert-scanner-backend"
+        serverUrl:        "https://tools.bbh.com/sonar"
+        installationName: "SonarQube"
+        authToken:        "sonarqube-token"
+        badgeToken:       "sqb_95b6b9cfb2fe8f3fa0e45261ece1856d3fb1ebc"
+        addBadges:        true
+        maven:
+          dir:   api
+          goals: ['sonar:sonar']
+      nexusIq:
+        application:        "CertValidityMonitoring-Backend"
+        serverUrl:          "https://tools.bbh.com/IQ"
+        credentialsId:      "nexusiqP"
+        scanPatterns:       ["**/api/target/*.jar"]
+        stage:              "build"
+        failOnNetworkError: false
+
+    sast:
+      scanName: "CertScanner-Backend-SAST"
+
+    sca:
+      scanName: "CertScanner-Backend-SCA"
+
+    dast:
+      enabled:    true
+      scanName:   "CertScanner-Backend-DAST"
+      targetUrl:  "http://rdltaapps1.testbbh.com:8080/api"
+      presenceId: ""
+
+    build:
+      node: {enabled: true, dir: web}
+      buildPath: "target/*.jar"
+      maven:
+        dir: api
+        javaPath: /usr/lib/jvm/java-17-openjdk
+        goals:    ['clean','verify']
+        flags:    ['-B','-U']
+        env:
+          MAVEN_OPTS: "-Xms512m -Xmx1g"
+
+    scm:
+      bitbucket:
+        url:           "https://bitbucket.bbh.com/projects/TA/repos/cert-scanner"
+        credentialsId: "bitbucket-http-credentials"
+        authType:      basic
+
+    goldenFix:
+      enabled: true
+
+    tests:
+      unitTests:
+        maven:
+          dir:   api
+          goals: ['test','jacoco:report']
+        unitTestResult: 'api/target/surefire-reports/*.xml'
+      regression:
+        jobs:
+          - name:       "CertScanner-Backend - regression"
+            type:       local
+            job:        "cert-scanner/api-regression-tests"
+            timeoutMin: 60
+      smoke:
+        jobs:
+          - name:       "CertScanner-Backend - smoke"
+            type:       local
+            job:        "cert-scanner/api-smoke-tests"
+            timeoutMin: 15
+          - name: "CertScanner-Backend - contract smoke"
+            url:  "https://jenkins-a.bbh.com/job/smoke/job/cert-scanner-api-contract"
+            credentialsId: "remote-jenkins-api-token"
+      performance:
+        jobs:
+          - name:       "CertScanner-Backend - performance"
+            type:       local
+            job:        "cert-scanner/api-performance-tests"
+            timeoutMin: 120
+
+    deploy:
+      openshift:
+        rd:
+          projectBuildR:      "ta-certscanner-build"
+          buildConfigPath:    "openshift/buildconfig.yaml"
+          dockerFilePath:     "openshift/Dockerfile"
+          buildContext:       "target/docker"
+          qcDockerRepoPush:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          openshiftCertDir:   "/etc/pki/openshift"
+          nexus:
+            authfile:         "/home/jenkins/.docker/nexus-auth.json"
+          projectDeploymentR: "ta-certscanner-rd"
+          qcDockerRepoPull:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          deployConfigPath:   "openshift/deployment.yaml"
+          configPathR:        "openshift/config-rd.yaml"
+          healthCheckUrl:     "/actuator/health"
+          routeHostnameR:     "certscanner-api-rd.apps.ocp-rd.testbbh.com"
+        qc:
+          projectDeploymentR: "ta-certscanner-qc"
+          qcDockerRepoPull:   "docker-qc.tools.bbh.com/ta/certscanner-api"
+          deployConfigPath:   "openshift/deployment.yaml"
+          configPathR:        "openshift/config-qc.yaml"
+          healthCheckUrl:     "/actuator/health"
+          routeHostnameR:     "certscanner-api-qc.apps.ocp-qc.testbbh.com"
+```
+
+File `orders-db/changelog-master.yaml` (`test/fixtures/database/layout-c/orders-db/changelog-master.yaml`):
+
+```yaml
+databaseChangeLog:
+  - includeAll:
+      path: tables/
+      relativeToChangelogFile: true
+      errorIfMissingOrEmpty: true
+  - changeSet:
+      id: pkg_orders.pks
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/pkg_orders.pks
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: pkg_orders.pkb
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/pkg_orders.pkb
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: v_order_totals.vw
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/v_order_totals.vw
+            relativeToChangelogFile: true
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: trg_orders_bi.trg
+      author: orders-team
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: code/trg_orders_bi.trg
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: ut_pkg_orders.pks
+      author: orders-team
+      runOnChange: true
+      context: test
+      changes:
+        - sqlFile:
+            path: test/ut_pkg_orders.pks
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+  - changeSet:
+      id: ut_pkg_orders.pkb
+      author: orders-team
+      runOnChange: true
+      context: test
+      changes:
+        - sqlFile:
+            path: test/ut_pkg_orders.pkb
+            relativeToChangelogFile: true
+            splitStatements: false
+            stripComments: false
+      rollback: []
+```
+
+File `Jenkinsfile` (`test/fixtures/database/layout-c/Jenkinsfile`):
+
+```groovy
+@Library('DevSecOpsJenkinsLibrary') _
+devSecOpsPipeline(projectNames: 'orders-db,orders-api', agentNames: ['linux-agent'])
+```
+
+Console of `test/sandbox/golden/database-security-maven-green.txt` (shortened):
+
+```text
+[DB] orders-db: Liquibase service with a database block - changelog changelog-master.yaml in orders-db, package folder the whole search root, test database no, RD yes, QC yes
+...
+[DB] orders-db: package .dso-db/orders-db/orders-db-212-<stamp>.zip (the whole search root orders-db), validated from the package
+[NODE] orders-api: Node.js from the agent PATH in web: npm ci && npm run build
+[BUILD] Tool: maven OS: linux
+...
+[DB] orders-db: no test database (database.test.url) - no unit tests, coverage is not required
+...
+[SAST] orders-db: SQL and PL/SQL sources - the scan has no compile step
+...
+[NEXUS] orders-db: publishing orders-db-212-<stamp>.zip as com.bbh.orders:orders-db:212-<stamp>-SNAPSHOT to bbh-db-snapshots
+```
+
+#### Liquibase commands only, next to a Gradle service
+
+Without a database block a multi-module repository registers the database module as a Liquibase service next to the application services, and runs them together in one pipeline with `projectNames` **(not run with these values)**:
+
+```yaml
+projects:
+  db-migrations:
+    appId:     "<AppScan application ID>"
+    buildTool: liquibase
+    sourceDir: "db"
+    build:
+      liquibase:
+        dir:      "db"
+        commands: ['updateSQL']
+        flags:    ['--changelog-file=changelog/db.changelog-master.xml']
+    tests:
+      unitTests:
+        liquibase:
+          dir:      "db"
+          commands: ['validate']
+          flags:    ['--changelog-file=changelog/db.changelog-master.xml']
+    tools:
+      sonar:
+        projectKey:  "myproduct-db"
+        projectName: "MyProduct-DB"
+        liquibase:
+          dir:   "db"
+          flags: ['-Dsonar.plsql.file.suffixes=.sql,.pks,.pkb']
+
+  backend-api:
+    appId:     "<AppScan application ID>"
+    buildTool: gradle
+    sourceDir: "backend"
+    javaPath:  /usr/lib/jvm/java-21-openjdk
+    build:
+      gradle:
+        dir:   "backend"
+        tasks: ['clean', 'build']
+      node:
+        enabled:  true
+        dir:      "frontend"
+        commands: ['npm ci', 'npm run build']
+```
+
+When both services run in one pipeline:
+
+1. **Build artifact:** builds the frontend in `frontend/` and then runs the Gradle build in `backend/` for `backend-api`, and runs `liquibase updateSQL` in `db/` for `db-migrations`.
+2. **Unit tests:** runs `liquibase validate` in `db/` for `db-migrations` (skipping the coverage requirement for the database service) and runs Gradle tests in `backend/` for `backend-api`, aggregating JaCoCo XML reports from the Java modules and LCOV reports from the frontend while scoping each service's search to its own folders.
+3. **Nexus IQ & GoldenFix:** scans the backend JARs, `frontend/package-lock.json`, Python `requirements.txt` / `pyproject.toml` and any JDBC drivers or Liquibase extensions matching `scanPatterns`, and raises one shared GoldenFix pull request across Maven, Gradle, version catalogs, npm and pip manifests.
+4. **SAST and SonarQube:** scans `db/` as SQL / PL/SQL via AppScan IRX (after `liquibase updateSQL` of `build.liquibase`) and `sonar-scanner`, and scans `backend/` as compiled Java + frontend bundles. With `staticAnalysis.parallel` the Unit tests and Nexus IQ run while AppScan scans; SonarQube runs last in both orders.
+
+The console of a Liquibase service without a database block shows the commands as they run:
+
+Console of `test/sandbox/golden/database-full-liquibase-commands-rd-failure.txt` (shortened):
+
+```text
+[BUILD] Tool: liquibase OS: linux
+Execute Liquibase Command: 'liquibase' '--changelog-file=db/changelog-master.xml' '--url=offline:oracle' 'updateSQL'
+...
+[TEST] Tool: liquibase
+Execute Liquibase Command: 'liquibase' '--changelog-file=db/changelog-master.xml' 'validate'
+...
+[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement
+```
+
+**A Liquibase step on a Gradle or Maven service.** A Gradle or Maven service can run Liquibase too: `build.liquibase` runs after its Gradle or Maven build (**Running additional Liquibase step for multi-module project**), `tests.unitTests.liquibase` after its unit tests, and `asoc.liquibase`, else `build.liquibase`, after the compile of the SAST stage. The service stays a Gradle or Maven service: a `database` block on it is ignored with a line in the console, and the library never deploys its changesets.
+
+#### Rules for every layout
+
+- **The search root stays inside the service folder:** `database.searchPath` and `sourceDir` are relative paths without `..`.
+- **One folder per SAST scope.** Every source folder belongs to the SAST scan of exactly one service. `excludedDirs` of the application names the database folder. AppScan applies it as a substring test, so `excludedDirs: db` would also leave out `src/main/java/com/bbh/orders/db/`: use a distinctive, hyphenated folder name such as `orders-db`, which no Java package can have. `includedDirs` matches folder names anywhere in the tree, not paths.
+- **The identity of a changeset** is its id, its author and the changelog path relative to the search root, or `logicalFilePath`. Fix the search root, the path and the format (XML or YAML) before the first deployment; a later move, or a `logicalFilePath` added later, makes Liquibase run every changeset again.
+- **Gradle and Maven plugins of Liquibase are never run by the pipeline.** A folder of changelogs that the pipeline deploys is its own Liquibase service, also when it is a module of a Gradle or Maven build.
+- **Spring Boot.** An application with `liquibase-core` on its classpath runs the changelog itself when it starts, with its own user, and competes with the pipeline in RD and QC: set `spring.liquibase.enabled=false`, or keep the changelog out of the application jar.
+
+### 14.4 Writing a changelog for PL/SQL
+
+These rules apply to a changelog that a database block deploys. They follow from the way Liquibase sends a file to Oracle: it splits the text at every `;` unless `splitStatements` is false, it removes the comments when `stripComments` is true, and it sends every line as SQL, also a SQL\*Plus command.
+
+1. **One PL/SQL unit per file**, deployed by `sqlFile` with `splitStatements="false"` and `stripComments="false"`, with a `/` on a line of its own at the end. A TOAD-style `.pck` with specification and body works with `endDelimiter="\n/"`.
+2. **Code objects are `runOnChange="true"` and `CREATE OR REPLACE`**: packages, views, triggers and types. A change of whitespace only does not run them again. Oracle replaces a type that other types use only with `CREATE OR REPLACE TYPE ... FORCE`, and never one that a table uses (ORA-02303): change such a type with `ALTER TYPE ... CASCADE` in a new changeset, and leave its `runOnChange` file as it is.
+3. **Tables in formatted SQL, one DDL per changeset, each with `--rollback`.** Oracle commits each DDL, so a changeset with two statements that fails halfway is left half applied. **Never edit an applied changeset**: add a new one.
+4. **Formatted SQL that holds a PL/SQL unit** needs `splitStatements:false` and `stripComments:false` on its `--changeset` line.
+5. **Views and plain SQL keep the default splitting.** With `splitStatements="false"` the statement would reach Oracle with its `;`, which Oracle refuses for a view.
+6. **No client commands.** Liquibase sends the commands of SQL\*Plus (`SET`, `SHOW ERRORS`, `@file`, `PROMPT`, `EXIT`) to the database as SQL.
+7. **`includeAll` deploys only `.sql`, `.xml`, `.yaml`, `.yml` and `.json` files**, so every `.pks`, `.pkb`, `.vw`, `.trg` or `.prc` file needs a `sqlFile` changeset.
+8. **Test packages carry `context="test"`.** The test database deploys the context `test`; RD, QC and the review SQL use `!test`, and QC must not select `test`.
+9. **A master changelog that includes other files is XML, YAML or JSON.** Liquibase Community has no `include` inside formatted SQL, so a formatted SQL master holds all its changesets itself.
+10. **`<rollback/>` on code changesets** keeps `future-rollback-sql` working when `database.requireRollback` is true; such a rollback leaves the new code in place.
+11. **No password and no agent code in a changeset.** Values that differ between databases are `database.parameters`, written `${app_role}` in the changelog.
+12. **`runAlways` changesets** (grants, synonyms) run on every deployment.
+
+**Static checks.** In the full and security pipelines the Build artifact stage reads every file under the package folder before it packages them. Each finding is one line of `.dso-db/<service>/static-checks.txt`, which the stage archives; the console shows the first 20 as `[DB] <service>: static check: <finding>`. The PL/SQL files are those with the extensions `.pks`, `.pkb`, `.pls`, `.plb`, `.pck`, `.prc`, `.fnc`, `.trg`, `.tps`, `.tpb`, `.typ` and `.bdy`.
+
+| Finding | Rule | Result |
+|---|---|---|
+| a SQL\*Plus command at the start of a line of a PL/SQL, `.sql` or `.vw` file, outside a `--` comment: `SET DEFINE`, `SET ECHO`, `SET SERVEROUTPUT` and the other `SET` options of SQL\*Plus, `SHOW ERRORS`, `PROMPT`, `SPOOL`, `WHENEVER SQLERROR`, `EXIT SUCCESS`, `DEFINE name = value`, `EXEC procedure`, `@file` and `@@file` | 6 | warning |
+| a `/` line before the end of a PL/SQL file whose `sqlFile` has no `endDelimiter` | 1 | warning |
+| a `/` on the line of `END;` at the end of a PL/SQL file | 1 | warning |
+| a `sqlFile` of a PL/SQL file without `splitStatements="false"` and without `endDelimiter` | 1 | warning |
+| a `sqlFile` of a PL/SQL file with `stripComments="true"` | 1 | warning |
+| a `sqlFile` of a view or plain SQL file with `splitStatements="false"` whose statement ends with `;` | 5 | warning |
+| a `--changeset` of formatted SQL that holds a PL/SQL unit without `splitStatements:false` (or `endDelimiter:`), or without `stripComments:false` | 4 | warning |
+| a PL/SQL or `.vw` file that no `sqlFile` of a changelog deploys | 7 | warning |
+| `IDENTIFIED BY` followed by a password: a name, a quoted name, a `${...}` or the end of the line (not `IDENTIFIED BY VALUES`, nor a bind, a variable or a concatenation in dynamic SQL) | 11 | stops the build |
+| `executeCommand` or `customChange` in a changelog: it runs code on the Jenkins agent | 11 | stops the build |
+| `${...}` whose name holds `password`, `passwd`, `pwd`, `secret`, `token`, `credential`, `key` or `user`, or starts with `LIQUIBASE_`, `DSO_` or `JENKINS` | 11 | stops the build |
+
+A warning turns the stage orange (**unstable**), and the release gate then blocks the Nexus release and the QC deployment until the finding is fixed. `database.checks.ignoreFiles` lists files or folders, relative to the search root, that the warnings skip; the findings that stop the build are never skipped.
+
+Console of `test/sandbox/golden/database-security-static-checks-orange.txt` (shortened):
+
+```text
+[DB] orders-db: static check: db/code/pkg_bad.pkb line 1: SQL*Plus command "SHOW ERRORS" - Liquibase sends it to the database as SQL; remove it
+[DB] orders-db: static check: db/code/pkg_bad.pkb line 9: "/" on the line of END; - put the "/" on a line of its own
+[DB] orders-db: static check: db/tables/003-pkg-audit.sql line 3: changeset 003-pkg-audit holds a PL/SQL unit but no splitStatements:false - Liquibase splits it at every ";"
+[DB] orders-db: static check: db/tables/003-pkg-audit.sql line 3: changeset 003-pkg-audit holds a PL/SQL unit without stripComments:false - its comments and utPLSQL annotations are removed
+[DB] orders-db: static check: db/code/orders_purge.prc is in no sqlFile of the changelog - includeAll does not deploy .prc files, so it is never deployed
+[DB] orders-db: static check: db/code/pkg_bad.pkb is in no sqlFile of the changelog - includeAll does not deploy .pkb files, so it is never deployed
+[unstable] [POLICY] 6 static check finding(s) in the SQL and PL/SQL sources (.dso-db/orders-db/static-checks.txt): fix them, or list the file in database.checks.ignoreFiles The Nexus release and the QC deployment stay blocked until this is fixed.
+```
+
+### 14.5 Settings
+
+Every key of the first two tables is a key of the service, under `projects.<service>` of `devsecops_config.yaml`. In the tables, `<target>` stands for `test`, `rd` or `qc`.
+
+**The Liquibase commands.** They apply to every Liquibase service, with and without a database block:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `buildTool` | detected (14.1) | `liquibase`; a database block needs it set |
+| `sourceDir` | `.` | the folder of the service: the SAST scope, and the base of the search root of a block |
+| `build.liquibase.commands` | `updateSQL` from the auto-resolve, `validate` with `autoresolve parameters: false`; with a block none, unless `build.liquibase.flags` is set | the Liquibase commands of the Build artifact stage, `liquibase <flags> <commands>`; `tasks` is a synonym |
+| `build.liquibase.flags` | – | the arguments before the commands, for example `--changelog-file=db/changelog-master.xml` and `--url=offline:oracle` |
+| `build.liquibase.dir` | the workspace | the folder the command runs in |
+| `build.liquibase.env` | – | environment variables of the command, as a map |
+| `build.liquibase.label` | `Liquibase: <commands>` | the name of the step in Jenkins |
+| `tests.unitTests.liquibase.commands` | `validate` from the auto-resolve; with a block or with `autoresolve parameters: false`, `validate` when only `flags` are set, else none | the Liquibase command of the Unit tests stage; a failure turns the stage orange |
+| `tests.unitTests.liquibase.flags`, `tests.unitTests.liquibase.dir`, `tests.unitTests.liquibase.env` | – | as for `build.liquibase` |
+| `asoc.liquibase.commands`, `asoc.liquibase.flags`, `asoc.liquibase.dir`, `asoc.liquibase.env` | the map of `build.liquibase` | the Liquibase command that runs before AppScan prepares the IRX |
+| `asoc.doCompile` | `true` | `false`: no Liquibase command before the IRX |
+| `tools.sonar.liquibase.dir` | – | the folder `sonar-scanner` runs in; with a block, `.` or a relative path inside the repository that holds the package folder and the utPLSQL test folder, from which the block gives its folders and reports (14.10) |
+| `tools.sonar.liquibase.sources` | `tools.sonar.sources`; else, with a block, the package folder under the search root, from `tools.sonar.liquibase.dir` when it is set; else `.` when `tools.sonar.liquibase.dir` is set; else `build.liquibase.dir`, else `sourceDir` | `-Dsonar.sources`, read from `tools.sonar.liquibase.dir` when it is set |
+| `tools.sonar.liquibase.inclusions`, `tools.sonar.liquibase.exclusions` | – | `-Dsonar.inclusions` and `-Dsonar.exclusions` |
+| `tools.sonar.liquibase.flags` | – | more `sonar-scanner` arguments, for example `-Dsonar.plsql.file.suffixes=sql,pks,pkb`; an argument of these keys wins over the same argument of the block |
+| `tools.sonar.liquibase.env` | – | environment variables of the scanner |
+| `javaPath` | – | the JDK, exported as `JAVA_HOME`; optional without a block |
+| `buildToolAutoSetup` | `false` | `true`: the library looks for a JDK on the agent; with a block, `javaPath` or `buildToolAutoSetup: true` is required |
+
+**The database block.** `database.changelogFile` switches it on:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `database.changelogFile` | – | the master changelog, relative to the search root; `.xml`, `.yaml`, `.yml`, `.json` or `.sql` |
+| `database.searchPath` | `.` | the search root, relative to `sourceDir` |
+| `database.oracleVersion` | `19.0` | the Oracle version of the offline validation and the review SQL |
+| `database.defaultSchema` | – | `--default-schema-name` of every online step: the schema of the objects, when the deploy user is not their owner |
+| `database.liquibaseSchema` | – | `--liquibase-schema-name`: the schema of `DATABASECHANGELOG` and `DATABASECHANGELOGLOCK` |
+| `database.contexts` | `!test` | the context filter of RD, QC and the review SQL |
+| `database.labels` | – | the label filter of the test database, RD, QC and the review SQL |
+| `database.parameters` | – | changelog parameters, at most 50, written `${name}` in the changelog; a name that holds `password`, `passwd`, `pwd`, `secret`, `token`, `credential`, `key` or `user`, or starts with `liquibase_`, `dso_` or `jenkins`, is refused, as by the static checks of 14.4: use a name such as `app_role` or `app_schema` |
+| `database.requireRollback` | `false` | `true`: the Build artifact stage writes the rollback SQL, and a changeset without a rollback turns it orange |
+| `database.tag` | `true` | tag RD and QC with `<artifactId>-<version>` when a changeset ran |
+| `database.lockWaitMinutes` | `5` | how long Liquibase waits for its lock, from 0 to 60 |
+| `database.compileCheck.enabled` | `true` | the compile check after each deployment (14.8) |
+| `database.compileCheck.recompile` | `true` | recompile the invalid objects of the schema before the check |
+| `database.compileCheck.ignoreObjects` | – | object names that never count as invalid |
+| `database.checks.ignoreFiles` | – | files or folders, relative to the search root, that the static check warnings skip |
+| `database.package.groupId` | – | the Maven group of the zip; required when the pipeline delivers to Nexus |
+| `database.package.artifactId` | the service name | the Maven artifact of the zip |
+| `database.package.nexusDelivery` | `true` | `false`: no snapshot or release delivery; the extended pipeline then packages its own checkout |
+| `database.package.mvnPath` | `build.maven.mvnPath`, else `mvn` of the agent | the Maven of the upload and the fetch |
+| `database.package.snapshotRepository.id`, `database.package.snapshotRepository.url` | the library defaults | the Nexus repository of the snapshots |
+| `database.package.releaseRepository.id`, `database.package.releaseRepository.url` | the library defaults | the Nexus repository of the releases |
+| `database.<target>.url` | – | the Oracle thin URL of the target, without a user or a password; without it the target is **not required** |
+| `database.<target>.credentialsId` | – | the Jenkins **Username with password** credential, required with the URL |
+| `database.<target>.contexts` | test: `test`; RD and QC: `database.contexts` | the context filter of the target |
+| `database.<target>.labels`, `database.<target>.defaultSchema`, `database.<target>.liquibaseSchema` | the value of the service | the label filter and the schemas of the target |
+| `database.<target>.parameters` | – | changelog parameters of the target, merged over `database.parameters` |
+| `database.<target>.timeoutMinutes` | `30` | the timeout of each online step of the target, from 1 to 240 |
+| `database.test.reset` | `false` | `true`: empty the test schema before the deployment: `drop-all`, then a drop of the packages, procedures, functions, triggers, types and synonyms, which `drop-all` of Liquibase Community leaves |
+| `database.test.utplsql.enabled` | `false` | run utPLSQL on the test database (14.9) |
+| `database.test.utplsql.paths` | the suites of `database.test.utplsql.owner` | the utPLSQL paths, such as `orders_owner:ut_orders` |
+| `database.test.utplsql.owner` | `database.test.defaultSchema`, else `database.defaultSchema`, else the login schema | the schema whose suites run |
+| `database.test.utplsql.sourcePath`, `database.test.utplsql.testPath` | – | the folders of the packages and of the test packages, relative to the search root, which map the reports to the files |
+| `database.test.utplsql.timeoutMinutes` | `30` | the timeout of the utPLSQL run (`-t`), from 1 to 240; the Jenkins step around it ends 5 minutes after the larger of this and `database.test.timeoutMinutes`, so that utPLSQL ends first, with its reports |
+
+There is no production target: `database.prod`, `database.production`, `database.prd` and `database.live` are refused. With a block, `deployTarget` and `deploy` are not used, and a `database.allowedTargets` of the service is ignored with a line in the console.
+
+**The library defaults** (`defaults.*`), which the DevSecOps team fills in `resources/com/bbh/devsecops/defaults.yaml` of the library release (chapter 4):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `defaults.tools.liquibase.home` | – | the Liquibase folder on the agent, which holds the `liquibase` launcher |
+| `defaults.tools.liquibase.url`, `defaults.tools.liquibase.sha256` | – | the Nexus download of a `.tar.gz`, `.tgz` or `.zip`, and its SHA-256 |
+| `defaults.tools.liquibase.javaVersion` | `17` | the Java version, from 17 to 25, that `buildToolAutoSetup` looks for with a block |
+| `defaults.tools.oracleJdbc.path` | – | the Oracle driver jar on the agent |
+| `defaults.tools.oracleJdbc.url`, `defaults.tools.oracleJdbc.sha256` | – | the Nexus download of the driver jar |
+| `defaults.tools.utplsql.home` | – | the utPLSQL-cli folder on the agent, which holds `bin/utplsql` |
+| `defaults.tools.utplsql.url`, `defaults.tools.utplsql.sha256` | – | the Nexus download of `utPLSQL-cli.zip` |
+| `defaults.database.allowedTargets` | empty | the databases the library may deploy to; a library default only |
+| `defaults.database.package.snapshotRepository.id`, `defaults.database.package.snapshotRepository.url` | – | the Nexus repository of the database snapshots |
+| `defaults.database.package.releaseRepository.id`, `defaults.database.package.releaseRepository.url` | – | the Nexus repository of the database releases |
+
+A local folder wins over the download, and the download over the `PATH` of the agent; the driver has no `PATH` fallback. A service may set its own `tools.liquibase`, `tools.oracleJdbc` and `tools.utplsql`, which the settings check then checks as well. These three are the tools of the block only: the commands of `build.liquibase` always run the `liquibase` of the `PATH`, and `tools.sonar.liquibase` is the SonarQube scan of every Liquibase service.
+
+**URL forms.** `jdbc:oracle:thin:@//host:1521/SERVICE` with the EZConnect Plus parameters `ssl_server_dn_match`, `ssl_server_cert_dn`, `connect_timeout`, `transport_connect_timeout`, `retry_count` and `retry_delay`; `@tcps://host:2484/SERVICE`; several hosts, `@host1:1521,host2:1521/SERVICE`; `@host:1521:SID`; and `@(DESCRIPTION=...)`. A URL with a user or a password, a TNS alias and an IPv6 address are refused. The test database must not have the URL of RD or QC.
+
+**The allowed databases.** Each entry of `defaults.database.allowedTargets` is `host` or `host/SERVICE`; `*` matches any run of letters, digits, dots and hyphens, and case does not matter. A URL is allowed when every host of it matches an entry that names no service or names the service of the URL. An empty list allows no deployment.
+
+| Entries | URL | Allowed |
+|---|---|---|
+| `rd-db*.bbh.com` | `jdbc:oracle:thin:@//RD-DB1.bbh.com:1521/ORDERS_RD` | yes |
+| `qc-db.bbh.com/ORDERS_QC` | `jdbc:oracle:thin:@//qc-db.bbh.com:1521/ORDERS_RD` | no: another service |
+| `rd-db1.bbh.com` | `jdbc:oracle:thin:@rd-db1.bbh.com:1521,rd-db2.bbh.com:1521/ORDERS` | no: `rd-db2` is not allowed |
+| `*.rd.bbh.com` | `jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST=a.rd.bbh.com)(PORT=2484))(CONNECT_DATA=(SERVICE_NAME=ORDERS)))` | yes |
+| none | any | no |
+
+The list is a guard against mistakes, not an access control: a listed name that points to production is not detected. The control is that no Jenkins folder of a product holds production credentials.
+
+**In devsecops_config.yaml and the library defaults:**
+
+1. The DevSecOps team fills the database part of the library defaults (`resources/com/bbh/devsecops/defaults.yaml`): `defaults.tools.liquibase` (the Liquibase folder or download and the Java version), `defaults.tools.oracleJdbc`, `defaults.tools.utplsql`, `defaults.database.allowedTargets` and the Nexus repositories of the database packages (`defaults.database.package`).
+2. The Jenkins administrator adds one **Username with password** credential per database to the Jenkins folder of the product.
+3. The product team adds the service under `projects:` of `devsecops_config.yaml` with `buildTool: liquibase` and `sourceDir`. In a repository with an application, it lists the Liquibase service first.
+4. For a database block, it sets no Liquibase commands under `build.liquibase`, and sets `database.changelogFile`, and `database.searchPath` for a module of a Gradle or Maven build. `deployTarget` and `deploy` are then not used.
+5. It sets `database.<target>.url` and `database.<target>.credentialsId` of each database the pipelines deploy to: `test`, the test database for utPLSQL, `rd`, the lower test region, and `qc`, the higher test region; `database.test.utplsql.enabled: true` with `database.test.utplsql.sourcePath` and `database.test.utplsql.testPath`; and `database.package.groupId`.
+6. It sets the AppScan application ID (`appId`), and for the security and full pipelines the SonarQube project key (`tools.sonar.projectKey`), as for every service.
+7. The Jenkinsfile of the repository names the services in `projectNames`, as in 14.3.
+
+### 14.6 What each stage does
+
+Without a database block every stage runs as for any service, with the Liquibase commands of 14.5 in place of a Gradle or Maven build; the table of 14.1 lists the differences. This section describes a service with a block.
+
+**Monitor source changes.** The settings of every service with a block are checked; each problem is one line `[DB] <service>: <problem>`, and the build stops after the list. In the full and security pipelines the changelog, and the folders of `database.test.utplsql.sourcePath` and `database.test.utplsql.testPath` when they are set, must exist in the checkout. A Windows agent stops the build. A database service that comes after a Gradle, Maven or Flutter service of the run is named in the console.
+
+**Build artifact.** The command of `build.liquibase` runs first when it is set. In the full and security pipelines the block then validates the changelog offline, checks the Liquibase version, runs the static checks (14.4), counts the changesets with `update-sql`, writes the review SQL (`update-sql` with the filters and the parameters of RD), writes the rollback SQL when `requireRollback` is true, stages the package folder with the manifest, zips it and validates the zip offline. The stage archives the zip, the review SQL, the rollback SQL and `static-checks.txt`. In the SAST and Nexus IQ GoldenFix pipelines nothing is packaged, and the service is **not required** unless `build.liquibase` ran.
+
+Console of `test/sandbox/golden/database-full-plsql-only-green.txt` (shortened):
+
+```text
+[DB] orders-db: Liquibase service with a database block - changelog db/changelog-master.xml in ., package folder db, test database yes, RD yes, QC yes
+...
+[DB] orders-db: the changelog is valid (offline, Oracle 19.0)
+[DB] orders-db: 10 changesets in the changelog
+[DB] orders-db: review SQL .dso-db/orders-db/orders-db-341-<stamp>-update.sql: 8 changesets for contexts !test
+[DB] orders-db: package .dso-db/orders-db/orders-db-341-<stamp>.zip (folder db of .), validated from the package
+...
+[DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
+[DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
+[DB] orders-db: utPLSQL: 214 tests, 0 failed, 3 skipped
+[COVERAGE] orders-db: utPLSQL Cobertura .dso-db/orders-db/utplsql-cobertura.xml: 150 of 170 lines
+```
+
+**Unit tests.** The command of `tests.unitTests.liquibase` runs first when it is set. With `database.test.url` the block deploys the package of the Build artifact stage to the test database with the context `test`, reports the changesets of the test database that the changelog does not have, and runs utPLSQL when `database.test.utplsql.enabled` is true (14.9). Without a test database the console says **no test database (database.test.url) - no unit tests, coverage is not required**; with utPLSQL off it says **utPLSQL is off (database.test.utplsql.enabled) - coverage is not required**.
+
+**Dependencies scan (Nexus IQ).** **Not required**: SQL and PL/SQL have no dependency components. A service that sets `tools.nexusIq.scanPatterns` is scanned as any other. The Nexus IQ GoldenFix pipeline refuses a run of database services only.
+
+**SAST - HCL AppScan.** The command of `asoc.liquibase`, else of `build.liquibase`, runs before the IRX unless `asoc.doCompile` is false. The IRX has no compile step (`-sco`) and holds the sources of `sourceDir` with `includedDirs` and `excludedDirs`; the console lists the SQL and PL/SQL files with extensions AppScan does not scan (`.prc .fnc .trg .vw .tps .tpb .typ .bdy`). Every IRX of a run leaves out `.dso-db`.
+
+**SCA (SonarQube)** runs last, so the utPLSQL reports are there (14.10).
+
+**Nexus delivery.** The snapshot stage publishes the zip; the release stage publishes the same file once the release gate allows it (14.7). With `database.package.nexusDelivery: false` both are **not required**.
+
+**Download artifacts from Nexus Repo** (extended pipeline). **Not required**: the deployment fetches the delivered zip itself, with the version that the snapshot stage wrote to `delivery` of `pipeline-config.yaml` and the extended pipeline copied from its security job.
+
+**Lower test region and Higher test environment deployment.** The delivered zip is deployed to RD, and to QC with `DEPLOY_HIGHER_ENV` and an allowed release gate (14.8). A target without a URL is **not required**.
+
+**Regression, smoke and performance tests** run the jobs of `tests.<suite>`; without jobs they are **not required**, unless `tests.<suite>.required` is true. **DAST** is **not required** unless `dast.enabled: true`.
+
+### 14.7 Version, package and Nexus
+
+- **Version.** `<BUILD_NUMBER>-<yyyyMMdd-HHmmss UTC>` of the build that made the zip, for example `341-20261031-101500`. The zip is `<artifactId>-<version>.zip`.
+- **Content.** The package folder (the first folder of the changelog path under the search root, or the whole search root) and the manifest `dso-deploy.properties`. Every `liquibase*.properties` file is left out, with a line in the console: the pipeline passes every setting itself, and such a file may hold a password.
+- **Offline validation.** The zip is validated offline from the zip itself, so a file the changelog needs outside the package folder stops the build.
+- **Coordinates.** `<groupId>:<artifactId>:<version>-SNAPSHOT:zip` in the snapshot repository and `<groupId>:<artifactId>:<version>:zip` in the release repository, published with `mvn deploy:deploy-file` from the work folder of the step, so no `pom.xml` of the repository takes part. The Maven settings of the agent hold the Nexus login of the repository `id`.
+- **Delivery.** The security pipeline writes the version into the run state (`projects.<service>.delivery` of `pipeline-config.yaml`); the extended pipeline fetches exactly that snapshot from Nexus with `mvn dependency:get`, validates it offline and deploys those bytes, and its release publishes them with the version without `-SNAPSHOT`. Without a delivered version the RD stage stops. The full pipeline deploys the zip of its own Build artifact stage.
+
+File `dso-deploy.properties` (`test/fixtures/database/dso-deploy.properties`):
+
+```text
+# dso-deploy.properties - written by the DevSecOps library for orders-db 341-20261031-101500 (Liquibase 4.33.0)
+# It holds no URL, user or password. Run Liquibase from the folder that holds the zip, for example:
+#   liquibase --defaults-file=dso-deploy.properties --search-path=orders-db-341-20261031-101500.zip --url=<URL> --username=<USER> --password=<PASSWORD> status --verbose
+liquibase.command.changelogFile=db/changelog-master.xml
+liquibase.command.contextFilter=!test
+liquibase.command.labelFilter=release-1
+liquibase.command.defaultSchemaName=ORDERS_OWNER
+liquibase.liquibaseSchemaName=ORDERS_OWNER
+# changelog parameters to set for each database (the values of RD and QC are not production values):
+#   parameter.app_role
+```
+
+The filters and the schemas of the manifest are those of QC, because production follows QC.
+
+### 14.8 Deployments to RD and QC
+
+Each deployment runs, in this order: `status`; a baseline of the invalid objects; `update` with the context and label filters of the target; the compile check; `status` again; and `tag <artifactId>-<version>` when a changeset ran (a tag with nothing run would replace the previous tag). The changesets that ran are archived as `<artifactId>-<version>-<target>-changes.txt`. The library never runs `rollback`, `changelog-sync` or `clear-checksums`.
+
+Console of `test/sandbox/golden/database-full-plsql-only-green.txt` (shortened):
+
+```text
+[NEXUS] orders-db: publishing orders-db-341-<stamp>.zip as com.bbh.orders:orders-db:341-<stamp>-SNAPSHOT to bbh-db-snapshots
+...
+[DB] orders-db rd: 8 changesets pending before the update
+[DB] orders-db rd: update for contexts !test: run 8, previously run 0, filtered out 2
+[DB] orders-db rd: compile check: 0 invalid objects, 0 compile errors
+[DB] orders-db rd: up to date after the update
+[DB] orders-db rd: tagged orders-db-341-<stamp>
+```
+
+**The compile check.** Before the update the library records the invalid objects of the schema with the time of their last change. After the update it recompiles the schema when `compileCheck.recompile` is true (`DBMS_UTILITY.COMPILE_SCHEMA` with `compile_all => FALSE` and `reuse_settings => TRUE`), and then reads the invalid objects and the compile errors. Only an object that is invalid after the update and was not invalid before it, or was changed by it, fails the stage; objects that were invalid before are listed and not counted. `compileCheck.ignoreObjects` names objects that never count. Without a baseline every invalid object counts. With `defaultSchema` the queries read `all_objects` and `all_errors` of that owner instead of `user_objects` and `user_errors`.
+
+File `<DB_TMP>/rd-compile-check.sql` (`test/fixtures/database/compile-check-default.sql`):
+
+```text
+SELECT object_type || ' ' || object_name || ' ' || TO_CHAR(last_ddl_time, 'YYYYMMDDHH24MISS') AS INVALID_UPDATED FROM user_objects WHERE status = 'INVALID' ORDER BY 1
+/
+BEGIN
+  DBMS_UTILITY.COMPILE_SCHEMA(schema => USER, compile_all => FALSE, reuse_settings => TRUE);
+END;
+/
+SELECT object_type || ' ' || object_name AS INVALID_OBJECT FROM user_objects WHERE status = 'INVALID' ORDER BY 1
+/
+SELECT type || ' ' || name || ' line ' || line || ': ' || REPLACE(text, CHR(10), ' ') AS COMPILE_ERROR FROM user_errors WHERE attribute = 'ERROR' ORDER BY type, name, sequence
+/
+```
+
+A deployment that leaves a new invalid object fails the stage and names the object and its error:
+
+Console of `test/sandbox/golden/database-full-rd-compile-failure.txt` (shortened):
+
+```text
+[DB] orders-db rd: 8 changesets pending before the update
+[DB] orders-db rd: update for contexts !test: run 8, previously run 0, filtered out 2
+[DB] orders-db rd: compile check: 1 invalid objects, 1 compile errors (1 invalid before the update, not counted)
+[DB] orders-db rd: invalid before this deployment and not changed by it: VIEW V_LEGACY_REPORT
+[error] [DB] orders-db rd: the deployment left invalid objects: PACKAGE BODY PKG_ORDERS | PACKAGE BODY PKG_ORDERS line 12: PLS-00201: identifier 'ORDER_ITEMZ' must be declared - fix the source and deploy again; the library does not roll back
+```
+
+The changesets that ran stay applied: fix the source and run the stage again.
+
+**Privileges.** Log in as the owner of the schema, or, recommended, as a proxy user after `ALTER USER orders_owner GRANT CONNECT THROUGH deployer`, with the credential user `deployer[ORDERS_OWNER]`: the deployment then works as the owner and needs no `defaultSchema`. A deploy user that is not the owner needs the `ANY` privileges of every change the changelog makes in the schema of the owner, such as `CREATE ANY TABLE`, `ALTER ANY TABLE`, `CREATE ANY INDEX`, `CREATE ANY SEQUENCE`, `CREATE ANY VIEW`, `CREATE ANY PROCEDURE`, `CREATE ANY TRIGGER` and `CREATE ANY TYPE`, which reach every schema of the database: that is why the owner or a proxy user is recommended. It also needs `ALTER ANY PROCEDURE`, `ALTER ANY TRIGGER` and `ALTER ANY TYPE` and read access to the rows of the schema in `ALL_OBJECTS` and `ALL_ERRORS` for the compile check, with `defaultSchema` and `liquibaseSchema` set to the owner. Liquibase needs `CREATE TABLE` in the Liquibase schema for `DATABASECHANGELOG` and `DATABASECHANGELOGLOCK`.
+
+**Packages in use.** A package that sessions hold cannot be replaced (ORA-04021), and sessions see ORA-04068 afterwards. Deploy QC when the application is idle; edition-based redefinition is the long-term answer.
+
+**The lock and the timeouts.** Liquibase waits `lockWaitMinutes` for its lock. Each online step ends after `<target>.timeoutMinutes`; after such an abort the library releases the lock only when this build held it, and otherwise names `DATABASECHANGELOGLOCK` for the DBA. utPLSQL ends its run itself after `test.utplsql.timeoutMinutes`, which turns Unit tests orange with the reports written so far; its Jenkins step ends 5 minutes after the larger of the two values.
+
+**The tag and a manual rollback.** `rollback --tag <tag>` undoes the changesets after the tag, newest first, and stops with an error at the first one without a rollback, after the newer ones were undone; Oracle commits each DDL, so they stay undone. Every changeset therefore needs a rollback: `--rollback` for a table, an empty `<rollback/>` for code, which keeps the new code. `database.requireRollback: true` checks this in Build artifact. The DBA runs the rollback by hand from the delivered zip.
+
+**The first deployment of an existing schema.** The DBA runs `changelog-sync-sql` and then `changelog-sync` from the delivered zip with the manifest, or each table changeset carries a precondition that marks it as run when the table exists. In formatted SQL these are two lines after the `--changeset` line: `--preconditions onFail:MARK_RAN` and `--precondition-sql-check expectedResult:0 SELECT COUNT(*) FROM user_tables WHERE table_name = 'ORDERS'`; a deploy user that is not the owner reads `all_tables` with `owner = 'ORDERS_OWNER'` instead. In XML the changeset holds `<preConditions onFail="MARK_RAN"><not><tableExists tableName="ORDERS"/></not></preConditions>`. The library never runs `changelog-sync` itself.
+
+### 14.9 Unit tests and coverage with utPLSQL
+
+- **The test target** is a schema of its own per pipeline, with the utPLSQL framework installed. The Unit tests stage deploys the package there with the context `test`, so the test packages are deployed too. With `database.test.reset: true` the schema is emptied first: `drop-all` removes the tables, views, sequences and the Liquibase tables, and the library then drops the packages, procedures, functions, triggers, types (`FORCE`) and synonyms that `drop-all` of Liquibase Community leaves; database links, scheduler jobs and queues stay. Without it, changesets of another branch in the test schema are reported.
+- **utPLSQL** runs the suites of `database.test.utplsql.paths`, else of `database.test.utplsql.owner` (default `database.test.defaultSchema`, else `database.defaultSchema`), else of the login schema. `sourcePath` and `testPath` map the reports to the files of the repository.
+- **Reports:** `utplsql-junit.xml` (published with `junit`), `utplsql-cobertura.xml`, `utplsql-coverage-sonar.xml` and `utplsql-sonar-tests.xml` in `.dso-db/<service>/`, archived.
+- **Coverage** is the line coverage of the Cobertura report, checked against the required line coverage of the library defaults (`coverage.minLine`, 60 % in the bundled defaults). A missing report, a report without lines or one that cannot be read turns the stage orange: the required coverage cannot be verified. Failed tests turn the stage orange; tests that cannot run, or no test at all, too.
+- **Not required.** Without a test database, or with utPLSQL off, coverage is recorded as **not required**: the report says so and the release gate is not blocked.
+- **Privileges.** Coverage of code in another schema needs `CREATE ANY PROCEDURE` for the test user; natively compiled code reports no coverage.
+
+### 14.10 SonarQube
+
+PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, the library asks the server (`api/languages/list`): the language `plsql` is SonarSource PL/SQL, `plsqlopen` the ZPA plugin **(not run)**. The auto-resolve of the settings gives a service without `tools.sonar.projectKey` the key `com.bbh:<service>`, so the block asks the server unless the service sets `autoresolve parameters: false`. Only then can the project key be missing: with the auto-resolve off and without `tools.sonar.projectKey`, the block asks the server nothing, and the console shows **no SonarQube project for this service (tools.sonar.projectKey)**. Without a project key, without a PL/SQL analyzer or when the server does not answer, SonarQube is **not required** for the service, with the reason and the exit code of `curl` in the console. The language list is read with the token of the analysis: that of the SonarQube installation in Jenkins, or of `tools.sonar.credentialsId`; `tools.sonar.authToken` is only for the issue counts of the report.
+
+`sonar-scanner` gets the arguments of `tools.sonar.liquibase`, and the block adds only what they leave out: `-Dsonar.sources` (the package folder), `-Dsonar.<analyzer>.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy`, `-Dsonar.tests` (the utPLSQL `testPath`), `-Dsonar.exclusions` of the test folder, the utPLSQL coverage and test execution reports, and `-Dproject.settings` (an empty file in the work folder of the step, see below). When the block sets `-Dsonar.tests`, it also adds the test folder to `-Dsonar.exclusions` of `tools.sonar.liquibase`, so that no file is both a source and a test. With a block every argument is quoted; without a block the arguments are passed to the shell as they are, so a value must not hold a blank. Like every `sonar-scanner` run, the scan also gets `-Dsonar.projectKey` and `-Dsonar.branch.name` of the build branch.
+
+**sonar-project.properties.** For a service without a database block, the library looks for a `sonar-project.properties` at the root of the workspace and in `tools.sonar.dir` before the scan. When one is there, it adds `sonar.branch.name` of the build branch to it when the file has none; when none is there, it writes one with its defaults ([chapter 16](#16-configuration-reference-devsecops_configyaml), among them `sonar.projectKey`, `sonar.language`, `sonar.sources`, `sonar.tests`, and `sonar.modules` with `<module>.sonar.sources` and `<module>.sonar.tests` for every module of `pom.xml` or `settings.gradle`) at the root of the workspace and, with `tools.sonar.dir`, also in that folder. For a service with a database block the library neither writes nor changes such a file, and the scanner of the block reads none: it gets `-Dproject.settings` with an empty file in the work folder of the step, so every setting of the scan is on its command line. This matters where the block scans from the root of a build with modules, as in layout (b) without `tools.sonar.liquibase.dir`: the defaults that the library writes there for `orders-app` name `sonar.modules=app` from `settings.gradle`, and a scanner that read them would analyse the Java sources of the module `app` under the project key of `orders-db`, or fail. Neither these defaults, written for another service of the run in the same folder, nor a `sonar-project.properties` of the repository reach the block. A block that is to read a file of its own names it in `tools.sonar.liquibase.flags` with `-Dproject.settings=<file>`; the block then writes no empty file, and the arguments on the command line still win over that file.
+
+With `tools.sonar.liquibase.dir` the scanner runs in that folder, and SonarQube analyses only the files under it. The settings check therefore refuses a block whose package folder or utPLSQL test folder lies outside it, and the block gives every path it adds from that folder: in layout (a) with `dir: db`, `-Dsonar.sources=.`, `-Dsonar.tests=test` and `-Dsonar.exclusions=test/**`. utPLSQL names the files of its reports from the workspace (`db/code/pkg_orders.pkb`), so the block checks the reports in `.dso-db/<service>/` before the scanner enters the folder and gives the scanner copies in the work folder of the step, in which the file paths start below that folder (`code/pkg_orders.pkb`). The arguments of `tools.sonar.liquibase`, `sources` among them, are given as they are and are read from that folder too.
+
+### 14.11 Credentials and safety
+
+For the steps of the database block:
+
+- The settings, the log, the report and the archive hold Jenkins credentials IDs only.
+- The password reaches Liquibase through a properties file of mode 0600 that exists only during the step, and utPLSQL through an argument file of mode 0600; never through the environment, a command line or a system property, so a changelog cannot read it as a parameter. Every output line passes a mask.
+- A JDBC URL with a user or a password is refused. A changeset with a password, `executeCommand` or `customChange` stops the build.
+- `liquibase.properties` of the repository is never read and never packaged; every inherited `LIQUIBASE_*` variable is unset, and Liquibase analytics are off.
+- `allowedTargets` is a guard; the control is that no Jenkins folder holds production credentials.
+
+The Liquibase commands of `build.liquibase`, `tests.unitTests.liquibase` and `asoc.liquibase`, and the scanner arguments of `tools.sonar.liquibase`, run as without a block, also next to one: the console shows their whole command line, and Liquibase reads the `liquibase.properties` of their folder and the `LIQUIBASE_*` variables of the agent. Their flags, that file and those variables must never hold a password, or a URL with one; the steps of the block need none of them.
+
+### 14.12 Report and metrics
+
+**The report** has a card **Database changes** for the services with a block. See `examples/reports/database-plsql-green.html` and `examples/reports/database-static-checks-orange.html`.
+
+| Table | Columns |
+|---|---|
+| Package | Service; Package, the zip with a link to the archive; Changesets / for RD and QC, all changesets and those of the review SQL; Review, the review SQL, or **delivered snapshot** in the extended pipeline; Static checks, the number of findings with a link to `static-checks.txt`; utPLSQL, tests and failures, or **not run**; Liquibase, the version |
+| Deployments | Service; Database, with the reason of a failure; Status; Contexts; Pending / applied / left; New invalid / errors, with the objects invalid before; Tag |
+
+The card ends with **The package is the zip delivered to Nexus; RD and QC are deployed from it. The library never rolls back.**
+
+**InfluxDB** gets one `database_deployment` point per service and target that was deployed, tagged with `module`, `target` and `status`, with the fields `pending_before`, `applied`, `previously_run`, `filtered_out`, `pending_after`, `invalid_objects`, `invalid_before`, `compile_errors`, `changesets`, `tagged`, `ok`, `duration_ms`, `version` and `liquibase` ([Grafana Dashboard Query Reference](#23-grafana-dashboard-query-reference)). The `code_coverage` point of a service carries `measured=yes`, `measured=not_required` without a test database or utPLSQL, or `measured=no`.
+
+### 14.13 Production (by hand, outside the library)
+
+The DBA deploys production from the release zip in Nexus **(not run against a production database)**:
+
+1. Download `<artifactId>-<version>.zip` and extract `dso-deploy.properties` next to it.
+2. `liquibase --defaults-file=dso-deploy.properties --search-path=<zip> --url=<URL> --username=<USER> --password=<PASSWORD> status --verbose`
+3. `update-sql` for the change ticket, then `update` and `tag <artifactId>-<version>`, with the changelog parameters of production.
+
+The changelog path and the search path must be exactly those of the manifest, or every changeset runs again.
+
+### 14.14 Troubleshooting
+
+The messages below are quoted with `...` for the parts that change.
+
+| Message | Cause | Fix |
+|---|---|---|
+| **a Liquibase service with a database block runs on Linux or macOS agents only** | Windows agent | choose a Linux agent in `AGENT_NAME` |
+| **The SQL and PL/SQL settings in ... listed above: fix them** | wrong settings | each line above names the key; fix it in `devsecops_config.yaml` |
+| **database.changelogFile is required for the database block** | a `database` block without a changelog | set `database.changelogFile`, or remove the block to run only the commands of `build.liquibase` |
+| **database.changelogFile is set, but buildTool is ...** | a changelog on a Gradle, Maven or Flutter service | give the changelog its own Liquibase service, or use `build.liquibase` |
+| **... which defaults.database.allowedTargets does not allow**, **allowedTargets is empty** | the database is not allowed | the DevSecOps team adds it to `defaults.database.allowedTargets` of `resources/com/bbh/devsecops/defaults.yaml` of the library release (14.3, layout (a)) |
+| **database.allowedTargets is a library default** | the service sets `database.allowedTargets` | remove it; the DevSecOps team keeps the list |
+| **comes after ... in the list of services** | the database service is not first | list it first |
+| **No Liquibase CLI on agent**, **No utPLSQL-cli on agent**, **does not exist on agent** | a tool is missing | install it, or set `home`, `path`, or `url` with `sha256` |
+| **does not have the sha256 of**, **The download of ... failed** | wrong checksum or URL | compare `sha256sum` of the Nexus file |
+| **is not supported: use Liquibase 4.33 or 5.0**, **has not been tested** | an old or an untested version | 4.33.x or 5.0.x |
+| **uses its bundled Oracle driver** | the full 4.33.0 bundle | trim the install (14.2) |
+| **has no Oracle driver** | Liquibase 5 without a driver | `tools.oracleJdbc` |
+| **the changelog ... is not valid**, **update-sql of the changelog failed** | an invalid changelog: a bad `--changeset` line, a duplicate id, a missing file, a Pro feature, bad XML | the reason quotes the file and the line |
+| **static check finding(s)** | SQL\*Plus, a misplaced `/`, split or stripped PL/SQL, an undeployed file | the rules of 14.4 |
+| **finding(s) that the library does not deploy** | a password or agent code in a changeset | remove it; use `database.parameters` |
+| **the package ... is not usable** | the changelog uses a file outside the package folder | keep every file under the package folder |
+| **future-rollback-sql failed** | a changeset without a rollback | add `--rollback` or `<rollback/>`, or set `requireRollback: false` |
+| **utPLSQL: ... tests failed**, **utPLSQL could not run the tests**, **utPLSQL ran no test** | failed tests, utPLSQL missing or not allowed, no suite found | read the console; check the framework, the grants, the annotations and `paths` |
+| **No utPLSQL coverage report**, **No coverage report with measured lines** | utPLSQL wrote no coverage, or none for the sources | check `sourcePath` and the privileges of 14.9 |
+| **the Jenkins credentials ... cannot be used** | an unknown credentials ID | add **Username with password** credentials to the folder of the job |
+| **cannot be passed to** | the user or the password is empty, has a leading or trailing blank, or a character outside printable ASCII | correct the Jenkins credential |
+| **drop-all failed** | `database.test.reset` could not empty the test schema: `drop-all`, or the drop of the code, types and synonyms it leaves, failed | check the privileges of the test user on its schema |
+| **in the test database ... not in this changelog** | another branch shares the test schema | `database.test.reset: true`, or one schema per pipeline |
+| **status failed** | Liquibase could not read the target | the reason follows; check the URL, the network and the credential |
+| **update failed after** | a changeset failed; the ones before it stay applied | fix the cause and run the stage again; the library does not roll back |
+| **the compile check has no baseline** | the invalid objects could not be read before the update | every invalid object counts; check the privileges of 14.8 |
+| **the compile check could not run** | the check after the update failed | check the privileges of 14.8 |
+| **the deployment left invalid objects** | new invalid objects | fix the PL/SQL and run the stage again; the library does not roll back |
+| **invalid before this deployment and not changed by it** | old invalid objects | information; the owning team fixes them |
+| **still pending after the update** | contexts, labels or preconditions | check the filters of the target |
+| **did not end within ... minutes**, **the Liquibase lock** | a timeout or a held lock | `<target>.timeoutMinutes`, for utPLSQL `test.utplsql.timeoutMinutes`; the DBA checks `DATABASECHANGELOGLOCK` |
+| **the tag ... could not be set** | the tag failed | the changes are deployed; run again only to tag |
+| **the security pipeline delivered no version**, **could not be fetched** | no delivered zip | run the security pipeline; check Nexus and the Maven settings of the agent |
+| **Maven is not installed on agent** | Maven missing | `database.package.mvnPath` or `build.maven.mvnPath` |
+| **SonarQube is not required for SQL and PL/SQL** | no project key (with `autoresolve parameters: false`) or no PL/SQL analyzer | set `tools.sonar.projectKey` and use a server that analyses PL/SQL |
+| **tools.sonar.liquibase.dir ... does not hold the package folder**, **does not hold the utPLSQL test folder** | `sonar-scanner` runs in `tools.sonar.liquibase.dir`, and SonarQube analyses only the files under it (14.10) | set `tools.sonar.liquibase.dir` to a folder that holds the package folder and the `testPath` of utPLSQL, or remove it |
+| **did not list its languages** | the language request of 14.10 failed: no route to the server, a wrong URL, or a server that needs a login and got no token | check the `curl` exit code; give the SonarQube installation in Jenkins a token, or set `tools.sonar.credentialsId` |
+| **The Nexus IQ GoldenFix pipeline would scan nothing** | a run of database services only | run the pipeline for a service with a Nexus IQ application |
+| **No UrbanCode Deploy applications are configured** | a Liquibase service without a block and without deployment settings in the full pipeline | use the security or SAST pipeline, add the deployment settings, or add a database block (14.1) |
+| every changeset runs again | the identity changed | restore the path or `logicalFilePath`; never `changelog-sync` without the DBA |
+
+An Oracle error of an update is quoted with a hint: ORA-04021 (a package in use: deploy when idle), ORA-00955 (the object existed before Liquibase: 14.8, first deployment), ORA-01031 (a missing grant), ORA-00900, ORA-00911 or ORA-00933 (delimiters or SQL\*Plus: 14.4), and a checksum error (an applied changeset was edited: undo the edit and add a new changeset).
+
+### 14.15 Not supported
+
+Liquibase Pro and Secure features (flows, policy checks, `runWith`, `include` in formatted SQL); a database block for a database other than Oracle; deployment to production; automatic rollback; SQL\*Plus scripts; TNS aliases, `TNS_ADMIN`, wallets and Kerberos; IPv6 addresses; Windows agents for the database block; the Liquibase Gradle and Maven plugins as a deployment; installing utPLSQL into a database.
+
+### 14.16 What was tested
+
+`test/sandbox/DatabaseScenarios.groovy` runs the three layouts under the sandbox, layout (a) in all five pipelines, with Liquibase and utPLSQL output taken from real runs, and pins them with the golden files `test/sandbox/golden/database-*.txt`; it also runs a Liquibase service without a database block, whose calls equal those of the same run before the block existed. It compares this chapter with the repository: every file shown with its fixture, every console with its golden file, the file trees of the layouts with `test/fixtures/database`, the settings of the application services with the reference implementation, the keys of 14.5 and the messages of 14.14 with the library. `test/database/cli-scenarios.sh` runs the real Liquibase 4.33.0 and 5.0.4 CLIs offline and against H2 when they are in the tools cache. The compile check, utPLSQL, the Nexus upload and fetch and the SonarQube PL/SQL analysis were not run against a real Oracle database, Nexus or SonarQube server.
+
+## 15. Reference Implementation Examples
 
 The library ships a complete, working example under `examples/CertScanner/`, and the test suite regenerates a set of demo reports under `examples/reports/` on every run so you can see exactly what the pipeline produces before you run it yourself.
 
@@ -1241,7 +2529,7 @@ Step by step onboarding instructions are in [Detailed Description Guide for Appl
 | `full-pipeline-pass.html` | all thirteen stages | released to Nexus and deployed to QC |
 | `full-pipeline-fail.html` | all thirteen stages | orange stages, GoldenFix pull request, release and QC blocked |
 
-## 15. Configuration Reference: devsecops_config.yaml
+## 16. Configuration Reference: devsecops_config.yaml
 
 `devsecops_config.yaml` at the root of the repository holds the settings of the services of the repository under `projects:`. A repository without it is read from `config.yaml`, the name the file had in the earlier releases of the library, with the same content. Only the `projects:` section is read: a `defaults:`, `platform:` or `pipeline:` section of the file is ignored and named in the console.
 
@@ -1308,7 +2596,7 @@ projects:
         projectKey:       ""         # unique project key in SonarQube
         serverUrl:        "https://tools.bbh.com/sonar"
         installationName: "SonarQube"  # SonarQube installation registered in Jenkins
-        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis
+        credentialsId:    ""         # Jenkins credential with the SonarQube token for the analysis and, with a database block, the language list
         authToken:        ""         # Jenkins Secret text credential for the issue counts the report queries
         badgeCredentialsId: ""       # Jenkins Secret text credential with the badge token, wins over badgeToken
         badgeToken:       ""         # the badge token itself, for the SonarQube badges in the HTML report
@@ -1319,7 +2607,7 @@ projects:
         maven:                       # the analysis command of a Maven service (goals, flags, mvnPath, env as in build.maven)
           goals: ['sonar:sonar']
         liquibase:                   # the analysis settings of a SQL/PL-SQL (Liquibase) service, or additional SQL sources in a multi-module service
-          sources:    "."            # comma-separated directories with SQL / PL/SQL scripts and changelogs [default: sourceDir or .]
+          sources:    "."            # comma-separated directories with SQL / PL/SQL scripts and changelogs [default: tools.sonar.sources, else . inside dir, else build.liquibase.dir or sourceDir]
           inclusions: ""             # optional sonar.inclusions pattern (e.g. "**/*.sql,**/*.pls,**/*.pkb,**/*.pks")
           exclusions: ""             # optional sonar.exclusions pattern
           flags:      []             # optional additional sonar-scanner CLI flags (e.g. ["-Dsonar.plsql.file.suffixes=.sql,.pls,.pkb,.pks"])
@@ -1362,8 +2650,8 @@ projects:
         env:
           MAVEN_OPTS: "-Xms512m -Xmx1g"
       liquibase:
-        commands: ['updateSQL']
-        flags:    ['--changelog-file=src/main/resources/changelog.xml']
+        commands: ['updateSQL']      # [default: updateSQL from the auto-resolve; validate with autoresolve parameters: false; with a database block validate when only flags are set, else none]
+        flags:    ['--changelog-file=src/main/resources/changelog.xml']   # [default from the auto-resolve: --changelog-file= of the changelog it finds; none with a database block]
         dir:      ""                 # optional subdirectory to run liquibase in
         env: {}                      # optional environment variables
       node:                          # optional Node.js build, stage 0, before the Gradle or Maven build
@@ -1377,6 +2665,38 @@ projects:
         npmrcCredentialsId: ""       # Jenkins Secret file with an .npmrc, bound as NPM_CONFIG_USERCONFIG [default: the bundled defaults]
         timeoutMin:       30         # minutes for all commands of the service together
         nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
+
+    database:                        # buildTool: liquibase only; changelogFile switches the database block on (chapter 14)
+      changelogFile:   ""            # master changelog, relative to the search root
+      searchPath:      "."           # search root, relative to sourceDir
+      oracleVersion:   "19.0"        # Oracle version of the offline validation
+      defaultSchema:   ""            # --default-schema-name of every online step
+      liquibaseSchema: ""            # --liquibase-schema-name of every online step
+      contexts:        "!test"       # context filter of RD, QC and the review SQL
+      labels:          ""            # label filter of the test database, RD, QC and the review SQL
+      parameters:      {}            # changelog parameters, no secrets
+      requireRollback: false         # true: a changeset without a rollback turns Build artifact orange
+      tag:             true          # tag RD and QC with <artifactId>-<version> when a changeset ran
+      lockWaitMinutes: 5
+      compileCheck:    {enabled: true, recompile: true, ignoreObjects: []}
+      checks:          {ignoreFiles: []}
+      package:
+        groupId:       ""            # required when the pipeline delivers the zip to Nexus
+        artifactId:    ""            # [default: the service name]
+        nexusDelivery: true
+        mvnPath:       ""            # [default: build.maven.mvnPath]
+        snapshotRepository: {id: "", url: ""}   # [library default]
+        releaseRepository:  {id: "", url: ""}   # [library default]
+      test:                          # optional test database of this pipeline
+        url:           ""            # jdbc:oracle:thin:@//host:1521/SERVICE, no user or password
+        credentialsId: ""            # Jenkins Username with password
+        contexts:      "test"
+        timeoutMinutes: 30
+        reset:         false         # true: empty the test schema before the deployment
+        utplsql:       {enabled: false, paths: "", owner: "", sourcePath: "", testPath: "", timeoutMinutes: 30}
+      rd:                            # and qc: the same keys as test, without reset and utplsql; contexts [default: database.contexts]
+        url:           ""
+        credentialsId: ""
 
     delivery:                        # Nexus snapshot delivery of stage 6 and the download of the extended pipeline (deployTarget: vm)
       nexusDeliveryEnabled: true     # false: stage 6 publishes nothing and the extended pipeline downloads nothing [default: deploy.<target>.rd.nexusDeliveryEnabled, then true]
@@ -1455,8 +2775,8 @@ projects:
         maven:
           goals: ['test', 'jacoco:report']
         liquibase:
-          commands: ['validate']
-          flags:    ['--changelog-file=src/main/resources/changelog.xml']
+          commands: ['validate']     # [default: validate from the auto-resolve; with autoresolve parameters: false or a database block, validate when only flags are set, else none]
+          flags:    ['--changelog-file=src/main/resources/changelog.xml']   # [default from the auto-resolve: --changelog-file= of the changelog it finds; none with a database block]
         unitTestResult:    ""        # JUnit results pattern [default: **/build/test-results/test/*.xml]
         rootDir:           "."       # Maven: root of the module scan for surefire reports
         reportOutDir:      "surefire-reports"   # Maven: collected surefire reports
@@ -1646,7 +2966,7 @@ defaults:                            # merged under every service of the run
   tests:
     maxParallel: 20                  # max test jobs of one stage running at the same time; a service may set its own
 
-  pluginRepositories:                # the BBH Nexus that a failed Gradle or Maven step takes a missing plugin from (chapter 18); a service may set its own
+  pluginRepositories:                # the BBH Nexus that a failed Gradle or Maven step takes a missing plugin from (chapter 19); a service may set its own
     enabled: true
     gradle:  "https://tools.bbh.com/nexus/repository/gradle-plugins/"
     maven:   "https://tools.bbh.com/nexus/repository/maven-public/"
@@ -1727,12 +3047,12 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 
 ### Stages at the same time: staticAnalysis.parallel and dynamicAnalysis.parallel
 
-`staticAnalysis.parallel` decides whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time in the **Static analysis** stage, and `dynamicAnalysis.parallel` whether the full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the **Dynamic analysis** stage ([the stage reference](#16-pipeline-stage-reference)). The SAST and Nexus IQ GoldenFix pipelines are not affected.
+`staticAnalysis.parallel` decides whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time in the **Static analysis** stage, and `dynamicAnalysis.parallel` whether the full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the **Dynamic analysis** stage ([the stage reference](#17-pipeline-stage-reference)). The SAST and Nexus IQ GoldenFix pipelines are not affected.
 
 - Both switches are `true` by default: a run without the keys runs the stages at the same time. `false` is the way back to the order one after another.
 - A service of `devsecops_config.yaml` or `config.yaml` sets `staticAnalysis.parallel` or `dynamicAnalysis.parallel` for itself, and a value under `defaults:` of the bundled defaults is merged under every service. One service with `false` keeps the whole run one after another, and the console names it: "\[STATIC\] backend-api: staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another". `false` under `defaults:` of the bundled defaults is named once: "\[STATIC\] defaults.staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another".
 - A value that is neither `true` nor `false`, such as `'sometimes'`, or a `staticAnalysis` that is not a map, is not an error: the console names it in a `[WARN]` line and the default `true` is used. A service that sets `true`, the default, gets an `[INFO]` line that says the key can be removed, and so does `true` under `defaults:` of the bundled defaults.
-- The environment variables `DSO_STATIC_ANALYSIS_PARALLEL` and `DSO_DYNAMIC_ANALYSIS_PARALLEL` decide first when they are `true` or `false`, whatever the settings say; another value is named in a `[WARN]` line and the settings decide. `true` gets an `[INFO]` line that says the variable can be removed. The library reads them once per run, on the agent, when Jenkins decides whether to run the stage. They therefore count when they are set in **Manage Jenkins → System → Global properties → Environment variables**, in the environment variables of the agent's node properties, or in the top-level `environment` block of a custom Jenkinsfile ([the API reference](#20-programmatic-api-reference)). A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build; the library calls no step such as `withFolderProperties`.
+- The environment variables `DSO_STATIC_ANALYSIS_PARALLEL` and `DSO_DYNAMIC_ANALYSIS_PARALLEL` decide first when they are `true` or `false`, whatever the settings say; another value is named in a `[WARN]` line and the settings decide. `true` gets an `[INFO]` line that says the variable can be removed. The library reads them once per run, on the agent, when Jenkins decides whether to run the stage. They therefore count when they are set in **Manage Jenkins → System → Global properties → Environment variables**, in the environment variables of the agent's node properties, or in the top-level `environment` block of a custom Jenkinsfile ([the API reference](#21-programmatic-api-reference)). A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build; the library calls no step such as `withFolderProperties`.
 - On a Windows agent the static stages run one after another, because the SAST staging of Windows uses the workspace, and the console says so.
 - SAST compiles and prepares its scans in a copy of the workspace, `<WORKSPACE_TMP>/dso-sast-workspace` (`<WORKSPACE>@tmp/dso-sast-workspace` without `WORKSPACE_TMP`), so a SAST compile with other Gradle tasks or Maven goals than the build command (`asoc.gradle`, `asoc.maven`, `asoc.dotnet`) never changes the files Nexus IQ scans. When the copy cannot be made, the console says why in a `[WARN]` line and the run falls back to the earlier order: SAST queues its scans first, and the unit tests, Nexus IQ and SonarQube run one after another while AppScan scans. A service whose SAST compile differs from its build command then keeps the four stages one after another, and the console names it: "\[STATIC\] gui: the SAST compile runs other Gradle tasks or Maven goals than the build command in the workspace, so it may not rebuild the files Nexus IQ scans: Unit tests, Nexus IQ, SAST and SonarQube run one after another".
 
@@ -1746,7 +3066,7 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 | `tools.sonar.projectKey` | Auto-resolved / Recommended | When auto-resolve is enabled (default), automatically synthesizes `com.bbh:<projectName>` |
 | `tools.nexusIq.application` | Recommended; YES with `scanPatterns` for `devSecOpsNexusIqGoldenFixPipeline` | Nexus IQ scan is skipped silently without it; the Nexus IQ GoldenFix pipeline stops at the start without it |
 | `dast.targetUrl` | Only if `dast.enabled: true` | Pipeline fails at DAST stage without it |
-| `javaPath` or `buildToolAutoSetup: true` | Auto-resolved or YES (not required for `dotnet` / `msbuild` or standalone `liquibase`) | When auto-resolve is active (default), `buildToolAutoSetup: true` is inferred from `pom.xml` / `build.gradle`. Not required for C# / .NET (`dotnet` / `msbuild`) or `buildTool: liquibase` when tools are on `PATH`; Java/Gradle/Maven/Flutter builds stop with **JAVA_HOME parameter is not specified** without one of them |
+| `javaPath` or `buildToolAutoSetup: true` | Auto-resolved or YES for Gradle/Maven/Flutter; not required for `dotnet` / `msbuild`; optional for Liquibase; required (or `buildToolAutoSetup`) with a database block | When auto-resolve is active (default), `buildToolAutoSetup: true` and the compiler JDK are automatically inferred from `pom.xml` / `build.gradle`; otherwise required for Gradle/Maven/Flutter: without one of them the Unit tests stage, or the Build artifact stage of the Nexus IQ GoldenFix pipeline, stops with **JAVA_HOME parameter is not specified** for Java builds. Auto-resolve sets neither for `buildTool: liquibase`: an explicit `javaPath` is exported as `JAVA_HOME` when set, and omitted otherwise |
 | `deploy.vm.dod` | Only if `deployTarget: vm` and you use `devSecOpsPipeline` | The lower test region deployment of the full pipeline uses UrbanCode Deploy |
 | `deploy.vm.rd`, `deploy.vm.qc` | Only if `deployTarget: vm` | SSH deployment of the extended pipeline and of the QC stage |
 | `deploy.openshift.*` | Only if `deployTarget: openshift` | Auto-detected when container files or manifests are found; `appName` and `artifactName` are required as well |
@@ -1763,10 +3083,15 @@ The bundled defaults may hold three defaults of the Node.js build, `defaults.bui
 | `build.node.dir` | Auto-resolved | Auto-detected as `.`, `frontend`, `web`, `client`, or `ui` when `package.json` exists |
 | `build.node.installationName` or `build.node.nodePath` | No | Without both, and without an installation in the bundled defaults, the commands use `node` and `npm` on the agent `PATH`; `nodePath` wins over any installation |
 | `goldenFix.versionCatalogs` | No | Only for a shared catalog that GoldenFix does not find by itself, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline) |
+| `database.changelogFile` | Only for a database block | With `buildTool: liquibase` it switches the block on; the other `database` keys and the library defaults `tools.liquibase`, `tools.oracleJdbc`, `tools.utplsql`, `database.allowedTargets` and `database.package` are described in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) |
 
 ### Automated Stack Discovery and Smart Auto-Resolve (RepoStackAutoResolver)
 
 The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding friction by automatically inspecting workspace files at the beginning of each pipeline run. Application teams are not required to look up compiler versions, Gradle wrappers, .NET solutions, Node.js directories, Liquibase flags or OpenShift deployment targets.
+
+It resolves each service into its own copy of the settings, so a key it fills for one service, such as the SonarQube project key or the Liquibase commands, never reaches the next service through the library defaults they share. For a service with a database block it adds only `tools.sonar.projectKey`: no Liquibase command, no Node.js stage 0 or Cypress switch and no `deployTarget` or `appName`; and it never sets `buildTool: liquibase` for a service with `database.changelogFile` ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)).
+
+The rows of the build tool are tried in this order: `pubspec.yaml`, the iOS files, `pom.xml`, `build.gradle`, the .NET files (`*.sln`, `*.csproj`, `global.json` and the like), the Liquibase files, the Python files, `package.json`; the first that matches wins, so a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service (the files and the order without the auto-resolve are in [chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase), 14.1). The SonarQube rows from `sonar.language` on are the defaults of the `sonar-project.properties` that the library writes before the scan of a service without a database block when there is none; for a service with a block it writes none (14.10).
 
 | Setting / Parameter | YAML Key | Workspace Trigger / Manifest | Resolved Default Value |
 |---|---|---|---|
@@ -1784,8 +3109,8 @@ The `RepoStackAutoResolver` component eliminates over 80% of manual onboarding f
 | Node.js Version | `build.node.version` | `engines.node` in `package.json` (e.g. `>=20.0.0`) | Major version (e.g. `20`) |
 | Cypress Unit Testing | `tests.unitTests.node.cypress` | `cypress` in `devDependencies` or `dependencies` | `true` |
 | Jest Unit Testing | `tests.unitTests.node.jest` | `jest` in `devDependencies` or `dependencies` | `true` |
-| Liquibase Build Command | `build.liquibase.commands` | Liquibase changelog detected | `['updateSQL']` |
-| Liquibase Validate Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']` |
+| Liquibase Build Command | `build.liquibase.commands` | Liquibase changelog detected | `['updateSQL']`; none for a service with a database block ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) |
+| Liquibase Validate Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']`; none for a service with a database block ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) |
 | Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, or `helm/` | `openshift` (otherwise defaults to `vm`) |
 | SonarQube Project Key | `tools.sonar.projectKey` | Omitted or empty in configuration | `com.bbh:<projectName>` or `com.bbh:<appName>` |
 | SonarQube Language | `sonar.language` | Source code tree inspection (`pubspec.yaml` -&gt; `dart`, `requirements.txt` -&gt; `py`, C#/.NET -&gt; `cs`, Kotlin -&gt; `kotlin`, Liquibase -&gt; `sql`, else `java`) | Language identifier |
@@ -1819,7 +3144,9 @@ projects:
     appId: "APP-54321"
 ```
 
-## 16. Pipeline Stage Reference
+## 17. Pipeline Stage Reference
+
+What each stage does for a Liquibase service with a database block, and why a stage is **not required** for it, is described in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase), 14.6.
 
 ### Stage 1: Monitor source changes (download sources)
 
@@ -1904,7 +3231,7 @@ How the values are computed:
 
 Frontend tests: an LCOV report counts when the unit test step writes it, for example through a task of the Node plugin of the Gradle build or the `frontend-maven-plugin` of the Maven build that runs `ng test --code-coverage`. Do not add the frontend tests to the commands of the Node.js build: those run in every pipeline, also before SAST, Nexus IQ GoldenFix and the release delivery, and a failing command stops the pipeline.
 
-The search is one `python3` step per service on Linux and macOS agents. When `python3` is missing, or the search step fails or takes longer than 15 minutes, the log says so and the pipeline reads the reports via fallback: the paths of `coverage.reportPath` (with `findFiles` for a pattern), otherwise `total_lcov.info` for Flutter, the usual Cobertura/OpenCover paths for `dotnet`/`msbuild` (`**/coverage.cobertura.xml`, `**/coverage.opencover.xml`, `TestResults/coverage.cobertura.xml`), or the usual JaCoCo paths of the build tool, then every matching XML report of the workspace; see **Coverage report detection** in section 18. On Windows agents the fallback uses PowerShell `[xml]` parsing natively for JaCoCo, Cobertura, and OpenCover reports without requiring `python3`.
+The search is one `python3` step per service on Linux and macOS agents. When `python3` is missing, or the search step fails or takes longer than 15 minutes, the log says so and the pipeline reads the reports via fallback: the paths of `coverage.reportPath` (with `findFiles` for a pattern), otherwise `total_lcov.info` for Flutter, the usual Cobertura/OpenCover paths for `dotnet`/`msbuild` (`**/coverage.cobertura.xml`, `**/coverage.opencover.xml`, `TestResults/coverage.cobertura.xml`), or the usual JaCoCo paths of the build tool, then every matching XML report of the workspace; see **Coverage report detection** in section 19. On Windows agents the fallback uses PowerShell `[xml]` parsing natively for JaCoCo, Cobertura, and OpenCover reports without requiring `python3`.
 
 A compilation error of the artifact build is a real failure and stops the pipeline, because nothing can be scanned or deployed without an artifact.
 
@@ -1914,7 +3241,7 @@ Both stages run after the Node.js build, in the same workspace, so the Gradle or
 
 ### Stages 2 to 5 at the same time: Static analysis
 
-By default ([the configuration reference](#15-configuration-reference-devsecops_configyaml)) the full and security pipelines run stages 2, 3, 4 and 5 in the Jenkins stage **Static analysis**, as four parallel branches, and show the four stages as skipped; with `staticAnalysis.parallel: false` they run the four stages one after another and show **Static analysis** as skipped. The console starts the stage with "\[STATIC\] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)".
+By default ([the configuration reference](#16-configuration-reference-devsecops_configyaml)) the full and security pipelines run stages 2, 3, 4 and 5 in the Jenkins stage **Static analysis**, as four parallel branches, and show the four stages as skipped; with `staticAnalysis.parallel: false` they run the four stages one after another and show **Static analysis** as skipped. The console starts the stage with "\[STATIC\] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)".
 
 1. The workspace is copied to `<WORKSPACE_TMP>/dso-sast-workspace` with `tar`, without the AppScan client and its logs (step "Copy the workspace for the SAST compile and scan").
 2. Four branches start at the same time:
@@ -2114,15 +3441,15 @@ A service with `delivery.nexusDeliveryEnabled: false` (or, without that key, `de
 
 What stage 6 does depends on the project. A Maven project on a VM is uploaded to the Nexus snapshot repository with `delivery.push.maven` (or, without it, the single `build.buildPath` upload of `delivery.maven`), a Gradle project on a VM with `delivery.push.gradle`; a Gradle project without `delivery.push.gradle.artifacts` is not required in stage 6. Every service of the run is uploaded under one snapshot version, `<BUILD_NUMBER>-<yyyyMMdd-HHmmss UTC>-SNAPSHOT`, and the tag without `-SNAPSHOT` is written to `build.tag`, which the security pipeline archives for its extended pipeline. A .NET project pushes its `*.nupkg` with `delivery.nuget`, a Flutter project its APK and IPA. An OpenShift project has its image built in the build namespace, from the artifact at `build.buildPath` or, when it is not there, the first file named `artifactName` in the workspace (`baseArtifactName` is renamed to it wherever it is), with every file of `addFile` in the build context, and copied to the Nexus docker registry with `skopeo`.
 
-The extended pipeline then downloads the snapshot of its security run in the stage **Download artifacts from Nexus Repo**: a VM service with `delivery.pull` gets the files of `delivery.pull.maven` or `delivery.pull.gradle` of the version in `build.tag` in `delivery.pull.outputDirectory`. An OpenShift service, a service without Nexus delivery and a service without `delivery.pull` are not required in that stage; a `delivery.pull` without its group, artifact, goals or artifacts stops it with a message that names the missing keys, and so does a run without `build.tag`. Stage 7 deploys with UrbanCode Deploy (`devSecOpsPipeline` and `devSecOpsExtendedPipeline`, `deploy.vm.dod`) or to OpenShift (`deploy.openshift.rd`).
+The extended pipeline then downloads the snapshot of its security run in the stage **Download artifacts from Nexus Repo**: a VM service with `delivery.pull` gets the files of `delivery.pull.maven` or `delivery.pull.gradle` of the version in `build.tag` in `delivery.pull.outputDirectory`. An OpenShift service, a Liquibase service with a database block (its deployment fetches the delivered package itself, see chapter 14), a service without Nexus delivery and a service without `delivery.pull` are not required in that stage; a `delivery.pull` without its group, artifact, goals or artifacts stops it with a message that names the missing keys, and so does a run without `build.tag`. Stage 7 deploys with UrbanCode Deploy (`devSecOpsPipeline` and `devSecOpsExtendedPipeline`, `deploy.vm.dod`) or to OpenShift (`deploy.openshift.rd`).
 
-Then, by default, the regression, smoke and performance tests and DAST run at the same time in **Dynamic analysis** ([below](#16-pipeline-stage-reference)); with `dynamicAnalysis.parallel: false` they run in the order regression, smoke, performance, followed by DAST. Each test stage needs at least one configured job.
+Then, by default, the regression, smoke and performance tests and DAST run at the same time in **Dynamic analysis** ([below](#17-pipeline-stage-reference)); with `dynamicAnalysis.parallel: false` they run in the order regression, smoke, performance, followed by DAST. Each test stage needs at least one configured job.
 
 Every test stage runs **all** configured jobs, even when some of them fail, and then turns orange with a summary of the failed jobs. A stage may contain any number of jobs (e.g. 200 smoke tests on different remote Jenkins instances). At most `tests.maxParallel` (default 20, per-stage override `tests.<type>.maxParallel`) jobs run at the same time. Remote jobs can be referenced by full job URL (`url:` or `job: https://...`) without a Remote Jenkins global configuration; `credentialsId` provides user + API token. The HTML report shows per-project counters (total / passed / failed / not configured), the failed jobs, a collapsible list of all jobs and a **Smoke tests** table with a build link for every job.
 
 ### Stages 8 to 11 at the same time: Dynamic analysis
 
-By default ([the configuration reference](#15-configuration-reference-devsecops_configyaml)) the full and extended pipelines run stages 8, 9, 10 and 11 in the Jenkins stage **Dynamic analysis**, as four parallel branches: the regression tests, the smoke tests, the performance tests and DAST. Jenkins shows the four stages as skipped; with `dynamicAnalysis.parallel: false` it runs them one after another and shows **Dynamic analysis** as skipped. The console starts the stage with "\[DYNAMIC\] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)" and ends it with "\[PARALLEL\] Dynamic analysis: one after another …, in parallel …". Each test stage keeps `tests.maxParallel` for its own jobs. A branch that fails is red, the other branches run to their end, and **Dynamic analysis** is red.
+By default ([the configuration reference](#16-configuration-reference-devsecops_configyaml)) the full and extended pipelines run stages 8, 9, 10 and 11 in the Jenkins stage **Dynamic analysis**, as four parallel branches: the regression tests, the smoke tests, the performance tests and DAST. Jenkins shows the four stages as skipped; with `dynamicAnalysis.parallel: false` it runs them one after another and shows **Dynamic analysis** as skipped. The console starts the stage with "\[DYNAMIC\] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)" and ends it with "\[PARALLEL\] Dynamic analysis: one after another …, in parallel …". Each test stage keeps `tests.maxParallel` for its own jobs. A branch that fails is red, the other branches run to their end, and **Dynamic analysis** is red.
 
 ### Stage 11: DAST – HCL AppScan
 
@@ -2180,7 +3507,7 @@ Every report of the full, security, extended, SAST and Nexus IQ GoldenFix pipeli
 
 The line of a group names only the stages that ran, for example **SAST** in the SAST pipeline or **Regression + Smoke + Performance** without DAST, and counts a trigger for each of them. The table ends with the totals of both columns and "Time recovered in this run: &lt;manual total minus automated total&gt; (&lt;share&gt;% of the manual time)". The minutes of the manual steps are `report.manualEffort` of the bundled defaults (`buildTrigger`, `scanTrigger`, `deployTrigger`, `testTrigger` and `dast`), which only the DevSecOps team changes; a value that is not a whole number of minutes is named in a `[WARN] [REPORT]` line and its default is used.
 
-## 17. Security Policy Thresholds
+## 18. Security Policy Thresholds
 
 All thresholds are global settings in the defaults that the library bundles (`resources/com/bbh/devsecops/defaults.yaml`), which only the DevSecOps team changes, with a library release. A project **cannot** change any of them: the library takes them from the bundled defaults only, and the same keys under a service of `devsecops_config.yaml` change nothing. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
@@ -2201,7 +3528,7 @@ All thresholds are global settings in the defaults that the library bundles (`re
 
 The required coverage is shown in the report exactly as configured in the bundled defaults, so a library release that raises or lowers it changes the value the report checks against and displays from the first build that loads it.
 
-## 18. Supported Build Tools
+## 19. Supported Build Tools
 
 | Tool | Build | Unit tests | Coverage | Release publish |
 |---|---|---|---|---|
@@ -2209,10 +3536,10 @@ The required coverage is shown in the report exactly as configured in the bundle
 | Maven | `mvn` + `build.maven.goals` and `flags` | `mvn` + `tests.unitTests.maven.goals` | JaCoCo XML and LCOV | `mvn deploy` |
 | C# and .NET (`dotnet` / `msbuild`) | Windows default: `NuGet.exe restore` & `MSBuild.exe`; CLI/Linux: `dotnet restore/build/publish` | Windows default: `vstest.console.exe` (+ optional `OpenCover.Console.exe`) with `.trx`; CLI/Linux: `dotnet test` | Cobertura XML and OpenCover XML | `nuget.exe push` / `dotnet nuget push` |
 | Flutter | `flutter build <platform>` | `flutter test --coverage --concurrency=32 --reporter expanded` in the main package and in each of `tests.subplugins` and `tests.submodules` | LCOV of each package | Nexus upload of the APK/IPA |
-| Liquibase (SQL / PL/SQL) | `liquibase` + `build.liquibase.commands` and `flags` | `liquibase` + `tests.unitTests.liquibase.commands` (or changelog validation) | – (database migrations skipped from coverage gate) | – (or delivery via Nexus) |
+| Liquibase (SQL / PL/SQL) | `liquibase` + `build.liquibase.commands` (default `updateSQL` from the auto-resolve, `validate` without it) and `flags` | `liquibase` + `tests.unitTests.liquibase.commands`, when set | – (the coverage requirement is skipped); with a database block: the utPLSQL Cobertura report | –; with a database block: the zip to Nexus and the RD and QC deployment ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) |
 | Node.js (stage 0, optional) | `build.node.commands`, by default `npm ci` and `npm run build` | – | – | – (the Gradle or Maven build packages the output) |
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` / `Directory.Packages.props` / `packages.config` → C#/.NET `dotnet`, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, `requirements.txt` / `pyproject.toml` / `setup.py` / `Pipfile` → Python).
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in `devsecops_config.yaml`; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` / `Directory.Packages.props` / `packages.config` → C#/.NET `dotnet`, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, `requirements.txt` / `pyproject.toml` / `setup.py` / `Pipfile` → Python). The full lists and the order with the auto-resolve of the settings on and off are in [chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase), 14.1: the application build files come before the Liquibase files, so a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service.
 
 Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
 
@@ -2459,9 +3786,13 @@ Node.js is not a build tool of its own: `buildTool` stays `gradle` or `maven`, a
 - **Node.js:** `build.node.nodePath`, otherwise the NodeJS installation `build.node.installationName` (NodeJS plugin), otherwise the `node` and `npm` of the agent `PATH`.
 - **npm registry:** an `.npmrc` Secret file (`build.node.npmrcCredentialsId`), otherwise `build.node.registry`.
 - **Commands:** `build.node.commands` in `build.node.dir`, with `sh` or, on Windows, `bat`; at most `build.node.timeoutMin` minutes in all.
-- **Output:** outside `build/` and `target/`, and copied into the artifact by the Gradle or Maven build, see [Troubleshooting](#23-troubleshooting-guide), **The frontend is missing from the jar**.
+- **Output:** outside `build/` and `target/`, and copied into the artifact by the Gradle or Maven build, see [Troubleshooting](#24-troubleshooting-guide), **The frontend is missing from the jar**.
 
 The GoldenFix pre-check runs in a git worktree of its own, without the output of the Node.js build, so a Gradle or Maven build that fails without the frontend output also fails its pre-check. A Flutter service has no Node.js build: leave `build.node` off for it.
+
+### SQL and PL/SQL with Liquibase in this chapter and in chapter 14
+
+A Liquibase service runs the `liquibase` CLI of the agent with the commands of `build.liquibase`, `tests.unitTests.liquibase`, `asoc.liquibase` and `tools.sonar.liquibase`, for every database that Liquibase supports. A `database:` block adds the offline package, the utPLSQL tests, the Nexus delivery and the RD and QC deployment of Oracle changes. Both ways, the detection of the build tool, every setting and three complete repository layouts, among them a Gradle multi-module repository with Java and Node.js, are described in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 
 ### Coverage report detection
 
@@ -2472,7 +3803,9 @@ On Linux and macOS agents every JaCoCo, Cobertura, OpenCover and LCOV report of 
 3. Gradle: the first of `build/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/jacocoTestReport.xml` that exists; Maven: the first of `target/site/jacoco/jacoco.xml` and `target/jacoco/jacoco.xml`; C# / .NET (`dotnet` / `msbuild`): `**/coverage.cobertura.xml`, `**/coverage.opencover.xml`, `coverage.cobertura.xml`, `coverage.opencover.xml`, `TestResults/coverage.cobertura.xml`;
 4. every matching coverage XML report of the workspace (`coverage.cobertura.xml`, `coverage.opencover.xml`, `*cobertura*.xml`, `*opencover*.xml` for .NET; `jacoco.xml` for Java). On Windows agents, JaCoCo, Cobertura and OpenCover XML reports are parsed natively using PowerShell `[xml]` without requiring `python3`.
 
-## 19. Supported Deployment Targets
+## 20. Supported Deployment Targets
+
+A Liquibase service with a database block deploys to an Oracle schema in RD and QC with Liquibase, never to production; its `deployTarget` and `deploy` settings are not used, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase), 14.8.
 
 ### VM deployment over SSH
 
@@ -2533,7 +3866,7 @@ For this to work:
 - The agent needs `oc` and `skopeo`, plus the docker authfile of `nexus.authfile`
 - The templates named in `buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR` must exist in the repository
 
-## 20. Programmatic API Reference
+## 21. Programmatic API Reference
 
 ### One devSecOpsApi instance per build
 
@@ -2632,6 +3965,9 @@ The tool environment variables such as `APPSCAN_SERVER_URL` or the proxy setting
 | `notRequired(String reason)` | Log the reason and mark the current project not required in the current stage; the stage ends `NOT_REQUIRED` when every project is |
 | `nodeBuildRequired()` | `true` when a service of the run needs the Node.js build in this pipeline; the `when` guard of the Node.js build stage. It runs no step and logs nothing |
 | `nodeBuildEnabled()` | `true` when `build.node.enabled` is true for the current project |
+| `databaseBlock()` | `true` when the current project has `buildTool: liquibase` and a `database.changelogFile` |
+| `databaseBuild()`, `databaseTests()` | The Build artifact and Unit tests work of the database block: the package, the test deployment and utPLSQL |
+| `databaseDelivery(String kind)`, `databaseDeploy(String envName)` | The snapshot or release delivery of the zip (`snapshot`, `release`) and the deployment to `rd` or `qc`; the version is the run-state key `projects.<service>.delivery` |
 | `nodeBuildNeeded()` | `true` when the current project needs the Node.js build in this pipeline: enabled, and in the SAST scanning pipeline only while `asoc.doCompile` is not false on a Linux or macOS agent |
 | `nodeBuild()` | Run the Node.js build of the current project (`build.node`): Node.js home, registry or `.npmrc`, environment, commands, timeout |
 | `appscanSetup()` | Download and extract SAClientUtil |
@@ -2679,9 +4015,9 @@ The tool environment variables such as `APPSCAN_SERVER_URL` or the proxy setting
 | `logStageResult(String name, String status)` | Print the stage result and the scanner summary |
 | `section(String text)`, `startSection(String text)`, `endSection(String text)` | Console separators |
 
-`devSecOpsSteps.pullNexusSnapshot(devSecOpsApi)` is the body of the stage **Download artifacts from Nexus Repo**: it runs `pullFromNexus()` for every project. `devSecOpsSteps.monitorSources(devSecOpsApi, [skipDeploymentRepo: true])` leaves the deployment repositories out. `devSecOpsSteps.nodeBuild(devSecOpsApi)` is the body of the Node.js build stage: it runs `nodeBuild()` for every project that needs it and marks the others not required. `devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true])` runs the Node.js build of each project that enables it before `publishArtifactQC()`, as the extended pipeline does, but only when `releaseDeliveryAvailable()` is true for a project of the run; without the option it publishes only.
+`devSecOpsSteps.pullNexusSnapshot(devSecOpsApi)` is the body of the stage **Download artifacts from Nexus Repo**: it runs `pullFromNexus()` for every project except a Liquibase service with a database block, which it marks not required. `devSecOpsSteps.monitorSources(devSecOpsApi, [skipDeploymentRepo: true])` leaves the deployment repositories out. `devSecOpsSteps.nodeBuild(devSecOpsApi)` is the body of the Node.js build stage: it runs `nodeBuild()` for every project that needs it and marks the others not required. `devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true])` runs the Node.js build of each project that enables it before `publishArtifactQC()`, as the extended pipeline does, but only when `releaseDeliveryAvailable()` is true for a project of the run; without the option it publishes only.
 
-## 21. Monitoring and Metrics
+## 22. Monitoring and Metrics
 
 Every run writes one batch of InfluxDB line protocol from `post { always }`, so a failed run is recorded exactly like a successful one. Nothing is sampled: the batch covers the run, every stage, every scanner, every module, every test suite, the release gate and the remediation outcome.
 
@@ -2700,6 +4036,7 @@ Every run writes one batch of InfluxDB line protocol from `post { always }`, so 
 | `release_gate` | project, env, allowed | Whether the release was permitted, and how many violations blocked it |
 | `goldenfix` | project, env, module, status | Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request |
 | `test_execution` with `suite=unit` | project, env, module, suite | Unit test totals of each module: total, passed, failed, skipped, success rate and duration |
+| `database_deployment` | project, env, module, target, status | One point per database target a Liquibase service with a database block deployed: changesets applied, tagged, the version and the Liquibase version, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) |
 | `build_evidence` | project, env, module | The change evidence of a build: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and the settings file the build read (`config_file`). Empty values are left out |
 
 The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working. The `line_pct` of `test_coverage` and `code_coverage` is the mean of the reports of the run and of the module, which is the value written before when there is one report; their `covered`, `missed` and `total` are the sums over the same reports.
@@ -2713,7 +4050,7 @@ The four metrics are derived from the `dora` measurement:
 - **Deployment frequency** - the `deployment` field is 1 when a deployment stage passed (`PASS`). A `NOT_REQUIRED` deployment stage rolled nothing out and is not counted.
 - **Lead time for changes** - `lead_time_s` measures from the timestamp of the commit under test, read with `git log -1` during initialisation, to the end of the run. When the commit cannot be read the build start is used instead and the console says so.
 - **Change failure rate** - `change_failure` is 1 for any run that did not end `SUCCESS`.
-- **Time to restore** - derived in Grafana from the `change_failure` series; the query is in [Grafana dashboards and queries](#22-grafana-dashboard-query-reference).
+- **Time to restore** - derived in Grafana from the `change_failure` series; the query is in [Grafana dashboards and queries](#23-grafana-dashboard-query-reference).
 
 ### Configuration
 
@@ -2734,9 +4071,9 @@ A bucket keeps the data for its retention period, and the cumulative "since the 
 
 ### Dashboards
 
-[Grafana dashboards and queries](#22-grafana-dashboard-query-reference) holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` continue to work; the stage panels of `devSecOpsDashboard` show the Build artifact stage of the Nexus IQ GoldenFix pipeline as `Build` and the Node.js build as `Node.js`, with the sort key of `Download sources`.
+[Grafana dashboards and queries](#23-grafana-dashboard-query-reference) holds ready Flux for every measurement above: the DORA row, pipeline health, security posture, quality and tests, remediation, and a set of cumulative panels that answer what the pipeline has delivered over successive runs and since the first build. The two dashboard definitions under `grafana/` continue to work; the stage panels of `devSecOpsDashboard` show the Build artifact stage of the Nexus IQ GoldenFix pipeline as `Build` and the Node.js build as `Node.js`, with the sort key of `Download sources`.
 
-## 22. Grafana Dashboard Query Reference
+## 23. Grafana Dashboard Query Reference
 
 Every build writes one batch of InfluxDB line protocol from `post { always }`, so a run that failed is recorded exactly like a run that succeeded. This document lists what is written and the Flux to put on a dashboard.
 
@@ -2769,6 +4106,7 @@ For the "since the beginning" panels set the panel time range to `From: now-5y` 
 | `code_coverage` | project, env, module, measured | line_pct, covered, missed, total, required, met, gap | Coverage per module against the required minimum |
 | `coverage_report` | project, env, module, report, tool, counted | line_pct (left out for a report without lines), covered, missed, total | Coverage per report; `counted=no` marks a copy, an aggregate, a report without lines or one that cannot be read |
 | `test_execution` | project, env, module, suite | total, passed, failed, not_configured, duration_ms, success_rate; skipped for `suite=unit` | Smoke, regression and performance suites, and the unit tests of each module (`suite=unit`) |
+| `database_deployment` | project, env, module, target, status | pending_before, applied, previously_run, filtered_out, pending_after, invalid_objects, invalid_before, compile_errors, changesets, tagged, ok, duration_ms, version, liquibase | The changesets each database target received, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) |
 | `build_evidence` | project, env, module | artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_file | The change evidence of a build and the settings file it read |
 | `test_job` | project, env, module, suite, status, type | duration_ms, name, ok | Individual test jobs |
 | `release_gate` | project, env, allowed | allowed, blocked, violations, reason | Whether the release was permitted |
@@ -3257,7 +4595,9 @@ The two dashboard definitions under `grafana/` — `devSecOpsDashboard` and `dev
 
 The cumulative panels in section 7 read from the beginning of the bucket, so the bucket's retention period is what limits how far back "since the beginning" reaches. A bucket created with the default 30 day retention will silently shorten these panels; set the retention to `0` (infinite) or to the period the organisation wants to report on.
 
-## 23. Troubleshooting Guide
+## 24. Troubleshooting Guide
+
+The messages of a Liquibase service with a database block (`[DB]`, and the database lines of `[NEXUS]`, `[DEPLOY]`, `[SONAR]` and `[SAST]`) are listed with their cause and fix in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase), 14.14.
 
 ### "\[INIT\] pipelineKey and pipelineKeys are settings of the DevSecOps portal ..."
 
@@ -3295,7 +4635,7 @@ Nothing is wrong: the library would use the same value without the key (`equals 
 
 ### "\[WARN\] \[BUILD\] Gradle did not find the plugin(s) ..." or "Maven did not find the plugin(s) ..."
 
-A Gradle or Maven step failed because a plugin is not in the repositories of the build, which the agents on the BBH network cannot leave. The step runs once more with `pluginRepositories` of the service or of the bundled defaults ([Gradle and Maven plugins from the BBH Nexus](#18-supported-build-tools)); a line "pluginRepositories.gradle: ... is not an http or https address" names a value of the service that the library replaced by the library default. When it then passes, the line "The plugin(s) ... came from ..." names where to add the repository so that the first attempt does not fail. When it fails again, the plugin is not in that repository either: ask the DevSecOps team to add it to the BBH Nexus. A Maven step with its own `-s` settings file is not run again; add the repository to that file.
+A Gradle or Maven step failed because a plugin is not in the repositories of the build, which the agents on the BBH network cannot leave. The step runs once more with `pluginRepositories` of the service or of the bundled defaults ([Gradle and Maven plugins from the BBH Nexus](#19-supported-build-tools)); a line "pluginRepositories.gradle: ... is not an http or https address" names a value of the service that the library replaced by the library default. When it then passes, the line "The plugin(s) ... came from ..." names where to add the repository so that the first attempt does not fail. When it fails again, the plugin is not in that repository either: ask the DevSecOps team to add it to the BBH Nexus. A Maven step with its own `-s` settings file is not run again; add the repository to that file.
 
 ### "The library resource com/bbh/devsecops/defaults.yaml cannot be read"
 
@@ -3410,7 +4750,7 @@ The workspace could not be copied, and in the fallback order SAST failed before 
 
 ### How to switch the order off for all jobs, one agent or one job
 
-Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` (or `DSO_DYNAMIC_ANALYSIS_PARALLEL=false` for the tests and DAST) in **Manage Jenkins → System → Global properties → Environment variables** for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the pipelines then run those stages one after another, whatever the settings say. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference](#15-configuration-reference-devsecops_configyaml)). For one job, set `staticAnalysis.parallel: false` or `dynamicAnalysis.parallel: false` on one of its services in `devsecops_config.yaml` or `config.yaml`: one such service keeps the whole run one after another. A custom Jenkinsfile built on `devSecOpsApi` ([the API reference](#20-programmatic-api-reference)) can also set the variable in its top-level `environment` block. `staticAnalysis.parallel: false` under `defaults:` of the bundled defaults switches the static order off for every job without its own value.
+Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` (or `DSO_DYNAMIC_ANALYSIS_PARALLEL=false` for the tests and DAST) in **Manage Jenkins → System → Global properties → Environment variables** for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the pipelines then run those stages one after another, whatever the settings say. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference](#16-configuration-reference-devsecops_configyaml)). For one job, set `staticAnalysis.parallel: false` or `dynamicAnalysis.parallel: false` on one of its services in `devsecops_config.yaml` or `config.yaml`: one such service keeps the whole run one after another. A custom Jenkinsfile built on `devSecOpsApi` ([the API reference](#21-programmatic-api-reference)) can also set the variable in its top-level `environment` block. `staticAnalysis.parallel: false` under `defaults:` of the bundled defaults switches the static order off for every job without its own value.
 
 ### "IRX not found after prepare"
 
@@ -3463,12 +4803,12 @@ The GoldenFix card explains the outcome in plain language, so that a reader who 
 | `NOT_CONFIGURED` | The upgrades are ready but the repository address is missing. Fill in `scm.bitbucket.url` with the repository link and `scm.bitbucket.credentialsId` with the Jenkins credentials allowed to write to it, and the pull request is raised on the next run |
 | `NO_FIXES` | The supplier has published no safe version yet, so the components have to be replaced or the risk accepted |
 | `NO_MANIFEST_CHANGES` | The vulnerable versions are not chosen in a file the pipeline can change. They arrive through another library, typically managed by a parent POM or a BOM, or they are set in a way GoldenFix does not edit, such as a range, so the upgrade belongs there. The reasons under "not applied automatically" name the BOM, the catalog or the catalog artifact when GoldenFix found one; the entries below explain each of them |
-| `BUILD_FAILED` | The pre-check build failed with the proposed versions and again in every further attempt, with the Nexus IQ version instead of a catalog version or with lower versions, up to `goldenFix.verify.maxAttempts`, so no pull request was opened. The console lines `[GOLDENFIX] Pre-check build ...` and the build output above them show what failed; see [Pipeline Stage Reference](#16-pipeline-stage-reference) |
+| `BUILD_FAILED` | The pre-check build failed with the proposed versions and again in every further attempt, with the Nexus IQ version instead of a catalog version or with lower versions, up to `goldenFix.verify.maxAttempts`, so no pull request was opened. The console lines `[GOLDENFIX] Pre-check build ...` and the build output above them show what failed; see [Pipeline Stage Reference](#17-pipeline-stage-reference) |
 | `NOT_VERIFIED` | The upgrades were prepared but no pre-check build could be run for a changed file, so no pull request was opened. The console line `GoldenFix: no build found for <file> - not verified` names the file |
 | `SKIPPED` | Automatic upgrades are switched off for this project |
 | `ERROR` | The run stopped before it could propose anything and the repository was not touched. The card names it as a fault in the pipeline run and carries the technical detail for the DevSecOps team; the `[GOLDENFIX]` lines in the console hold the full context, usually Nexus IQ or Bitbucket permissions. An internal error of the library, such as a `StackOverflowError`, is named by its class |
 
-The entries below explain the reasons, notes and console lines of GoldenFix one by one. [Pipeline Stage Reference](#16-pipeline-stage-reference) describes the whole remediation.
+The entries below explain the reasons, notes and console lines of GoldenFix one by one. [Pipeline Stage Reference](#17-pipeline-stage-reference) describes the whole remediation.
 
 ### "managed by version catalog &lt;file&gt; (&lt;alias&gt;): ..."
 
@@ -3583,7 +4923,7 @@ All jobs are executed even when some fail, and at most `tests.maxParallel` run a
 | Nexus repositories and publishing accounts | The Nexus administrators |
 | Deployment targets, hosts and deployment accounts | The owners of your test environments |
 
-## 24. Library Development and Test Suite
+## 25. Library Development and Test Suite
 
 This section is for the team that changes the library, not for the projects that use it.
 
@@ -3619,6 +4959,8 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | `test/sandbox/CoverageScenarios.groovy` | `checkCoverage`, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of `coverage.reportPath`, a copy of the report of another service, the fallbacks without `python3` or after a failed scan, C#/.NET Cobertura and OpenCover XML on Linux and Windows, and real `sh` runs of the scan step |
 | `test/sandbox/StaticAnalysisScenarios.groovy` | The switches of the stages at the same time (the environment variable first, then `staticAnalysis.parallel` of every service, by default true), the `[WARN]` lines of wrong values and the `[INFO]` lines of values equal to the default, the durations and the saved time of the report, the services that share a source folder, the branch state `PipelineState.fork`/`absorb` and `recordParallelGroup`, the Manual actions vs DevSecOps Automated Actions table (`ReportViewModel.manualComparison`, `BuildUtils.manualEffort`), the services whose SAST compile differs from their build command (`asoc.gradle`, `asoc.maven`, `asoc.dotnet`), C#/.NET auto-resolve, SonarQube (`SonarScanner.MSBuild.exe` / `dotnet sonarscanner`) and Windows SAST IRX staging, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
 | `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs. Every run reads a repository file: it plants `devsecops_config.yaml` or `config.yaml` in the workspace, takes the defaults of the run as the bundled resource and gives the entry point `projectNames`, `agentNames` and, for the extended pipeline, `securityPipeline`; the runs cover both file names, both files at once, a Jenkinsfile without `projectNames` and another `appId` in a `config.yaml` that is not read. The eleven golden runs of the first four entry points, recorded at release b815d55, are unchanged byte for byte and are compared after declared rules for what this release adds: the run-state file `pipeline-config.yaml`, the `build_evidence` and unit `test_execution` points, the InfluxDB line count, the settings line of the report header and `config_file`. The golden runs of the Nexus IQ GoldenFix pipeline (green, orange, build failure, the shared catalog run of two services) were recorded again for this branch; before they were committed, a one-off comparison proved that each new file equals the file recorded on `main` with the steps and lines of the key read removed and the lines that name the settings file added. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. The base runs set `staticAnalysis.parallel` and `dynamicAnalysis.parallel` to false in the defaults of the run, so they keep the order of the golden runs. Twins of the green and orange full, security and extended runs run their stages at the same time and give the release gate, the metrics and the report of their golden file and its steps in another order, which the orange full twin also pins in `full-pipeline-orange-parallel-stages.txt`; focused runs cover the failed copy of the workspace, the compile fallback, the environment override, a service that opts out, a wrong value, a SAST failure before and after its scans are queued, SonarQube waiting for the unit tests, GoldenFix and the AppScan settings per service. Every run checks the Manual actions vs DevSecOps Automated Actions table against the stage results of its log |
+| `test/sandbox/DatabaseUnitScenarios.groovy`, `test/sandbox/DatabaseScenarios.groovy` | The settings, parsers, static checks and scripts of the database block, and the three repository layouts of [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) in the five pipelines with fake Liquibase and utPLSQL output, pinned by `test/sandbox/golden/database-*.txt`; a Liquibase service without a database block, and the examples of the chapter compared with `test/fixtures/database` |
+| `test/database/cli-scenarios.sh` | Optional: the real Liquibase and utPLSQL CLIs from `~/.cache/devsecops-library-tools/database`, offline and against H2; skipped with a line when they are not there |
 | `test/sandbox/ConfigScenarios.groovy` | The configuration of a run: `projectNames` as a string or a list, `securityPipeline`, a Jenkinsfile that names `pipelineKey` or `pipelineKeys`, also empty, which stops with its message and runs nothing, a Jenkinsfile without `agentNames`, `DSO_REQUIRE_PIPELINE_KEY=true`, which changes nothing, `configure()` twice and `initialize()` without `configure()`, each of the two file names, the file errors and their messages; the `platform:` section of the bundled defaults, which changes the iOS build agent, the OIS host, the Flutter snapshot repository and the tool environment, with an environment variable that wins over `platform.environment`; the InfluxDB settings of the primary service and the upload on Linux and Windows; the build token of remote test jobs (`tokenCredentialsId`); the extended handoff; the Nexus IQ GoldenFix entry point, which names its own call and stops at the start for a service it would not scan; and how the library chooses a value: a name of `projectNames` that the file does not have, a value of the wrong kind that falls back to the default, and the keys that equal the library default or the auto-detected value |
 | `test/sandbox/PluginRepositoryScenarios.groovy` | The Gradle and Maven plugins from the BBH Nexus: a step that finds its plugins runs once and unchanged; a missing plugin (the Plugin Portal message, a missing `classpath` module, the Maven plugin, descriptor and prefix messages) runs the step again with the init script or the settings copy, which the tests read; later steps of the folder use the repository at once; another failure, a second failure, a switched-off or empty repository and a Maven step with its own settings file fail as before; an empty repository of a service takes the one of the bundled defaults, and an address that is not a plain http or https address is named and replaced by it; the bundled defaults and the callers that give the repositories to every Gradle and Maven step |
 | `test/sandbox/CompatibilityScenarios.groovy` | The loader of release b815d55 and the loader of this release produce the same configuration, exactly, from `devsecops_config.yaml` and from `config.yaml` over the same defaults (`devsecops_config.yaml` first when both exist); the production bundled defaults have the structure the library reads, with an optional `platform:` map, and can be applied; `examples/CertScanner/devsecops_config.yaml` and `examples/DotNetApp/devsecops_config.yaml` load |

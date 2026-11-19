@@ -102,6 +102,7 @@ class RepoStackAutoResolver implements Serializable {
             return
         }
         String detected = detectToolFromRepo(sd)
+        if (detected == 'liquibase' && BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) return
         if (detected) {
             cfg.buildTool = detected
             checkJdkAutoSetup(cfg, detected, sd)
@@ -209,6 +210,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveNodeStage0(Map cfg) {
+        if (BuildUtils.databaseBlock(cfg)) return
         Map build = (cfg.build ?: [:]) as Map
         Map node = (build.node ?: [:]) as Map
         if (node.enabled != null) return
@@ -243,9 +245,9 @@ class RepoStackAutoResolver implements Serializable {
                 newNode.version = nodeVer
             }
             if (pkgContent.contains('"cypress"')) {
-                Map tests = (cfg.tests ?: [:]) as Map
-                Map unitTests = (tests.unitTests ?: [:]) as Map
-                Map nodeTests = (unitTests.node ?: [:]) as Map
+                Map tests = [:] + ((cfg.tests ?: [:]) as Map)
+                Map unitTests = [:] + ((tests.unitTests ?: [:]) as Map)
+                Map nodeTests = [:] + ((unitTests.node ?: [:]) as Map)
                 if (nodeTests.cypress == null) {
                     nodeTests.cypress = true
                     unitTests.node = nodeTests
@@ -269,6 +271,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveDeployTarget(Map cfg, String serviceName, Map explicitCfg) {
+        if (BuildUtils.databaseBlock(cfg)) return
         def rawExplicit = explicitCfg != null ? explicitCfg.deployTarget : cfg.deployTarget
         String existing = ((rawExplicit ?: '') as String).trim()
         String sd = sourceRoot(cfg)
@@ -295,18 +298,18 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveLiquibase(Map cfg) {
-        if (cfg.buildTool != 'liquibase') return
+        if (cfg.buildTool != 'liquibase' || cfg.database instanceof Map) return
         String changelog = detectChangelogPath(sourceRoot(cfg))
-        Map build = (cfg.build ?: [:]) as Map
-        Map liqBuild = (build.liquibase ?: [:]) as Map
+        Map build = [:] + ((cfg.build ?: [:]) as Map)
+        Map liqBuild = [:] + ((build.liquibase ?: [:]) as Map)
         if (!liqBuild.commands) liqBuild.commands = ['updateSQL']
         if (!liqBuild.flags && changelog) liqBuild.flags = ["--changelog-file=${changelog}"]
         build.liquibase = liqBuild
         cfg.build = build
 
-        Map tests = (cfg.tests ?: [:]) as Map
-        Map unitTests = (tests.unitTests ?: [:]) as Map
-        Map liqTests = (unitTests.liquibase ?: [:]) as Map
+        Map tests = [:] + ((cfg.tests ?: [:]) as Map)
+        Map unitTests = [:] + ((tests.unitTests ?: [:]) as Map)
+        Map liqTests = [:] + ((unitTests.liquibase ?: [:]) as Map)
         if (!liqTests.commands) liqTests.commands = ['validate']
         if (!liqTests.flags && changelog) liqTests.flags = ["--changelog-file=${changelog}"]
         unitTests.liquibase = liqTests
@@ -371,14 +374,14 @@ class RepoStackAutoResolver implements Serializable {
 
     private void resolveFlutter(Map cfg) {
         if (cfg.buildTool != 'flutter') return
-        Map fl = (cfg.flutter ?: [:]) as Map
+        Map fl = [:] + ((cfg.flutter ?: [:]) as Map)
         if (!fl.platform) fl.platform = 'apk'
         cfg.flutter = fl
     }
 
     private void resolveSonar(Map cfg, String serviceName) {
-        Map tools = (cfg.tools ?: [:]) as Map
-        Map sonar = (tools.sonar ?: [:]) as Map
+        Map tools = [:] + ((cfg.tools ?: [:]) as Map)
+        Map sonar = [:] + ((tools.sonar ?: [:]) as Map)
         if (!sonar.projectKey) {
             String pKey = serviceName ?: 'service'
             if (!pKey.startsWith('com.bbh:')) pKey = "com.bbh:${pKey}"

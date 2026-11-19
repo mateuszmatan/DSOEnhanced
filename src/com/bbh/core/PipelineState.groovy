@@ -57,6 +57,8 @@ class PipelineState implements Serializable {
     Map projectsUnitTests         = [:]
     Map goldenFixPullRequest        = [:]
     Map goldenFixPullRequestsByRepo = [:]
+    Map projectsDatabase            = [:]
+    Map databaseTools               = [:]
     Map sastScansByAppId            = [:]
     Map sonarScansByProjectKey      = [:]
     Map nexusIqScansByApp           = [:]
@@ -99,6 +101,8 @@ class PipelineState implements Serializable {
         branch.projectsUnitTests = projectsUnitTests
         branch.goldenFixPullRequest = goldenFixPullRequest
         branch.goldenFixPullRequestsByRepo = goldenFixPullRequestsByRepo
+        branch.projectsDatabase = projectsDatabase
+        branch.databaseTools = databaseTools
         branch.sastScansByAppId = sastScansByAppId
         branch.sonarScansByProjectKey = sonarScansByProjectKey
         branch.nexusIqScansByApp = nexusIqScansByApp
@@ -126,6 +130,7 @@ class PipelineState implements Serializable {
         if (branch.projectsGoldenFix != projectsGoldenFix) projectsGoldenFix = branch.projectsGoldenFix
         if (branch.goldenFixPullRequest != goldenFixPullRequest) goldenFixPullRequest = branch.goldenFixPullRequest
         if (branch.goldenFixPullRequestsByRepo != goldenFixPullRequestsByRepo) goldenFixPullRequestsByRepo = branch.goldenFixPullRequestsByRepo
+        if (branch.databaseTools != databaseTools) databaseTools = branch.databaseTools
     }
 
     @NonCPS
@@ -241,6 +246,21 @@ class PipelineState implements Serializable {
     void recordUnitTests(Map values) {
         Map current = (projectsUnitTests[currentProjectName] ?: [:]) as Map
         projectsUnitTests[currentProjectName] = current + (values ?: [:])
+    }
+
+    @NonCPS
+    void recordDatabase(Map values) {
+        Map current = (projectsDatabase[currentProjectName] ?: [:]) as Map
+        projectsDatabase[currentProjectName] = current + (values ?: [:])
+    }
+
+    @NonCPS
+    void recordDatabaseTarget(String target, Map values) {
+        Map current = (projectsDatabase[currentProjectName] ?: [:]) as Map
+        Map targets = [:]
+        targets.putAll((current.targets ?: [:]) as Map)
+        targets[target] = ((targets[target] ?: [:]) as Map) + (values ?: [:])
+        projectsDatabase[currentProjectName] = current + [targets: targets]
     }
 
     @NonCPS

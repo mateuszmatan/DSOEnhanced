@@ -1,0 +1,2 @@
+@Library('DevSecOpsJenkinsLibrary') _
+devSecOpsPipeline(projectNames: 'orders-db,orders-app', agentNames: ['linux-agent'])

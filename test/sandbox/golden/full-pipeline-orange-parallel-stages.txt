@@ -101,8 +101,6 @@ sh mkdir -p '/ws/.appscan-home/.appscan'
 sh chmod 600 '/ws/.appscan-home/.appscan/appscan.properties'
 withEnv [WORKSPACE=/ws@tmp/dso-sast-workspace]
 withEnv [CURRENT_PROJECT_NAME=gui, APPSCAN_SCAN_NAME=certscanner-gui, PATH=/usr/lib/jvm/java-17-openjdk/bin:/usr/bin, JAVA_HOME=/usr/lib/jvm/java-17-openjdk]
-withEnv [CURRENT_PROJECT_NAME=backend-api, APPSCAN_SCAN_NAME=certscanner-backend, PATH=/usr/lib/jvm/java-17-openjdk/bin:/usr/bin, JAVA_HOME=/usr/lib/jvm/java-17-openjdk]
-withEnv [CURRENT_PROJECT_NAME=gui, APPSCAN_SCAN_NAME=certscanner-gui, PATH=/usr/lib/jvm/java-17-openjdk/bin:/usr/bin, JAVA_HOME=/usr/lib/jvm/java-17-openjdk]
 withCredentials [asoc-functional-user-secret]
 sh set +x
 curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxy-secret" -H "Content-Type: application/json" -d "@/ws@tmp/asoc-api-key-login.json" "https://bbh.cloud.appscan.com/api/v4/Account/ApiKeyLogin"

@@ -28,6 +28,12 @@ class RemoteTestJobRunner implements Serializable {
 
         List<Map> jobs = RemoteTestJobRunner.normalizeTestJobs(testCfg)
         if (!jobs) {
+            if (BuildUtils.databaseBlock(state.cfg) && testCfg?.required == null) {
+                script.echo "[TEST] ${state.currentProjectName}: no ${label} jobs for a SQL and PL/SQL service - not required"
+                state.recordTestJobs(stageName, [[index: 1, name: 'Test not required', type: 'unknown', status: 'ALREADY IMPLEMENTED', url: '', durationMs: 0L, message: '']])
+                state.projectNotRequired()
+                return
+            }
             state.recordTestJobs(stageName, [])
             policy.warn(stageName, "${label}: no test jobs configured, at least one job is required in ${state.settingsPlace()}.")
             return

@@ -371,12 +371,16 @@ class BuildService implements Serializable {
             policy.missingCoverage(found.missing as String, reports)
             return
         }
+        if (tool == 'liquibase' && !CoverageReports.summary(reports).counted) {
+            script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
+            return
+        }
+        applyCoverage(tool, reports, minLine)
+    }
+
+    void applyCoverage(String tool, List reports, int minLine) {
         Map own = CoverageReports.summary(reports)
         if (!own.counted) {
-            if (tool == 'liquibase') {
-                script.echo "[COVERAGE] Liquibase: no covered lines found, skipping coverage requirement"
-                return
-            }
             policy.missingCoverage(CoverageReports.noLines(reports), reports)
             return
         }
@@ -482,6 +486,10 @@ class BuildService implements Serializable {
     }
 
     void reportArtifactBuild() {
+        if (BuildUtils.databaseBlock(state.cfg)) {
+            reportDatabasePackage()
+            return
+        }
         def tool     = detectTool()
         def platform = (state.cfg.flutter?.platform ?: 'apk') as String
         def artifact = ''
@@ -513,7 +521,26 @@ class BuildService implements Serializable {
         )
     }
 
+    private void reportDatabasePackage() {
+        Map pkg = ((state.projectsDatabase[state.currentProjectName] ?: [:]) as Map).package as Map
+        if (!pkg?.path) {
+            script.echo "[BUILD] ${state.currentProjectName}: no SQL and PL/SQL package in this run - the build is not reported"
+            return
+        }
+        script.reportBuild(
+            applicationName:       state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+            applicationVersion:    script.env.BUILD_NUMBER,
+            applicationComponent:  'core',
+            artifactFileName:      pkg.path,
+            artifactFileSizeLimit: 0
+        )
+    }
+
     void reportUnitTests() {
+        if (BuildUtils.databaseBlock(state.cfg)) {
+            reportDatabaseTests()
+            return
+        }
         def tool = detectTool()
 
         if (tool == 'flutter') {
@@ -550,6 +577,25 @@ class BuildService implements Serializable {
             testsPassed:          result.totalCount - result.skipCount - result.failCount,
             testsFailed:          result.failCount,
             testsIgnored:         result.skipCount
+        )
+    }
+
+    private void reportDatabaseTests() {
+        Map tests = (state.projectsUnitTests[state.currentProjectName] ?: [:]) as Map
+        if (tests.total == null) {
+            script.echo "[TEST] ${state.currentProjectName}: no utPLSQL results in this run - the unit tests are not reported"
+            return
+        }
+        int total = tests.total as int
+        int failed = (tests.failed ?: 0) as int
+        int skipped = (tests.skipped ?: 0) as int
+        script.reportUnitTest(
+            applicationName:      state.cfg.tools?.sonar?.projectName ?: script.env.JOB_NAME,
+            applicationVersion:   script.env.BUILD_NUMBER,
+            applicationComponent: 'core',
+            testsPassed:          Math.max(0, total - skipped - failed),
+            testsFailed:          failed,
+            testsIgnored:         skipped
         )
     }
 
@@ -663,6 +709,10 @@ class BuildService implements Serializable {
 
     String setupBuildTool() {
         return toolchain.setupBuildTool()
+    }
+
+    String autoSetupJavaHome(String buildTool, Map extraEnv) {
+        return toolchain.autoSetupJavaHome(buildTool, extraEnv)
     }
 
     @NonCPS

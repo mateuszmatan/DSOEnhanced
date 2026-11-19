@@ -292,9 +292,12 @@ ${zipBase64}
 
     String excludedFolders() {
         String excluded = (script.env.APPSCAN_EXCLUDED_FOLDERS ?: '') as String
-        boolean nodeBuilt = state.stageResults.containsKey('Node.js build')
-        if (!nodeBuilt || script.env.APPSCAN_SOURCE_FOLDERS || excluded.tokenize(',').collect { it.trim() }.contains('node_modules')) return excluded
-        return excluded ? "${excluded},node_modules".toString() : 'node_modules'
+        List tokens = excluded.tokenize(',').collect { it.trim() }
+        List extra = []
+        boolean free = !script.env.APPSCAN_SOURCE_FOLDERS
+        if (free && state.stageResults.containsKey('Node.js build') && !tokens.contains('node_modules')) extra << 'node_modules'
+        if (free && state.projectsDatabase && !tokens.contains('.dso-db')) extra << '.dso-db'
+        return ([excluded] + extra).findAll { it }.join(',')
     }
 
     String windowsAppscanPath() {

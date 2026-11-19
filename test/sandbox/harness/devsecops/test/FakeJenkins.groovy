@@ -117,6 +117,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     FakeEnv env = new FakeEnv()
     List<String> calls = []
     List<String> probes = []
+    List<String> probeFolders = []
     Map params = [:]
     FakeBuild currentBuild = new FakeBuild()
     Map scm = [:]
@@ -136,6 +137,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     List<String> events = []
     Map<String, Closure> steps = [:]
     Set<String> missingCredentials = [] as Set
+    List<Object> timeouts = []
 
     String agentWorkspace = ''
 
@@ -171,9 +173,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         calls << "${kind}${args.label ? ' [' + args.label + ']' : ''} ${args.script}".toString()
         return shHandler.call(args)
     }
-    boolean isUnix() { unix }
+    boolean isUnix() { steps.containsKey('isUnix') ? step('isUnix', [:]) as boolean : unix }
     boolean fileExists(Object path) {
         probes << "fileExists ${norm(path)}".toString()
+        probeFolders << "${cwd ?: '.'} ${norm(path)}".toString()
         return files.containsKey(norm(path))
     }
     String readFile(Object arg) {
@@ -226,6 +229,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         }
         return out as FakeFile[]
     }
+    def zip(Map args) {
+        calls << "zip ${args.zipFile}".toString()
+        files.put(norm(args.zipFile), 'PK-fake')
+    }
     def withCredentials(List credentials, Closure body) {
         List ids = credentials.collect { it instanceof Map ? ((Map) it).credentialsId : it }
         calls << "withCredentials ${ids}".toString()
@@ -268,7 +275,14 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def usernamePassword(Map args) { args }
     def string(Map args) { args }
     def file(Map args) { args }
-    def timeout(Map args, Closure body) { body.call() }
+    def timeout(Map args, Closure body) {
+        timeouts << args.time
+        try {
+            return body.call()
+        } finally {
+            timeouts.remove(timeouts.size() - 1)
+        }
+    }
     def sleep(Object args) {}
     def dir(String path, Closure body) {
         String saved = cwd
@@ -278,6 +292,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         } finally {
             cwd = saved
         }
+    }
+    def deleteDir() {
+        calls << "deleteDir ${cwd}".toString()
+        files.keySet().removeAll { it.startsWith(cwd + '/') }
     }
     def pwd() {
         String ws = env.vars.get('WORKSPACE')
@@ -304,7 +322,10 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     def sshagent(Object credentials, Closure body) { body.call() }
     def checkout(Object args) { calls << 'checkout' }
     def git(Map args) { calls << "git ${args.url}".toString() }
-    def junit(Object args) { calls << "junit ${args instanceof Map ? ((Map) args).testResults : args}".toString(); new FakeTestSummary(totalCount: 214, failCount: 0, skipCount: 3, passCount: 211) }
+    def junit(Object args) {
+        calls << "junit ${args instanceof Map ? ((Map) args).testResults : args}".toString()
+        return steps.containsKey('junit') ? step('junit', args) : new FakeTestSummary(totalCount: 214, failCount: 0, skipCount: 3, passCount: 211)
+    }
     def archiveArtifacts(Object args) { calls << "archiveArtifacts ${args instanceof Map ? ((Map) args).artifacts : args}".toString() }
     def publishHTML(Object args) { calls << "publishHTML ${args instanceof Map ? ((Map) args).reportFiles : args}".toString() }
     def cleanWs(Object args) { calls << 'cleanWs' }

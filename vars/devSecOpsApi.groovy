@@ -1,5 +1,6 @@
 import groovy.transform.Field
 import com.bbh.build.BuildService
+import com.bbh.build.DatabaseBuild
 import com.bbh.build.ManifestBuildVerifier
 import com.bbh.build.NodeBuildRunner
 import com.bbh.config.ConfigLoader
@@ -7,6 +8,7 @@ import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
 import com.bbh.core.ReleaseGate
+import com.bbh.deploy.DatabaseDeployService
 import com.bbh.deploy.NexusDeliveryService
 import com.bbh.deploy.OpenshiftService
 import com.bbh.deploy.VmDeployService
@@ -42,6 +44,8 @@ import com.bbh.utils.BuildUtils
 @Field OpenshiftService    _openshift
 @Field InfluxDbService     _influx
 @Field SecurityPullRequestService _securityPr
+@Field DatabaseBuild       _database
+@Field DatabaseDeployService _databaseDeploy
 @Field Map                 _pipelineConfig = [:]
 @Field String              _variant = 'full'
 @Field Boolean             _parallelScans = null
@@ -69,11 +73,14 @@ private void _setup() {
     _delivery  = new NexusDeliveryService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
+    _database       = _main.database as DatabaseBuild
+    _databaseDeploy = _main.databaseDeploy as DatabaseDeployService
 }
 
 private Map _kitFor(PipelineState state) {
     PolicyEngine policy = new PolicyEngine(this, state, _os)
     BuildService build = new BuildService(this, state, _os, policy)
+    DatabaseBuild database = new DatabaseBuild(this, state, _os, policy, build)
     BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
     GitSourceRepository gitRepo = new GitSourceRepository(this, state)
     NexusIqService nexusIq = new NexusIqService(this, state, policy, new GoldenFixService(this, state,
@@ -83,6 +90,8 @@ private Map _kitFor(PipelineState state) {
     return [state     : state,
             policy    : policy,
             build     : build,
+            database  : database,
+            databaseDeploy: new DatabaseDeployService(this, state, policy, database),
             appScan   : new AppScanService(this, state, _os, policy, build),
             sonar     : new SonarService(this, state, _os, build),
             securityPr: new SecurityPullRequestService(this, state, publisher, gitRepo),
@@ -135,6 +144,7 @@ def initialize() {
     _os.chmodX('gradlew')
     _config.initialize()
     applyToolEnvironment()
+    _database.validateServices(_variant)
 }
 
 def setupJavaVersion(String javaHome = '/usr/lib/jvm/java-17-openjdk-17.0.19.0.10-2.el9.x86_64') {
@@ -569,6 +579,11 @@ def nexusDeliveryEnabled()            { _setup(); return BuildUtils.nexusDeliver
 def nexusDeliverySetting()            { _setup(); return BuildUtils.nexusDeliverySetting((_kit().state as PipelineState).cfg) }
 def nodeBuildEnabled()                { _setup(); return BuildUtils.nodeBuildEnabled((_kit().state as PipelineState).cfg) }
 def nodeBuildNeeded()                 { _setup(); return BuildUtils.nodeBuildNeeded((_kit().state as PipelineState).cfg, _variant, _os.isWindows()) }
+def databaseBlock()                   { _setup(); return BuildUtils.databaseBlock((_kit().state as PipelineState).cfg) }
+def databaseBuild()                   { _setup(); (_kit().database as DatabaseBuild).build(_variant) }
+def databaseTests()                   { _setup(); (_kit().database as DatabaseBuild).tests() }
+def databaseDelivery(String kind)     { _setup(); (_kit().databaseDeploy as DatabaseDeployService).deliver(kind) }
+def databaseDeploy(String envName)    { _setup(); (_kit().databaseDeploy as DatabaseDeployService).deploy(envName) }
 def notRequired(String reason)        { _setup(); echo reason; (_kit().state as PipelineState).projectNotRequired() }
 
 def stagePass(String name)                 { _setup(); (_kit().state as PipelineState).stagePass(name) }
