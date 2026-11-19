@@ -170,7 +170,7 @@ Set-Location -Path "\$env:WORKSPACE"
                             new DotnetBuildRunner(script, os, state.cfg).build(dotnetOverride ?: null, tool as String)
                         } else {
                             Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
-                            BuildRunner runner = new BuildRunner(script, compileCfg, tool)
+                            BuildRunner runner = new BuildRunner(script, compileCfg, tool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults))
                             if (!runner.ifExist()) {
                                 script.error "[SAST] Build tool is NOT installed on an agent"
                             }

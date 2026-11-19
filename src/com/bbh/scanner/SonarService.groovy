@@ -97,7 +97,7 @@ class SonarService implements Serializable {
                 branchUsed = withBranchFallback(branchArgs) { List extra ->
                     inSonarEnv(credentialsId as String, installationName as String) {
                         if (pluginRun) {
-                            new BuildRunner(script, pluginCfg(effectiveSonarCfg(sonarCfg as Map, tool as String), tool as String, sonarArgs.findAll { (it as String).startsWith('-Dsonar.projectKey=') } + extra), tool).run()
+                            new BuildRunner(script, pluginCfg(effectiveSonarCfg(sonarCfg as Map, tool as String), tool as String, sonarArgs.findAll { (it as String).startsWith('-Dsonar.projectKey=') } + extra), tool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults)).run()
                         } else {
                             runScanner(sonarCfg as Map, sonarArgs + extra)
                         }

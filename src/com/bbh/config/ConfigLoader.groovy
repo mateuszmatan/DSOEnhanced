@@ -120,6 +120,7 @@ class ConfigLoader implements Serializable {
             script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
         }
         Map projects = loadedProjects()
+        if (state.configFile) checkRequestedNames(projects)
         String securityJob = ((primary.pipeline as Map)?.securityPipeline ?: '') as String
         Map own = state.configFile ? subset(projects, requestedProjectNames()) : projects
         if (securityJob) overlayRunState(own, securityJob)
@@ -136,11 +137,13 @@ class ConfigLoader implements Serializable {
                     script.error(state.configFile ? "[INIT] Project '${pName}' not found in ${state.configFile}. Available: ${projects.keySet().join(', ')}"
                             : "[INIT] Project '${pName}' is not configured by the pipeline keys of this run. Available: ${projects.keySet().join(', ')}")
                 }
-                Map merged = deepMerge(state.cfgDefaults, projects[pName] as Map)
-                Map auto = autoResolver.resolve(state.cfgDefaults, projects[pName] as Map, merged, pName as String)
+                Map rawProj = ownSettings(pName as String, (projects[pName] ?: [:]) as Map)
+                Map merged = SettingsAdvisor.copy(deepMerge(state.cfgDefaults, rawProj))
+                Map auto = autoResolver.resolve(state.cfgDefaults, rawProj, merged, pName as String)
                 state.projectsAllCfg[pName] = auto.cfg
                 state.projectsAutoResolved[pName] = auto.resolved
-                warnIgnoredAppScanKey(pName as String, (projects[pName] ?: [:]) as Map)
+                warnIgnoredAppScanKey(pName as String, rawProj)
+                if (state.configFile) adviseRemovableKeys(pName as String, rawProj, auto.cfg as Map)
             }
             def primaryName = projectNames[0]
             state.cfg = state.projectsAllCfg[primaryName]
@@ -162,6 +165,58 @@ class ConfigLoader implements Serializable {
 
         applyPolicy()
         script.echo "[INIT] OS: ${script.env.OS_TYPE ?: 'linux'}"
+    }
+
+    private void checkRequestedNames(Map projects) {
+        List<String> requested = requestedProjectNames()
+        if (!requested) return
+        List<String> available = projects.keySet().collect { it as String }
+        List<String> unknown = requested.findAll { !available.contains(it) }
+        String parameter = script.env.PROJECT_NAMES ? 'projectNames' : 'PROJECT_NAME'
+        if (!unknown) {
+            if (requested == available) {
+                script.echo "[INIT] [INFO] ${parameter}: ${requested.join(', ')} equals the default, every service of ${state.configFile} in its order - the parameter can be removed from the Jenkinsfile"
+            }
+            return
+        }
+        List<String> known = requested.findAll { available.contains(it) }
+        if (known) {
+            script.echo "[INIT] [WARN] ${parameter} names ${unknown.join(', ')}, which ${state.configFile} does not have (it has ${available.join(', ')}) - the run goes on with ${known.join(', ')}"
+        } else {
+            known = available
+            script.echo "[INIT] [WARN] ${parameter} names ${unknown.join(', ')}, which ${state.configFile} does not have - the run goes on with the default, every service of the file: ${available.join(', ')}"
+        }
+        script.env.PROJECT_NAMES = known.join(',')
+    }
+
+    private Map ownSettings(String projectName, Map raw) {
+        List<Map> invalid = SettingsAdvisor.invalidValues(raw, state.cfgDefaults)
+        if (!invalid) return raw
+        List<String> fields = []
+        String origin = state.configFile ? 'library default' : 'Global Settings'
+        for (Map f : invalid) {
+            fields << (f.field as String)
+            script.echo "[INIT] [WARN] ${projectName}: ${f.field}: ${f.value} in ${state.settingsPlace()} is not ${f.kind} - the ${origin} ${f.field}: ${f.fallback} is used instead"
+        }
+        return SettingsAdvisor.without(raw, fields)
+    }
+
+    private void adviseRemovableKeys(String projectName, Map raw, Map resolved) {
+        List<String> lines = []
+        for (Map f : SettingsAdvisor.sameAsDefaults(raw, state.cfgDefaults)) {
+            lines << "${f.field}: ${f.value} equals the library default".toString()
+        }
+        for (String field : SettingsAdvisor.setResolvedKeys(raw)) {
+            Map stripped = SettingsAdvisor.without(raw, [field])
+            Map baseline = autoResolver.resolveQuietly(state.cfgDefaults, stripped, SettingsAdvisor.copy(deepMerge(state.cfgDefaults, stripped)), projectName).cfg as Map
+            String value = SettingsAdvisor.display(SettingsAdvisor.valueAt(resolved, field))
+            if (SettingsAdvisor.display(SettingsAdvisor.valueAt(baseline, field)) != value) continue
+            boolean builtIn = SettingsAdvisor.display(SettingsAdvisor.valueAt(state.cfgDefaults, field)) == value
+            lines << "${field}: ${value} equals the ${builtIn ? 'library default' : 'auto-detected value'}".toString()
+        }
+        for (String line : lines) {
+            script.echo "[INIT] [INFO] ${projectName}: ${line} - the key can be removed from ${state.configFile}"
+        }
     }
 
     private void validateCrossServiceRepositories(List projectNames) {

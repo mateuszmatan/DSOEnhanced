@@ -374,6 +374,7 @@ pre code {
 <li><a href='#available-pipeline-entry-points' style='padding-left: 20px; font-size: 0.8rem;'>Available Pipeline Entry Points:</a></li>
 <li><a href='#3-the-devsecops_configyaml-configuration-file' ><span style='color:#94a3b8;font-weight:600;'>3.</span> The devsecops_config.yaml Configuration File</a></li>
 <li><a href='#file-evaluation-order' style='padding-left: 20px; font-size: 0.8rem;'>File Evaluation Order:</a></li>
+<li><a href='#how-a-value-is-chosen' style='padding-left: 20px; font-size: 0.8rem;'>How a value is chosen:</a></li>
 <li><a href='#4-multi-service-and-multi-repository-bitbucket-support' ><span style='color:#94a3b8;font-weight:600;'>4.</span> Multi-Service and Multi-Repository Bitbucket Support</a></li>
 <li><a href='#1-multiple-services-in-one-pipeline-multi-service' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>1.</span> Multiple Services in One Pipeline (Multi-Service)</a></li>
 <li><a href='#2-multi-module-projects' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>2.</span> Multi-Module Projects</a></li>
@@ -461,6 +462,13 @@ devSecOpsPipeline(
 <li>If not found, it checks for <code>config.yaml</code>.</li>
 <li>The library reads the <code>projects:</code> section where each service of your application is declared.</li>
 </ul>
+<h3 id="how-a-value-is-chosen">How a value is chosen:</h3>
+<ul>
+<li>A key you set is always used, also when it equals the default, so the files of earlier releases keep working.</li>
+<li>A value of the wrong kind (text for a number, a word for <code>true</code>/<code>false</code>, a map for a list) falls back to the library default, with an <code>[INIT] [WARN]</code> line that names the key, the value and the default.</li>
+<li>A name in <code>projectNames</code> that the file does not have is left out with an <code>[INIT] [WARN]</code> line; when no name is left, the run builds every service of the file.</li>
+<li>A key whose value the library would use anyway (the library default, or what the auto-detection finds in the repository, such as <code>buildTool: maven</code> next to a <code>pom.xml</code>) is named in an <code>[INIT] [INFO] ... - the key can be removed from devsecops_config.yaml</code> line, so you can shorten the file.</li>
+</ul>
 <hr />
 <h2 id="4-multi-service-and-multi-repository-bitbucket-support">4. Multi-Service and Multi-Repository Bitbucket Support</h2>
 <p>The standalone pipeline natively supports complex project architectures:</p>
@@ -482,6 +490,7 @@ devSecOpsPipeline(
 <li><strong>Java / Kotlin / Groovy:</strong></li>
 <li>Build via Maven (<code>tool: 'maven'</code>) or Gradle (<code>tool: 'gradle'</code>).</li>
 <li>Standard command: <code>clean package -DskipTests</code> or <code>clean assemble -x test</code>.</li>
+<li><strong>Plugins from the BBH Nexus:</strong> when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (<code>pluginRepositories</code> of the library defaults), and the console says which plugins came from it and where to add the repository.</li>
 <li><strong>Node.js / Angular:</strong></li>
 <li>Build via npm (<code>tool: 'npm'</code>).</li>
 <li>Standard command: <code>npm ci &amp;&amp; npm run build --prod</code>.</li>

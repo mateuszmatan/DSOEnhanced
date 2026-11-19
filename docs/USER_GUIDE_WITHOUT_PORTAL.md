@@ -62,6 +62,12 @@ The `devsecops_config.yaml` file resides in the root directory of your repositor
 - If not found, it checks for `config.yaml`.
 - The library reads the `projects:` section where each service of your application is declared.
 
+### How a value is chosen:
+- A key you set is always used, also when it equals the default, so the files of earlier releases keep working.
+- A value of the wrong kind (text for a number, a word for `true`/`false`, a map for a list) falls back to the library default, with an `[INIT] [WARN]` line that names the key, the value and the default.
+- A name in `projectNames` that the file does not have is left out with an `[INIT] [WARN]` line; when no name is left, the run builds every service of the file.
+- A key whose value the library would use anyway (the library default, or what the auto-detection finds in the repository, such as `buildTool: maven` next to a `pom.xml`) is named in an `[INIT] [INFO] ... - the key can be removed from devsecops_config.yaml` line, so you can shorten the file.
+
 ---
 
 ## 4. Multi-Service and Multi-Repository Bitbucket Support
@@ -86,6 +92,7 @@ The pipeline supports all enterprise programming languages and build tools:
 - **Java / Kotlin / Groovy:**
   - Build via Maven (`tool: 'maven'`) or Gradle (`tool: 'gradle'`).
   - Standard command: `clean package -DskipTests` or `clean assemble -x test`.
+  - **Plugins from the BBH Nexus:** when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (`pluginRepositories` of the library defaults), and the console says which plugins came from it and where to add the repository.
 - **Node.js / Angular:**
   - Build via npm (`tool: 'npm'`).
   - Standard command: `npm ci && npm run build --prod`.

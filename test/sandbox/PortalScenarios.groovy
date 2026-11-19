@@ -614,9 +614,65 @@ check('without a key: a file that is not YAML names the file and the parser mess
     check("without a key: a file without projects (${text ?: 'empty'}) is refused", empty.initError == "[INIT] devsecops_config.yaml must contain a 'projects:' section.", empty.initError)
 }
 
+Closure runStateOf = { FakeScript s -> s.files['pipeline-config.yaml'] ? ((yaml.load(s.files['pipeline-config.yaml']) as Map).projects ?: [:]) as Map : [:] }
 Map unknown = fromFile('full', agents + [projectNames: 'web'], ['devsecops_config.yaml': configText])
-check('without a key: a service the file does not have lists every service of the file',
-        unknown.initError == "[INIT] Project 'web' not found in devsecops_config.yaml. Available: gui, backend-api", unknown.initError)
+check('without a key: a projectNames with no service of the file falls back to the default, every service of the file, and says so',
+        !unknown.initError && (unknown.state.projectsAllCfg as Map).keySet().toList() == ['gui', 'backend-api'] && (unknown.j as FakeScript).env.PROJECT_NAMES == 'gui,backend-api'
+                && runStateOf(unknown.j as FakeScript).keySet().toList() == ['gui', 'backend-api']
+                && (unknown.j as FakeScript).log.contains('[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have - the run goes on with the default, every service of the file: gui, backend-api'),
+        "${unknown.initError} | ${(unknown.state?.projectsAllCfg as Map)?.keySet()} | ${(unknown.j as FakeScript).log.findAll { it.contains('[WARN]') }}")
+Map partly = fromFile('full', agents + [projectNames: ['web', 'backend-api']], ['devsecops_config.yaml': configText])
+check('without a key: a projectNames with one unknown name runs the services the file has, and names the unknown one and the services of the file',
+        !partly.initError && (partly.state.projectsAllCfg as Map).keySet().toList() == ['backend-api'] && partly.state.currentProjectName == 'backend-api'
+                && runStateOf(partly.j as FakeScript).keySet().toList() == ['backend-api']
+                && (partly.j as FakeScript).log.contains('[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have (it has gui, backend-api) - the run goes on with backend-api'),
+        "${partly.initError} | ${(partly.state?.projectsAllCfg as Map)?.keySet()} | ${(partly.j as FakeScript).log.findAll { it.contains('[WARN]') }}")
+Map everyName = fromFile('full', agents + [projectNames: 'gui,backend-api'], ['devsecops_config.yaml': configText])
+Map ownOrder = fromFile('full', agents + [projectNames: 'backend-api,gui'], ['devsecops_config.yaml': configText])
+Map plainFile = fromFile('full', agents, ['devsecops_config.yaml': configText])
+String everyLine = '[INIT] [INFO] projectNames: gui, backend-api equals the default, every service of devsecops_config.yaml in its order - the parameter can be removed from the Jenkinsfile'
+check('without a key: a projectNames that lists every service of the file in its order says that the parameter can be removed; another order says nothing',
+        !everyName.initError && (everyName.j as FakeScript).log.contains(everyLine) && !ownOrder.initError && !(ownOrder.j as FakeScript).log.any { it.contains('the parameter can be removed') }
+                && !(plainFile.j as FakeScript).log.any { it.contains('the parameter can be removed') },
+        "${everyName.initError} | ${(everyName.j as FakeScript).log.findAll { it.startsWith('[INIT] [INFO]') }}")
+
+List removable = (plainFile.j as FakeScript).log.findAll { it.startsWith('[INIT] [INFO] gui: ') }
+check('without a key: a setting with the value the library would use anyway is named as one that can be removed, and not a value that differs or that the library cannot know',
+        removable.contains('[INIT] [INFO] gui: deployTarget: vm equals the library default - the key can be removed from devsecops_config.yaml')
+                && removable.contains('[INIT] [INFO] gui: sourceDir: . equals the library default - the key can be removed from devsecops_config.yaml')
+                && !removable.any { it.contains('projectKey') || it.contains('javaPath') || it.contains('appId') },
+        removable)
+
+String detectedConfig = configWith { Map p ->
+    (p.gui as Map).buildTool = 'maven'
+    ((p.gui as Map).tools as Map).sonar = [projectKey: 'com.bbh:gui']
+}
+Map detected = fromFile('full', agents + [projectNames: 'gui'], ['devsecops_config.yaml': detectedConfig, 'pom.xml': '<project/>'])
+List detectedLines = (detected.j as FakeScript).log.findAll { it.startsWith('[INIT] [INFO] gui: ') }
+Map detectedOff = fromFile('full', agents + [projectNames: 'gui'], ['devsecops_config.yaml': detectedConfig])
+check('without a key: a buildTool and a SonarQube key that the auto-resolve would find are named as removable; without the pom.xml the buildTool is not',
+        !detected.initError && detectedLines.contains('[INIT] [INFO] gui: buildTool: maven equals the auto-detected value - the key can be removed from devsecops_config.yaml')
+                && detectedLines.contains('[INIT] [INFO] gui: tools.sonar.projectKey: com.bbh:gui equals the auto-detected value - the key can be removed from devsecops_config.yaml')
+                && !detectedOff.initError && !(detectedOff.j as FakeScript).log.any { it.contains('gui: buildTool: maven equals') }
+                && (detected.state.projectsAllCfg.gui as Map).buildTool == 'maven' && !(detected.j as FakeScript).log.any { it.startsWith('[WARN] Invalid') },
+        detectedLines)
+
+String invalidConfig = configWith { Map p ->
+    (p.gui as Map).sast = [maxCritical: 'none', pollTimeoutMin: '45']
+    (p.gui as Map).sca = [enabled: 'enabled']
+    (p.gui as Map).releaseGate = [scanners: [sast: true]]
+}
+Map invalidValues = fromFile('full', agents + [projectNames: 'gui'], ['devsecops_config.yaml': invalidConfig])
+Map guiCfg = (invalidValues.state?.projectsAllCfg?.gui ?: [:]) as Map
+List invalidLines = (invalidValues.j as FakeScript).log.findAll { it.startsWith('[INIT] [WARN] gui: ') }
+check('without a key: a value of the wrong kind falls back to the library default with a warning; a number in quotes is kept',
+        !invalidValues.initError && guiCfg.sast?.maxCritical == 0 && (guiCfg.sast?.pollTimeoutMin as String) == '45' && guiCfg.sca?.enabled == true
+                && guiCfg.releaseGate?.scanners == ['sast', 'sca', 'niq', 'dast']
+                && invalidLines.contains('[INIT] [WARN] gui: sast.maxCritical: none in devsecops_config.yaml is not a number - the library default sast.maxCritical: 0 is used instead')
+                && invalidLines.contains('[INIT] [WARN] gui: sca.enabled: enabled in devsecops_config.yaml is not true or false - the library default sca.enabled: true is used instead')
+                && invalidLines.contains('[INIT] [WARN] gui: releaseGate.scanners: [sast] in devsecops_config.yaml is not a list - the library default releaseGate.scanners: [sast, sca, niq, dast] is used instead')
+                && invalidLines.size() == 3,
+        "${invalidValues.initError} | ${invalidLines} | ${guiCfg.sast} | ${guiCfg.releaseGate}")
 
 Map unscannedFile = fromFile('nexusiq', agents, ['devsecops_config.yaml': configWith { Map p ->
     (((p.gui as Map).tools as Map).nexusIq as Map).remove('application')

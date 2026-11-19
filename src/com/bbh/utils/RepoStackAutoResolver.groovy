@@ -25,6 +25,7 @@ class RepoStackAutoResolver implements Serializable {
 
     private final def script
     private boolean ownRepository = false
+    private boolean quiet = false
 
     RepoStackAutoResolver(def script) {
         this.script = script
@@ -295,13 +296,27 @@ class RepoStackAutoResolver implements Serializable {
         cfg.tools = tools
     }
 
-    Map resolve(Map defaults, Map own, Map merged, String serviceName, boolean separateRepository = false) {
+    Map resolveQuietly(Map defaults, Map own, Map merged, String serviceName, boolean separateRepository = false) {
+        quiet = true
+        try {
+            return resolve(defaults, own, merged, serviceName, separateRepository, true)
+        } finally {
+            quiet = false
+        }
+    }
+
+    private void say(String line) {
+        if (!quiet) script.echo line
+    }
+
+    Map resolve(Map defaults, Map own, Map merged, String serviceName, boolean separateRepository = false, boolean keepQuiet = false) {
+        quiet = keepQuiet
         ownRepository = separateRepository
         Map cfg = [:] + ((merged ?: [:]) as Map)
         Map ownCfg = (own ?: [:]) as Map
         List<Map> resolved = []
         if (!enabled(ownCfg, defaults ?: [:])) {
-            script.echo "[AUTO] ${serviceName}: autoresolveParameters is false - only the values of ${serviceName} and the library defaults are used"
+            say "[AUTO] ${serviceName}: autoresolveParameters is false - only the values of ${serviceName} and the library defaults are used"
             return [cfg: cfg, resolved: resolved]
         }
 
@@ -319,7 +334,7 @@ class RepoStackAutoResolver implements Serializable {
 
         if (!BuildUtils.databaseBlock(cfg)) {
             for (Map r : resolved) {
-                script.echo "[AUTO] ${serviceName}: ${r.field} = ${r.value} (${r.reason})"
+                say "[AUTO] ${serviceName}: ${r.field} = ${r.value} (${r.reason})"
             }
         }
         return [cfg: cfg, resolved: resolved]
@@ -378,14 +393,14 @@ class RepoStackAutoResolver implements Serializable {
             }
         }
         if (!tool) {
-            if (explicit && !explicit.equalsIgnoreCase('auto')) script.echo "[WARN] Invalid buildTool '${explicit}' in configuration. No build file was found, the stages detect the build tool when they run."
+            if (explicit && !explicit.equalsIgnoreCase('auto')) say "[WARN] Invalid buildTool '${explicit}' in configuration. No build file was found, the stages detect the build tool when they run."
             if (exists(base, 'requirements.txt') || exists(base, 'pyproject.toml') || exists(base, 'setup.py')) {
-                script.echo "[AUTO] Python project detected - set buildTool for the service, the library builds Gradle, Maven, npm, Flutter and Liquibase"
+                say "[AUTO] Python project detected - set buildTool for the service, the library builds Gradle, Maven, npm, Flutter and Liquibase"
             }
             return ((cfg.buildTool ?: '') as String).trim()
         }
         if (explicit && !explicit.equalsIgnoreCase('auto')) {
-            script.echo "[WARN] Invalid buildTool '${explicit}' in configuration. Falling back to auto-detected buildTool '${tool}'."
+            say "[WARN] Invalid buildTool '${explicit}' in configuration. Falling back to auto-detected buildTool '${tool}'."
             reason = "${reason}, replaces the invalid buildTool '${explicit}'".toString()
         }
         if (tool != cfg.buildTool) {
@@ -430,7 +445,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void fixDotnet(Map cfg, String path, String value, String problem, List<Map> resolved) {
-        script.echo "[WARN] ${problem} in configuration. Falling back to auto-detected value '${value}'."
+        say "[WARN] ${problem} in configuration. Falling back to auto-detected value '${value}'."
         put(cfg, path, value)
         resolved << [field: path, value: value, reason: "${problem} replaced - detected when the build runs".toString()]
     }
@@ -501,7 +516,7 @@ class RepoStackAutoResolver implements Serializable {
         if (!packageJson) return [enabled: false]
         String content = readQuiet(packageJson)
         String engine = nodeEngine(content)
-        if (engine) script.echo "[AUTO] ${packageJson} asks for Node.js ${engine} (engines.node) - build.node.installationName or build.node.nodePath selects it on the agent"
+        if (engine) say "[AUTO] ${packageJson} asks for Node.js ${engine} (engines.node) - build.node.installationName or build.node.nodePath selects it on the agent"
         if (tool in ['maven', 'gradle'] && !has(own, 'build.node.enabled') && valueAt(cfg, 'build.node.enabled') == null) {
             put(cfg, 'build.node.enabled', true)
             resolved << [field: 'build.node.enabled', value: true, reason: "${packageJson} found next to the ${tool == 'maven' ? 'Maven' : 'Gradle'} build (Node.js build first)"]
@@ -522,7 +537,7 @@ class RepoStackAutoResolver implements Serializable {
             resolved << [field: 'tests.unitTests.cypress.enabled', value: true, reason: 'cypress in package.json and a Cypress configuration file']
             if (nodeDir != '.' && !has(cfg, 'tests.unitTests.cypress.dir')) put(cfg, 'tests.unitTests.cypress.dir', nodeDir)
         } else if (content.contains('"jest"')) {
-            script.echo "[AUTO] ${packageJson} uses Jest - its LCOV report is read by the Unit tests stage"
+            say "[AUTO] ${packageJson} uses Jest - its LCOV report is read by the Unit tests stage"
         }
         return [enabled: true, dir: nodeDir]
     }
@@ -573,7 +588,7 @@ class RepoStackAutoResolver implements Serializable {
         if (BuildUtils.databaseBlock(own)) return
         if (has(own, 'deployTarget')) return
         if (exists(base, 'Dockerfile') || exists(base, 'Containerfile') || exists(base, 'openshift')) {
-            script.echo "[AUTO] ${serviceName}: a Dockerfile or OpenShift folder was found - set deployTarget: openshift for the service to deploy to OpenShift (the deploy target is never changed automatically)"
+            say "[AUTO] ${serviceName}: a Dockerfile or OpenShift folder was found - set deployTarget: openshift for the service to deploy to OpenShift (the deploy target is never changed automatically)"
         }
     }
 }

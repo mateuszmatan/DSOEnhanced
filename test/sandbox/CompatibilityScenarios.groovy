@@ -261,6 +261,9 @@ Map keylessLogRules = [
         'KL2 the auto-detect line names the file read'                  : { List log -> log.collect { (it as String).replace('devsecops_config.yaml', 'config.yaml') } },
         'KL3 the bundled defaults moved to a namespaced resource path'  : { List log ->
             log.collect { (it as String).replace("resources/${bundledName}", 'resources/defaults.yaml') }
+        },
+        'KL4 the keyless loader names the settings that equal the value the library uses without them': { List log ->
+            log.findAll { String line -> !(line.startsWith('[INIT] [INFO] ') && (line.contains(' - the key can be removed from ') || line.contains(' - the parameter can be removed from the Jenkinsfile'))) }
         }
 ]
 Closure keylessLog = { Map run -> keylessLogRules.values().inject((run.log ?: []) as List) { List log, Closure rule -> rule(log) } }
@@ -321,9 +324,9 @@ check('the library bundles global defaults that a run without a key can apply',
 
 Map fixtureApplied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText])
 List bundledDiff = ['cfg', 'projectsAllCfg'].collectMany { String k -> differences(fixtureApplied[k], applied[k], k) }
-List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database|goldenFix\.ecosystems|asoc\.(keyId|token)|report)[.:].*/) }
+List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database|goldenFix\.ecosystems|asoc\.(keyId|token)|report|pluginRepositories)[.:].*/) }
 Map bundledTools = (bundledDefaults.tools ?: [:]) as Map
-check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults, apart from the AppScan key of the functional user, which the DevSecOps team fills in, and the minutes of the manual steps of the report',
+check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults, apart from the AppScan key of the functional user, which the DevSecOps team fills in, the minutes of the manual steps of the report and the plugin repositories of the BBH Nexus',
         bundledTools.liquibase == [home: '', url: '', sha256: '', javaVersion: 17] && bundledTools.oracleJdbc == [path: '', url: '', sha256: '']
                 && bundledTools.utplsql == [home: '', url: '', sha256: '']
                 && bundledDefaults.database == [allowedTargets: [], package: [snapshotRepository: [id: '', url: ''], releaseRepository: [id: '', url: '']]]
