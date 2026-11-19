@@ -70,6 +70,7 @@ defaults:
         npm:    ""                   # npm ci --ignore-scripts (npm install without a lock file)
         pip:    ""                   # python3 -m pip install --dry-run -r <file>
         pub:    ""                   # flutter pub get
+        nuget:  ""                   # nuget restore && MSBuild /t:Build (Windows) or dotnet build --no-incremental
     commitAuthorName:  "DevSecOps GoldenFix"
     commitAuthorEmail: "devsecops-goldenfix@noreply.local"
     timeZone:          ""          # time zone of the GoldenFix-YYYYMMDDHHMM name, empty = agent default

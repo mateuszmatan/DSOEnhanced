@@ -224,7 +224,12 @@ class NexusIqService implements Serializable {
             script.echo "[DEP-SCAN] rawBuild log blocked (${e.getClass().getSimpleName()}) - trying console REST"
         }
         try {
-            def text = script.sh(returnStdout: true, script: "curl -f '${script.env.BUILD_URL}consoleText' || true").trim()
+            def text = ''
+            if (!script.isUnix()) {
+                text = (script.powershell(returnStdout: true, script: "try { (Invoke-WebRequest -Uri '${BuildUtils.psSingleQuote((script.env.BUILD_URL ?: '') as String)}consoleText' -UseBasicParsing -ErrorAction Stop).Content } catch { '' }") as String).trim()
+            } else {
+                text = script.sh(returnStdout: true, script: "curl -f '${script.env.BUILD_URL}consoleText' || true").trim()
+            }
             if (text && extractLogSummary(text.tokenize('\n'))) {
                 script.echo "[DEP-SCAN] Console parse OK - C:${state.nexusIqResults['critical']} H:${state.nexusIqResults['high']} M:${state.nexusIqResults['medium']}"
                 return

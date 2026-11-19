@@ -259,5 +259,58 @@ check('Coverage: the scan step reads its output as UTF-8, and a row keeps the SH
                 && reportsOf(real, 'gui')[1].sha == reportsOf(real, 'gui')[2].sha && reportsOf(real, 'gui')[1].sha == reportsOf(real, 'backend-api')[0].sha,
         [real.encodings, reportsOf(real, 'gui').collect { it.sha }, reportsOf(real, 'backend-api').collect { it.sha }])
 
+File dnTree = File.createTempDir()
+Closure dnWrite = { String rel, String text -> File f = new File(dnTree, rel); f.parentFile.mkdirs(); f.setText(text, 'UTF-8') }
+dnWrite('TestResults/r1/coverage.cobertura.xml', '<?xml version="1.0"?><coverage lines-valid="10" lines-covered="8"><packages><package name="Ord"><classes><class name="Ord.Api" filename="Api.cs"><lines><line number="1" hits="1"/></lines></class></classes></package></packages></coverage>')
+dnWrite('coverage.opencover.xml', '<?xml version="1.0"?><CoverageSession><Modules><Module><Classes><Class><FullName>Ord.Worker</FullName><Methods><Method><SequencePoints><SequencePoint vc="1" sl="1" sc="1"/><SequencePoint vc="0" sl="2" sc="1"/><SequencePoint vc="1" sl="3" sc="1"/></SequencePoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>')
+Map dnReal = coverageRun([api: [buildTool: 'dotnet', sourceDir: '.']], [:], [tree: dnTree])
+dnTree.deleteDir()
+check('Coverage: C#/.NET real scan reads Cobertura and OpenCover XML reports, renders their labels, emits metrics and passes the 60% gate',
+        dnReal.errors.isEmpty() && dnReal.status == 'PASS'
+                && rowsOf(dnReal, 'api') == ['OpenCover coverage.opencover.xml 66.7 true ', 'Cobertura TestResults/r1/coverage.cobertura.xml 80.0 true ']
+                && (dnReal.card as String).contains('Cobertura') && (dnReal.card as String).contains('OpenCover')
+                && (dnReal.metrics as List<String>).any { it.contains('tool=cobertura') }
+                && (dnReal.metrics as List<String>).any { it.contains('tool=opencover') },
+        dnReal.errors + rowsOf(dnReal, 'api') + [dnReal.status, dnReal.metrics])
+
+FakeScript winDnScript = new FakeScript(unix: false)
+winDnScript.env.vars.putAll([WORKSPACE: 'C:\\ws'])
+winDnScript.files.putAll([
+        'TestResults/coverage.cobertura.xml': '<coverage lines-valid="10" lines-covered="9"/>',
+        'coverage.opencover.xml'            : '<CoverageSession><Summary numSequencePoints="10" visitedSequencePoints="7"/></CoverageSession>'
+])
+winDnScript.shHandler = { Map a ->
+    String t = String.valueOf(a.script ?: '')
+    if (t.contains('coverage.opencover.xml')) return 'opencover,70.0,7,3'
+    if (t.contains('coverage.cobertura.xml')) return 'cobertura,90.0,9,1'
+    return ''
+}
+Map winDnOut = [errors: []]
+try {
+    coverageHarness.run {
+        def st = coverageHarness.type('com.bbh.core.PipelineState').newInstance()
+        def os = coverageHarness.type('com.bbh.core.OsHelper').newInstance(winDnScript)
+        os.detect()
+        def policy = coverageHarness.type('com.bbh.core.PolicyEngine').newInstance(winDnScript, st, os)
+        def build = coverageHarness.type('com.bbh.build.BuildService').newInstance(winDnScript, st, os, policy)
+        st.projectsAllCfg = [api: [buildTool: 'dotnet']]
+        st.coverage.minRequired = 60
+        st.currentProjectName = 'api'
+        st.cfg = [buildTool: 'dotnet']
+        build.checkCoverage()
+        winDnOut.projects = st.projectsCoverage
+        winDnOut.status = st.policyStatus.coverage
+        winDnOut.card = coverageHarness.type('com.bbh.report.HtmlReportService').newInstance(winDnScript, st, os, policy, 'security').coverageCard(st.coverage, st.projectsCoverage)
+    }
+} catch (Throwable t) {
+    (winDnOut.errors as List) << (SandboxHarness.rejectionOf(t) ?: t.toString())
+}
+check('Coverage: C#/.NET on Windows discovers and parses Cobertura and OpenCover XML reports via PowerShell without python3',
+        (winDnOut.errors as List).isEmpty() && winDnOut.status == 'PASS'
+                && winDnScript.calls.any { it.startsWith('powershell ') && it.contains('$doc.coverage') && it.contains('$doc.CoverageSession') }
+                && (((winDnOut.projects as Map)?.api as Map)?.line == 80.0d)
+                && (winDnOut.card as String).contains('Cobertura') && (winDnOut.card as String).contains('OpenCover'),
+        [winDnOut.errors, winDnOut.projects, winDnScript.calls])
+
 println "\n${failures == 0 ? 'ALL COVERAGE SCENARIOS PASSED' : failures + ' COVERAGE SCENARIO CHECK(S) FAILED'}"
 System.exit(failures == 0 ? 0 : 1)

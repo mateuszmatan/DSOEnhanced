@@ -302,6 +302,21 @@ class ConfigLoader implements Serializable {
         script.env.APPSCAN_KEY_ID = appScanKeyId(projectName)
     }
 
+    void refreshAutoResolvedConfig(String projectName, String targetDir = '') {
+        Map projects = loadedProjects()
+        Map rawProj = (projects[projectName] ?: state.projectsAllCfg[projectName] ?: [:]) as Map
+        Map current = (state.projectsAllCfg[projectName] ?: [:]) as Map
+        if (targetDir && (!current.sourceDir || current.sourceDir == '.')) {
+            current = [:] + current + [sourceDir: targetDir]
+        }
+        Map auto = autoResolver.resolve(state.cfgDefaults, [:] + rawProj + [sourceDir: current.sourceDir], current, projectName, targetDir ? true : false)
+        Map<String, Map> byField = [:]
+        for (def r : ((state.projectsAutoResolved[projectName] ?: []) as List) + ((auto.resolved ?: []) as List)) byField[(r as Map).field as String] = r as Map
+        state.projectsAutoResolved[projectName] = byField.values() as List
+        state.projectsAllCfg[projectName] = auto.cfg
+        if (state.currentProjectName == projectName) state.cfg = auto.cfg
+    }
+
     private String appScanKeyId(String projectName) {
         String keyId = ((state.projectsAllCfg[projectName]?.sast?.keyId ?: state.projectsAllCfg[projectName]?.asoc?.keyId ?: '') as String).trim()
         if (!keyId) script.error "[INIT] asoc.keyId must be set for the service ${projectName} in ${state.settingsPlace()}"

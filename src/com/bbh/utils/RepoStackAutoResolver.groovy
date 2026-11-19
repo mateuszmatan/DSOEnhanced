@@ -24,6 +24,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private final def script
+    private boolean ownRepository = false
 
     RepoStackAutoResolver(def script) {
         this.script = script
@@ -93,6 +94,7 @@ class RepoStackAutoResolver implements Serializable {
         if (tool == 'gradle') patterns << '**/build/libs/*.jar'
         if (tool == 'flutter') patterns << 'pubspec.lock'
         if (tool in ['npm', 'node']) patterns << 'package-lock.json'
+        if (BuildUtils.isDotnetTool(tool)) patterns.addAll(['**/bin/Release/**/*.dll', '**/obj/project.assets.json'])
         if (node && !(tool in ['npm', 'node'])) patterns << (nodeDir && nodeDir != '.' ? "${nodeDir}/package-lock.json".toString() : 'package-lock.json')
         return patterns
     }
@@ -108,6 +110,7 @@ class RepoStackAutoResolver implements Serializable {
         if (!enabled) return cfg
 
         resolveBuildToolDirect(cfg)
+        resolveDotnet(cfg, (cfg.buildTool ?: '') as String, '', [])
         resolveNodeStage0(cfg)
         resolveDeployTarget(cfg, serviceName)
         resolveLiquibaseDirect(cfg)
@@ -139,6 +142,10 @@ class RepoStackAutoResolver implements Serializable {
         if (script.fileExists('build.gradle') || script.fileExists('build.gradle.kts') || script.fileExists('gradle/wrapper/gradle-wrapper.properties')) {
             cfg.buildTool = 'gradle'
             checkJdkAutoSetup(cfg, 'gradle')
+            return
+        }
+        if (dotnetMarker('')) {
+            cfg.buildTool = 'dotnet'
             return
         }
         if (isPipPresent()) {
@@ -288,7 +295,8 @@ class RepoStackAutoResolver implements Serializable {
         cfg.tools = tools
     }
 
-    Map resolve(Map defaults, Map own, Map merged, String serviceName) {
+    Map resolve(Map defaults, Map own, Map merged, String serviceName, boolean separateRepository = false) {
+        ownRepository = separateRepository
         Map cfg = [:] + ((merged ?: [:]) as Map)
         Map ownCfg = (own ?: [:]) as Map
         List<Map> resolved = []
@@ -304,6 +312,7 @@ class RepoStackAutoResolver implements Serializable {
         Map node = resolveNode(cfg, ownCfg, tool, base, resolved)
         resolveLiquibase(cfg, ownCfg, tool, base, resolved)
         resolveFlutter(cfg, ownCfg, tool, resolved)
+        resolveDotnet(cfg, tool, base, resolved)
         resolveSonar(cfg, ownCfg, serviceName, resolved)
         resolveNexusIq(cfg, ownCfg, tool, node, resolved)
         suggestDeployTarget(ownCfg, base, serviceName)
@@ -327,12 +336,12 @@ class RepoStackAutoResolver implements Serializable {
 
     private boolean exists(String base, String file) {
         if (base && script.fileExists(at(base, file))) return true
-        return script.fileExists(file)
+        return !(base && ownRepository) && script.fileExists(file)
     }
 
     private String found(String base, String file) {
         if (base && script.fileExists(at(base, file))) return at(base, file)
-        return script.fileExists(file) ? file : ''
+        return !(base && ownRepository) && script.fileExists(file) ? file : ''
     }
 
     private String readQuiet(String path) {
@@ -347,15 +356,20 @@ class RepoStackAutoResolver implements Serializable {
 
     private String resolveBuildTool(Map cfg, Map own, String base, List<Map> resolved) {
         String explicit = ((own.buildTool ?: '') as String).trim()
-        if (explicit) return explicit
         String tool = ''
         String reason = ''
+        if (explicit && !explicit.equalsIgnoreCase('auto')) {
+            if (BuildUtils.isValidBuildTool(explicit)) return explicit
+            cfg.remove('buildTool')
+        }
         if (exists(base, 'pubspec.yaml')) {
             tool = 'flutter'; reason = 'pubspec.yaml found'
         } else if (exists(base, 'pom.xml')) {
             tool = 'maven'; reason = 'pom.xml found'
         } else if (exists(base, 'build.gradle') || exists(base, 'build.gradle.kts') || exists(base, 'settings.gradle') || exists(base, 'settings.gradle.kts')) {
             tool = 'gradle'; reason = exists(base, 'build.gradle.kts') ? 'build.gradle.kts found (Kotlin DSL)' : 'Gradle build script found'
+        } else if (dotnetMarker(base)) {
+            tool = 'dotnet'; reason = "${dotnetMarker(base)} found (C# / .NET)"
         } else if (exists(base, 'package.json')) {
             tool = 'npm'; reason = exists(base, 'angular.json') ? 'package.json and angular.json found (Angular)' : 'package.json found (Node.js)'
         } else if (changelog(base)) {
@@ -364,16 +378,61 @@ class RepoStackAutoResolver implements Serializable {
             }
         }
         if (!tool) {
+            if (explicit && !explicit.equalsIgnoreCase('auto')) script.echo "[WARN] Invalid buildTool '${explicit}' in configuration. No build file was found, the stages detect the build tool when they run."
             if (exists(base, 'requirements.txt') || exists(base, 'pyproject.toml') || exists(base, 'setup.py')) {
                 script.echo "[AUTO] Python project detected - set buildTool for the service, the library builds Gradle, Maven, npm, Flutter and Liquibase"
             }
             return ((cfg.buildTool ?: '') as String).trim()
+        }
+        if (explicit && !explicit.equalsIgnoreCase('auto')) {
+            script.echo "[WARN] Invalid buildTool '${explicit}' in configuration. Falling back to auto-detected buildTool '${tool}'."
+            reason = "${reason}, replaces the invalid buildTool '${explicit}'".toString()
         }
         if (tool != cfg.buildTool) {
             cfg.buildTool = tool
             resolved << [field: 'buildTool', value: tool, reason: reason]
         }
         return tool
+    }
+
+    private String dotnetMarker(String base) {
+        for (String f : ['global.json', 'Directory.Packages.props', 'Directory.Build.props', 'packages.config', 'build.cake']) {
+            if (exists(base, f)) return f
+        }
+        for (String glob : ['*.sln', '**/*.sln'] + DotnetOptions.projectGlobs()) {
+            List hits = []
+            try { hits = (script.findFiles(glob: at(base, glob)) ?: []) as List } catch (Exception ignored) {}
+            if (hits) return (hits[0].path ?: glob) as String
+        }
+        return ''
+    }
+
+    private void resolveDotnet(Map cfg, String tool, String base, List<Map> resolved) {
+        if (!BuildUtils.isDotnetTool(tool)) return
+        String key = tool == 'msbuild' && valueAt(cfg, 'build.msbuild') instanceof Map ? 'msbuild' : 'dotnet'
+        def mode = valueAt(cfg, "build.${key}.mode".toString()) ?: valueAt(cfg, "build.${key}.tool".toString())
+        if (!DotnetOptions.isAuto(mode) && !DotnetOptions.mode(mode)) {
+            fixDotnet(cfg, "build.${key}.mode".toString(), 'auto', "Invalid .NET build mode '${mode}'", resolved)
+        }
+        def cli = valueAt(cfg, "build.${key}.useDotnetCli".toString())
+        if (cli != null && !DotnetOptions.isBoolean(cli)) {
+            fixDotnet(cfg, "build.${key}.mode".toString(), 'auto', "Invalid useDotnetCli value '${cli}'", resolved)
+            put(cfg, "build.${key}.useDotnetCli".toString(), null)
+        }
+        def runner = valueAt(cfg, "tests.unitTests.${key}.runner".toString()) ?: valueAt(cfg, "tests.unitTests.${key}.testRunner".toString())
+        if (!DotnetOptions.isAuto(runner) && !DotnetOptions.runner(runner)) {
+            fixDotnet(cfg, "tests.unitTests.${key}.runner".toString(), 'auto', "Invalid .NET test runner '${runner}'", resolved)
+        }
+        for (String path : ["build.${key}.coverageTool".toString(), "tests.unitTests.${key}.coverageTool".toString()]) {
+            def cov = valueAt(cfg, path)
+            if (!DotnetOptions.isAuto(cov) && !DotnetOptions.coverage(cov)) fixDotnet(cfg, path, 'auto', "Invalid .NET coverageTool '${cov}'", resolved)
+        }
+    }
+
+    private void fixDotnet(Map cfg, String path, String value, String problem, List<Map> resolved) {
+        script.echo "[WARN] ${problem} in configuration. Falling back to auto-detected value '${value}'."
+        put(cfg, path, value)
+        resolved << [field: path, value: value, reason: "${problem} replaced - detected when the build runs".toString()]
     }
 
     private String changelog(String base) {

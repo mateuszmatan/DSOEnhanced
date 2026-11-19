@@ -16,7 +16,12 @@ class OpenshiftService implements Serializable {
         String baseArtifactName = state.cfg.baseArtifactName
         def baseConfig = script.readYaml(file: BuildUtils.runStateFile())
         def osCfg = state.cfg.deploy?.openshift?.rd ?: [:]
-        String buildPath = state.cfg.build?.buildPath?.substring(0,state.cfg.build?.buildPath?.lastIndexOf('/')) ?: 'build/libs'
+        String rawBuildPath = (state.cfg.build?.buildPath ?: '') as String
+        int lastSlash = rawBuildPath.lastIndexOf('/')
+        String fallbackBuildPath = BuildUtils.isDotnetTool(state.cfg.buildTool as String)
+                ? ((state.cfg.build?.dotnet?.publishDir ?: state.cfg.build?.msbuild?.publishDir ?: 'bin/Release') as String)
+                : 'build/libs'
+        String buildPath = lastSlash >= 0 ? rawBuildPath.substring(0, lastSlash) : fallbackBuildPath
         String appName = state.cfg.appName
         String artifactName = state.cfg.artifactName
         String dockerFilePath = osCfg.dockerFilePath

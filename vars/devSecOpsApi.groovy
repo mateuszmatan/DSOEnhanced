@@ -18,6 +18,7 @@ import com.bbh.remediation.SecurityPullRequestService
 import com.bbh.remediation.updater.GradleUpdater
 import com.bbh.remediation.updater.MavenPomUpdater
 import com.bbh.remediation.updater.NpmPackageJsonUpdater
+import com.bbh.remediation.updater.NugetUpdater
 import com.bbh.remediation.updater.PipUpdater
 import com.bbh.remediation.updater.PubUpdater
 import com.bbh.scanner.NexusIqGoldenFixSource
@@ -59,11 +60,11 @@ private void _setup() {
     _appScan   = new AppScanService(this, _state, _os, _policy, _build)
     _sonar     = new SonarService(this, _state, _os, _build)
     BitbucketPullRequestPublisher publisher = new BitbucketPullRequestPublisher(this)
-    GitSourceRepository gitRepo = new GitSourceRepository(this)
+    GitSourceRepository gitRepo = new GitSourceRepository(this, _state)
     _securityPr = new SecurityPullRequestService(this, _state, publisher, gitRepo)
     _nexusIq   = new NexusIqService(this, _state, _policy, new GoldenFixService(this, _state,
             new NexusIqGoldenFixSource(this), gitRepo, publisher,
-            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater()],
+            [new MavenPomUpdater(), new GradleUpdater(), new NpmPackageJsonUpdater(), new PipUpdater(), new PubUpdater(), new NugetUpdater()],
             new ManifestBuildVerifier(this, new NodeBuildRunner(this, _os))))
     _vmDeploy  = new VmDeployService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
@@ -178,6 +179,7 @@ def checkoutAdditionalRepositories() {
                     git url: rawUrl, branch: branch ?: 'master'
                 }
             }
+            _config.refreshAutoResolvedConfig(pName, targetDir)
         }
     }
 }

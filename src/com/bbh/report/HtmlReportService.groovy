@@ -13,21 +13,21 @@ class HtmlReportService implements Serializable {
 
     protected final int TEST_JOBS_INLINE_LIMIT = 10
 
-    protected final String CELL       = 'text-align:center;padding:6px 10px;'
+    protected final String CELL        = 'text-align:center;padding:6px 10px;'
     protected final String CELL_NOWRAP = 'text-align:center;padding:6px 10px;white-space:nowrap;'
-    protected final String LINK_COLOR = '#0369a1'
-    protected final String PDF_COLOR  = '#b91c1c'
-    protected final String PR_COLOR   = '#15803d'
-    protected final String MUTED      = '#9ca3af'
-    protected final String OK_BG      = '#f0fdf4'
-    protected final String OK_COLOR   = '#166534'
-    protected final String BAD_BG     = '#fee2e2'
-    protected final String BAD_COLOR  = '#991b1b'
+    protected final String LINK_COLOR  = '#0369a1'
+    protected final String PDF_COLOR   = '#b91c1c'
+    protected final String PR_COLOR    = '#15803d'
+    protected final String MUTED       = '#9ca3af'
+    protected final String OK_BG       = '#f0fdf4'
+    protected final String OK_COLOR    = '#166534'
+    protected final String BAD_BG      = '#fee2e2'
+    protected final String BAD_COLOR   = '#991b1b'
 
-    protected final String NIQ_STAGE  = 'Dependencies scan (Nexus IQ)'
-    protected final String NODE_STAGE = 'Node.js build'
-    protected final String DAST_STAGE = 'DAST - Dynamic Application Security Tests - HCL AppScan'
-    protected final List TEST_STAGES  = ['Smoke tests', 'Regression tests (>60% user stories coverage)', 'Performance tests']
+    protected final String NIQ_STAGE   = 'Dependencies scan (Nexus IQ)'
+    protected final String NODE_STAGE  = 'Node.js build'
+    protected final String DAST_STAGE  = 'DAST - Dynamic Application Security Tests - HCL AppScan'
+    protected final List TEST_STAGES   = ['Smoke tests', 'Regression tests (>60% user stories coverage)', 'Performance tests']
 
     protected final def          script
     protected final PipelineState state
@@ -49,14 +49,14 @@ class HtmlReportService implements Serializable {
         this.os     = os
         this.policy = policy
         this.variant = variant ?: 'full'
-        Map stageLayout = layout(this.variant, state.stageResults.containsKey(NODE_STAGE))
+        Map stageLayout = ReportViewModel.layout(this.variant, state.stageResults.containsKey(NODE_STAGE))
         this.appscanScnrs = stageLayout.appscanScnrs
         this.stageOrder = stageLayout.stageOrder
         this.secStageNames = stageLayout.secStageNames
         this.phaseGroups = stageLayout.phaseGroups
         this.reportsToParse = stageLayout.reportsToParse
-        this.runStatuses = runStatuses()
-        this.sonarBadges = sonarBadges()
+        this.runStatuses = ReportViewModel.runStatuses()
+        this.sonarBadges = ReportViewModel.sonarBadges()
     }
 
     void generate() {
@@ -130,10 +130,15 @@ class HtmlReportService implements Serializable {
                 new HashMap(state.projectsRemoteTestResults ?: [:]),
                 new HashMap(state.projectsGoldenFix ?: [:]),
                 new HashMap(state.projectsCoverage ?: [:]),
+                new HashMap(state.projectsUnitTests ?: [:]),
                 (state.portalDocuments ?: []) as List,
                 new HashMap(state.projectsDatabase ?: [:])
         )
-        script.sh "mkdir -p ${script.env.WORKSPACE}/report"
+        if (os.isWindows()) {
+            os.mkdirP("${script.env.WORKSPACE}\\report")
+        } else {
+            script.sh "mkdir -p ${script.env.WORKSPACE}/report"
+        }
         script.writeFile file: "${script.env.WORKSPACE}/report/pipeline-report.html", text: html
         script.echo "[REPORT] Pipeline report written to pipeline-report.html"
     }
@@ -204,12 +209,7 @@ class HtmlReportService implements Serializable {
     }
 
     @NonCPS protected boolean sameCounts(Map a, Map b) {
-        List keys = ['critical', 'high', 'medium', 'low']
-        for (int i = 0; i < keys.size(); i++) {
-            String k = keys.get(i) as String
-            if (((a?.get(k) ?: 0) as int) != ((b?.get(k) ?: 0) as int)) return false
-        }
-        return true
+        return ReportViewModel.sameCounts(a, b)
     }
 
     protected Map parseAppScanReport(String path) {
@@ -292,214 +292,42 @@ class HtmlReportService implements Serializable {
         return details
     }
 
-    @NonCPS protected String esc(String s) {
-        if (!s) return ''
-        return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;').replace("'",'&#39;')
-    }
-    @NonCPS protected String td(String content, String style) {
-        return "<td style='${style}'>${content}</td>"
-    }
-    @NonCPS protected String centerTd(String content, String extraStyle = '') {
-        return td(content, CELL + extraStyle)
-    }
-    @NonCPS protected String dashTd(String extraStyle = '') {
-        return td('-', "text-align:center;padding:6px 10px;color:${MUTED};${extraStyle}")
-    }
-    @NonCPS protected String link(String url, String label, String color = LINK_COLOR, String extraStyle = 'font-weight:600;') {
-        return "<a href='${esc(url)}' target='_blank' style='font-size:0.78rem;color:${color};${extraStyle}'>${label}</a>"
-    }
-    @NonCPS protected String mutedDash() {
-        return "<span style='font-size:0.78rem;color:${MUTED};'>-</span>"
-    }
-    @NonCPS protected String cardRaw(String titleHtml, String body, String extraStyle) {
-        return "<div class='card' style='${extraStyle}'><h2>${titleHtml}</h2>${body}</div>"
-    }
-    @NonCPS protected String card(String title, String body) {
-        return cardRaw(esc(title), body, 'margin-top:16px;')
-    }
-    @NonCPS protected String banner(String text) {
-        return "<div style='background:#dc2626;color:#fff;font-weight:700;text-align:center;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:0.85rem;letter-spacing:0.5px;'>${text}</div>"
-    }
-    @NonCPS protected String badge(String status) {
-        def color = (status == 'PASS' || status == 'NOT_REQUIRED') ? '#16a34a' : status == 'FAIL' ? '#dc2626' : (status == 'WARN' || status == 'BLOCKED') ? '#d97706' : '#6b7280'
-        def lbl   = status == 'NOT_REQUIRED' ? 'NOT REQUIRED' : (status ?: 'SKIP')
-        return "<span style='background:${color};color:#fff;padding:2px 6px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;'>${lbl}</span>"
-    }
-    @NonCPS protected String vulnCell(int count, int limit) {
-        boolean exceeded = count > limit
-        return td("${count} / ${limit}", "text-align:center;background:${exceeded ? BAD_BG : OK_BG};color:${exceeded ? BAD_COLOR : OK_COLOR};font-weight:700;padding:6px 10px;")
-    }
-    @NonCPS protected String niqCountCell(int count, int limit) {
-        boolean exceeded = count > limit
-        def value = "<span style='color:${exceeded ? BAD_COLOR : OK_COLOR};font-weight:700;font-size:0.88rem;'>${count}&nbsp;/&nbsp;${limit}</span>"
-        return td(value, "text-align:center;background:${exceeded ? BAD_BG : OK_BG};padding:5px 10px;")
-    }
-    @NonCPS protected String sonarCountCell(int count, int limit) {
-        boolean exceeded = count > limit
-        return td("${count} / ${limit}", "text-align:center;background:${exceeded ? BAD_BG : OK_BG};color:${exceeded ? BAD_COLOR : OK_COLOR};font-weight:700;padding:6px 10px;")
-    }
-    @NonCPS protected String sonarCountCell(int count) {
-        boolean warn = count > 0
-        return td("${count}", "text-align:center;background:${warn ? '#fff5c1' : OK_BG};color:${warn ? '#d97706' : OK_COLOR};font-weight:700;padding:6px 10px;")
-    }
-    @NonCPS protected String vulnCountBadge(int val) {
-        if (val > 0) return "<b style='color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;'>${val}</b>"
-        return "<span style='color:#94a3b8;font-size:0.7rem;'>${val}</span>"
-    }
-    @NonCPS protected String vulnLimitBadge(int val, int limit) {
-        boolean exceeded = val > limit
-        def valStyle = exceeded
-                ? "color:#dc2626;border:1px solid #1f2937;border-radius:2px;padding:0 3px;margin:0 1px;font-size:0.7rem;font-weight:700;"
-                : "color:${OK_COLOR};font-size:0.7rem;font-weight:700;"
-        return "<span style='${valStyle}'>${val}</span><span style='color:#94a3b8;font-size:0.7rem;'>&nbsp;/&nbsp;${limit}</span>"
-    }
-    @NonCPS protected String formatDuration(long ms) {
-        if (ms <= 0) return ''
-        long s = ms / 1000
-        if (s < 60) return "${s}s"
-        long m = s.intdiv(60); long rem = s % 60
-        if (m < 60) return "${m}m ${rem}s"
-        return "${m.intdiv(60)}h ${m % 60}m"
-    }
-    @NonCPS protected String arrow() {
-        return "<div style='display:flex;flex-direction:column;align-items:center;height:10px;margin:1px 0;'><div style='width:2px;flex:1;background:#94a3b8;'></div><div style='width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #64748b;'></div></div>"
-    }
-    @NonCPS protected String linkBtn(String url, String label) {
-        return "<a href='${url}' target='_blank' style='display:inline-block;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:3px;padding:2px 7px;font-size:0.7rem;font-weight:600;text-decoration:none;margin-left:4px;'>${esc(label)}</a>"
-    }
-    @NonCPS protected String policyStatusFor(String key, Map counts, Map policyLimits) {
-        def limits = policyLimits.get(key); if (!limits) return 'SKIP'
-        return computePolicy((counts.get(key) ?: [critical: 0, high: 0, medium: 0]) as Map, limits as Map)
-    }
-    @NonCPS protected String computePolicy(Map counts, Map limits) {
-        def c = (counts?.get('critical') ?: 0) as int; def h = (counts?.get('high') ?: 0) as int; def m = (counts?.get('medium') ?: 0) as int
-        def lc = (limits?.get('maxCritical') ?: 0) as int; def lh = (limits?.get('maxHigh') ?: 0) as int; def lm = (limits?.get('maxMedium') ?: 0) as int
-        return (c <= lc && h <= lh && m <= lm) ? 'PASS' : 'WARN'
-    }
+    @NonCPS protected String esc(String s) { return HtmlReportCardsView.esc(s) }
+    @NonCPS protected String td(String content, String style) { return HtmlReportCardsView.td(content, style) }
+    @NonCPS protected String centerTd(String content, String extraStyle = '') { return HtmlReportCardsView.centerTd(content, extraStyle) }
+    @NonCPS protected String dashTd(String extraStyle = '') { return HtmlReportCardsView.dashTd(extraStyle) }
+    @NonCPS protected String link(String url, String label, String color = LINK_COLOR, String extraStyle = 'font-weight:600;') { return HtmlReportCardsView.link(url, label, color, extraStyle) }
+    @NonCPS protected String mutedDash() { return HtmlReportCardsView.mutedDash() }
+    @NonCPS protected String cardRaw(String titleHtml, String body, String extraStyle) { return HtmlReportCardsView.cardRaw(titleHtml, body, extraStyle) }
+    @NonCPS protected String card(String title, String body) { return HtmlReportCardsView.card(title, body) }
+    @NonCPS protected String banner(String text) { return HtmlReportCardsView.banner(text) }
+    @NonCPS protected String badge(String status) { return HtmlReportCardsView.badge(status) }
+    @NonCPS protected String vulnCell(int count, int limit) { return HtmlReportCardsView.vulnCell(count, limit) }
+    @NonCPS protected String niqCountCell(int count, int limit) { return HtmlReportCardsView.niqCountCell(count, limit) }
+    @NonCPS protected String sonarCountCell(int count, int limit) { return HtmlReportCardsView.sonarCountCell(count, limit) }
+    @NonCPS protected String sonarCountCell(int count) { return HtmlReportCardsView.sonarCountCell(count) }
+    @NonCPS protected String vulnCountBadge(int val) { return HtmlReportCardsView.vulnCountBadge(val) }
+    @NonCPS protected String vulnLimitBadge(int val, int limit) { return HtmlReportCardsView.vulnLimitBadge(val, limit) }
+    @NonCPS protected String formatDuration(long ms) { return ReportViewModel.formatDuration(ms) }
+    @NonCPS protected String arrow() { return HtmlReportCardsView.arrow() }
+    @NonCPS protected String linkBtn(String url, String label) { return HtmlReportCardsView.linkBtn(url, label) }
+    @NonCPS protected String policyStatusFor(String key, Map counts, Map policyLimits) { return ReportViewModel.policyStatusFor(key, counts, policyLimits) }
+    @NonCPS protected String computePolicy(Map counts, Map limits) { return ReportViewModel.computePolicy(counts, limits) }
 
-    @NonCPS protected String testJobsHtml(List jobs) {
-        if (!jobs) return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:#dc2626;font-weight:600;'>No jobs executed - tests are mandatory</div>"
-        def sb = new StringBuilder()
-        if (jobs.size() > 1) sb.append(testJobsSummaryHtml(jobs))
-        sb.append("<div style='margin-top:5px;padding-left:25px;display:flex;flex-direction:column;gap:2px;'>")
-        if (jobs.size() <= TEST_JOBS_INLINE_LIMIT) {
-            sb.append(testJobRowsHtml(jobs))
-        } else {
-            def problems = jobs.findAll { !isTestJobOk(it?.get('status') as String) }
-            sb.append(testJobRowsHtml(problems.size() > TEST_JOBS_INLINE_LIMIT ? problems.subList(0, TEST_JOBS_INLINE_LIMIT) : problems))
-            if (problems.size() > TEST_JOBS_INLINE_LIMIT) {
-                sb.append("<div style='font-size:0.68rem;color:${BAD_COLOR};padding-left:18px;'>... and ${problems.size() - TEST_JOBS_INLINE_LIMIT} more not successful job(s)</div>")
-            }
-            sb.append("<details style='margin-top:2px;'><summary style='cursor:pointer;font-size:0.7rem;color:${LINK_COLOR};font-weight:600;'>Show all ${jobs.size()} jobs</summary><div style='display:flex;flex-direction:column;gap:2px;margin-top:3px;'>")
-            sb.append(testJobRowsHtml(jobs))
-            sb.append("</div></details>")
-        }
-        sb.append("</div>")
-        return sb.toString()
-    }
-    @NonCPS protected String testJobRowsHtml(List jobs) {
-        def sb = new StringBuilder()
-        for (int i = 0; i < jobs.size(); i++) sb.append(testJobRowHtml(jobs.get(i) as Map, i))
-        return sb.toString()
-    }
-    @NonCPS protected boolean isTestJobOk(String status) {
-        return status == 'SUCCESS' || status == 'ALREADY IMPLEMENTED'
-    }
-    @NonCPS protected Map testJobsSummary(List jobs) {
-        int passed = 0; int failed = 0; int notConfigured = 0
-        for (def job : (jobs ?: [])) {
-            def status = job?.get('status') as String
-            if (isTestJobOk(status)) passed++
-            else if (status == 'NOT_CONFIGURED') notConfigured++
-            else failed++
-        }
-        return [total: (jobs ?: []).size(), passed: passed, failed: failed, notConfigured: notConfigured]
-    }
-    @NonCPS protected String testJobsSummaryHtml(List jobs) {
-        def s = testJobsSummary(jobs)
-        def chip = { String label, int value, String color -> "<span style='display:inline-block;border:1px solid ${color};color:${color};border-radius:2px;padding:0 5px;margin-right:4px;font-size:0.65rem;font-weight:700;'>${label}&nbsp;${value}</span>" }
-        return "<div style='margin-top:4px;padding-left:25px;'>${chip('Total', s.total as int, '#334155')}${chip('Passed', s.passed as int, '#16a34a')}${chip('Failed', s.failed as int, (s.failed as int) > 0 ? '#dc2626' : '#94a3b8')}${chip('Not configured', s.notConfigured as int, '#94a3b8')}</div>"
-    }
-    @NonCPS protected String testJobStatusColor(String status) {
-        if (isTestJobOk(status)) return '#16a34a'
-        return status == 'NOT_CONFIGURED' ? '#94a3b8' : '#dc2626'
-    }
-    @NonCPS protected String testJobRowHtml(Map job, int i) {
-        def name   = job.get('name') ?: "job-${i + 1}"
-        def status = (job.get('status') ?: 'UNKNOWN') as String
-        def url    = job.get('url')?.toString()?.trim() ?: ''
-        def type   = (job.get('type') ?: 'local') as String
-        def color  = testJobStatusColor(status)
-        def mark   = status == 'SUCCESS' ? '&#10003;' : status == 'NOT_CONFIGURED' ? '&#8212;' : '&#10007;'
-        def dot     = "<span style='color:${color};font-size:0.8rem;font-weight:900;margin-right:5px;'>${mark}</span>"
-        def typeTag = "<span style='font-size:0.6rem;color:#fff;background:${type == 'remote' ? '#7c3aed' : LINK_COLOR};padding:1px 4px;border-radius:2px;margin-left:4px;'>${esc(type)}</span>"
-        def buildLink = url ? "&nbsp;<a href='${esc(url)}' target='_blank' style='font-size:0.68rem;color:${LINK_COLOR};'>Build</a>" : ''
-        def stBadge = "<span style='font-size:0.6rem;font-weight:700;color:${color};margin-left:4px;'>${esc(status)}</span>"
-        return "<div style='display:flex;align-items:center;flex-wrap:wrap;'>${dot}<span style='font-size:0.73rem;font-weight:600;color:#1e293b;'>${esc(name?.toString() ?: '')}</span>${typeTag}<span style='font-size:0.68rem;color:#64748b;margin-left:6px;'>${BuildUtils.msFmt((job.get('durationMs') ?: 0L) as long)}</span>${stBadge}${buildLink}</div>"
-    }
+    @NonCPS protected String testJobsHtml(List jobs) { return HtmlReportCardsView.testJobsHtml(jobs, TEST_JOBS_INLINE_LIMIT) }
+    @NonCPS protected String testJobRowsHtml(List jobs) { return HtmlReportCardsView.testJobRowsHtml(jobs) }
+    @NonCPS protected boolean isTestJobOk(String status) { return ReportViewModel.isTestJobOk(status) }
+    @NonCPS protected Map testJobsSummary(List jobs) { return ReportViewModel.testJobsSummary(jobs) }
+    @NonCPS protected String testJobsSummaryHtml(List jobs) { return HtmlReportCardsView.testJobsSummaryHtml(jobs) }
+    @NonCPS protected String testJobStatusColor(String status) { return ReportViewModel.testJobStatusColor(status) }
+    @NonCPS protected String testJobRowHtml(Map job, int i) { return HtmlReportCardsView.testJobRowHtml(job, i) }
+    @NonCPS protected String testJobsCardHtml(String title, String stageName, Map projectsRemoteTestResults, Map remoteTestResults) { return HtmlReportCardsView.testJobsCardHtml(title, stageName, projectsRemoteTestResults, remoteTestResults) }
+    @NonCPS protected Map testJobGroups(String stageName, Map projectsRemoteTestResults, Map remoteTestResults) { return ReportViewModel.testJobGroups(stageName, projectsRemoteTestResults, remoteTestResults) }
+    @NonCPS protected String testJobsGroupHeader(String project, List jobs) { return HtmlReportCardsView.testJobsGroupHeader(project, jobs) }
+    @NonCPS protected String testJobTableRow(Map job, int i) { return HtmlReportCardsView.testJobTableRow(job, i) }
 
-    @NonCPS protected String testJobsCardHtml(String title, String stageName, Map projectsRemoteTestResults, Map remoteTestResults) {
-        def groups = testJobGroups(stageName, projectsRemoteTestResults, remoteTestResults)
-        if (groups.isEmpty()) return ''
-        def sb = new StringBuilder()
-        sb.append("<div style='overflow:auto;max-height:560px;'><table style='min-width:560px;'>")
-        sb.append("<thead><tr><th style='text-align:center;width:44px;'>#</th><th style='text-align:left;'>Job</th><th style='text-align:center;'>Type</th><th style='text-align:center;'>Status</th><th style='text-align:center;'>Duration</th><th style='text-align:center;'>Build</th></tr></thead><tbody>")
-        groups.each { project, list ->
-            sb.append(testJobsGroupHeader(project as String, list as List))
-            def problems = (list as List).findAll { !isTestJobOk(it?.get('status') as String) }
-            def rest     = (list as List).findAll { isTestJobOk(it?.get('status') as String) }
-            (problems + rest).eachWithIndex { job, i -> sb.append(testJobTableRow(job as Map, i)) }
-        }
-        sb.append("</tbody></table></div>")
-        return card(title, sb.toString())
-    }
-    @NonCPS protected Map testJobGroups(String stageName, Map projectsRemoteTestResults, Map remoteTestResults) {
-        def groups = [:]
-        (projectsRemoteTestResults ?: [:]).each { p, stages ->
-            def l = (stages instanceof Map) ? stages.get(stageName) : null
-            if (l instanceof List && !l.isEmpty()) groups[p] = l
-        }
-        if (groups.isEmpty()) {
-            def l = remoteTestResults?.get(stageName)
-            if (l instanceof List && !l.isEmpty()) groups[''] = l
-        }
-        return groups
-    }
-    @NonCPS protected String testJobsGroupHeader(String project, List jobs) {
-        def s = testJobsSummary(jobs)
-        def label = project ? "${esc(project)} &nbsp;&bull;&nbsp; " : ''
-        def text = "${label}${s.total} job(s): ${s.passed} passed, ${s.failed} failed, ${s.notConfigured} not configured"
-        return "<tr style='background:#eff6ff;border-top:2px solid #bfdbfe;'><td colspan='6' style='padding:6px 14px;font-size:0.8rem;font-weight:700;color:#1d4ed8;'>${text}</td></tr>"
-    }
-    @NonCPS protected String testJobTableRow(Map job, int i) {
-        def status = (job?.get('status') ?: 'UNKNOWN') as String
-        def ok     = isTestJobOk(status)
-        def color  = ok ? OK_COLOR : status == 'NOT_CONFIGURED' ? '#64748b' : BAD_COLOR
-        def bg     = ok ? OK_BG : status == 'NOT_CONFIGURED' ? '#f8fafc' : BAD_BG
-        def url    = job?.get('url')?.toString()?.trim() ?: ''
-        def msg    = job?.get('message')?.toString() ?: ''
-        def name   = esc((job?.get('name') ?: "job-${i + 1}") as String) + (msg ? "<div style='font-size:0.68rem;color:#64748b;font-weight:400;'>${esc(msg)}</div>" : '')
-        def sb = new StringBuilder()
-        sb.append("<tr>")
-        sb.append(td("${job?.get('index') ?: i + 1}", 'text-align:center;padding:5px 8px;color:#64748b;'))
-        sb.append(td(name, 'padding:5px 10px;font-weight:600;overflow-wrap:anywhere;'))
-        sb.append(td(esc((job?.get('type') ?: 'local') as String), 'text-align:center;padding:5px 8px;'))
-        sb.append(td(esc(status), "text-align:center;padding:5px 8px;background:${bg};color:${color};font-weight:700;"))
-        sb.append(td(BuildUtils.msFmt((job?.get('durationMs') ?: 0L) as long), 'text-align:center;padding:5px 8px;white-space:nowrap;'))
-        sb.append(td(url ? link(url, 'Build') : '-', 'text-align:center;padding:5px 8px;'))
-        sb.append("</tr>")
-        return sb.toString()
-    }
-
-    @NonCPS protected Map goldenFixFor(Map projectsGoldenFix, String projectName) {
-        if (!projectsGoldenFix) return null
-        if (projectName) return projectsGoldenFix.get(projectName) as Map
-        return projectsGoldenFix.size() == 1 ? projectsGoldenFix.values().iterator().next() as Map : null
-    }
-    @NonCPS protected boolean goldenFixHasPr(Map gf) {
-        def status = gf?.get('status')
-        return (status == 'PR_CREATED' || status == 'PR_UPDATED') && (gf?.get('prUrl')?.toString() ?: '')
-    }
+    @NonCPS protected Map goldenFixFor(Map projectsGoldenFix, String projectName) { return ReportViewModel.goldenFixFor(projectsGoldenFix, projectName) }
+    @NonCPS protected boolean goldenFixHasPr(Map gf) { return ReportViewModel.goldenFixHasPr(gf) }
     @NonCPS protected String goldenFixPrLink(Map gf) {
         def url = gf?.get('prUrl')?.toString() ?: ''
         return url ? link(url, 'GoldenFix PR', PR_COLOR, 'font-weight:700;') : ''
@@ -511,21 +339,8 @@ class HtmlReportService implements Serializable {
         }
         return present ? present.join('<br>') : mutedDash()
     }
-    @NonCPS protected List projectReasonParts(String error, String project) {
-        List parts = []
-        if (!error || !project) return parts
-        String prefix = project + ': '
-        for (String part : error.replace(' ' + PolicyEngine.blockNote(), '').split(/ \|\| /)) {
-            if (part.startsWith(prefix)) parts << part.substring(prefix.length())
-        }
-        return parts
-    }
-    @NonCPS protected String projectReason(String error, String project) {
-        if (!error || !project) return error ?: ''
-        List parts = projectReasonParts(error, project)
-        if (parts.isEmpty()) return error.replace(' || ', ' | ')
-        return parts.join(' | ') + ' ' + PolicyEngine.blockNote()
-    }
+    @NonCPS protected List projectReasonParts(String error, String project) { return ReportViewModel.projectReasonParts(error, project) }
+    @NonCPS protected String projectReason(String error, String project) { return ReportViewModel.projectReason(error, project) }
     @NonCPS protected String goldenFixInlineHtml(Map gf) {
         if (!gf) return ''
         if (goldenFixHasPr(gf)) {
@@ -537,134 +352,16 @@ class HtmlReportService implements Serializable {
         def color = gf.get('status') == 'ERROR' ? BAD_COLOR : '#64748b'
         return "<div style='margin-top:4px;padding-left:25px;font-size:0.72rem;color:${color};'><b>${esc(plain.headline as String)}</b> ${esc(plain.explanation as String)}</div>"
     }
-
-    @NonCPS protected Map goldenFixPlainText(Map gf) {
-        String status = (gf?.get('status') ?: '') as String
-        int available = ((gf?.get('fixes') ?: []) as List).size()
-        if (status == 'NOT_CONFIGURED') {
-            String who = state.configFile ? "Someone who can change ${state.configFile} in the repository" : 'Someone with access to the DevSecOps portal'
-            return [headline   : 'No upgrade request was opened - the repository address is missing.',
-                    explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
-                            "Bitbucket repository is, so it had nowhere to propose them. ${who} has to fill in " +
-                            'scm.bitbucket.url with the repository link and scm.bitbucket.credentialsId with the Jenkins credentials that may ' +
-                            'write to it. The upgrades are then proposed automatically on the next run.']
-        }
-        if (status == 'NO_FIXES') {
-            return [headline   : 'No upgrade is available yet.',
-                    explanation: 'The supplier of the vulnerable components has not published a safe version, so there is nothing to upgrade to ' +
-                            'automatically. The components have to be replaced or the risk accepted by the security team.']
-        }
-        if (status == 'NO_MANIFEST_CHANGES') {
-            return [headline   : 'Nothing could be upgraded in this project.',
-                    explanation: 'The vulnerable versions are not chosen in a file that the pipeline can change. They arrive through another library ' +
-                            'or a BOM that this project depends on, or they are set in a way the pipeline does not edit, such as a version range. ' +
-                            'The reasons below say where each one is set, and the upgrade has to be made there.']
-        }
-        if (status == 'BUILD_FAILED') {
-            return [headline   : 'The upgrade was not proposed because the application stopped building with it.',
-                    explanation: 'Before proposing anything the pipeline builds the application with the new versions. That build failed, and it ' +
-                            'failed again with the other versions the pipeline tried, so nothing was proposed rather than handing over a change ' +
-                            'that breaks the application. The vulnerabilities above are still there and the upgrade has to be done by a developer.']
-        }
-        if (status == 'SKIPPED') {
-            return [headline   : 'Automatic upgrades are switched off for this project.',
-                    explanation: goldenFixDetail(gf)]
-        }
-        if (status == 'ERROR') {
-            return [headline   : 'The automatic upgrade could not be finished.',
-                    explanation: 'The pipeline stopped before it could propose the upgrade, so nothing was changed in the repository and the ' +
-                            'vulnerabilities above are still there. This is a fault in the pipeline run itself, not in the application - pass ' +
-                            'the technical detail below to the DevSecOps team. Technical detail: ' + goldenFixDetail(gf)]
-        }
-        return [headline: 'Automatic dependency upgrade', explanation: goldenFixDetail(gf)]
-    }
-
-    @NonCPS protected String goldenFixDetail(Map gf) {
-        String message = (gf?.get('message') ?: '') as String
-        return message ?: 'no further detail was reported.'
-    }
-    @NonCPS protected String goldenFixCardHtml(Map projectsGoldenFix, boolean isMulti) {
-        if (!projectsGoldenFix) return ''
-        def sb = new StringBuilder()
-        projectsGoldenFix.each { project, value ->
-            def gf = value as Map
-            if (isMulti) sb.append("<div style='font-size:0.82rem;font-weight:700;color:#1d4ed8;margin:8px 0 4px;'>${esc(project as String)}</div>")
-            sb.append(goldenFixStatusBanner(gf))
-            sb.append(goldenFixChangesTable((gf.get('changes') ?: []) as List))
-            sb.append(goldenFixUnresolvedList((gf.get('unresolved') ?: []) as List))
-            sb.append(goldenFixNotes((gf.get('notes') ?: []) as List))
-        }
-        return card('Nexus IQ GoldenFix', sb.toString())
-    }
-    @NonCPS protected String goldenFixStatusBanner(Map gf) {
-        if (goldenFixHasPr(gf)) {
-            def prLink = "<a href='${esc(gf.get('prUrl') as String)}' target='_blank' style='color:${LINK_COLOR};font-weight:700;'>${esc(gf.get('prTitle') as String)}</a>"
-            def updated = gf.get('status') == 'PR_UPDATED' ? ' (existing pull request updated)' : ''
-            def details = "<div style='font-size:0.72rem;color:${OK_COLOR};margin-top:2px;'>Branch ${esc(gf.get('branch') as String)} &rarr; ${esc(gf.get('targetBranch') as String)}${updated}</div>"
-            return "<div style='background:${OK_BG};border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:${OK_COLOR};margin-bottom:8px;'><b>A pull request with GoldenFix upgrades was raised:</b> ${prLink}${details}</div>"
-        }
-        boolean error = gf.get('status') == 'ERROR'
-        Map plain = goldenFixPlainText(gf)
-        def style = "background:${error ? '#fef2f2' : '#f8fafc'};border:1px solid ${error ? '#fca5a5' : '#e2e8f0'};padding:8px 12px;font-size:0.82rem;color:${error ? BAD_COLOR : '#475569'};margin-bottom:8px;"
-        return "<div style='${style}'><b>${esc(plain.headline as String)}</b><div style='margin-top:3px;font-size:0.78rem;line-height:1.5;'>${esc(plain.explanation as String)}</div></div>"
-    }
-    @NonCPS protected String goldenFixChangesTable(List changes) {
-        if (!changes) return ''
-        def sb = new StringBuilder()
-        sb.append("<div style='overflow-x:auto;'><table style='min-width:560px;'><thead><tr><th>File</th><th>Component</th><th style='text-align:center;'>From</th><th style='text-align:center;'>To</th></tr></thead><tbody>")
-        changes.each { c ->
-            def property = c.get('property') ? "<div style='font-size:0.68rem;color:#64748b;'>property ${esc(c.get('property') as String)}</div>" : ''
-            sb.append("<tr>")
-            sb.append(td(esc(c.get('file') as String), 'padding:5px 10px;font-family:monospace;font-size:0.74rem;overflow-wrap:anywhere;'))
-            sb.append(td(esc(c.get('component') as String) + property, 'padding:5px 10px;font-weight:600;'))
-            sb.append(td(esc(c.get('from') as String), "text-align:center;padding:5px 8px;color:${BAD_COLOR};"))
-            sb.append(td(esc(c.get('to') as String), "text-align:center;padding:5px 8px;color:${OK_COLOR};font-weight:700;"))
-            sb.append("</tr>")
-        }
-        sb.append("</tbody></table></div>")
-        return sb.toString()
-    }
-    @NonCPS protected String goldenFixUnresolvedList(List unresolved) {
-        if (!unresolved) return ''
-        def sb = new StringBuilder()
-        sb.append("<div style='margin-top:8px;font-size:0.78rem;font-weight:700;color:#92400e;'>Not applied automatically</div><ul style='margin:4px 0 0 18px;font-size:0.74rem;color:#475569;'>")
-        unresolved.each { u ->
-            sb.append("<li><b>${esc(u.get('component') as String)}</b> ${esc(u.get('from') as String)} &rarr; ${esc(u.get('to') as String)}: ${esc(u.get('reason') as String)}</li>")
-        }
-        sb.append("</ul>")
-        return sb.toString()
-    }
-    @NonCPS protected String goldenFixNotes(List notes) {
-        if (!notes) return ''
-        def sb = new StringBuilder("<div style='margin-top:8px;font-size:0.74rem;color:#475569;'>")
-        notes.each { n -> sb.append("<div>${esc(n as String)}</div>") }
-        sb.append("</div>")
-        return sb.toString()
-    }
-
-    @NonCPS protected String releaseGateBanner(Map releaseGate) {
-        if (!releaseGate || releaseGate.get('allowed')) return ''
-        return "<div style='background:#b45309;color:#fff;font-weight:700;text-align:center;padding:8px 12px;border-radius:3px;margin-bottom:8px;font-size:0.85rem;letter-spacing:0.5px;'>NEXUS RELEASE AND QC DEPLOYMENT BLOCKED</div>"
-    }
-
-    @NonCPS protected String releaseGateCardHtml(Map releaseGate) {
-        if (!releaseGate) return ''
-        List violations = (releaseGate.get('violations') ?: []) as List
-        if (releaseGate.get('allowed')) {
-            def body = "<div style='background:${OK_BG};border:1px solid #86efac;border-left:4px solid #16a34a;padding:8px 12px;font-size:0.85rem;color:${OK_COLOR};'>The library security policy is met - the artifact is released to Nexus and the QC deployment is allowed.</div>"
-            return card('Release policy', body)
-        }
-        def sb = new StringBuilder()
-        sb.append("<div style='background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #d97706;padding:8px 12px;font-size:0.85rem;color:#92400e;'>")
-        sb.append("<b>The artifact was not released to Nexus and the deployment to QC is blocked.</b>")
-        sb.append("<div style='font-size:0.78rem;margin-top:2px;'>Every stage was executed and the build reached the lower test region (RD), but at least one stage is marked orange. Fix the findings listed below to unblock the Nexus release and the QC deployment.</div></div>")
-        if (violations) {
-            sb.append("<ul style='margin:8px 0 0 18px;font-size:0.78rem;color:#475569;'>")
-            violations.each { sb.append("<li>${esc(it as String)}</li>") }
-            sb.append("</ul>")
-        }
-        return card('Release policy', sb.toString())
-    }
+    @NonCPS protected Map goldenFixPlainText(Map gf) { return ReportViewModel.goldenFixPlainText(gf, (state.configFile ?: '') as String) }
+    @NonCPS protected String goldenFixDetail(Map gf) { return ReportViewModel.goldenFixDetail(gf) }
+    @NonCPS protected String goldenFixCardHtml(Map projectsGoldenFix, boolean isMulti) { return HtmlReportCardsView.goldenFixCardHtml(projectsGoldenFix, isMulti, (state.configFile ?: '') as String) }
+    @NonCPS protected String goldenFixSastCommentsList(List comments) { return HtmlReportCardsView.goldenFixSastCommentsList(comments) }
+    @NonCPS protected String goldenFixStatusBanner(Map gf) { return HtmlReportCardsView.goldenFixStatusBanner(gf, (state.configFile ?: '') as String) }
+    @NonCPS protected String goldenFixChangesTable(List changes) { return HtmlReportCardsView.goldenFixChangesTable(changes) }
+    @NonCPS protected String goldenFixUnresolvedList(List unresolved) { return HtmlReportCardsView.goldenFixUnresolvedList(unresolved) }
+    @NonCPS protected String goldenFixNotes(List notes) { return HtmlReportCardsView.goldenFixNotes(notes) }
+    @NonCPS protected String releaseGateBanner(Map releaseGate) { return HtmlReportCardsView.releaseGateBanner(releaseGate) }
+    @NonCPS protected String releaseGateCardHtml(Map releaseGate) { return HtmlReportCardsView.releaseGateCardHtml(releaseGate) }
 
     @NonCPS protected String stageBox(String name, String status, String error, Map counts, List links, String extraHtml = '', String duration = '', String stageNumStr = '') {
         def palette = stageBoxPalette(status)
@@ -688,12 +385,7 @@ class HtmlReportService implements Serializable {
         }
         return html
     }
-    @NonCPS protected Map stageBoxPalette(String status) {
-        if (status == 'PASS' || status == 'NOT_REQUIRED') return [bg: OK_BG, border: '#86efac', bar: '#16a34a']
-        if (status == 'FAIL') return [bg: '#fef2f2', border: '#fca5a5', bar: '#dc2626']
-        if (status == 'WARN' || status == 'BLOCKED') return [bg: '#fffbeb', border: '#fcd34d', bar: '#d97706']
-        return [bg: '#f8fafc', border: '#e2e8f0', bar: '#94a3b8']
-    }
+    @NonCPS protected Map stageBoxPalette(String status) { return HtmlReportCardsView.stageBoxPalette(status) }
     @NonCPS protected String severityLine(Map counts) {
         def c = (counts.get('critical') ?: 0) as int; def h = (counts.get('high') ?: 0) as int
         def m = (counts.get('medium') ?: 0) as int; def l = (counts.get('low') ?: 0) as int
@@ -726,11 +418,13 @@ class HtmlReportService implements Serializable {
         return html + (suffix ?: '')
     }
 
-    @NonCPS protected String buildProjectsSecRows(Map projectsVulnCounts, Map projectsNexusIQ, Map projectsScanResults, Map projectsSonarResults, Map policyLimits, String artifactBase, Map projectsGoldenFix = [:]) {
+    @NonCPS protected String buildProjectsSecRows(Map projectsVulnCounts, Map projectsNexusIQ, Map projectsScanResults,
+                                                  Map projectsSonarResults, Map policyLimits, String artifactBase,
+                                                  Map projectsGoldenFix = [:]) {
         def sb = new StringBuilder()
-        projectsVulnCounts.each { key, value ->
-            String project = key?.toString() ?: ''
-            Map scanners = (value ?: [:]) as Map
+        projectsVulnCounts.each { projectName, scannersMap ->
+            String project = projectName as String
+            Map scanners = (scannersMap ?: [:]) as Map
             Map projScan = (projectsScanResults?.get(project) ?: [:]) as Map
             Map projNiq  = (projectsNexusIQ?.get(project) ?: [:]) as Map
             sb.append(projectHeaderRow(project))
@@ -1055,61 +749,11 @@ class HtmlReportService implements Serializable {
         if (project && perProject.containsKey(project)) return perProject.get(project) as Map
         return (ctx.coverage ?: [:]) as Map
     }
-    @NonCPS protected String coverageCard(Map coverage, Map projectsCoverage = [:]) {
-        Map projects = projectsCoverage ?: [:]
-        StringBuilder body = new StringBuilder()
-        if (projects.size() > 1) {
-            Map scored = projects.findAll { k, v -> !((v as Map)?.get('notRequired')) }
-            int met = scored.values().count { def p -> (p as Map)?.get('enabled') && (((p as Map).get('line') ?: 0.0) as double) >= (((p as Map).get('minRequired') ?: 60) as double) } as int
-            if (coverage?.get('enabled')) body.append(coverageBar('All services', coverage + [met: met == scored.size(), note: "${met} of ${scored.size()} services meet it".toString()]))
-            projects.each { project, value -> body.append(coverageBar(project as String, value as Map)) }
-        } else if (coverage?.get('enabled')) {
-            body.append(coverageBar('', coverage))
-        } else if (projects && (projects.values() as List)[0]?.get('reports')) {
-            body.append(coverageBar('', (projects.values() as List)[0] as Map))
-        } else {
-            return ''
-        }
-        body.append(coverageReportsTable(projects))
-        return card('Code Coverage', body.toString())
-    }
-    @NonCPS protected String coverageBar(String project, Map coverage) {
-        if (coverage?.get('notRequired')) return (project ? "<div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>${esc(project)}</div>" : '') + "<div style='margin-bottom:6px;font-size:0.72rem;color:#64748b;'>not required &nbsp;&bull;&nbsp; no utPLSQL run for this SQL and PL/SQL service</div>"
-        boolean measured = coverage?.get('enabled') ? true : false
-        double pct = measured ? ((coverage.get('line') ?: 0.0) as double) : 0.0d
-        def covered = coverage?.get('covered') ?: 0
-        def total = coverage?.get('total') ?: 0
-        def minRequired = coverage?.get('minRequired') ?: 60
-        boolean met = coverage?.containsKey('met') ? (coverage.get('met') ? true : false) : (measured && pct >= (minRequired as double))
-        String color = met ? '#22c55e' : '#d97706'
-        double width = pct > 100.0d ? 100.0d : pct
-        String label = project ? "<div style='font-size:0.78rem;font-weight:700;color:#1d4ed8;margin:6px 0 2px;'>${esc(project)}</div>" : ''
-        String value = measured ? "${pct}%" : 'n/a'
-        int counted = (coverage?.get('counted') ?: 0) as int
-        String measure = counted > 1 ? "mean of ${counted} reports" : "${covered} covered / ${total} total"
-        String note = coverage?.get('note') ? " &nbsp;&bull;&nbsp; ${coverage.get('note')}" : ''
-        String detail = measured ? "${measure} &nbsp;&bull;&nbsp; required: ${minRequired}%${note}" : "no coverage report &nbsp;&bull;&nbsp; required: ${minRequired}%"
-        return "${label}<div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'><div style='font-size:1.6rem;font-weight:800;color:${color};min-width:70px;'>${value}</div><div style='flex:1;'><div style='background:#e2e8f0;border-radius:3px;height:12px;overflow:hidden;'><div style='width:${width}%;height:100%;background:${color};border-radius:3px;'></div></div><div style='margin-top:4px;font-size:0.72rem;color:#64748b;'>${detail}</div></div></div>"
-    }
-    @NonCPS protected String coverageReportsTable(Map projectsCoverage) {
-        List rows = []
-        (projectsCoverage ?: [:]).each { project, value ->
-            ((((value ?: [:]) as Map).get('reports') ?: []) as List).each { def item ->
-                Map report = item as Map
-                String text = report.get('reason') ? "not counted: ${report.get('reason')}" : (report.get('detail') ?: '')
-                String reason = text ? "<div style='font-size:0.68rem;color:#64748b;'>${esc(text as String)}</div>" : ''
-                String pct = report.get('line') != null ? "${report.get('line')}%" : '-'
-                rows << ("<tr>" + td(esc(project as String), 'padding:5px 10px;font-weight:600;')
-                        + td("<span style='font-family:monospace;font-size:0.74rem;'>${esc(report.get('path') as String)}</span>${reason}", 'padding:5px 10px;overflow-wrap:anywhere;')
-                        + td(esc(report.get('tool') as String), 'padding:5px 10px;')
-                        + td(pct, "text-align:center;padding:5px 8px;font-weight:700;color:${report.get('counted') ? '#334155' : MUTED};")
-                        + td("${report.get('covered') ?: 0} of ${report.get('total') ?: 0}", 'text-align:center;padding:5px 8px;white-space:nowrap;')
-                        + "</tr>")
-            }
-        }
-        if (!rows) return ''
-        return "<div style='overflow-x:auto;margin-top:8px;'><table style='min-width:560px;'><thead><tr><th>Service</th><th>Report</th><th>Tool</th><th style='text-align:center;'>Coverage</th><th style='text-align:center;'>Lines</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>"
-    }
+    @NonCPS protected String coverageCard(Map coverage, Map projectsCoverage = [:]) { return HtmlReportCardsView.coverageCard(coverage, projectsCoverage) }
+    @NonCPS protected String coverageBar(String project, Map coverage) { return HtmlReportCardsView.coverageBar(project, coverage) }
+    @NonCPS protected String coverageReportsTable(Map projectsCoverage) { return HtmlReportCardsView.coverageReportsTable(projectsCoverage) }
+    @NonCPS protected String unitTestsCard(Map projectsUnitTests) { return HtmlReportCardsView.unitTestsCard(projectsUnitTests) }
+
     @NonCPS protected String databaseCard(Map projectsDatabase, String artifactBase) {
         List packages = []
         List deployments = []
@@ -1166,8 +810,9 @@ class HtmlReportService implements Serializable {
         for (int i = 0; i < (ctx.projectKeys as List).size(); i++) {
             String project = (ctx.projectKeys as List).get(i)?.toString() ?: ''
             def cfg = project ? projectsAllCfg.get(project) : null
-            def projectKey = cfg ? cfg.get('tools')?.get('sonar')?.get('projectKey') : ctx.sonarProjectKey
-            def badgeToken = cfg ? (((projectsSonarResults.get(project) ?: [:]) as Map).get('badgeToken') ?: cfg.get('tools')?.get('sonar')?.get('badgeToken')) : ctx.sonarBadgeToken
+            def projSonar = project ? ((projectsSonarResults.get(project) ?: [:]) as Map) : (ctx.sonarResults as Map)
+            def projectKey = (projSonar?.get('projectKey') ?: (cfg ? cfg.get('tools')?.get('sonar')?.get('projectKey') : null) ?: ctx.sonarProjectKey)
+            def badgeToken = cfg ? (projSonar?.get('badgeToken') ?: cfg.get('tools')?.get('sonar')?.get('badgeToken')) : ctx.sonarBadgeToken
             def serverUrl = (cfg ? cfg.get('tools')?.get('sonar')?.get('serverUrl') : null) ?: 'https://tools.bbh.com/sonar'
             if (!projectKey || !badgeToken) continue
             def badgesHtml = new StringBuilder()
@@ -1182,6 +827,7 @@ class HtmlReportService implements Serializable {
         }
         return sb.toString()
     }
+
     @NonCPS protected String securityGatesBanner(Map stageResults) {
         for (def name : secStageNames) {
             String status = (stageResults.get(name) ?: 'SKIP') as String
@@ -1208,13 +854,10 @@ class HtmlReportService implements Serializable {
         if (parts) return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>"
         return state.configFile ? "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${esc(state.configFile)} in the repository</div>" : ''
     }
-
-    @NonCPS protected String headerBackground(String buildResult) {
-        if (buildResult == 'SUCCESS')  return 'linear-gradient(135deg,#15803d,#22c55e)'
-        if (buildResult == 'FAILURE')  return 'linear-gradient(135deg,#b91c1c,#ef4444)'
-        if (buildResult == 'UNSTABLE') return 'linear-gradient(135deg,#b45309,#f59e0b)'
-        return 'linear-gradient(135deg,#1d4ed8,#3b82f6)'
+    @NonCPS protected String autoResolvedCardHtml() {
+        return HtmlReportCardsView.autoResolvedCard((state.projectsAutoResolved ?: [:]) as Map)
     }
+    @NonCPS protected String headerBackground(String buildResult) { return HtmlReportCardsView.headerBackground(buildResult) }
 
     @NonCPS
     String buildHtml(String buildResult, String now, String jobName, String buildNumber, String buildUrl,
@@ -1223,7 +866,7 @@ class HtmlReportService implements Serializable {
                      String sonarProjectKey = '', String sonarBadgeToken = '',
                      Map projectsVulnCounts = [:], Map projectsNexusIQ = [:], Map projectsScanResults = [:],
                      Map projectsSonarResults = [:], List projectKeys = [], Map projectsAllCfg = [:], Map releaseGate = [:],
-                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], List portalDocuments = [], Map projectsDatabase = [:]) {
+                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], Map projectsUnitTests = [:], List portalDocuments = [], Map projectsDatabase = [:]) {
 
         String firstFailed = ''
         int firstFailedIdx = -1
@@ -1299,8 +942,8 @@ ${securityGates}
 ${showsReleasePolicy() ? releaseGateCardHtml(releaseGate) : ''}
 ${goldenFixCardHtml(projectsGoldenFix, isMulti)}
 ${sonarBadgesCards(ctx)}
-${coverageCard(coverage, projectsCoverage)}${databaseCard(projectsDatabase, buildUrl + 'artifact/')}
-${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}
+${coverageCard(coverage, projectsCoverage)}${databaseCard(projectsDatabase, buildUrl + 'artifact/')}${unitTestsCard(projectsUnitTests) ? '\n' + unitTestsCard(projectsUnitTests) : ''}
+${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}${autoResolvedCardHtml()}
 </div>
 </div>
 </div>
@@ -1310,122 +953,16 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
 
     @NonCPS
     static List runStatuses() {
-        return ['PASS', 'FAIL', 'WARN']
+        return ReportViewModel.runStatuses()
     }
 
     @NonCPS
     static List sonarBadges() {
-        return [
-                [label: 'Duplicated lines', metric: 'duplicated_lines_density'], [label: 'Lines of code', metric: 'ncloc'],
-                [label: 'Quality gate status', metric: 'alert_status'], [label: 'Security hotspots', metric: 'security_hotspots'],
-                [label: 'Bugs', metric: 'bugs'], [label: 'Code smells', metric: 'code_smells'],
-                [label: 'Vulnerabilities', metric: 'vulnerabilities'], [label: 'Maintainability rating', metric: 'sqale_rating'],
-                [label: 'Reliability rating', metric: 'reliability_rating'], [label: 'Security rating', metric: 'security_rating'],
-                [label: 'Technical debt', metric: 'sqale_index']
-        ]
+        return ReportViewModel.sonarBadges()
     }
 
     @NonCPS
     static Map layout(String variant, boolean nodeBuild = false) {
-        Map chosen = stageLayout(variant)
-        if (nodeBuild) {
-            Map first = (chosen.phaseGroups as List)[0] as Map
-            chosen.stageOrder = withNodeBuild(chosen.stageOrder as List)
-            first.stages = withNodeBuild(first.stages as List)
-        }
-        return chosen
-    }
-
-    @NonCPS
-    private static List withNodeBuild(List stages) {
-        return [stages[0], 'Node.js build'] + stages.drop(1)
-    }
-
-    @NonCPS
-    private static Map stageLayout(String variant) {
-        String monitor     = 'Monitor source changes (download sources)'
-        String unit        = 'Unit tests'
-        String build       = 'Build artifact'
-        String niq         = 'Dependencies scan (Nexus IQ)'
-        String sast        = 'SAST - Static Application Security Tests - HCL AppScan'
-        String sonar       = 'SCA (SonarQube)'
-        String snapshot    = 'Nexus delivery (Static analysis passed)'
-        String deployRd    = 'Lower test region deployment'
-        String regression  = 'Regression tests (>60% user stories coverage)'
-        String smoke       = 'Smoke tests'
-        String performance = 'Performance tests'
-        String dast        = 'DAST - Dynamic Application Security Tests - HCL AppScan'
-        String release     = 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities'
-        String deployQc    = 'Higher test environment deployment'
-
-        Map sastScanner = [key: 'sast', label: 'SAST (AppScan)', file: 'appscan-report.html', stage: sast]
-        Map dastScanner = [key: 'dast', label: 'DAST (AppScan)', file: 'appscan-dast-report.html', pdf: 'appscan-dast-report.pdf', stage: dast]
-
-        if (variant == 'sast') {
-            return [
-                    appscanScnrs  : [sastScanner],
-                    stageOrder    : [monitor, sast],
-                    secStageNames : [sast],
-                    phaseGroups   : [
-                            [label: 'Dev', color: '#3b82f6', stages: [monitor]],
-                            [label: 'Static security scan', color: '#2563eb', stages: [sast]]
-                    ],
-                    reportsToParse: ['sast']
-            ]
-        }
-        if (variant == 'nexusiq') {
-            return [
-                    appscanScnrs  : [],
-                    stageOrder    : [monitor, build, niq],
-                    secStageNames : [niq],
-                    phaseGroups   : [
-                            [label: 'Dev', color: '#3b82f6', stages: [monitor, build]],
-                            [label: 'Dependency scan & GoldenFix', color: '#2563eb', stages: [niq]]
-                    ],
-                    reportsToParse: []
-            ]
-        }
-        if (variant == 'security') {
-            return [
-                    appscanScnrs  : [sastScanner],
-                    stageOrder    : [monitor, unit, niq, sast, sonar, snapshot],
-                    secStageNames : [sast, sonar, niq],
-                    phaseGroups   : [
-                            [label: 'Dev', color: '#3b82f6', stages: [monitor, unit]],
-                            [label: 'Static security & code quality scans', color: '#2563eb', stages: [niq, sast, sonar]],
-                            [label: 'Delivery', color: '#172554', stages: [snapshot]]
-                    ],
-                    reportsToParse: ['sast']
-            ]
-        }
-        if (variant == 'extended') {
-            return [
-                    appscanScnrs  : [dastScanner],
-                    stageOrder    : [monitor, deployRd, regression, smoke, performance, dast, release, deployQc],
-                    secStageNames : [dast],
-                    phaseGroups   : [
-                            [label: 'Dev', color: '#3b82f6', stages: [monitor]],
-                            [label: 'Delivery', color: '#1d4ed8', stages: [deployRd]],
-                            [label: 'Tests', color: '#1e40af', stages: [regression, smoke, performance]],
-                            [label: 'Security', color: '#1e3a8a', stages: [dast]],
-                            [label: 'Delivery', color: '#172554', stages: [release, deployQc]]
-                    ],
-                    reportsToParse: ['dast']
-            ]
-        }
-        return [
-                appscanScnrs  : [sastScanner, dastScanner],
-                stageOrder    : [monitor, unit, niq, sast, sonar, snapshot, deployRd, regression, smoke, performance, dast, release, deployQc],
-                secStageNames : [sast, sonar, dast, niq],
-                phaseGroups   : [
-                        [label: 'Development', color: '#3b82f6', stages: [monitor, unit]],
-                        [label: 'Static security & code quality scans', color: '#2563eb', stages: [niq, sast, sonar]],
-                        [label: 'Delivery', color: '#1d4ed8', stages: [snapshot, deployRd]],
-                        [label: 'Tests', color: '#1e40af', stages: [regression, smoke, performance]],
-                        [label: 'Security', color: '#1e3a8a', stages: [dast]],
-                        [label: 'Delivery', color: '#172554', stages: [release, deployQc]]
-                ],
-                reportsToParse: ['sast', 'dast']
-        ]
+        return ReportViewModel.layout(variant, nodeBuild)
     }
 }

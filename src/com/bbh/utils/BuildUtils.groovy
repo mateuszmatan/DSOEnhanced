@@ -87,6 +87,46 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static String psSingleQuote(String value) {
+        return (value ?: '').replace("'", "''")
+    }
+
+    @NonCPS
+    static String cmdQuoteIfNeeded(String token) {
+        if (token == null) return ''
+        if (token ==~ /^[A-Za-z0-9._\\\/:=+-]+$/) return token
+        return '"' + token.replace('"', '\\"') + '"'
+    }
+
+    @NonCPS
+    static boolean isDotnetTool(String tool) {
+        String low = (tool ?: '').trim().toLowerCase()
+        return low in ['dotnet', 'msbuild', 'csharp', 'c#', '.net', 'net', 'dotnet-cli', 'fsharp', 'vbnet', 'cake', 'nuke', 'vs', 'visualstudio', 'netfx']
+    }
+
+    @NonCPS
+    static String normalizeToolName(String tool) {
+        String low = (tool ?: '').trim().toLowerCase()
+        if (!low) return ''
+        if (low in ['mvn', 'maven']) return 'maven'
+        if (low in ['gradle', 'gradlew']) return 'gradle'
+        if (low in ['msbuild', 'vs', 'visualstudio', 'netfx']) return 'msbuild'
+        if (low in ['dotnet', 'csharp', 'c#', '.net', 'net', 'dotnet-cli', 'fsharp', 'vbnet', 'cake', 'nuke']) return 'dotnet'
+        if (low in ['pip', 'python', 'poetry', 'pipenv']) return 'pip'
+        if (low in ['npm', 'node', 'nodejs', 'yarn', 'pnpm', 'angular', 'react', 'vue']) return 'npm'
+        if (low in ['flutter', 'dart']) return 'flutter'
+        if (low == 'android') return 'android'
+        if (low in ['ios', 'xcode', 'swift', 'cocoapods']) return 'ios'
+        if (low in ['liquibase', 'sql', 'plsql']) return 'liquibase'
+        return (tool ?: '').trim()
+    }
+
+    @NonCPS
+    static boolean isValidBuildTool(String tool) {
+        return normalizeToolName(tool) in ['maven', 'gradle', 'dotnet', 'msbuild', 'pip', 'npm', 'flutter', 'android', 'ios', 'liquibase']
+    }
+
+    @NonCPS
     static boolean booleanValue(def value, boolean defaultValue) {
         if (value == null) {
             return defaultValue
@@ -119,7 +159,7 @@ class BuildUtils implements Serializable {
             Map asoc = (cfg.asoc ?: [:]) as Map
             Map build = (cfg.build ?: [:]) as Map
             if (!booleanValue(asoc.doCompile, true)) continue
-            for (String tool : ['gradle', 'maven', 'liquibase']) {
+            for (String tool : ['gradle', 'maven', 'liquibase', 'dotnet', 'msbuild']) {
                 if (asoc.get(tool) && asoc.get(tool) != build.get(tool) && !names.contains(entry.key)) names << (entry.key as String)
             }
         }

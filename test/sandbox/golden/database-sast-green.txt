@@ -426,7 +426,7 @@ tr:last-child td { border-bottom: none; }
 
 
 
-
+<div class='card' style='margin-top:16px;'><h2>Auto-resolved settings</h2><div style='overflow-x:auto;'><table style='min-width:520px;'><thead><tr><th>Service</th><th>Setting</th><th>Auto-resolved value</th><th>Why</th></tr></thead><tbody><tr><td style='padding:6px 10px;font-weight:600;'>orders-db</td><td style='padding:6px 8px;'><code>tools.sonar.projectKey</code></td><td style='padding:6px 8px;'><code>com.bbh:orders-db</code></td><td style='padding:6px 8px;color:#64748b;'>com.bbh: and the service name</td></tr></tbody></table></div></div>
 </div>
 </div>
 </div>

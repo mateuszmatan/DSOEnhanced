@@ -20,23 +20,25 @@ class GoldenFixService implements DependencyRemediation {
                 'venv', '.venv', '__pycache__', '.tox', 'site-packages']
     }
 
-    private final def                    script
-    private final PipelineState          state
-    private final GoldenFixSource        source
-    private final SourceRepository       repository
-    private final PullRequestPublisher   publisher
-    private final List<ManifestUpdater>  updaters
-    private final BuildVerifier          verifier
+    private final def                            script
+    private final PipelineState                  state
+    private final GoldenFixSource                source
+    private final SourceRepository               repository
+    private final PullRequestPublisher           publisher
+    private final List<ManifestUpdater>          updaters
+    private final BuildVerifier                  verifier
+    private final SharedCatalogRepositoryService sharedCatalogService
 
     GoldenFixService(def script, PipelineState state, GoldenFixSource source, SourceRepository repository,
                      PullRequestPublisher publisher, List<ManifestUpdater> updaters, BuildVerifier verifier = null) {
-        this.script     = script
-        this.state      = state
-        this.source     = source
-        this.repository = repository
-        this.publisher  = publisher
-        this.updaters   = updaters
-        this.verifier   = verifier
+        this.script               = script
+        this.state                = state
+        this.source               = source
+        this.repository           = repository
+        this.publisher            = publisher
+        this.updaters             = updaters
+        this.verifier             = verifier
+        this.sharedCatalogService = new SharedCatalogRepositoryService(script, state, repository, publisher, updaters)
     }
 
     void remediate(List<Map> scanRefs) {
@@ -58,7 +60,6 @@ class GoldenFixService implements DependencyRemediation {
         ]
         try {
             execute(cfg, scanRefs ?: [], result)
-            if (result.fixes) remediateSharedCatalog(cfg, result.fixes as List<Map>, scanRefs ?: [], result)
         } catch (Throwable e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
             result.status  = 'ERROR'
@@ -72,10 +73,6 @@ class GoldenFixService implements DependencyRemediation {
     private void execute(Map cfg, List<Map> scanRefs, Map result) {
         if (!BuildUtils.booleanValue(cfg.enabled, true)) {
             finish(result, 'SKIPPED', 'GoldenFix is disabled (goldenFix.enabled: false)')
-            return
-        }
-        if (!script.isUnix()) {
-            finish(result, 'SKIPPED', 'GoldenFix remediation requires a Linux/macOS agent')
             return
         }
 
@@ -92,13 +89,50 @@ class GoldenFixService implements DependencyRemediation {
         }
 
         Map scmCfg = (state.cfg?.scm?.bitbucket ?: [:]) as Map
+        Map vcRepo = sharedCatalogService.resolveVersionCatalogRepo(cfg)
+        if (!scmCfg.url && !vcRepo.url) {
+            finish(result, 'NOT_CONFIGURED', "${fixes.size()} GoldenFix(es) available, but scm.bitbucket.url is not configured - pull request not raised")
+            return
+        }
+
+        Map extOutcome = vcRepo.url
+                ? sharedCatalogService.executeExternalCatalogRepo(vcRepo, scmCfg, fixes, scanRefs, cfg, timestamp(cfg.timeZone as String), buildContext())
+                : [:]
+        Set<String> extHandled = (extOutcome.handledKeys ?: []) as Set<String>
+        List<Map> remainingFixes = extHandled ? fixes.findAll { Map f -> !extHandled.contains(f.key as String) } : fixes
+        if (remainingFixes.isEmpty() && extOutcome.status) {
+            result.changes      = extOutcome.changes ?: []
+            result.unresolved   = []
+            result.notes        = extOutcome.notes ?: []
+            result.prUrl        = extOutcome.prUrl ?: ''
+            result.prId         = extOutcome.prId
+            result.prTitle      = extOutcome.prTitle ?: ''
+            result.branch       = extOutcome.branch ?: ''
+            result.targetBranch = extOutcome.targetBranch ?: ''
+            result.verified     = extOutcome.verified
+            result.verifyLog    = extOutcome.verifyLog ?: ''
+            finish(result, extOutcome.status as String, extOutcome.message as String)
+            return
+        }
         if (!scmCfg.url) {
+            if (extOutcome.status) {
+                result.changes      = extOutcome.changes ?: []
+                result.unresolved   = unresolvedFixes(remainingFixes, [], [], [], [:])
+                result.notes        = extOutcome.notes ?: []
+                result.prUrl        = extOutcome.prUrl ?: ''
+                result.prId         = extOutcome.prId
+                result.prTitle      = extOutcome.prTitle ?: ''
+                result.branch       = extOutcome.branch ?: ''
+                result.targetBranch = extOutcome.targetBranch ?: ''
+                finish(result, extOutcome.status as String, extOutcome.message as String)
+                return
+            }
             finish(result, 'NOT_CONFIGURED', "${fixes.size()} GoldenFix(es) available, but scm.bitbucket.url is not configured - pull request not raised")
             return
         }
 
         Map prsByRepo = (state.goldenFixPullRequestsByRepo ?: [:]) as Map
-        String repoKey = normalizeRepoKey((scmCfg.url ?: scmCfg.cloneUrl ?: '') as String)
+        String repoKey = GoldenFixPullRequestView.normalizeRepoKey((scmCfg.url ?: scmCfg.cloneUrl ?: '') as String)
         Map pr = (prsByRepo[repoKey] ?: [:]) as Map
         String title = (pr.title ?: "GoldenFix-${timestamp(cfg.timeZone as String)}") as String
         String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
@@ -111,35 +145,50 @@ class GoldenFixService implements DependencyRemediation {
 
         String dir = repository.prepareWorkingCopy(title)
         try {
-            Map attempt = applyVerifiedFixes(dir, fixes, cfg)
+            Map attempt = applyVerifiedFixes(dir, remainingFixes, cfg)
             Map applied = attempt.applied as Map
             List<String> refreshed = (attempt.refreshed ?: []) as List<String>
-            result.changes    = applied.changes
+            List<Map> extChanges = (extOutcome.changes ?: []) as List<Map>
+            List<String> extNotes = (extOutcome.notes ?: []) as List<String>
+            result.changes    = extChanges + (applied.changes as List<Map>)
             result.unresolved = (applied.unresolved as List) + (attempt.dropped as List)
-            result.notes      = (applied.notes as List) + refreshedNotes(refreshed)
-            result.verified   = attempt.verified
-            result.verifyLog  = attempt.log
+            result.notes      = extNotes + (applied.notes as List) + GoldenFixPullRequestView.refreshedNotes(refreshed)
+            result.verified   = attempt.verified != null ? attempt.verified : extOutcome.verified
+            result.verifyLog  = attempt.log ?: (extOutcome.verifyLog ?: '')
             if (attempt.verified == false) {
                 finish(result, 'BUILD_FAILED', "The proposed upgrades do not build: ${attempt.reason}".toString())
                 return
             }
-            List<Map> covered = pr.url ? coveredFixes(fixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
-            String raised = alreadyRaised(covered, pr.url as String)
+            List<Map> covered = pr.url ? coveredFixes(remainingFixes, applied.found as List, applied.changes as List<Map>, (pr.raised ?: []) as List<Map>, applied.shared as List<String>) : []
+            String raised = GoldenFixPullRequestView.alreadyRaised(covered, pr.url as String)
             if (covered) {
-                result.unresolved = withoutCovered(result.unresolved as List<Map>, covered)
+                result.unresolved = GoldenFixPullRequestView.withoutCovered(result.unresolved as List<Map>, covered)
                 result.notes      = (result.notes as List) + [raised]
             }
             String commitId = applied.files
                     ? repository.commit(dir, (applied.files as List<String>) + refreshed, commitMessage(title, applied.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
                     : ''
-            if (!commitId && covered && covered.size() == fixes.size()) {
+            if (!commitId && covered && covered.size() == remainingFixes.size()) {
                 result.prUrl = pr.url
                 finish(result, 'PR_UPDATED', raised)
                 return
             }
             if (!commitId) {
-                finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip or pub manifest declares the vulnerable versions - nothing to change')
+                if (extOutcome.status in ['PR_CREATED', 'PR_UPDATED']) {
+                    result.prUrl        = extOutcome.prUrl ?: ''
+                    result.prId         = extOutcome.prId
+                    result.prTitle      = extOutcome.prTitle ?: ''
+                    result.branch       = extOutcome.branch ?: ''
+                    result.targetBranch = extOutcome.targetBranch ?: ''
+                    finish(result, extOutcome.status as String, extOutcome.message as String)
+                    return
+                }
+                finish(result, 'NO_MANIFEST_CHANGES', 'No Maven, Gradle, npm, pip, pub or NuGet manifest declares the vulnerable versions - nothing to change')
                 return
+            }
+
+            if (extOutcome.prUrl) {
+                result.notes = (result.notes as List) + ["Shared version catalog pull request: ${extOutcome.prUrl}".toString()]
             }
 
             Map repoInfo = publisher.repositoryInfo(scmCfg)
@@ -152,13 +201,14 @@ class GoldenFixService implements DependencyRemediation {
 
             if (pr.url) {
                 result.prUrl = pr.url
+                result.prId = pr.id
                 pr.raised = ((pr.raised ?: []) as List) + (applied.changes as List)
                 comment(scmCfg, pr, pullRequestComment(state.currentProjectName as String, applied.changes as List, result.unresolved as List, result.notes as List))
                 finish(result, 'PR_UPDATED', "GoldenFix pull request ${title} updated with ${applied.changes.size()} change(s): ${pr.url}")
             } else {
                 Map created = publisher.createPullRequest(scmCfg, [
                         title       : title,
-                        description : pullRequestDescription(title, applied.changes as List, applied.unresolved as List, scanRefs, buildContext(),
+                        description : pullRequestDescription(title, result.changes as List, applied.unresolved as List, scanRefs, buildContext(),
                                 result.notes as List, !refreshed.isEmpty()),
                         sourceBranch: title,
                         targetBranch: targetBranch
@@ -168,6 +218,7 @@ class GoldenFixService implements DependencyRemediation {
                 if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
                 state.goldenFixPullRequestsByRepo[repoKey] = prEntry
                 result.prUrl = created.url
+                result.prId = created.id
                 finish(result, 'PR_CREATED', "GoldenFix pull request ${title} raised: ${created.url}")
             }
         } finally {
@@ -206,17 +257,17 @@ class GoldenFixService implements DependencyRemediation {
                 script.echo '[GOLDENFIX] Pre-check build skipped - no manifest changed'
                 return [applied: applied, verified: null, dropped: dropped, reason: '', log: '']
             }
-            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${describeVersions(applied.effective as List<Map>)}"
+            script.echo "[GOLDENFIX] Pre-check build ${attempt} of ${maxAttempts} for ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)}"
             Map verdict = verifier.verify(dir, applied.files as List<String>,
                     verifyCfg + [catalogConsumers: applied.consumers, lockFiles: applied.locks, node: state.cfg?.build?.node])
             log = verdict.log as String
             if (verdict.ok) {
                 script.echo verdict.skipped
                         ? "[GOLDENFIX] Pre-check build skipped - ${log}"
-                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${describeVersions(applied.effective as List<Map>)}"
+                        : "[GOLDENFIX] Pre-check build passed (${log}) with ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)}"
                 return [applied: applied, verified: verdict.skipped ? null : true, dropped: dropped, reason: '', log: log, refreshed: verdict.files ?: []]
             }
-            reason = "the build failed with ${describeVersions(applied.effective as List<Map>)} (${log})".toString()
+            reason = "the build failed with ${GoldenFixPullRequestView.describeVersions(applied.effective as List<Map>)} (${log})".toString()
             if (align && applied.alignedUp) {
                 script.echo '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions'
                 align = false
@@ -264,17 +315,11 @@ class GoldenFixService implements DependencyRemediation {
         return [fixes: out, dropped: dropped, changed: changed && !out.isEmpty()]
     }
 
-    @NonCPS
-    private String describeVersions(List<Map> fixes) {
-        List parts = []
-        for (Map fix : (fixes ?: [])) {
-            parts << "${fix.displayName} ${fix.currentVersion} -> ${fix.targetVersion}".toString()
-        }
-        return parts.join(', ')
-    }
-
     private Map applyFixes(String dir, List<Map> fixes, Map cfg, boolean align = true) {
         List<String> excluded = (cfg.excludeDirs ?: defaultExcludedDirs()) as List<String>
+        if (!cfg.excludeDirs && fixesFor(fixes, 'nuget')) {
+            excluded = excluded + ['bin', 'obj', 'packages', '.vs', 'TestResults']
+        }
         List<ManifestUpdater> active = []
         List<String> patterns = []
         for (ManifestUpdater updater : updaters) {
@@ -285,7 +330,8 @@ class GoldenFixService implements DependencyRemediation {
         }
         List<String> scanned = active ? repository.findFiles(dir, patterns.unique(), excluded) : []
         Map texts = [:]
-        Map catalogs = fixesFor(fixes, 'maven') ? discover(dir, scanned, cfg, excluded, texts)
+        boolean runCatalogDiscovery = fixesFor(fixes, 'maven') || fixesFor(fixes, 'nuget') || cfg.versionCatalogs || cfg.versionCatalogRepo || state.cfg?.versionCatalogRepo
+        Map catalogs = runCatalogDiscovery ? discover(dir, scanned, cfg, excluded, texts)
                 : [files: scanned, entries: [:], notes: [], externals: [:], holders: [:]]
         List<String> files = catalogs.files as List<String>
         Map entries = catalogs.entries as Map
@@ -296,7 +342,8 @@ class GoldenFixService implements DependencyRemediation {
         List<String> shared = []
         List<String> others = []
         for (String f : files) {
-            if (entries.containsKey(f)) shared << f else others << f
+            String lowName = BuildUtils.fileNameOf(f).toLowerCase()
+            if (entries.containsKey(f) || lowName == 'directory.packages.props' || lowName == 'directory.build.props') shared << f else others << f
         }
         applyRound(dir, active, fixes, shared, files, texts, run)
         Map aligned = alignToCatalogs(fixes, run.found as List, shared)
@@ -322,86 +369,6 @@ class GoldenFixService implements DependencyRemediation {
         List<String> extra = wanted ? repository.findFiles(dir, wanted, excluded) : []
         for (String f : CatalogDiscovery.toRead(scanned + extra)) read(dir, texts, f)
         return CatalogDiscovery.discover(scanned, extra, texts, listed)
-    }
-
-    @NonCPS
-    static Map sharedCatalogRepository(Map cfg) {
-        def raw = cfg?.versionCatalogRepo ?: cfg?.versionCatalogRepository
-        if (!(raw instanceof Map)) return [:]
-        Map vc = raw as Map
-        String url = ((vc.url ?: vc.repositoryUrl ?: '') as String).trim()
-        if (!url) return [:]
-        def paths = vc.paths ?: vc.path
-        List<String> listed = []
-        if (paths instanceof Collection) {
-            for (def p : (paths as Collection)) if ((p ?: '').toString().trim()) listed << p.toString().trim().replaceFirst('^/+', '')
-        } else if ((paths ?: '').toString().trim()) {
-            for (String p : paths.toString().split(',')) if (p.trim()) listed << p.trim().replaceFirst('^/+', '')
-        }
-        return [url          : url,
-                branch       : ((vc.branch ?: vc.targetBranch ?: 'main') as String).trim(),
-                paths        : listed,
-                credentialsId: ((vc.credentialsId ?: '') as String).trim(),
-                authType     : ((vc.authType ?: 'basic') as String).trim(),
-                reviewers    : (vc.reviewers instanceof List) ? vc.reviewers : []]
-    }
-
-    private void remediateSharedCatalog(Map cfg, List<Map> fixes, List<Map> scanRefs, Map result) {
-        Map vc = sharedCatalogRepository(cfg)
-        if (!vc) return
-        if (!script.isUnix()) return
-        Map scmCfg = [url: vc.url, credentialsId: vc.credentialsId, authType: vc.authType, targetBranch: vc.branch, reviewers: vc.reviewers]
-        String repoKey = normalizeRepoKey(vc.url as String)
-        Map known = (state.goldenFixPullRequestsByRepo?.get(repoKey) ?: [:]) as Map
-        if (known.url) {
-            result.catalogPrUrl = known.url
-            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: already raised in ${known.url}".toString()]
-            return
-        }
-        String title = "GoldenFix-catalog-${timestamp(cfg.timeZone as String)}".toString()
-        script.echo "[GOLDENFIX] Shared version catalog repository ${vc.url} (branch ${vc.branch}${vc.paths ? ', files ' + (vc.paths as List).join(', ') : ''})"
-        String dir = ''
-        try {
-            dir = repository.prepareExternalRepository(vc.url as String, vc.branch as String, vc.credentialsId as String, vc.authType as String)
-            script.sh "cd '${BuildUtils.escapeForSingleQuotes(dir)}' && git checkout -q -b '${BuildUtils.escapeForSingleQuotes(title)}'"
-            Map applied = applyFixes(dir, fixes, (cfg + [versionCatalogs: vc.paths]) as Map, true)
-            List<Map> changes = (applied.changes ?: []) as List<Map>
-            if (!applied.files) {
-                result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: no file declares the vulnerable versions".toString()]
-                script.echo "[GOLDENFIX] The shared version catalog repository declares none of the vulnerable versions"
-                return
-            }
-            String commitId = repository.commit(dir, applied.files as List<String>, commitMessage(title, changes, scanRefs),
-                    [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
-            if (!commitId) return
-            Map repoInfo = publisher.repositoryInfo(scmCfg)
-            repository.push(dir, title, [url: repoInfo.cloneUrl ?: vc.url, credentialsId: vc.credentialsId, authType: vc.authType, cloud: repoInfo.cloud])
-            Map created = publisher.createPullRequest(scmCfg, [
-                    title       : title,
-                    description : pullRequestDescription(title, changes, applied.unresolved as List, scanRefs, buildContext(), [], false),
-                    sourceBranch: title,
-                    targetBranch: vc.branch
-            ])
-            if (state.goldenFixPullRequestsByRepo == null) state.goldenFixPullRequestsByRepo = [:]
-            state.goldenFixPullRequestsByRepo[repoKey] = [title: title, branch: title, targetBranch: vc.branch, url: created.url, id: created.id, raised: changes]
-            result.catalogPrUrl = created.url
-            result.changes = ((result.changes ?: []) as List) + changes
-            result.unresolved = withoutCovered((result.unresolved ?: []) as List<Map>, changes)
-            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog pull request: ${created.url}".toString()]
-            if (!(result.status in ['PR_CREATED', 'PR_UPDATED'])) {
-                result.status = 'PR_CREATED'
-                result.prUrl = created.url
-                result.prTitle = title
-                result.message = "GoldenFix pull request ${title} raised in the shared version catalog repository: ${created.url}".toString()
-            }
-            script.echo "[GOLDENFIX] Shared version catalog pull request raised: ${created.url}"
-        } catch (Throwable t) {
-            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
-            result.notes = ((result.notes ?: []) as List) + ["Shared version catalog ${vc.url}: ${t.message ?: t.getClass().getSimpleName()}".toString()]
-            script.echo "[GOLDENFIX] Shared version catalog repository skipped: ${t.message ?: t.getClass().getSimpleName()}"
-        } finally {
-            if (dir) script.sh "rm -rf '${BuildUtils.escapeForSingleQuotes(dir)}'"
-        }
     }
 
     private void applyRound(String dir, List<ManifestUpdater> active, List<Map> fixes, List<String> roundFiles, List<String> files, Map texts, Map run) {
@@ -641,23 +608,6 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     @NonCPS
-    private static String alreadyRaised(List<Map> covered, String url) {
-        if (!covered) return ''
-        return "Already raised to ${covered.collect { "${it.component} ${it.version}" }.join(', ')} in the shared pull request ${url}".toString()
-    }
-
-    @NonCPS
-    private static List<Map> withoutCovered(List<Map> unresolved, List<Map> covered) {
-        List names = covered.collect { it.component }
-        return unresolved.findAll { !names.contains(it.component) }
-    }
-
-    @NonCPS
-    private static List<String> refreshedNotes(List<String> files) {
-        return files.collect { "${it} refreshed".toString() }
-    }
-
-    @NonCPS
     private static List<String> lockFiles(List<String> files) {
         List<String> out = []
         for (String f : files) {
@@ -716,7 +666,7 @@ class GoldenFixService implements DependencyRemediation {
             if (resolved.contains(fix.key)) continue
             List<String> reasons = notes.findAll { it.componentKey == fix.key }.collect { (it.file ? "${it.file}: ${it.reason}" : it.reason).toString() }.unique()
             List<Map> props = propertyRequests.findAll { (it.componentKeys as List).contains(fix.key) }
-            if (props && !reasons) reasons.addAll(propertyReasons(props, externals, (discovery?.holders ?: [:]) as Map))
+            if (props && !reasons) reasons.addAll(GoldenFixService.propertyReasons(props, externals, (discovery?.holders ?: [:]) as Map))
             if (!props && !reasons && externals) {
                 reasons << "managed by the version catalog artifact ${(externals.values() as List).unique().join(', ')} outside this repository".toString()
             }
@@ -752,70 +702,36 @@ class GoldenFixService implements DependencyRemediation {
     }
 
     String timestamp(String timeZone) {
+        if (!script.isUnix()) {
+            String tz = BuildUtils.psSingleQuote((timeZone ?: '').trim())
+            String ps = tz ? """
+\$utc = [DateTime]::UtcNow
+try {
+    \$info = [TimeZoneInfo]::FindSystemTimeZoneById('${tz}')
+    [TimeZoneInfo]::ConvertTimeFromUtc(\$utc, \$info).ToString('yyyyMMddHHmm')
+} catch {
+    Get-Date -Format 'yyyyMMddHHmm'
+}
+""" : "Get-Date -Format 'yyyyMMddHHmm'"
+            return (script.powershell(returnStdout: true, script: ps) as String).trim()
+        }
         String prefix = timeZone ? "TZ='${timeZone}' " : ''
         return script.sh(returnStdout: true, script: "${prefix}date +%Y%m%d%H%M").trim()
     }
 
     @NonCPS
     static String commitMessage(String title, List<Map> changes, List<Map> scanRefs) {
-        StringBuilder sb = new StringBuilder()
-        List components = []
-        for (Map c : changes) { if (!components.contains(c.component)) components << c.component }
-        sb.append("${title}: upgrade ${components.size()} vulnerable direct dependenc${components.size() == 1 ? 'y' : 'ies'}\n\n")
-        sb.append("Automated Nexus IQ GoldenFix remediation for application(s): ${scanRefs.collect { it.application }.unique().join(', ')}\n\n")
-        for (Map c : changes) {
-            String what = c.property ? "${c.component} (property ${c.property})" : c.component
-            sb.append("- ${what}: ${c.from} -> ${c.to} (${c.file})\n")
-        }
-        return sb.toString()
+        return GoldenFixPullRequestView.commitMessage(title, changes, scanRefs)
     }
 
     @NonCPS
     static String pullRequestDescription(String title, List<Map> changes, List<Map> unresolved, List<Map> scanRefs, Map ctx,
                                          List notes = [], boolean lockRefreshed = false) {
-        StringBuilder sb = new StringBuilder()
-        sb.append("## ${title} - Nexus IQ GoldenFix\n\n")
-        sb.append("Raised automatically by the DevSecOps pipeline because the Nexus IQ policy was violated ")
-        sb.append("(Critical: ${ctx.critical}, High: ${ctx.high}, Medium: ${ctx.medium}).\n\n")
-        if (ctx.buildUrl) sb.append("- Jenkins build: [${ctx.jobName} #${ctx.buildNumber}](${ctx.buildUrl})\n")
-        for (Map ref : scanRefs) {
-            if (ref.reportUrl) sb.append("- Nexus IQ report (${ref.application}): ${ref.reportUrl}\n")
-        }
-        sb.append("\n### Applied upgrades\n\n")
-        appendDetails(sb, changes, unresolved, notes)
-        sb.append("\n> Lock files (${lockRefreshed ? '' : 'package-lock.json, '}yarn.lock, poetry.lock, pinned requirements) are not regenerated. ")
-        sb.append("Rebuild and run the tests before merging.\n")
-        return sb.toString()
+        return GoldenFixPullRequestView.pullRequestDescription(title, changes, unresolved, scanRefs, ctx, notes, lockRefreshed)
     }
 
     @NonCPS
     static String pullRequestComment(String project, List<Map> changes, List<Map> unresolved, List notes) {
-        StringBuilder sb = new StringBuilder()
-        sb.append("### GoldenFix for ${project}\n\n")
-        sb.append("The pipeline added ${changes.size()} upgrade(s) for ${project} to this pull request.\n\n")
-        appendDetails(sb, changes, unresolved, notes)
-        return sb.toString()
-    }
-
-    @NonCPS
-    private static void appendDetails(StringBuilder sb, List<Map> changes, List<Map> unresolved, List notes) {
-        sb.append("| File | Component | From | To | Version chosen by |\n|---|---|---|---|---|\n")
-        for (Map c : changes) {
-            String what = c.property ? "${c.component} (property `${c.property}`)" : c.component
-            sb.append("| `${c.file}` | ${what} | ${c.from} | **${c.to}** | ${GoldenFix.selectionLabel(c) ?: '-'} |\n")
-        }
-        if (unresolved) {
-            sb.append("\n### Not applied automatically\n\n")
-            for (Map u : unresolved) sb.append("- ${u.component} ${u.from} -> ${u.to}: ${u.reason}\n")
-        }
-        if (notes) {
-            sb.append("\n### Notes\n\n")
-            for (def n : notes) sb.append("- ${n}\n")
-        }
-    }
-
-    @NonCPS
-    private static String normalizeRepoKey(String url) {
-        return (url ?: '').trim().toLowerCase().replaceAll(/\.git$/, '').replaceAll(/\/+$/, '')
+        return GoldenFixPullRequestView.pullRequestComment(project, changes, unresolved, notes)
     }
 }

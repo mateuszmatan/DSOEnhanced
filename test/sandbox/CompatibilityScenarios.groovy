@@ -310,7 +310,7 @@ check('the library bundles global defaults that a run without a key can apply',
 
 Map fixtureApplied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText])
 List bundledDiff = ['cfg', 'projectsAllCfg'].collectMany { String k -> differences(fixtureApplied[k], applied[k], k) }
-List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database)[.:].*/) }
+List otherDiff = bundledDiff.findAll { !(it ==~ /(cfg|projectsAllCfg\.[^.]+)\.(tools\.(liquibase|oracleJdbc|utplsql)|database|goldenFix\.ecosystems)[.:].*/) }
 Map bundledTools = (bundledDefaults.tools ?: [:]) as Map
 check('the bundled defaults hold the SQL and PL/SQL tools and the database block with the values of the code, and a run loads nothing else from them than the fixture defaults',
         bundledTools.liquibase == [home: '', url: '', sha256: '', javaVersion: 17] && bundledTools.oracleJdbc == [path: '', url: '', sha256: '']
@@ -319,6 +319,24 @@ check('the bundled defaults hold the SQL and PL/SQL tools and the database block
                 && !fixtureApplied.error && !otherDiff
                 && ['cfg.tools.liquibase', 'cfg.tools.oracleJdbc', 'cfg.tools.utplsql', 'cfg.database'].every { String p -> bundledDiff.any { it.startsWith(p) } },
         [bundledTools.subMap(['liquibase', 'oracleJdbc', 'utplsql']), bundledDefaults.database, fixtureApplied.error, otherDiff.take(10), bundledDiff.take(4)])
+
+String dotnetJenkinsfile = new File(root, 'examples/DotNetApp/Jenkinsfile').getText('UTF-8')
+String dotnetNames = (dotnetJenkinsfile =~ /projectNames:\s*'([^']+)'/)[0][1]
+String dotnetText = new File(root, 'examples/DotNetApp/devsecops_config.yaml').getText('UTF-8')
+Map dotnetExample = runRepo('full', [projectNames: dotnetNames, agentNames: ['win-agent']], ['devsecops_config.yaml': dotnetText], true)
+Closure keyPaths
+keyPaths = { Map map, String prefix -> map.collectMany { k, v -> ["${prefix}${k}".toString()] + (v instanceof Map ? keyPaths(v as Map, "${prefix}${k}.") : []) } }
+String documentationText = new File(root, 'documentation.confluence').getText('UTF-8')
+List dotnetKeys = ((yaml.load(dotnetText) as Map).projects as Map).values().collectMany { keyPaths(it as Map, '') }.unique()
+List dotnetUndocumented = dotnetKeys.findAll { String kp ->
+    String k = kp.tokenize('.').last()
+    !documentationText.contains(k)
+}
+check("the example examples/DotNetApp/devsecops_config.yaml loads with the services of examples/DotNetApp/Jenkinsfile (${dotnetNames}) and the bundled defaults",
+        !dotnetExample.error && (dotnetExample.order as List) == dotnetNames.tokenize(',') && (dotnetExample.runState as Map).keySet() == dotnetNames.tokenize(',') as Set
+                && (dotnetExample.log as List).contains("[INIT] No pipeline key in the Jenkinsfile: the services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && dotnetUndocumented.isEmpty(),
+        [dotnetExample.error, dotnetExample.order, (dotnetExample.runState as Map)?.keySet(), dotnetUndocumented, dotnetExample.log])
 
 Map neither = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], [:])
 check('A\' neither file: the Monitor stage stops with a message that names both files and both ways to configure the run',

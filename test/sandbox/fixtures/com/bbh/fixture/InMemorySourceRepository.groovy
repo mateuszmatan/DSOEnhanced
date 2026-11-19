@@ -23,8 +23,16 @@ class InMemorySourceRepository implements SourceRepository {
 
     List<String> findFiles(String dir, List<String> patterns, List<String> excludeDirs) {
         searches << ([] + patterns)
+        String prefix = (dir && dir.contains('version-catalogs')) ? (dir + '/') : ''
         List<String> found = []
-        for (String path : files.keySet()) {
+        for (String fullPath : files.keySet()) {
+            String path = fullPath
+            if (prefix) {
+                if (!fullPath.startsWith(prefix)) continue
+                path = fullPath.substring(prefix.length())
+            } else if (fullPath.startsWith('/ws@tmp/version-catalogs/')) {
+                continue
+            }
             List<String> segments = path.tokenize('/')
             if (segments.subList(0, segments.size() - 1).any { (excludeDirs ?: []).contains(it) }) continue
             for (String pattern : patterns) {
@@ -36,15 +44,21 @@ class InMemorySourceRepository implements SourceRepository {
     }
 
     String readText(String dir, String relativePath) {
+        String scoped = (dir && dir.contains('version-catalogs')) ? "${dir}/${relativePath}".toString() : relativePath
+        if (written.containsKey(scoped)) return written[scoped]
+        if (files.containsKey(scoped)) return files[scoped]
         return written.containsKey(relativePath) ? written[relativePath] : files[relativePath]
     }
 
     void writeText(String dir, String relativePath, String content) {
+        if (dir && dir.contains('version-catalogs') && files.containsKey("${dir}/${relativePath}".toString())) {
+            written["${dir}/${relativePath}".toString()] = content
+        }
         written[relativePath] = content
     }
 
     String commit(String dir, List<String> changedFiles, String message, Map author) {
-        commits << [files: changedFiles, message: message, author: author]
+        commits << [dir: dir, files: changedFiles, message: message, author: author]
         return 'c0ffee1'
     }
 

@@ -25,9 +25,13 @@ class RestClient implements Serializable {
     Map request(String method, String url, def payload, Map auth, String label) {
         String tmpDir = script.env.WORKSPACE_TMP ?: "${script.env.WORKSPACE}@tmp"
         String bodyFile = ''
+        long stamp = System.currentTimeMillis()
         if (payload != null) {
-            bodyFile = "${tmpDir}/rest-body-${System.currentTimeMillis()}.json"
+            bodyFile = "${tmpDir}/rest-body-${stamp}.json"
             script.writeJSON(file: bodyFile, json: payload)
+        }
+        if (!script.isUnix()) {
+            return requestWindows(method, url, bodyFile, auth, label, tmpDir, stamp)
         }
         String bodyArgs = bodyFile ? "-H 'Content-Type: application/json' --data-binary @'${BuildUtils.escapeForSingleQuotes(bodyFile)}'" : ''
         String out
@@ -43,13 +47,38 @@ curl -sS -X '${method}' ${authArgs(auth)} -H 'Accept: application/json' ${bodyAr
         return splitStatus(out)
     }
 
+    private Map requestWindows(String method, String url, String bodyFile, Map auth, String label, String tmpDir, long stamp) {
+        String respFile = "${tmpDir}/rest-resp-${stamp}.txt"
+        String bodyArgs = bodyFile ? "-H 'Content-Type: application/json' --data-binary \"@${BuildUtils.psSingleQuote(bodyFile)}\"" : ''
+        String psBody = """
+\$ErrorActionPreference = 'Stop'
+\$respDir = Split-Path -Parent '${BuildUtils.psSingleQuote(respFile)}'
+if (\$respDir -and -not (Test-Path \$respDir)) { New-Item -ItemType Directory -Force -Path \$respDir | Out-Null }
+\$code = curl.exe -sS -X '${method}' ${psAuthArgs(auth)} -H 'Accept: application/json' ${bodyArgs} -o '${BuildUtils.psSingleQuote(respFile)}' -w '%{http_code}' '${BuildUtils.psSingleQuote(url)}'
+if (\$LASTEXITCODE) { exit \$LASTEXITCODE }
+if (Test-Path '${BuildUtils.psSingleQuote(respFile)}') { Get-Content -Raw -Path '${BuildUtils.psSingleQuote(respFile)}' -Encoding UTF8 }
+Write-Output \$code
+"""
+        String out
+        try {
+            out = script.powershell(label: label ?: "HTTP ${method}", returnStdout: true, script: psBody) as String
+        } finally {
+            script.powershell(label: 'Remove request temp files', script: "Remove-Item -Force '${BuildUtils.psSingleQuote(respFile)}'${bodyFile ? ", '${BuildUtils.psSingleQuote(bodyFile)}'" : ''} -ErrorAction SilentlyContinue")
+        }
+        return splitStatus(out)
+    }
+
     List postJsonBatch(List requests, Map auth, String label, int parallelism = 8) {
         List pending = (requests ?: []) as List
         if (pending.isEmpty()) return []
-        if (pending.size() == 1) {
-            Map only = pending.get(0) as Map
-            Map single = request('POST', only.url as String, only.payload, auth, label)
-            return [responseOf(single, label)]
+        if (pending.size() == 1 || !script.isUnix()) {
+            List results = []
+            for (int i = 0; i < pending.size(); i++) {
+                Map item = pending.get(i) as Map
+                Map single = request('POST', item.url as String, item.payload, auth, label)
+                results << responseOf(single, label)
+            }
+            return results
         }
         String tmpDir = script.env.WORKSPACE_TMP ?: "${script.env.WORKSPACE}@tmp"
         String dir = "${tmpDir}/rest-batch-${System.currentTimeMillis()}"
@@ -240,6 +269,13 @@ curl -sS -X '${method}' ${authArgs(auth)} -H 'Accept: application/json' ${bodyAr
         if (!auth) return ''
         if (auth.type == 'bearer') return "-H \"Authorization: Bearer \$${auth.tokenVar}\""
         return "-u \"\$${auth.userVar}:\$${auth.passVar}\""
+    }
+
+    @NonCPS
+    private static String psAuthArgs(Map auth) {
+        if (!auth) return ''
+        if (auth.type == 'bearer') return "-H \"Authorization: Bearer \$env:${auth.tokenVar}\""
+        return "-u \"\$(\$env:${auth.userVar}):\$(\$env:${auth.passVar})\""
     }
 
     @NonCPS

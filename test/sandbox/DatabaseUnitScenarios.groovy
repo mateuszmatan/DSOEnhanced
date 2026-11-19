@@ -97,9 +97,10 @@ Closure basics = {
             recorded)
 
     def buildType = harness.type('com.bbh.build.BuildService')
-    String literal = buildType.autoSetupScript()
-    String anchor = buildType.autoSetupElseAnchor()
-    String branch = buildType.autoSetupLiquibaseBranch()
+    def toolchainType = harness.type('com.bbh.build.JdkToolchainSetup')
+    String literal = toolchainType.autoSetupScript()
+    String anchor = toolchainType.autoSetupElseAnchor()
+    String branch = toolchainType.autoSetupLiquibaseBranch()
     Closure autoSetup = { String tool, Map extra ->
         FakeScript j = new FakeScript()
         List scripts = []

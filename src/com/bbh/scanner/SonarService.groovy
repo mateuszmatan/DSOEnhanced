@@ -1,6 +1,7 @@
 package com.bbh.scanner
 
 import com.bbh.build.BuildRunner
+import com.bbh.build.DotnetBuildRunner
 import com.bbh.build.LiquibaseRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
@@ -17,12 +18,14 @@ class SonarService implements Serializable {
     private final PipelineState state
     private final OsHelper    os
     private final BuildService build
+    private final SonarScannerCommandBuilder commandBuilder
 
     SonarService(def script, PipelineState state, OsHelper os, BuildService build) {
         this.script = script
         this.state  = state
         this.os     = os
         this.build  = build
+        this.commandBuilder = new SonarScannerCommandBuilder(script, state, os)
     }
 
     void scan() {
@@ -36,6 +39,8 @@ class SonarService implements Serializable {
         boolean fullBadges = sonarCfg.fullBadges ?: false
         def sonarUrl    = sonarCfg.serverUrl?.trim() ?: 'https://tools.bbh.com/sonar'
         def tool        = build.detectTool()
+        boolean isDotnet = BuildUtils.isDotnetTool(tool as String)
+        boolean useGenericDotnet = isDotnet && BuildUtils.booleanValue(sonarCfg.useGenericScanner, false)
         String badgeToken = resolveBadgeToken(sonarCfg)
         state.sonarResults['badgeToken'] = badgeToken
         String branch = resolveBranch(sonarCfg as Map)
@@ -55,7 +60,8 @@ class SonarService implements Serializable {
         }
         boolean pluginRun = (tool in ['gradle', 'maven']) && hasPluginCommands(sonarCfg as Map, tool as String)
         boolean mavenPluginRun = tool == 'maven' && hasPluginCommands(sonarCfg as Map, 'maven')
-        boolean scannerRun = !(tool in ['flutter', 'liquibase']) && !mavenPluginRun && !BuildUtils.databaseBlock(state.cfg as Map)
+        boolean scannerRun = !(tool in ['flutter', 'liquibase']) && !isDotnet && !mavenPluginRun && !BuildUtils.databaseBlock(state.cfg as Map)
+        if (useGenericDotnet) commandBuilder.applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
         if (scannerRun) applyDefaultSonarProperties(sonarCfg as Map, tool as String, resolveProjectKey(sonarCfg as Map))
         boolean passKey = !pluginRun || autoResolvedKey()
         def sonarArgs = [
@@ -76,6 +82,17 @@ class SonarService implements Serializable {
                     return ok
                 }
                 if (!ok) return
+            } else if (useGenericDotnet) {
+                branchUsed = withBranchFallback(branchArgs) { List extra ->
+                    inSonarEnv(credentialsId as String, installationName as String) {
+                        runScanner(sonarCfg as Map, sonarArgs + extra)
+                        if (addBadges) script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
+                    }
+                }
+            } else if (isDotnet) {
+                branchUsed = withBranchFallback(branch ? [branch] : []) { List extra ->
+                    scanDotnet(sonarCfg as Map, tool as String, extra ? branch : '', installationName as String, credentialsId as String, addBadges, sonarUrl as String, effectiveProjectKey, projectName as String, fullBadges)
+                }
             } else {
                 branchUsed = withBranchFallback(branchArgs) { List extra ->
                     inSonarEnv(credentialsId as String, installationName as String) {
@@ -114,6 +131,7 @@ class SonarService implements Serializable {
             return
         }
         fetchIssueCounts(sonarUrl, reportedKey, branchUsed ? branch : '')
+        calculateCoverageIfMissing(sonarCfg as Map)
         state.sonarResults['status'] = 'PASS'
         state.recordSonar('PASS')
         state.recordScan('sonar', 'PASS')
@@ -218,7 +236,8 @@ class SonarService implements Serializable {
                 if (os.isWindows()) {
                     counts = script.powershell(returnStdout: true, script: """
 try {
-    \$resp = Invoke-RestMethod -Uri "${sonarUrl}/api/issues/search?componentKeys=${projectKey}${branchQuery}&types=VULNERABILITY&resolved=false&facets=severities&ps=1" -ErrorAction Stop
+    \$hdrs = if (\$env:authToken) { @{ Authorization = "Bearer \$(\$env:authToken)" } } else { @{} }
+    \$resp = Invoke-RestMethod -Uri "${sonarUrl}/api/issues/search?componentKeys=${projectKey}${branchQuery}&types=VULNERABILITY&resolved=false&facets=severities&ps=1" -Headers \$hdrs -ErrorAction Stop
     \$c = @{}; foreach (\$item in \$resp.facets) { if (\$item.property -eq 'severities') { foreach (\$v in \$item.values) { \$c[\$v.val] = \$v.count } } }
     Write-Output "\$([int](\$c['BLOCKER'] + \$c['CRITICAL'])),\$([int]\$c['MAJOR']),\$([int]\$c['MINOR']),\$([int]\$c['INFO'])"
 } catch { Write-Output '0,0,0,0' }
@@ -256,6 +275,101 @@ rm -f "\${_TMP}"
                 }
             }
         } catch (e) { script.echo "[SONAR] Could not fetch issue counts: ${e.message}" }
+    }
+
+    private void calculateCoverageIfMissing(Map sonarCfg) {
+        if (state.cfg?.buildTool == 'liquibase' || BuildUtils.databaseBlock(state.cfg as Map)) return
+        Map projCov = (state.projectsCoverage?.get(state.currentProjectName) ?: [:]) as Map
+        boolean missingCov = !state.projectsCoverage?.containsKey(state.currentProjectName)
+        if (!projCov.get('enabled') && (BuildUtils.booleanValue(sonarCfg.calculateCoverageIfMissing, false)
+                || (missingCov && (!state.stageResults.isEmpty() || !state.stageTimes.isEmpty())))) {
+            script.echo "[SONAR] ${state.currentProjectName}: Code coverage was not calculated in unit tests - calculating coverage in SonarQube stage"
+            build.checkCoverage()
+        }
+    }
+
+    private void scanDotnet(Map sonarCfg, String tool, String branch, String installationName, String credentialsId, boolean addBadges, String sonarUrl, String projectKey, String projectName, boolean fullBadges) {
+        DotnetBuildRunner dotnetRunner = new DotnetBuildRunner(script, os, state.cfg)
+        Map buildDotnetCfg = DotnetBuildRunner.toolCfg(state.cfg.build as Map, tool)
+        Map sonarDotnetCfg = DotnetBuildRunner.toolCfg(sonarCfg, tool)
+        if (sonarCfg.dotnetMode) {
+            sonarDotnetCfg = [:] + sonarDotnetCfg + [mode: sonarCfg.dotnetMode]
+        }
+        String mode = dotnetRunner.resolveMode(sonarDotnetCfg, buildDotnetCfg, tool)
+        boolean classic = mode in ['msbuild', 'hybrid']
+
+        List beginTokens = []
+        if (classic) {
+            String scannerExe = ((sonarCfg.sonarScannerMsbuildPath ?: sonarDotnetCfg.scannerPath ?: '') as String).trim()
+            if (!scannerExe) scannerExe = os.isWindows() ? 'SonarScanner.MSBuild.exe' : 'sonar-scanner-msbuild'
+            beginTokens << scannerExe
+        } else {
+            String dotnetExe = ((sonarDotnetCfg.dotnetPath ?: buildDotnetCfg.dotnetPath ?: '') as String).trim()
+            if (!dotnetExe) dotnetExe = os.isWindows() ? 'dotnet.exe' : 'dotnet'
+            beginTokens.addAll([dotnetExe, 'sonarscanner'])
+        }
+        beginTokens << 'begin'
+        if (projectKey) beginTokens << "/k:${projectKey}".toString()
+        if (projectName) beginTokens << "/n:${projectName}".toString()
+        beginTokens << "/d:sonar.host.url=${sonarUrl}".toString()
+        if (branch) beginTokens << "/d:sonar.branch.name=${branch}".toString()
+        beginTokens << '/d:sonar.sourceEncoding=UTF-8'
+
+        boolean hasVb = resolveDotnetReportParam(null, ['*.vbproj', '**/*.vbproj']) != ''
+        String opencover = resolveDotnetReportParam(sonarCfg.opencoverPaths ?: sonarDotnetCfg.opencoverPaths, ['**/coverage.opencover.xml', '**/*opencover*.xml'])
+        if (opencover) {
+            beginTokens << "/d:sonar.cs.opencover.reportsPaths=${opencover}".toString()
+            if (hasVb) beginTokens << "/d:sonar.vbnet.opencover.reportsPaths=${opencover}".toString()
+        }
+        String vscover = resolveDotnetReportParam(sonarCfg.vscoveragexmlPaths ?: sonarDotnetCfg.vscoveragexmlPaths, ['**/*.coveragexml'])
+        if (vscover) beginTokens << "/d:sonar.cs.vscoveragexml.reportsPaths=${vscover}".toString()
+        String dotcover = resolveDotnetReportParam(sonarCfg.dotcoverPaths ?: sonarDotnetCfg.dotcoverPaths, [])
+        if (dotcover) beginTokens << "/d:sonar.cs.dotcover.reportsPaths=${dotcover}".toString()
+        String vstest = resolveDotnetReportParam(sonarCfg.vstestPaths ?: sonarDotnetCfg.vstestPaths, ['**/TestResults/*.trx', '**/*.trx'])
+        if (vstest) {
+            beginTokens << "/d:sonar.cs.vstest.reportsPaths=${vstest}".toString()
+            if (hasVb) beginTokens << "/d:sonar.vbnet.vstest.reportsPaths=${vstest}".toString()
+        }
+        String nunit = resolveDotnetReportParam(sonarCfg.nunitPaths ?: sonarDotnetCfg.nunitPaths, [])
+        if (nunit) beginTokens << "/d:sonar.cs.nunit.reportsPaths=${nunit}".toString()
+        String xunit = resolveDotnetReportParam(sonarCfg.xunitPaths ?: sonarDotnetCfg.xunitPaths, [])
+        if (xunit) beginTokens << "/d:sonar.cs.xunit.reportsPaths=${xunit}".toString()
+        beginTokens.addAll(BuildUtils.normalizeTokens(sonarDotnetCfg.beginArgs ?: sonarDotnetCfg.flags ?: sonarCfg.flags))
+
+        List endTokens = (classic ? [beginTokens[0], 'end'] : [beginTokens[0], 'sonarscanner', 'end'])
+        endTokens.addAll(BuildUtils.normalizeTokens(sonarDotnetCfg.endArgs))
+
+        String beginCmd = formatDotnetCmd(beginTokens)
+        String endCmd = formatDotnetCmd(endTokens)
+        Map compileCfg = [:] + buildDotnetCfg + sonarDotnetCfg
+        if (compileCfg.rebuild == null) compileCfg.rebuild = true
+
+        Closure invoke = {
+            execDotnetSonarStep(beginCmd, 'SonarQube .NET: begin')
+            dotnetRunner.build(compileCfg, tool)
+            execDotnetSonarStep(endCmd, 'SonarQube .NET: end')
+            if (addBadges) {
+                script.addSonarBadgesToDescription(sonarUrl, projectKey, fullBadges)
+            }
+        }
+        inSonarEnv(credentialsId, installationName, invoke)
+    }
+
+    private void execDotnetSonarStep(String cmd, String label) {
+        script.echo "[SONAR] ${label}: ${cmd}"
+        if (os.isWindows()) {
+            script.bat(label: label, script: cmd)
+        } else {
+            BuildUtils.execSh(script, cmd, label, false)
+        }
+    }
+
+    private String resolveDotnetReportParam(def configured, List<String> globs) {
+        return commandBuilder.resolveDotnetReportParam(configured, globs)
+    }
+
+    private String formatDotnetCmd(List tokens) {
+        return commandBuilder.formatDotnetCmd(tokens)
     }
 
     private Map effectiveSonarCfg(Map sonarCfg, String tool) {

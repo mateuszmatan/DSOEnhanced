@@ -110,8 +110,22 @@ class PortalReportService implements Serializable {
                 failed         : (long) tally.failed,
                 blocked        : (long) tally.blocked,
                 skipped        : (long) (tally.skipped + tally.notRequired),
-                reportHtml     : reportHtml
+                reportHtml     : reportHtml,
+                autoResolved   : autoResolvedRows()
         ]
+    }
+
+    @NonCPS
+    private List autoResolvedRows() {
+        List rows = []
+        for (def entry : ((state.projectsAutoResolved ?: [:]) as Map).entrySet()) {
+            for (def r : ((entry.value ?: []) as List)) {
+                Map item = r as Map
+                rows << [service: entry.key as String, field: (item.field ?: '') as String,
+                         value: (item.value == null ? '' : item.value.toString()), reason: (item.reason ?: '') as String]
+            }
+        }
+        return rows
     }
 
     private void sendPayload(List vars) {

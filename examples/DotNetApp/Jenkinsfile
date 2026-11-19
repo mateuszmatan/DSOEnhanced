@@ -1,0 +1,6 @@
+@Library('DSOEnhanced@DSOEnhancedWithoutPortal') _
+
+devSecOpsPipeline(
+    projectNames: 'orders-framework-api,billing-dotnet8-worker',
+    agentNames: ['win-dotnet-agent']
+)

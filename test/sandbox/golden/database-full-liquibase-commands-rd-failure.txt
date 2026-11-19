@@ -497,6 +497,7 @@ tr:last-child td { border-bottom: none; }
 
 
 
+<div class='card' style='margin-top:16px;'><h2>Unit Tests</h2><div style='overflow-x:auto;'><table style='min-width:520px;'><thead><tr><th>Service / Module</th><th style='text-align:center;'>Total</th><th style='text-align:center;'>Passed</th><th style='text-align:center;'>Failed</th><th style='text-align:center;'>Skipped</th><th style='text-align:center;'>Duration</th></tr></thead><tbody><tr><td style='padding:6px 10px;font-weight:600;'>orders-db</td><td style='text-align:center;padding:6px 8px;font-weight:700;'>0</td><td style='text-align:center;padding:6px 8px;'><span style='color:#16a34a;font-weight:700;'>0</span></td><td style='text-align:center;padding:6px 8px;'><span style='color:#334155;font-weight:700;'>0</span></td><td style='text-align:center;padding:6px 8px;'>0</td><td style='text-align:center;padding:6px 8px;color:#64748b;'><d></td></tr></tbody></table></div></div>
 
 </div>
 </div>

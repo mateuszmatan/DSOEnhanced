@@ -14,6 +14,7 @@ class SecurityPullRequestService implements Serializable {
     private final PullRequestPublisher publisher
     private final SourceRepository repository
     private final RestClient rest
+    private final SecurityFindingsParser findingsParser
 
     SecurityPullRequestService(def script, PipelineState state, PullRequestPublisher publisher, SourceRepository repository) {
         this.script = script
@@ -21,144 +22,263 @@ class SecurityPullRequestService implements Serializable {
         this.publisher = publisher
         this.repository = repository
         this.rest = new RestClient(script)
-    }
-
-    Map settings() {
-        Map scmCfg = (state.cfg?.scm?.bitbucket ?: [:]) as Map
-        Map prCfg = (state.cfg?.pullRequestDecoration ?: state.cfg?.securityPullRequest ?: [:]) as Map
-        Map pr = (state.goldenFixPullRequest ?: [:]) as Map
-        boolean explicit = prCfg.containsKey('enabled') ? BuildUtils.booleanValue(prCfg.enabled, false)
-                : BuildUtils.booleanValue(scmCfg.decoratePullRequests, false)
-        boolean enabled = (pr.url ? true : explicit) && (scmCfg.url || scmCfg.cloneUrl) ? true : false
-        return [scm             : scmCfg,
-                enabled         : enabled && (scmCfg.url || scmCfg.cloneUrl) ? true : false,
-                findingsPrs     : BuildUtils.booleanValue(prCfg.createFindingsPullRequest, true),
-                maxComments     : ((prCfg.maxComments ?: 25) as String).toInteger(),
-                sastMinSeverity : ((prCfg.sastMinSeverity ?: 'MEDIUM') as String).toUpperCase(),
-                sonarMinSeverity: ((prCfg.sonarMinSeverity ?: 'MAJOR') as String).toUpperCase()]
+        this.findingsParser = new SecurityFindingsParser(script, state, rest)
     }
 
     void publishStaticSecurityPullRequest() {
+        String origName = state.currentProjectName
+        Map origCfg = state.cfg
         try {
-            Map s = settings()
-            if (!s.enabled) return
-            Map scmCfg = s.scm as Map
-            String project = state.currentProjectName as String
-            List<Map> gfChanges = (state.projectsGoldenFix?.get(project)?.changes ?: []) as List<Map>
-            String gfUrl = (state.projectsGoldenFix?.get(project)?.prUrl ?: '') as String
-            List<Map> sastFindings = atLeast(extractSastFindings(), s.sastMinSeverity as String, sastOrder())
-            List<Map> sonarIssues = atLeast(extractSonarIssues(), s.sonarMinSeverity as String, sonarOrder())
-            String summary = staticSummary(project, gfChanges, gfUrl, sastFindings, sonarIssues)
-
-            Map developerPr = developerPullRequest(scmCfg)
-            if (developerPr) {
-                decorate(scmCfg, developerPr, sastFindings, sonarIssues, s.maxComments as int)
-                commentOnce(scmCfg, developerPr, summary)
-                script.echo "[SECURITY-PR] ${project}: pull request ${developerPr.url ?: developerPr.id} of the analysed branch decorated with ${sastFindings.size()} SAST and ${sonarIssues.size()} SonarQube finding(s)"
+            Map<String, Map> allProjects = (state.projectsAllCfg && !state.projectsAllCfg.isEmpty())
+                    ? (state.projectsAllCfg as Map<String, Map>)
+                    : [(origName ?: 'service'): (origCfg ?: [:])]
+            for (def entry : allProjects.entrySet()) {
+                String pName = entry.key as String
+                Map pCfg = (entry.value ?: [:]) as Map
+                state.currentProjectName = pName
+                state.cfg = pCfg
+                publishStaticForProject(pName, pCfg)
             }
-
-            Map staticPr = (state.goldenFixPullRequest?.url ? state.goldenFixPullRequest : [:]) as Map
-            if (!staticPr && !sastFindings && !sonarIssues) return
-            if (!staticPr && s.findingsPrs) {
-                staticPr = findingsPullRequest(scmCfg, "security-static-${project}".toString(),
-                        "[Security] Static analysis findings - ${project}".toString(), 'security/static-security-report.md',
-                        staticReport(gfChanges, sastFindings, sonarIssues), 'Static analysis findings of Nexus IQ, AppScan SAST and SonarQube')
-            }
-            if (staticPr) {
-                commentOnce(scmCfg, staticPr, summary)
-                script.echo "[SECURITY-PR] ${project}: static security pull request ${staticPr.url}"
-            }
-        } catch (Throwable t) {
-            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
-            script.echo "[SECURITY-PR] Static security pull request skipped: ${t.message ?: t.getClass().getSimpleName()}"
+        } finally {
+            state.currentProjectName = origName
+            state.cfg = origCfg
         }
     }
 
-    void publishDastPullRequest() {
+    private void publishStaticForProject(String projectName, Map cfg) {
         try {
-            Map s = settings()
-            if (!s.enabled || !s.findingsPrs) return
-            if (!(state.policyStatus?.get('dast') in ['WARN', 'FAIL'])) return
-            Map scmCfg = s.scm as Map
-            String project = state.currentProjectName as String
-            Map counts = (state.vulnCounts?.dast ?: [:]) as Map
-            String report = dastReport(extractDastFindings(), counts, (state.cfg?.dast?.targetUrl ?: '') as String)
-            Map pr = findingsPullRequest(scmCfg, "security-dast-${project}".toString(),
-                    "[Security] DAST results - ${project}".toString(), 'security/dast-findings.md', report, 'Dynamic scan results of AppScan DAST')
-            if (pr) {
-                commentOnce(scmCfg, pr, report)
-                script.echo "[DAST-PR] ${project}: DAST pull request ${pr.url}"
+            Map scmCfg = (cfg?.scm?.bitbucket ?: [:]) as Map
+            if (!scmCfg.url && !scmCfg.cloneUrl) return
+
+            Map pr = resolveProjectPullRequest(projectName, cfg)
+            List<Map> gfChanges = (state.projectsGoldenFix?.get(projectName)?.changes ?: []) as List<Map>
+            Map projScan = (state.projectsScanResults?.get(projectName) ?: [:]) as Map
+            boolean hasSast = (projScan.get('sast') ?: state.policyStatus?.get('sast')) in ['WARN', 'FAIL']
+            boolean hasSonar = ((projScan.get('sonar') ?: state.policyStatus?.get('sonar')) in ['WARN', 'FAIL']) || (state.policyStatus?.get('sca') in ['WARN', 'FAIL'])
+
+            Map prCfg = (cfg?.pullRequestDecoration ?: cfg?.securityPullRequest ?: [:]) as Map
+            boolean prExplicitlyEnabled = BuildUtils.booleanValue(prCfg.enabled, false) || BuildUtils.booleanValue(scmCfg.decoratePullRequests, false)
+
+            if (!pr.url && !prExplicitlyEnabled) return
+            if (!pr.url && !gfChanges && !hasSast && !hasSonar) return
+
+            String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
+            Map limits = decorationLimits(prCfg)
+            List<Map> sastFindings = atLeast(findingsParser.extractSastFindings(projectName, cfg), limits.sastMinSeverity as String, sastOrder())
+            List<Map> sonarIssues = atLeast(findingsParser.extractSonarIssues(projectName, cfg), limits.sonarMinSeverity as String, sonarOrder())
+            decorateDeveloperPullRequest(scmCfg, projectName, gfChanges, sastFindings, sonarIssues, limits.maxComments as int)
+
+            if (!pr.url && !gfChanges && sastFindings.isEmpty() && sonarIssues.isEmpty()) return
+
+            if (!pr.url) {
+                String branch = "security-static-${projectName}".toString()
+                Map existingPr = publisher.findOpenPullRequest(scmCfg, branch, targetBranch)
+                if (existingPr) {
+                    pr = existingPr + [title: existingPr.title ?: "[Security] Static analysis findings - ${projectName}".toString(), branch: branch, targetBranch: targetBranch]
+                } else {
+                    String dir = repository.prepareWorkingCopy(branch)
+                    try {
+                        String reportPath = "${dir}/security/static-security-report.md"
+                        ensureSecurityDir(dir)
+                        script.writeFile file: reportPath, text: SecurityPullRequestView.generateStaticReport(gfChanges, sastFindings, sonarIssues)
+                        repository.commit(dir, ['security/static-security-report.md'], '[Security] Static analysis findings and recommendations', [name: 'DevSecOps Bot', email: 'devsecops@bbh.com'])
+                        Map repoInfo = publisher.repositoryInfo(scmCfg)
+                        repository.push(dir, branch, [
+                                url          : scmCfg.cloneUrl ?: repoInfo.cloneUrl,
+                                credentialsId: scmCfg.credentialsId,
+                                authType     : scmCfg.authType,
+                                cloud        : repoInfo.cloud
+                        ])
+                        String title = "[Security] Static analysis findings - ${projectName}".toString()
+                        Map created = publisher.createPullRequest(scmCfg, [
+                                title       : title,
+                                description : 'Automated Pull Request containing static analysis findings from Nexus IQ, AppScan SAST, and SonarQube.',
+                                sourceBranch: branch,
+                                targetBranch: targetBranch
+                        ])
+                        pr = [id: created.id, url: created.url, title: title, branch: branch, targetBranch: targetBranch]
+                    } finally {
+                        repository.cleanup(dir)
+                    }
+                }
+            }
+
+            if (!pr.id && !pr.url) return
+            if (!pr.id && pr.url) {
+                def idM = (pr.url as String) =~ /\/pull-requests\/(\d+)/
+                if (idM.find()) pr = [:] + pr + [id: idM.group(1)]
+            }
+            decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, limits.maxComments as int)
+            recordProjectPullRequestComments(projectName, pr, sastFindings)
+        } catch (Throwable t) {
+            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+            script.echo "[SECURITY-PR] Static security pull request skipped: ${t.message}"
+        }
+    }
+
+    private Map resolveProjectPullRequest(String projectName, Map cfg) {
+        String repoKey = BuildUtils.normalizeRepositoryUrl(cfg?.scm)
+        if (repoKey && state.goldenFixPullRequestsByRepo?.containsKey(repoKey)) {
+            return (state.goldenFixPullRequestsByRepo[repoKey] ?: [:]) as Map
+        }
+        Map gf = (state.projectsGoldenFix?.get(projectName) ?: [:]) as Map
+        if (gf.prUrl) {
+            String prRepoKey = BuildUtils.normalizeRepositoryUrl(gf.prUrl as String)
+            if (!repoKey || !prRepoKey || prRepoKey.startsWith(repoKey)) {
+                return [id: gf.prId, url: gf.prUrl, title: gf.prTitle, branch: gf.branch, targetBranch: gf.targetBranch]
+            }
+        }
+        if (!state.projectsAllCfg || state.projectsAllCfg.size() <= 1) {
+            return (state.goldenFixPullRequest ?: [:]) as Map
+        }
+        return [:]
+    }
+
+    private void recordProjectPullRequestComments(String projectName, Map pr, List<Map> sastFindings) {
+        if (!sastFindings) return
+        if (state.projectsGoldenFix == null) state.projectsGoldenFix = [:]
+        Map gf = [:] + ((state.projectsGoldenFix[projectName] ?: [:]) as Map)
+        gf.sastComments = sastFindings
+        if (!gf.prUrl && pr.url) {
+            gf.prUrl = pr.url
+            gf.prId = pr.id
+            gf.prTitle = pr.title ?: "security-static-${projectName}".toString()
+            gf.branch = pr.branch ?: "security-static-${projectName}".toString()
+            gf.targetBranch = pr.targetBranch ?: 'main'
+            if (!gf.status || gf.status in ['SKIPPED', 'NO_FIXES', 'NO_MANIFEST_CHANGES']) {
+                gf.status = 'PR_CREATED'
+            }
+        }
+        state.projectsGoldenFix[projectName] = gf
+    }
+
+    void publishDastPullRequest() {
+        String origName = state.currentProjectName
+        Map origCfg = state.cfg
+        try {
+            Map<String, Map> allProjects = (state.projectsAllCfg && !state.projectsAllCfg.isEmpty())
+                    ? (state.projectsAllCfg as Map<String, Map>)
+                    : [(origName ?: 'service'): (origCfg ?: [:])]
+            for (def entry : allProjects.entrySet()) {
+                String pName = entry.key as String
+                Map pCfg = (entry.value ?: [:]) as Map
+                state.currentProjectName = pName
+                state.cfg = pCfg
+                publishDastForProject(pName, pCfg)
+            }
+        } finally {
+            state.currentProjectName = origName
+            state.cfg = origCfg
+        }
+    }
+
+    private void publishDastForProject(String projectName, Map cfg) {
+        try {
+            Map scmCfg = (cfg?.scm?.bitbucket ?: [:]) as Map
+            if (!scmCfg.url && !scmCfg.cloneUrl) return
+
+            Map prCfg = (cfg?.pullRequestDecoration ?: cfg?.securityPullRequest ?: cfg?.dast?.pullRequest ?: [:]) as Map
+            boolean prExplicitlyEnabled = BuildUtils.booleanValue(prCfg.enabled, false) || BuildUtils.booleanValue(scmCfg.decoratePullRequests, false) || BuildUtils.booleanValue(cfg?.dast?.createPullRequest, false)
+            if (!prExplicitlyEnabled) return
+
+            Map projScan = (state.projectsScanResults?.get(projectName) ?: [:]) as Map
+            boolean hasDast = (projScan.get('dast') ?: state.policyStatus?.get('dast')) in ['WARN', 'FAIL']
+            if (!hasDast) return
+            Map counts = ((state.projectsVulnCounts?.get(projectName) as Map)?.get('dast') ?: state.vulnCounts?.dast ?: [:]) as Map
+            int totalVulns = ((counts.critical ?: 0) as int) + ((counts.high ?: 0) as int) + ((counts.medium ?: 0) as int) + ((counts.low ?: 0) as int)
+            if (totalVulns <= 0) return
+
+            String targetBranch = (scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
+            String branch = "security-dast-${projectName}".toString()
+            List<Map> dastFindings = findingsParser.extractDastFindings(projectName, cfg)
+
+            Map existingPr = publisher.findOpenPullRequest(scmCfg, branch, targetBranch)
+            if (existingPr && existingPr.id) {
+                publisher.addComment(scmCfg, existingPr, SecurityPullRequestView.generateDastReport(dastFindings, counts))
+                return
+            }
+
+            String dir = repository.prepareWorkingCopy(branch)
+            try {
+                String reportPath = "${dir}/security/dast-findings.md"
+                ensureSecurityDir(dir)
+                String md = SecurityPullRequestView.generateDastReport(dastFindings, counts)
+                script.writeFile file: reportPath, text: md
+                repository.commit(dir, ['security/dast-findings.md'], '[Security] DAST dynamic security scan findings', [name: 'DevSecOps Bot', email: 'devsecops@bbh.com'])
+                Map repoInfo = publisher.repositoryInfo(scmCfg)
+                repository.push(dir, branch, [
+                        url          : scmCfg.cloneUrl ?: repoInfo.cloneUrl,
+                        credentialsId: scmCfg.credentialsId,
+                        authType     : scmCfg.authType,
+                        cloud        : repoInfo.cloud
+                ])
+                publisher.createPullRequest(scmCfg, [
+                        title       : "[Security] DAST findings - ${projectName}".toString(),
+                        description : md,
+                        sourceBranch: branch,
+                        targetBranch: targetBranch
+                ])
+            } finally {
+                repository.cleanup(dir)
             }
         } catch (Throwable t) {
             if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
-            script.echo "[DAST-PR] DAST pull request skipped: ${t.message ?: t.getClass().getSimpleName()}"
+            script.echo "[SECURITY-PR] DAST security pull request skipped: ${t.message}"
         }
+    }
+
+    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
+        List<String> posted = publisher.existingComments(scmCfg, pr) ?: []
+        List<Map> comments = sastFindings.collect { [finding: it, text: SecurityPullRequestView.sastLineComment(it), tool: 'SAST'] } +
+                sonarIssues.collect { [finding: it, text: SecurityPullRequestView.sonarLineComment(it), tool: 'SonarQube'] }
+        int added = 0
+        for (Map c : comments) {
+            Map f = c.finding as Map
+            if (!f.file || !f.line || alreadyPosted(posted, c.text as String)) continue
+            if (added >= maxComments) {
+                script.echo "[SECURITY-PR] Further findings are listed in the report only (pullRequestDecoration.maxComments: ${maxComments})"
+                break
+            }
+            try {
+                publisher.addLineComment(scmCfg, pr, f.file as String, (f.line as Number).intValue(), c.text as String)
+                posted << (c.text as String)
+                added++
+            } catch (Exception e) {
+                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                script.echo "[SECURITY-PR] Could not add ${c.tool} line comment: ${e.message}"
+            }
+        }
+    }
+
+    private void decorateDeveloperPullRequest(Map scmCfg, String projectName, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
+        Map pr = developerPullRequest(scmCfg)
+        if (!pr?.id) return
+        decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments)
+        String summary = SecurityPullRequestView.staticSummary(projectName, gfChanges, sastFindings, sonarIssues)
+        if (!alreadyPosted(publisher.existingComments(scmCfg, pr) ?: [], summary)) {
+            try {
+                publisher.addComment(scmCfg, pr, summary)
+            } catch (Exception e) {
+                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                script.echo "[SECURITY-PR] Comment on pull request ${pr.url ?: pr.id} not added: ${e.message}"
+            }
+        }
+        script.echo "[SECURITY-PR] ${projectName}: pull request ${pr.url ?: pr.id} of the analysed branch decorated with ${sastFindings.size()} SAST and ${sonarIssues.size()} SonarQube finding(s)"
     }
 
     private Map developerPullRequest(Map scmCfg) {
         String changeId = (script.env.CHANGE_ID ?: '') as String
         if (changeId) return [id: changeId, url: (script.env.CHANGE_URL ?: '') as String]
         String branch = BuildUtils.normalizeBranch((script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String)
-        if (!branch && script.isUnix()) {
-            branch = (script.sh(returnStdout: true, script: "git rev-parse --abbrev-ref HEAD 2>/dev/null || true") ?: '').trim()
-        }
         if (!branch || branch == 'HEAD' || branch.startsWith('GoldenFix-') || branch.startsWith('security-')) return null
         return publisher.findOpenPullRequest(scmCfg, branch, '')
     }
 
-    private Map findingsPullRequest(Map scmCfg, String branch, String title, String file, String content, String description) {
-        String targetBranch = (scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
-        if (!targetBranch) return null
-        Map existing = publisher.findOpenPullRequest(scmCfg, branch, targetBranch)
-        if (existing) return existing
-        Map gf = (state.cfg?.goldenFix ?: [:]) as Map
-        String dir = repository.prepareWorkingCopy(branch)
-        try {
-            String folder = file.contains('/') ? file.substring(0, file.lastIndexOf('/')) : ''
-            if (folder) script.sh "mkdir -p '${BuildUtils.escapeForSingleQuotes(dir + '/' + folder)}'"
-            repository.writeText(dir, file, content)
-            String commitId = repository.commit(dir, [file], title, [name: gf.commitAuthorName ?: 'DevSecOps GoldenFix', email: gf.commitAuthorEmail ?: 'devsecops-goldenfix@noreply.local'])
-            if (!commitId) return null
-            Map repoInfo = publisher.repositoryInfo(scmCfg)
-            repository.push(dir, branch, [url: scmCfg.cloneUrl ?: repoInfo.cloneUrl, credentialsId: scmCfg.credentialsId, authType: scmCfg.authType, cloud: repoInfo.cloud])
-            Map created = publisher.createPullRequest(scmCfg, [title: title, description: description, sourceBranch: branch, targetBranch: targetBranch])
-            return [id: created.id, url: created.url]
-        } finally {
-            repository.cleanup(dir)
-        }
-    }
-
-    private void decorate(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
-        List<String> existing = publisher.existingComments(scmCfg, pr)
-        List<Map> all = []
-        for (Map f : sastFindings) all << [file: f.file, line: f.line, text: "**[AppScan SAST] ${f.severity}: ${f.type}**\n\n${f.description}\n\n**Suggested remediation:** ${f.remediation}".toString()]
-        for (Map f : sonarIssues) all << [file: f.file, line: f.line, text: "**[SonarQube] ${f.severity}: ${f.rule}**\n\n${f.message}\n\n**Suggested remediation:** ${f.remediation}".toString()]
-        int posted = 0
-        for (Map c : all) {
-            if (posted >= maxComments) {
-                script.echo "[SECURITY-PR] ${all.size() - posted} more finding(s) are listed in the summary comment only (pullRequestDecoration.maxComments: ${maxComments})"
-                break
-            }
-            if (alreadyPosted(existing, c.text as String)) continue
-            try {
-                publisher.addLineComment(scmCfg, pr, c.file as String, (c.line as Number).intValue(), c.text as String)
-                posted++
-            } catch (Exception e) {
-                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-                script.echo "[SECURITY-PR] Line comment on ${c.file}:${c.line} not added: ${e.message}"
-            }
-        }
-    }
-
-    private void commentOnce(Map scmCfg, Map pr, String text) {
-        if (!pr?.id || !text) return
-        if (alreadyPosted(publisher.existingComments(scmCfg, pr), text)) return
-        try {
-            publisher.addComment(scmCfg, pr, text)
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            script.echo "[SECURITY-PR] Comment on pull request ${pr.url ?: pr.id} not added: ${e.message}"
-        }
+    @NonCPS
+    static Map decorationLimits(Map prCfg) {
+        return [maxComments     : (((prCfg?.maxComments ?: 25) as String).trim() ?: '25').toInteger(),
+                sastMinSeverity : ((prCfg?.sastMinSeverity ?: 'MEDIUM') as String).toUpperCase(),
+                sonarMinSeverity: ((prCfg?.sonarMinSeverity ?: 'MAJOR') as String).toUpperCase()]
     }
 
     @NonCPS
@@ -182,200 +302,20 @@ class SecurityPullRequestService implements Serializable {
 
     @NonCPS
     static List<Map> atLeast(List<Map> findings, String minimum, List<String> order) {
-        int min = order.indexOf(minimum)
-        if (min < 0) min = 0
-        List<Map> kept = []
-        for (Map f : findings) {
-            if (order.indexOf(((f.severity ?: '') as String).toUpperCase()) >= min) kept << f
-        }
-        return kept
+        int min = Math.max(order.indexOf(minimum), 0)
+        return (findings ?: []).findAll { order.indexOf(((it.severity ?: '') as String).toUpperCase()) >= min } as List<Map>
     }
 
-    private List<Map> extractSastFindings() {
-        String scanName = (script.env.APPSCAN_SCAN_NAME ?: '').trim()
-        String jsonFile = "${script.env.WORKSPACE}/appscan-findings-${scanName}.json"
-        if (script.fileExists(jsonFile)) {
-            try {
-                def parsed = script.readJSON(file: jsonFile)
-                return findingsFromJson(parsed)
-            } catch (Exception e) {
-                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            }
-        }
-        String reportFile = "${script.env.WORKSPACE}/appscan-report-${scanName}.html"
-        if (!script.fileExists(reportFile)) return []
-        try {
-            return sastFindingsFromHtml((script.readFile(reportFile) ?: '') as String)
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            return []
-        }
-    }
-
-    @NonCPS
-    static List<Map> findingsFromJson(def parsed) {
-        List<Map> out = []
-        if (!(parsed instanceof List)) return out
-        for (def item : (parsed as List)) {
-            if (!(item instanceof Map)) continue
-            Map f = item as Map
-            if (!f.file || !f.line) continue
-            out << [file: normalizePath(f.file as String), line: (f.line as String).toInteger(), severity: ((f.severity ?: 'MEDIUM') as String).toUpperCase(),
-                    type: (f.type ?: 'Security vulnerability') as String, description: (f.description ?: "AppScan SAST finding in ${f.file}:${f.line}") as String,
-                    remediation: (f.remediation ?: 'Validate the input and apply the AppScan fix recommendation.') as String]
-        }
-        return out
-    }
-
-    @NonCPS
-    static List<Map> sastFindingsFromHtml(String html) {
-        List<Map> out = []
-        String[] parts = html.split(/(?i)Issue\s*ID\s*:/)
-        for (int i = 1; i < parts.length; i++) {
-            String text = parts[i].replaceAll(/(?s)<[^>]+>/, ' ').replaceAll(/\s+/, ' ').trim()
-            def sev = text =~ /(?i)Severity\s*:?\s*(Critical|High|Medium|Low)/
-            if (!sev.find()) continue
-            def status = text =~ /(?i)Status\s*:?\s*(Open|New|InProgress|In\s*Progress|Reopened|Noise|Fixed|Passed)/
-            if (status.find() && !(status.group(1).replaceAll(/\s+/, '').toLowerCase() in ['open', 'new', 'inprogress', 'reopened'])) continue
-            def file = text =~ /(?i)(?:Source\s*)?File\s*:?\s*([A-Za-z0-9_\-\/\.\\]+\.[A-Za-z0-9]+)/
-            def line = text =~ /(?i)Line\s*:?\s*(\d+)/
-            if (!file.find() || !line.find()) continue
-            def type = text =~ /(?i)Issue\s*Type\s*:?\s*([^,.]+)/
-            def fix = text =~ /(?i)(?:Fix\s*Recommendation|Remediation)\s*:?\s*(.{1,300}?)(?:\s+(?:Issue\s*ID|Cause|Details)\b|$)/
-            String path = normalizePath(file.group(1))
-            out << [file: path, line: line.group(1).toInteger(), severity: sev.group(1).toUpperCase(), type: type.find() ? type.group(1).trim() : 'Security vulnerability',
-                    description: "AppScan SAST finding in ${path}:${line.group(1)}".toString(),
-                    remediation: fix.find() ? fix.group(1).trim() : 'Validate the input and apply the AppScan fix recommendation.']
-        }
-        return out
-    }
-
-    private List<Map> extractSonarIssues() {
-        Map sonarCfg = (state.cfg?.tools?.sonar ?: [:]) as Map
-        String projectKey = (sonarCfg.projectKey ?: '') as String
-        String credentialsId = (sonarCfg.authToken ?: '') as String
-        if (!projectKey || !credentialsId) return []
-        String sonarUrl = ((sonarCfg.serverUrl ?: 'https://tools.bbh.com/sonar') as String).replaceAll('/+$', '')
-        String branch = BuildUtils.normalizeBranch((sonarCfg.branch ?: script.env.CHANGE_BRANCH ?: script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String)
-        String url = "${sonarUrl}/api/issues/search?componentKeys=${RestClient.urlEncode(projectKey)}&resolved=false&ps=100${branch ? '&branch=' + RestClient.urlEncode(branch) : ''}".toString()
-        try {
-            def json = null
-            script.withCredentials([script.string(credentialsId: credentialsId, variable: 'SONAR_PR_TOKEN')]) {
-                json = rest.getJson(url, [type: 'bearer', tokenVar: 'SONAR_PR_TOKEN'], 'SonarQube: open issues of the analysed branch')
-            }
-            return sonarIssuesFromJson(json, projectKey)
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            script.echo "[SECURITY-PR] SonarQube issues not read: ${e.message}"
-            return []
-        }
-    }
-
-    @NonCPS
-    static List<Map> sonarIssuesFromJson(def json, String projectKey = '') {
-        List<Map> out = []
-        def issues = (json instanceof Map) ? (json as Map).issues : null
-        if (!(issues instanceof List)) return out
-        for (def i : (issues as List)) {
-            if (!(i instanceof Map)) continue
-            Map issue = i as Map
-            String component = (issue.component ?: '') as String
-            String file = projectKey && component.startsWith(projectKey + ':') ? component.substring(projectKey.length() + 1)
-                    : (component.contains(':') ? component.substring(component.lastIndexOf(':') + 1) : component)
-            int line = issue.line ? (issue.line as String).toInteger() : 0
-            if (!file || line <= 0) continue
-            out << [file: normalizePath(file), line: line, severity: ((issue.severity ?: 'MAJOR') as String).toUpperCase(), rule: (issue.rule ?: 'rule') as String,
-                    message: (issue.message ?: 'SonarQube issue') as String, remediation: "Follow SonarQube rule ${issue.rule}".toString()]
-        }
-        return out
-    }
-
-    private List<Map> extractDastFindings() {
-        String scanName = (script.env.APPSCAN_SCAN_NAME ?: '').trim()
-        String reportFile = "${script.env.WORKSPACE}/appscan-dast-report-${scanName}.html"
-        if (!script.fileExists(reportFile)) return []
-        try {
-            return dastFindingsFromHtml((script.readFile(reportFile) ?: '') as String, (state.cfg?.dast?.targetUrl ?: '') as String)
-        } catch (Exception e) {
-            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            return []
-        }
-    }
-
-    @NonCPS
-    static List<Map> dastFindingsFromHtml(String html, String targetUrl) {
-        List<Map> out = []
-        String[] parts = html.split(/(?i)Issue\s*ID\s*:/)
-        for (int i = 1; i < parts.length; i++) {
-            String text = parts[i].replaceAll(/(?s)<[^>]+>/, ' ').replaceAll(/\s+/, ' ').trim()
-            def sev = text =~ /(?i)Severity\s*:?\s*(Critical|High|Medium|Low)/
-            if (!sev.find()) continue
-            def type = text =~ /(?i)Issue\s*Type\s*:?\s*([^,.]+)/
-            def url = text =~ /(?i)(https?:\/\/[^\s"'<>]+)/
-            def fix = text =~ /(?i)(?:Fix\s*Recommendation|Remediation)\s*:?\s*(.{1,300}?)(?:\s+(?:Issue\s*ID|Cause|Details)\b|$)/
-            out << [severity: sev.group(1).toUpperCase(), type: type.find() ? type.group(1).trim() : 'Dynamic security finding',
-                    endpoint: url.find() ? url.group(1) : targetUrl, remediation: fix.find() ? fix.group(1).trim() : 'Apply the AppScan fix recommendation.']
-        }
-        return out
-    }
-
-    @NonCPS
-    static String normalizePath(String path) {
-        if (!path) return ''
-        String p = path.replace('\\', '/').trim()
-        while (p.startsWith('./')) p = p.substring(2)
-        return p
-    }
-
-    @NonCPS
-    static String staticSummary(String project, List<Map> gfChanges, String gfUrl, List<Map> sastFindings, List<Map> sonarIssues) {
-        StringBuilder sb = new StringBuilder("**DevSecOps static security results - ${project}**\n\n")
-        sb.append("- Nexus IQ GoldenFix: ")
-        sb.append(gfChanges ? "${gfChanges.size()} dependency upgrade(s)${gfUrl ? ' in ' + gfUrl : ''}" : 'no dependency upgrade').append('\n')
-        sb.append("- AppScan SAST: ${sastFindings.size()} finding(s) with a file and line\n")
-        sb.append("- SonarQube: ${sonarIssues.size()} open issue(s) on the analysed branch\n")
-        for (Map c : gfChanges) sb.append("  - `${c.component ?: c.coordinate}` ${c.from} -> ${c.to} in `${c.file}`\n")
-        for (Map f : sastFindings) sb.append("  - [SAST ${f.severity}] `${f.file}:${f.line}` ${f.type}\n")
-        for (Map s : sonarIssues) sb.append("  - [SonarQube ${s.severity}] `${s.file}:${s.line}` ${s.message}\n")
-        return sb.toString()
-    }
-
-    @NonCPS
-    static String staticReport(List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues) {
-        StringBuilder sb = new StringBuilder("# Static security findings\n\n")
-        sb.append("## Nexus IQ GoldenFix\n\n")
-        if (gfChanges) {
-            for (Map c : gfChanges) sb.append("- `${c.component ?: c.coordinate}`: ${c.from} -> ${c.to} in `${c.file}`\n")
+    private void ensureSecurityDir(String dir) {
+        if (script.isUnix()) {
+            script.sh "mkdir -p '${BuildUtils.escapeForSingleQuotes(dir)}/security'"
         } else {
-            sb.append("- No dependency upgrade.\n")
+            script.powershell "New-Item -ItemType Directory -Force -Path '${BuildUtils.psSingleQuote(dir)}\\security' | Out-Null"
         }
-        sb.append("\n## AppScan SAST\n\n")
-        if (sastFindings) {
-            for (Map f : sastFindings) sb.append("- **${f.severity}** `${f.file}:${f.line}` ${f.type}: ${f.remediation}\n")
-        } else {
-            sb.append("- No finding with a file and line.\n")
-        }
-        sb.append("\n## SonarQube\n\n")
-        if (sonarIssues) {
-            for (Map s : sonarIssues) sb.append("- **${s.severity}** `${s.file}:${s.line}` ${s.message}\n")
-        } else {
-            sb.append("- No open issue on the analysed branch.\n")
-        }
-        return sb.toString()
     }
 
     @NonCPS
-    static String dastReport(List<Map> findings, Map counts, String targetUrl) {
-        StringBuilder sb = new StringBuilder("# AppScan DAST results\n\n")
-        sb.append("Target: ${targetUrl ?: 'not set'}\n\n")
-        sb.append("| Critical | High | Medium | Low |\n|---|---|---|---|\n")
-        sb.append("| ${counts.critical ?: 0} | ${counts.high ?: 0} | ${counts.medium ?: 0} | ${counts.low ?: 0} |\n\n")
-        if (findings) {
-            sb.append("## Findings\n\n")
-            for (Map d : findings) sb.append("- **${d.severity}** `${d.endpoint}` ${d.type}: ${d.remediation}\n")
-        } else {
-            sb.append("The details are in the DAST report of the pipeline.\n")
-        }
-        return sb.toString()
+    static String normalizeRepoPath(String path, String ws = '', String repoPrefix = '') {
+        return SecurityFindingsParser.normalizeRepoPath(path, ws, repoPrefix)
     }
 }
