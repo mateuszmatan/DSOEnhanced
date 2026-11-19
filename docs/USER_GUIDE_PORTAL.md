@@ -109,6 +109,10 @@ The pipeline supports all standard BBH languages and build tools:
 | **SQL / PL-SQL** | Liquibase | `liquibase update` | Oracle & PostgreSQL migrations |
 | **Flutter / Dart** | flutter / pub | `flutter build` | Mobile & desktop applications |
 
+### Plugins from the BBH Nexus:
+- When a Gradle or Maven step (build, unit tests, SonarQube, SAST compile) fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus: *Gradle plugin repository* and *Maven plugin repository* of the Global Settings (`pluginRepositories`). The console says which plugins came from it and where to add the repository; unticking *Retry a Gradle or Maven step with these repositories when a plugin is missing* switches the retry off.
+- A value of the wrong kind that reaches the library (text for a number, a word for `true`/`false`, a map for a list) falls back to the value of the Global Settings with an `[INIT] [WARN]` line.
+
 ### Stage 0 Frontend Pre-Build:
 - For full-stack applications where Java/Kotlin packages serve Angular/Node.js assets, Stage 0 compiles the frontend before backend packaging.
 
