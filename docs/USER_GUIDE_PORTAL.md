@@ -140,10 +140,11 @@ The library automatically enforces test coverage across all project modules:
 Static security analysis inspects application source code for security vulnerabilities.
 
 ### Key Capabilities:
-- **Background Parallel Scanning:**
-  - The IRX archive is generated immediately after build.
-  - The HCL ASOC cloud scan is queued in the background and runs **in parallel** with Nexus IQ and SonarQube.
-  - Results are fetched at the end of the static analysis stage, significantly reducing overall pipeline duration.
+- **Stages at the same time (default):**
+  - Unit tests, Nexus IQ, SAST and SonarQube run **in parallel** in the stage *Static analysis*; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.
+  - The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (*Dynamic analysis*).
+  - The report shows the time one after another and in parallel, and ends with the table **Manual actions vs DevSecOps Automated Actions** and the time recovered by the run.
+  - `staticAnalysis.parallel: false` or `dynamicAnalysis.parallel: false` runs the stages one after another again.
 - **Streamlined Configuration:**
   - The **main SAST section** holds only the AppScan application ID (`appId`) of the service.
   - `sast.scanName` is available in **Advanced Settings** for custom scan naming.

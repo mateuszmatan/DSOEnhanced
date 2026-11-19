@@ -40,9 +40,13 @@ projects:
       scanName:    ""                # optional: name of the SAST scan in AppScan, sanitised [default: <tools.sonar.projectName or service>-sast]
 
     staticAnalysis:
-      parallel: false                # true for every service of the run: Nexus IQ and SonarQube run while AppScan scans
-                                     # (on Linux/macOS only when asoc.gradle/asoc.maven/asoc.dotnet is absent or equal to build)
-                                     # [default: false; the environment variable DSO_STATIC_ANALYSIS_PARALLEL decides first]
+      parallel: true                 # unit tests, Nexus IQ, SAST and SonarQube at the same time; false in any service of the run: one after another
+                                     # (SAST compiles in a copy of the workspace; a Windows agent runs them one after another)
+                                     # [default: true, so the key can be left out; the environment variable DSO_STATIC_ANALYSIS_PARALLEL decides first]
+
+    dynamicAnalysis:
+      parallel: true                 # regression, smoke and performance tests and DAST at the same time; false in any service: one after another
+                                     # [default: true, so the key can be left out; the environment variable DSO_DYNAMIC_ANALYSIS_PARALLEL decides first]
 
     influx:                          # InfluxDB DORA metrics (optional)
       enabled:   false

@@ -253,12 +253,22 @@ Library pull request #6 and portal pull request #4.
 * **Disabling Auto-Resolve**: Set `autoresolve parameters: false` under the service to enforce strict manual configuration.
 * **REST API SAST (`DSOEnhancedAppScanApiOnly`)**: Authenticates via AppScan REST API v4, isolates SAST credentials (`sast.keyId`, `sast.token`), and ignores findings marked as `Noise`.
 
+## 22. Stages at the same time and the time they recover (2026-11-19)
+
+| Change | Description |
+|--------|-------------|
+| **Static analysis as four branches** | The full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube as parallel branches of *Static analysis*. Each branch has its own state (service, stage, services of its own) and shares the result maps, so the console, the report, the metrics and the release gate are those of a run one after another. SAST compiles and queues in a copy of the workspace, so a SAST compile with other Gradle tasks or Maven goals no longer forces the order one after another; SonarQube waits for the unit tests of the services of its source folder. A copy that fails falls back to the earlier order with a `[WARN]` line. |
+| **Dynamic analysis as four branches** | The full and extended pipelines run the regression, smoke and performance tests and DAST as parallel branches of *Dynamic analysis*. |
+| **On by default** | `staticAnalysis.parallel` and the new `dynamicAnalysis.parallel` are `true` by default; `false` in any service, or `DSO_STATIC_ANALYSIS_PARALLEL`/`DSO_DYNAMIC_ANALYSIS_PARALLEL` set to `false`, runs the stages one after another as before. A value that is neither `true` nor `false` is named in a `[WARN]` line and the default is used; a value equal to the default is named in an `[INFO]` line so it can be removed. Windows agents keep the static stages one after another. |
+| **Time in the report** | The console and the box *Parallel stages* of the report show each group one after another and in parallel and the time saved. The table *Manual actions vs DevSecOps Automated Actions* at the bottom of every report sets the time of the steps of the run done by hand (10 minutes to start each build, scan, deployment and test, 6 x 60 minutes for a DAST, `report.manualEffort` of the library defaults) next to the time the pipeline took, with the totals and the time recovered by the run. |
+| **Tests** | The base runs switch both groups off, so every golden file stays as it was; six twins of the green and orange security, full and extended runs give the release gate, the metrics and the report of their golden file, and `full-pipeline-orange-parallel-stages.txt` pins the orange full twin. Focused runs cover the failed copy, the compile fallback, the switches, wrong values, failures inside a branch and GoldenFix. Every run checks the Manual actions table against the stage results of its log. |
+
 ---
 
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
-- The GoldenFix pre-check compiles and resolves dependencies by default rather than running a full build with tests. A stronger check is one configuration setting away, at a cost in runtime.
+- The GoldenFix pre-check builds the project and runs its unit tests with the proposed versions; integration tests that are not part of the unit test command are not run.
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
 - Every build with a key depends on the portal at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the portal-integrated library is used outside test.
 - A build without a key applies the library's copy of the Global Settings, which follows them with each library release.

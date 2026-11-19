@@ -26,23 +26,142 @@ SandboxHarness harness = new SandboxHarness(srcDir, stubDir)
 Closure utils = { -> harness.type('com.bbh.utils.BuildUtils') }
 
 Map on = [staticAnalysis: [parallel: true]]
+Map off = [staticAnalysis: [parallel: false]]
 List<List> switchCases = [
         ['no services', [:], 'true', false],
         ['no services map', null, null, false],
+        ['no service sets the key', [gui: [:], api: [:]], null, true],
         ['every service true', [gui: on, api: on], null, true],
         ['every service true, as text', [gui: [staticAnalysis: [parallel: 'true']], api: on], null, true],
-        ['one service without the key', [gui: on, api: [:]], null, false],
-        ['one service false', [gui: on, api: [staticAnalysis: [parallel: false]]], null, false],
-        ['a scalar staticAnalysis', [gui: on, api: [staticAnalysis: true]], null, false],
+        ['one service without the key', [gui: on, api: [:]], null, true],
+        ['one service false', [gui: on, api: off], null, false],
+        ['one service false, as text', [gui: [:], api: [staticAnalysis: [parallel: 'FALSE']]], null, false],
+        ['a scalar staticAnalysis falls back to the default', [gui: on, api: [staticAnalysis: true]], null, true],
+        ['a value that is not a boolean falls back to the default', [gui: [staticAnalysis: [parallel: 'sometimes']]], null, true],
         ['no key, env true', [gui: [:], api: [:]], 'true', true],
         ['no key, env TRUE with spaces', [gui: [:]], ' TRUE ', true],
         ['every service true, env false', [gui: on, api: on], 'false', false],
         ['every service true, env blank', [gui: on, api: on], '  ', true],
-        ['one service false, env blank', [gui: on, api: [staticAnalysis: [parallel: false]]], '', false]
+        ['one service false, env blank', [gui: on, api: off], '', false],
+        ['one service false, env true', [gui: on, api: off], 'true', true],
+        ['env that is not a boolean falls back to the services', [gui: on, api: off], 'maybe', false]
 ]
 List switchWrong = switchCases.findAll { List c -> harness.run { utils().parallelStaticAnalysis(c[1] as Map, c[2]) } != c[3] }.collect { it[0] }
-check('BuildUtils.parallelStaticAnalysis: DSO_STATIC_ANALYSIS_PARALLEL decides when it is set, otherwise every service of the run needs staticAnalysis.parallel true, and a run without services is off',
+check('BuildUtils.parallelStaticAnalysis: DSO_STATIC_ANALYSIS_PARALLEL decides when it is true or false, otherwise the run is parallel unless a service sets staticAnalysis.parallel false, a value that is not a boolean falls back to the default true, and a run without services is off',
         switchWrong.isEmpty(), switchWrong)
+
+Closure decide = { Map services, Map defaults, def forced -> harness.run { utils().parallelSwitch(services, defaults, 'staticAnalysis', forced, 'DSO_STATIC_ANALYSIS_PARALLEL') } as Map }
+Map wrongValues = decide([gui: [staticAnalysis: [parallel: 'sometimes']], api: [staticAnalysis: true], web: on], [:], 'maybe')
+check('BuildUtils.parallelSwitch: a wrong variable and wrong service values are each named in a warning with the default used, and a service that sets the default is told it can remove the key',
+        wrongValues.enabled == true && wrongValues.source == 'default'
+                && wrongValues.warnings == ["DSO_STATIC_ANALYSIS_PARALLEL='maybe' is neither true nor false - it is ignored and staticAnalysis.parallel of the services decides, by default true",
+                                           "gui: staticAnalysis.parallel: 'sometimes' is neither true nor false - the default true is used",
+                                           "api: staticAnalysis must be a map with the key parallel, not 'true' - the default staticAnalysis.parallel: true is used"]
+                && wrongValues.notes == ['web: staticAnalysis.parallel: true equals the default - the key can be removed'],
+        wrongValues)
+Map inherited = decide([gui: on, api: on], [staticAnalysis: [parallel: true]], null)
+Map optedOut = decide([gui: on, api: off, web: off], [:], null)
+Map envOn = decide([gui: [:]], [:], 'true')
+Map envOff = decide([gui: on], [:], 'false')
+check('BuildUtils.parallelSwitch: true in the defaults is named once instead of each service, services that set false are listed, and the variable is reported as the source',
+        inherited.notes == ['defaults.staticAnalysis.parallel: true equals the built-in default - the key can be removed from the defaults'] && inherited.enabled == true
+                && optedOut.enabled == false && optedOut.optedOut == ['api', 'web'] && optedOut.source == 'staticAnalysis.parallel'
+                && envOn.enabled == true && envOn.source == 'DSO_STATIC_ANALYSIS_PARALLEL' && envOn.notes == ['DSO_STATIC_ANALYSIS_PARALLEL=true equals the default staticAnalysis.parallel: true - the variable can be removed']
+                && envOff.enabled == false && envOff.notes == [],
+        [inherited, optedOut, envOn, envOff])
+
+Map timeText = harness.run {
+    [zero: utils().formatDuration(0L), seconds: utils().formatDuration(42999L), minutes: utils().formatDuration(185000L), hours: utils().formatDuration(7380000L),
+     saved: utils().parallelSaving(600000L, 450000L), none: utils().parallelSaving(300000L, 300000L), empty: utils().parallelSaving(0L, 1000L)]
+} as Map
+check('BuildUtils.formatDuration and parallelSaving: seconds, minutes with seconds, hours with minutes, and the saved time with its share only when the parallel run was shorter',
+        timeText == [zero: '0s', seconds: '42s', minutes: '3m 5s', hours: '2h 3m', saved: ' - 2m 30s (25%) saved', none: '', empty: ''], timeText)
+
+Closure viewModel = { -> harness.type('com.bbh.report.ReportViewModel') }
+String DEPLOY = 'Lower test region deployment'
+String REGRESSION = 'Regression tests (>60% user stories coverage)'
+String SMOKE = 'Smoke tests'
+String PERFORMANCE = 'Performance tests'
+String DAST = 'DAST - Dynamic Application Security Tests - HCL AppScan'
+long MIN = 60000L
+Closure span = { long startMin, long minutes -> [start: startMin * MIN, end: (startMin + minutes) * MIN] }
+Map effort = [buildTrigger: 10L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 360L]
+Map fullTimes = ['Build artifact': span(0, 4), (UNIT): span(4, 6), (NIQ): span(4, 3), (SAST): span(4, 20), (SONAR): span(4, 8), (DEPLOY): span(30, 5),
+                 (REGRESSION): span(40, 15), (SMOKE): span(40, 2), (PERFORMANCE): span(40, 12), (DAST): span(40, 45), 'Smoke tests (skipped)': span(0, 1)]
+Map fullResults = ['Build artifact': 'PASS', (UNIT): 'PASS', (NIQ): 'PASS', (SAST): 'WARN', (SONAR): 'PASS', (DEPLOY): 'PASS',
+                   (REGRESSION): 'PASS', (SMOKE): 'PASS', (PERFORMANCE): 'FAIL', (DAST): 'PASS']
+List groups = [[name: 'Static analysis', branches: [[stage: UNIT, ms: 6 * MIN, waitMs: 0L], [stage: NIQ, ms: 3 * MIN, waitMs: 0L],
+                                                    [stage: SAST, ms: 20 * MIN, waitMs: 0L], [stage: SONAR, ms: 8 * MIN, waitMs: 6 * MIN]]],
+               [name: 'Dynamic analysis', branches: [[stage: REGRESSION, ms: 15 * MIN], [stage: SMOKE, ms: 2 * MIN], [stage: PERFORMANCE, ms: 12 * MIN], [stage: DAST, ms: 45 * MIN]]]]
+Map comparison = harness.run {
+    Map parallelRun = viewModel().manualComparison(fullTimes, fullResults, groups, effort) as Map
+    Map sequentialRun = viewModel().manualComparison(fullTimes, fullResults, [], effort) as Map
+    Map partial = viewModel().manualComparison(['Build artifact': span(20, 1), (SAST): span(0, 7), (NIQ): span(7, 2), (DEPLOY): span(9, 1), (REGRESSION): span(10, 3), (DAST): span(13, 2)],
+            ['Build artifact': 'NOT_REQUIRED', (SAST): 'PASS', (NIQ): 'NOT_REQUIRED', (DEPLOY): 'SKIP', (REGRESSION): 'PASS', (DAST): 'PASS'], [], effort) as Map
+    Map none = viewModel().manualComparison([:], [:], null, effort) as Map
+    [parallel: parallelRun, sequential: sequentialRun, partial: partial, none: none]
+} as Map
+Closure rowsOf = { Map table -> (table.rows as List).collect { Map r -> [r.step, (r.manual as long).intdiv(MIN), (r.automated as long).intdiv(MIN)] } }
+check('ReportViewModel.manualComparison: the manual column adds the triggers by hand (10 min each, 6 x 60 min for the DAST), the automated column takes the longest of the stages that ran in one parallel group and the sum when they ran one after another, and skipped stages are left out, except the build, which is NOT_REQUIRED when only its Node.js part was',
+        rowsOf(comparison.parallel as Map) == [['Code Build Trigger', 14L, 4L], ['Unit Test + Code Coverage', 6L, 6L], ['SAST + Nexus IQ + SonarQube', 55L, 20L],
+                                               ['Deploy lower test region', 15L, 5L], ['Regression + Smoke + Performance + DAST', 464L, 45L]]
+                && (comparison.parallel as Map).manual == 554L * MIN && (comparison.parallel as Map).automated == 80L * MIN && (comparison.parallel as Map).recovered == 474L * MIN
+                && ((comparison.parallel as Map).rows as List)[0].manualNote == 'the run + 10 min to start it by hand'
+                && ((comparison.partial as Map).rows as List)[2].manualNote == 'the 2 runs one after another + 10 min to start one of them by hand + 360 min for the DAST by hand'
+                && ((comparison.parallel as Map).rows as List)[2].manualNote == 'the 3 runs one after another + 3 x 10 min to start them by hand'
+                && ((comparison.parallel as Map).rows as List)[2].automatedNote == 'the longest of the 3: they run in parallel'
+                && ((comparison.parallel as Map).rows as List)[4].manualNote == 'the 4 runs one after another + 3 x 10 min to start them by hand + 360 min for the DAST by hand'
+                && ((comparison.parallel as Map).rows as List)[1].manualNote == 'the same as automated'
+                && rowsOf(comparison.sequential as Map) == [['Code Build Trigger', 14L, 4L], ['Unit Test + Code Coverage', 6L, 6L], ['SAST + Nexus IQ + SonarQube', 61L, 31L],
+                                                            ['Deploy lower test region', 15L, 5L], ['Regression + Smoke + Performance + DAST', 464L, 74L]]
+                && ((comparison.sequential as Map).rows as List)[2].automatedNote == 'the 3 runs one after another'
+                && rowsOf(comparison.partial as Map) == [['Code Build Trigger', 11L, 1L], ['SAST', 17L, 7L], ['Regression + DAST', 375L, 5L]]
+                && (comparison.none as Map).rows == [] && (comparison.none as Map).recovered == 0L,
+        comparison)
+
+Map effortRead = harness.run {
+    [builtIn: utils().manualEffort(null), given: utils().manualEffort([report: [manualEffort: [buildTrigger: 5, dast: '240', testTrigger: 'ten', scanTrigger: -1]]])]
+} as Map
+check('BuildUtils.manualEffort: the built-in minutes, minutes given in the defaults as numbers or text, and a value that is not a number of minutes named in a warning with the default used',
+        (effortRead.builtIn as Map).minutes == [buildTrigger: 10L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 360L] && (effortRead.builtIn as Map).warnings == []
+                && (effortRead.given as Map).minutes == [buildTrigger: 5L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 240L]
+                && (effortRead.given as Map).warnings == ["report.manualEffort.scanTrigger: '-1' is not a number of minutes - the default 10 is used",
+                                                         "report.manualEffort.testTrigger: 'ten' is not a number of minutes - the default 10 is used"],
+        effortRead)
+
+Map sources = [gui: [sourceDir: '.'], api: [sourceDir: './'], web: [sourceDir: 'web/'], docs: [:], mobile: [sourceDir: 'mobile']]
+Map peers = harness.run { [gui: utils().sameSourceProjects(sources, 'gui'), web: utils().sameSourceProjects(sources, 'web'), lone: utils().sameSourceProjects(sources, 'lone')] } as Map
+check('BuildUtils.sameSourceProjects: the services of one source directory, the repository root written as ., ./ or left out, in the order of the run',
+        peers == [gui: ['gui', 'api', 'docs'], web: ['web'], lone: ['lone']], peers)
+
+Map forked = harness.run {
+    def state = harness.type('com.bbh.core.PipelineState').newInstance()
+    state.projectsAllCfg.gui = [buildTool: 'gradle']
+    state.cfg = state.projectsAllCfg.gui
+    state.currentProjectName = 'gui'
+    def branch = state.fork()
+    branch.cfg = [buildTool: 'maven']
+    branch.currentProjectName = 'api'
+    branch.currentStage = 'SCA (SonarQube)'
+    branch.stageResults['SCA (SonarQube)'] = 'PASS'
+    branch.sonarResults = [status: 'OK']
+    branch.vulnCounts.sca.high = 2
+    branch.buildTag = '213-20260919'
+    state.absorb(branch)
+    [cfg: state.cfg, name: state.currentProjectName, stage: state.currentStage, result: state.stageResults['SCA (SonarQube)'],
+     sonar: state.sonarResults, high: state.vulnCounts.sca.high, tag: state.buildTag, shared: { branch.projectsAllCfg.api = [buildTool: 'maven']; state.projectsAllCfg.containsKey('api') }()]
+} as Map
+check('PipelineState.fork and absorb: a branch shares the result maps, keeps its own service and stage, and hands back what it replaced',
+        forked == [cfg: [buildTool: 'gradle'], name: 'gui', stage: '', result: 'PASS', sonar: [status: 'OK'], high: 2, tag: '213-20260919', shared: true], forked)
+
+Map grouped = harness.run {
+    def state = harness.type('com.bbh.core.PipelineState').newInstance()
+    state.recordParallelGroup('Static analysis', 1000L, 61000L, [[stage: 'Unit tests', ms: 30000L, waitMs: 0L], [stage: 'SCA (SonarQube)', ms: 50000L, waitMs: 30000L],
+                                                             [stage: 'SAST', ms: 60000L]])
+    state.parallelGroups[0]
+} as Map
+check('PipelineState.recordParallelGroup: one after another adds the branches without the time SonarQube waited, in parallel is the wall time of the group',
+        grouped.name == 'Static analysis' && grouped.actualMs == 60000L && grouped.sequentialMs == 110000L && (grouped.branches as List).size() == 3, grouped)
 
 Map gradle = [tasks: ['clean', 'build', 'bootJar'], flags: ['--refresh-dependencies']]
 Map maven = [goals: ['clean', 'verify'], flags: ['-B', '-U']]

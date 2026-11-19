@@ -149,14 +149,124 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static boolean parallelStaticAnalysis(Map projectsAllCfg, def forced) {
-        if (!projectsAllCfg) return false
+        return parallelSwitch(projectsAllCfg, [:], 'staticAnalysis', forced, 'DSO_STATIC_ANALYSIS_PARALLEL').enabled as boolean
+    }
+
+    @NonCPS
+    static Map parallelSwitch(Map projectsAllCfg, Map cfgDefaults, String block, def forced, String envName) {
+        String key = "${block}.parallel".toString()
+        Map result = [enabled: false, key: key, warnings: [], notes: [], optedOut: [], source: '']
+        if (!projectsAllCfg) return result
         String wanted = ((forced ?: '') as String).trim()
-        if (wanted) return booleanValue(wanted, false)
-        for (def cfg : projectsAllCfg.values()) {
-            def analysis = ((cfg ?: [:]) as Map).staticAnalysis
-            if (!(analysis instanceof Map) || !booleanValue((analysis as Map).get('parallel'), false)) return false
+        if (wanted) {
+            Boolean value = strictBoolean(wanted)
+            if (value != null) {
+                result.enabled = value
+                result.source = envName
+                if (value) result.notes << "${envName}=true equals the default ${key}: true - the variable can be removed".toString()
+                return result
+            }
+            result.warnings << "${envName}='${wanted}' is neither true nor false - it is ignored and ${key} of the services decides, by default true".toString()
         }
-        return true
+        def shared = ((cfgDefaults ?: [:]) as Map).get(block)
+        boolean inherited = shared instanceof Map && (shared as Map).get('parallel') != null
+        if (inherited && strictBoolean((shared as Map).get('parallel')) == true) {
+            result.notes << "defaults.${key}: true equals the built-in default - the key can be removed from the defaults".toString()
+        }
+        boolean enabled = true
+        for (def entry : projectsAllCfg.entrySet()) {
+            String name = entry.key as String
+            def analysis = ((entry.value ?: [:]) as Map).get(block)
+            if (analysis == null) continue
+            if (!(analysis instanceof Map)) {
+                result.warnings << "${name}: ${block} must be a map with the key parallel, not '${analysis}' - the default ${key}: true is used".toString()
+                continue
+            }
+            def raw = (analysis as Map).get('parallel')
+            if (raw == null) continue
+            Boolean value = strictBoolean(raw)
+            if (value == null) {
+                result.warnings << "${name}: ${key}: '${raw}' is neither true nor false - the default true is used".toString()
+            } else if (!value) {
+                enabled = false
+                result.optedOut << name
+            } else if (!inherited) {
+                result.notes << "${name}: ${key}: true equals the default - the key can be removed".toString()
+            }
+        }
+        result.enabled = enabled
+        result.source = enabled ? 'default' : key
+        return result
+    }
+
+    @NonCPS
+    static List sameSourceProjects(Map projectsAllCfg, String name) {
+        Map all = (projectsAllCfg ?: [:]) as Map
+        if (!all.containsKey(name)) return [name]
+        String own = sourceKey((all.get(name) ?: [:]) as Map)
+        List names = []
+        for (def entry : all.entrySet()) {
+            if (sourceKey((entry.value ?: [:]) as Map) == own) names << (entry.key as String)
+        }
+        return names
+    }
+
+    @NonCPS
+    private static String sourceKey(Map cfg) {
+        String dir = ((cfg?.sourceDir ?: '.') as String).trim().replace('\\', '/')
+        while (dir.startsWith('./')) dir = dir.substring(2)
+        while (dir.endsWith('/') && dir.length() > 1) dir = dir.substring(0, dir.length() - 1)
+        return dir ?: '.'
+    }
+
+    @NonCPS
+    static String formatDuration(long ms) {
+        long s = Math.max(0L, ms).intdiv(1000L) as long
+        if (s < 60L) return "${s}s".toString()
+        long m = s.intdiv(60L) as long
+        long rem = s % 60L
+        if (m < 60L) return "${m}m ${rem}s".toString()
+        return "${m.intdiv(60L)}h ${m % 60L}m".toString()
+    }
+
+    @NonCPS
+    static String parallelSaving(long sequentialMs, long actualMs) {
+        if (sequentialMs <= 0L || actualMs >= sequentialMs) return ''
+        long saved = sequentialMs - actualMs
+        long percent = Math.round(saved * 100.0d / sequentialMs)
+        return " - ${formatDuration(saved)} (${percent}%) saved".toString()
+    }
+
+    @NonCPS
+    static Map manualEffort(Map cfgDefaults) {
+        Map builtIn = [buildTrigger: 10, scanTrigger: 10, deployTrigger: 10, testTrigger: 10, dast: 360]
+        Map given = (((((cfgDefaults ?: [:]) as Map).get('report') ?: [:]) as Map).get('manualEffort') ?: [:]) as Map
+        Map minutes = [:]
+        List warnings = []
+        for (def entry : builtIn.entrySet()) {
+            String key = entry.key as String
+            def raw = given.get(key)
+            long value = entry.value as long
+            if (raw != null) {
+                String text = (raw as String).trim()
+                if (text ==~ /\d{1,6}/) {
+                    value = text as long
+                } else {
+                    warnings << "report.manualEffort.${key}: '${raw}' is not a number of minutes - the default ${entry.value} is used".toString()
+                }
+            }
+            minutes[key] = value
+        }
+        return [minutes: minutes, warnings: warnings]
+    }
+
+    @NonCPS
+    static Boolean strictBoolean(def value) {
+        if (value instanceof Boolean) return value as Boolean
+        String text = ((value == null ? '' : value) as String).trim().toLowerCase()
+        if (text == 'true') return true
+        if (text == 'false') return false
+        return null
     }
 
     @NonCPS

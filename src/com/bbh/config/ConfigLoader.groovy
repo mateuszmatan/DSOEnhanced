@@ -228,6 +228,16 @@ class ConfigLoader implements Serializable {
         script.env.APPSCAN_SCAN_NAME = BuildUtils.scanName(state.cfg.tools?.sonar?.projectName ?: projectName)
     }
 
+    List<String> switchProject(String projectName, PipelineState branch) {
+        if (!state.projectsAllCfg.containsKey(projectName)) {
+            script.error "[SWITCH] Project '${projectName}' not loaded."
+        }
+        branch.cfg = state.projectsAllCfg[projectName]
+        branch.currentProjectName = projectName
+        return ["CURRENT_PROJECT_NAME=${projectName}".toString(),
+                "APPSCAN_SCAN_NAME=${BuildUtils.scanName(branch.cfg.tools?.sonar?.projectName ?: projectName)}".toString()]
+    }
+
     void refreshAutoResolvedConfig(String projectName, String targetDir = '') {
         Map projects = loadedProjects()
         Map rawProj = (projects[projectName] ?: state.projectsAllCfg[projectName] ?: [:]) as Map

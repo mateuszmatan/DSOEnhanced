@@ -60,6 +60,9 @@ class HtmlReportService implements Serializable {
     }
 
     void generate() {
+        for (def warning : (BuildUtils.manualEffort(state.cfgDefaults ?: [:]).warnings as List)) {
+            script.echo "[WARN] [REPORT] ${warning}"
+        }
         try {
             generateFullReport()
         } catch (Throwable t) {
@@ -876,7 +879,7 @@ ${failureReasonHtml(firstFailed)}
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
 <div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
 <h2>Pipeline Stages</h2>
-<div style='display:flex;flex-direction:column;gap:0;'>${stageFlowHtml(ctx)}</div>
+<div style='display:flex;flex-direction:column;gap:0;'>${stageFlowHtml(ctx)}</div>${parallelStagesHtml()}
 </div>
 <div style='flex:1.4;min-width:620px;'>
 <div class='card' style='margin-top:0;'>
@@ -888,10 +891,68 @@ ${sonarBadgesCards(ctx)}
 ${coverageCard(coverage, projectsCoverage) + ((unitTestsCard(projectsUnitTests)) ? '\n' + unitTestsCard(projectsUnitTests) : '')}
 ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}${autoResolvedCardHtml()}
 </div>
-</div>
+</div>${manualComparisonHtml(stageTimes, stageResults)}
 </div>
 </body>
 </html>"""
+    }
+
+    @NonCPS
+    protected String parallelStagesHtml() {
+        List groups = (state.parallelGroups ?: []) as List
+        if (!groups) return ''
+        StringBuilder html = new StringBuilder()
+        html.append("<section id='parallel-stages' style='margin-top:14px;background:#fff;border:1px solid #cbd5e1;padding:12px 14px;'><h2>Parallel stages</h2>")
+        for (def g : groups) {
+            Map group = g as Map
+            long sequential = (group.sequentialMs ?: 0L) as long
+            long actual = (group.actualMs ?: 0L) as long
+            StringBuilder rows = new StringBuilder()
+            for (def b : (group.branches ?: [])) {
+                Map branch = b as Map
+                long ms = (branch.ms ?: 0L) as long
+                long waited = Math.min(ms, (branch.waitMs ?: 0L) as long)
+                String note = waited > 0L ? " <span style='color:#64748b;'>(after waiting <b>${BuildUtils.formatDuration(waited)}</b> for the unit tests)</span>" : ''
+                rows.append("<tr><td style='padding:5px 8px;'>${esc(branch.stage as String)}${note}</td><td style='padding:5px 8px;text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(ms - waited)}</b></td></tr>")
+            }
+            String saved = BuildUtils.parallelSaving(sequential, actual)
+            String savedHtml = saved ? "<div style='margin-top:4px;color:#15803d;font-weight:700;'>Saved <b>${BuildUtils.formatDuration(sequential - actual)}</b> (${Math.round((sequential - actual) * 100.0d / sequential)}%)</div>" : ''
+            html.append("<div style='margin-top:6px;font-weight:700;color:#0f172a;font-size:0.82rem;'>${esc(group.name as String)}</div>")
+                    .append("<table style='margin-top:4px;'><tbody>${rows}</tbody></table>")
+                    .append("<div style='margin-top:6px;font-size:0.8rem;color:#334155;'>One after another <b>${BuildUtils.formatDuration(sequential)}</b> &nbsp;&bull;&nbsp; in parallel <b>${BuildUtils.formatDuration(actual)}</b></div>")
+                    .append(savedHtml)
+        }
+        html.append('</section>')
+        return html.toString()
+    }
+
+    @NonCPS
+    protected String manualComparisonHtml(Map stageTimes, Map stageResults) {
+        Map minutes = BuildUtils.manualEffort(state.cfgDefaults ?: [:]).minutes as Map
+        Map table = ReportViewModel.manualComparison(stageTimes, stageResults, (state.parallelGroups ?: []) as List, minutes)
+        List rows = (table.rows ?: []) as List
+        if (!rows) return ''
+        String cell = "padding:8px 12px;vertical-align:top;"
+        String note = "display:block;margin-top:2px;color:#64748b;font-size:0.74rem;"
+        StringBuilder body = new StringBuilder()
+        for (def r : rows) {
+            Map row = r as Map
+            body.append("<tr><td style='${cell}font-weight:600;'>${esc(row.step as String)}</td>")
+                    .append("<td style='${cell}text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(row.manual as long)}</b><span style='${note}'>${esc(row.manualNote as String)}</span></td>")
+                    .append("<td style='${cell}text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(row.automated as long)}</b><span style='${note}'>${esc(row.automatedNote as String)}</span></td></tr>")
+        }
+        long manual = table.manual as long
+        long automated = table.automated as long
+        long recovered = table.recovered as long
+        long percent = manual > 0L ? Math.round(recovered * 100.0d / manual) : 0L
+        body.append("<tr><td style='${cell}font-weight:800;border-top:2px solid #e2e8f0;'>Total</td>")
+                .append("<td style='${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;'>${BuildUtils.formatDuration(manual)}</td>")
+                .append("<td style='${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;'>${BuildUtils.formatDuration(automated)}</td></tr>")
+        return "\n<section id='manual-vs-automated' class='card' style='margin-top:20px;'><h2>Manual actions vs DevSecOps Automated Actions</h2>" +
+                "<div style='overflow-x:auto;'><table style='min-width:560px;'><thead><tr><th>Step</th><th style='text-align:right;'>Manual actions</th>" +
+                "<th style='text-align:right;'>DevSecOps Automated Actions</th></tr></thead><tbody>${body}</tbody></table></div>" +
+                "<div style='margin-top:10px;font-size:0.9rem;color:#15803d;font-weight:700;'>Time recovered in this run: <b>${BuildUtils.formatDuration(recovered)}</b> (${percent}% of the manual time)</div>" +
+                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run; the manual overheads are report.manualEffort in the library defaults.</div></section>"
     }
 
     @NonCPS

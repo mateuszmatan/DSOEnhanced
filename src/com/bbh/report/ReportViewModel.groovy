@@ -138,6 +138,97 @@ class ReportViewModel implements Serializable {
     }
 
     @NonCPS
+    static Map manualComparison(Map stageTimes, Map stageResults, List parallelGroups, Map minutes) {
+        String sast = 'SAST - Static Application Security Tests - HCL AppScan'
+        String dast = 'DAST - Dynamic Application Security Tests - HCL AppScan'
+        Map waits = [:]
+        Map groupOf = [:]
+        for (def g : (parallelGroups ?: [])) {
+            Map group = g as Map
+            for (def b : ((group.branches ?: []) as List)) {
+                Map branch = b as Map
+                waits[branch.stage as String] = (branch.waitMs ?: 0L) as long
+                groupOf[branch.stage as String] = group.name as String
+            }
+        }
+        List lines = [
+                [step: 'Code Build Trigger', trigger: 'buildTrigger', stages: [['Build artifact', 'Build'], ['Node.js build', 'Node.js build']]],
+                [step: 'Unit Test + Code Coverage', trigger: null, stages: [['Unit tests', 'Unit tests']]],
+                [step: null, trigger: 'scanTrigger', stages: [[sast, 'SAST'], ['Dependencies scan (Nexus IQ)', 'Nexus IQ'], ['SCA (SonarQube)', 'SonarQube']]],
+                [step: 'Deploy lower test region', trigger: 'deployTrigger', stages: [['Lower test region deployment', 'Deployment']]],
+                [step: null, trigger: 'testTrigger', stages: [['Regression tests (>60% user stories coverage)', 'Regression'], ['Smoke tests', 'Smoke'],
+                                                              ['Performance tests', 'Performance'], [dast, 'DAST']]]
+        ]
+        long minute = 60000L
+        List rows = []
+        long manualTotal = 0L
+        long automatedTotal = 0L
+        for (def l : lines) {
+            Map line = l as Map
+            List ran = []
+            List labels = []
+            long sum = 0L
+            long longest = 0L
+            long overhead = 0L
+            int triggers = 0
+            boolean manualDast = false
+            for (def s : (line.stages as List)) {
+                String stage = (s as List)[0] as String
+                if (!ReportViewModel.stageRan(stageTimes, stageResults, stage, stage == 'Build artifact')) continue
+                long work = ReportViewModel.stageWork(stageTimes, stage, (waits[stage] ?: 0L) as long)
+                ran << stage
+                labels << ((s as List)[1] as String)
+                sum += work
+                longest = Math.max(longest, work)
+                if (stage == dast) {
+                    manualDast = true
+                    overhead += ((minutes?.dast ?: 0L) as long) * minute
+                } else if (line.trigger) {
+                    triggers++
+                    overhead += ((minutes?.get(line.trigger) ?: 0L) as long) * minute
+                }
+            }
+            if (!ran) continue
+            boolean parallel = ran.size() > 1
+            for (int i = 0; i < ran.size(); i++) {
+                String group = groupOf[ran[i] as String] as String
+                if (group == null || group != (groupOf[ran[0] as String] as String)) parallel = false
+            }
+            long automated = parallel ? longest : sum
+            long manual = sum + overhead
+            List parts = []
+            if (triggers == 1) parts << "${minutes?.get(line.trigger)} min to start ${ran.size() == 1 ? 'it' : 'one of them'} by hand".toString()
+            if (triggers > 1) parts << "${triggers} x ${minutes?.get(line.trigger)} min to start them by hand".toString()
+            if (manualDast) parts << "${minutes?.dast} min for the DAST by hand".toString()
+            String what = ran.size() == 1 ? 'the run' : "the ${ran.size()} runs one after another".toString()
+            String manualNote = parts ? "${what} + ${parts.join(' + ')}".toString() : 'the same as automated'
+            String automatedNote = ran.size() == 1 ? 'the run' : (parallel ? "the longest of the ${ran.size()}: they run in parallel".toString() : "the ${ran.size()} runs one after another".toString())
+            rows << [step: (line.step ?: labels.join(' + ')) as String, stages: ran, manual: manual, automated: automated,
+                     manualNote: manualNote, automatedNote: automatedNote, parallel: parallel]
+            manualTotal += manual
+            automatedTotal += automated
+        }
+        return [rows: rows, manual: manualTotal, automated: automatedTotal, recovered: Math.max(0L, manualTotal - automatedTotal)]
+    }
+
+    @NonCPS
+    static boolean stageRan(Map stageTimes, Map stageResults, String stage, boolean alwaysBuilds) {
+        Map times = (stageTimes ?: [:]).get(stage) as Map
+        if (times == null) return false
+        String status = ((stageResults ?: [:]).get(stage) ?: 'SKIP') as String
+        if (status == 'NOT_REQUIRED') return alwaysBuilds
+        return !(status in ['SKIP', 'BLOCKED'])
+    }
+
+    @NonCPS
+    static long stageWork(Map stageTimes, String stage, long waitMs) {
+        Map times = (stageTimes ?: [:]).get(stage) as Map
+        long start = (times?.start ?: 0L) as long
+        long end = (times?.end ?: 0L) as long
+        return end > start ? Math.max(0L, end - start - waitMs) : 0L
+    }
+
+    @NonCPS
     static String formatDuration(long ms) {
         if (ms <= 0) return ''
         long s = ms / 1000

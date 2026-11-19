@@ -60,6 +60,83 @@ class PipelineState implements Serializable {
     Map sastScansByAppId            = [:]
     Map sonarScansByProjectKey      = [:]
     Map nexusIqScansByApp           = [:]
+    List parallelGroups             = []
+
+    @NonCPS
+    PipelineState fork() {
+        PipelineState branch = new PipelineState()
+        branch.cfg = cfg
+        branch.cfgDefaults = cfgDefaults
+        branch.commitTime = commitTime
+        branch.commitSha = commitSha
+        branch.commitAuthor = commitAuthor
+        branch.currentProjectName = currentProjectName
+        branch.platform = platform
+        branch.configFile = configFile
+        branch.buildTag = buildTag
+        branch.deliveredBuildTags = deliveredBuildTags
+        branch.currentStage = currentStage
+        branch.stageResults = stageResults
+        branch.stageErrors = stageErrors
+        branch.stageTimes = stageTimes
+        branch.notRequiredProjects = notRequiredProjects
+        branch.vulnCounts = vulnCounts
+        branch.policyLimits = policyLimits
+        branch.policyStatus = policyStatus
+        branch.coverage = coverage
+        branch.projectsVulnCounts = projectsVulnCounts
+        branch.projectsNexusIqResults = projectsNexusIqResults
+        branch.projectsScanResults = projectsScanResults
+        branch.projectsSonarResults = projectsSonarResults
+        branch.projectsAllCfg = projectsAllCfg
+        branch.projectsAutoResolved = projectsAutoResolved
+        branch.sonarResults = sonarResults
+        branch.nexusIqResults = nexusIqResults
+        branch.remoteTestResults = remoteTestResults
+        branch.projectsRemoteTestResults = projectsRemoteTestResults
+        branch.projectsGoldenFix = projectsGoldenFix
+        branch.projectsCoverage = projectsCoverage
+        branch.projectsUnitTests = projectsUnitTests
+        branch.goldenFixPullRequest = goldenFixPullRequest
+        branch.goldenFixPullRequestsByRepo = goldenFixPullRequestsByRepo
+        branch.sastScansByAppId = sastScansByAppId
+        branch.sonarScansByProjectKey = sonarScansByProjectKey
+        branch.nexusIqScansByApp = nexusIqScansByApp
+        branch.parallelGroups = parallelGroups
+        return branch
+    }
+
+    @NonCPS
+    void absorb(PipelineState branch) {
+        if (branch.cfgDefaults != cfgDefaults) cfgDefaults = branch.cfgDefaults
+        if (branch.commitTime != commitTime) commitTime = branch.commitTime
+        if (branch.commitSha != commitSha) commitSha = branch.commitSha
+        if (branch.commitAuthor != commitAuthor) commitAuthor = branch.commitAuthor
+        if (branch.platform != platform) platform = branch.platform
+        if (branch.configFile != configFile) configFile = branch.configFile
+        if (branch.buildTag != buildTag) buildTag = branch.buildTag
+        if (branch.deliveredBuildTags != deliveredBuildTags) deliveredBuildTags = branch.deliveredBuildTags
+        if (branch.policyLimits != policyLimits) policyLimits = branch.policyLimits
+        if (branch.policyStatus != policyStatus) policyStatus = branch.policyStatus
+        if (branch.coverage != coverage) coverage = branch.coverage
+        if (branch.vulnCounts != vulnCounts) vulnCounts = branch.vulnCounts
+        if (branch.sonarResults != sonarResults) sonarResults = branch.sonarResults
+        if (branch.nexusIqResults != nexusIqResults) nexusIqResults = branch.nexusIqResults
+        if (branch.remoteTestResults != remoteTestResults) remoteTestResults = branch.remoteTestResults
+        if (branch.projectsGoldenFix != projectsGoldenFix) projectsGoldenFix = branch.projectsGoldenFix
+        if (branch.goldenFixPullRequest != goldenFixPullRequest) goldenFixPullRequest = branch.goldenFixPullRequest
+        if (branch.goldenFixPullRequestsByRepo != goldenFixPullRequestsByRepo) goldenFixPullRequestsByRepo = branch.goldenFixPullRequestsByRepo
+    }
+
+    @NonCPS
+    void recordParallelGroup(String name, long start, long end, List branches) {
+        long sequential = 0L
+        for (def b : (branches ?: [])) {
+            Map branch = b as Map
+            sequential += Math.max(0L, ((branch.ms ?: 0L) as long) - ((branch.waitMs ?: 0L) as long))
+        }
+        parallelGroups << [name: name, start: start, end: end, actualMs: Math.max(0L, end - start), sequentialMs: sequential, branches: branches ?: []]
+    }
 
     @NonCPS
     String settingsPlace() {

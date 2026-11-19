@@ -49,6 +49,14 @@ defaults:
   tests:
     maxParallel: 20                # max test jobs (smoke/regression/performance) running at the same time
 
+  report:
+    manualEffort:                  # minutes a person spends on a step done by hand: the Manual actions column of the pipeline report
+      buildTrigger:  10            # starting the build of the code
+      scanTrigger:   10            # starting each of SAST, Nexus IQ and SonarQube
+      deployTrigger: 10            # starting the deployment to the lower test region
+      testTrigger:   10            # starting each of the regression, smoke and performance tests
+      dast:          360           # a DAST done by hand
+
   releaseGate:                     # a stage that breaks the policy above turns orange and blocks these two stages
     scanners:        [sast, sca, niq, dast]
     requireCoverage: true          # line coverage must reach coverage.minLine of this file

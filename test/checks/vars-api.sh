@@ -45,7 +45,7 @@ security = [monitor, build, 'Static analysis', 'Unit tests', 'Dependencies scan 
             'Nexus delivery (Static analysis passed)']
 # The full pipeline deploys the artifact it has just built, so only the extended pipeline downloads it from Nexus.
 pull = 'Download artifacts from Nexus Repo'
-extended = [monitor, pull, 'Lower test region deployment', 'Regression tests (>60% user stories coverage)',
+extended = [monitor, pull, 'Lower test region deployment', 'Dynamic analysis', 'Regression tests (>60% user stories coverage)',
             'Smoke tests', 'Performance tests', 'DAST - Dynamic Application Security Tests - HCL AppScan',
             'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities', 'Higher test environment deployment']
 expected = {

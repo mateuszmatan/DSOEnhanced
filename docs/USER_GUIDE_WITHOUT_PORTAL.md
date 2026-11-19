@@ -261,13 +261,13 @@ tools:
 ### Decoupled Multi-Module & Multi-Repository Static Security Flow:
 For every module in a multi-module project and every repository attached to a multi-repository project:
 1. **Stage 1: Build Artifact (without tests):** The pipeline first builds application artifacts for every service/module without executing unit tests (e.g., `-DskipTests` / `-x test`, or `NuGet.exe` + `MSBuild.exe` / `dotnet build` for .NET). If a Node.js build is configured (`build.node.enabled: true`), npm commands run as Stage 0 before compiling the backend application.
-2. **Stage 2: Concurrent Verification (Unit Tests with Coverage + SAST + Nexus IQ -> Golden PR):**
+2. **Stage 2: Static analysis at the same time (Unit Tests with Coverage + Nexus IQ + SAST + SonarQube -> Golden PR):** by default the four run as parallel branches of the Jenkins stage *Static analysis* (`staticAnalysis.parallel: false` in any service runs them one after another).
    - **Unit Tests & Coverage (per module/repository):** Runs automated unit tests (`vstest.console.exe`, `dotnet test`, Gradle, Maven, pytest, npm, Flutter, Cypress), parses `.trx` and JUnit XML results, and aggregates JaCoCo, Cobertura, OpenCover & LCOV code coverage per module/repository.
-   - **SAST (HCL AppScan):** Queues static application security analysis in parallel for every service and retrieves findings.
    - **Nexus IQ & GoldenFix:** Evaluates open-source dependencies against security policies, upgrades shared `versionCatalogRepo` catalogs first and local manifests second, and raises/updates the Golden Pull Request.
-3. **Stage 3: SonarQube (Static Code Analysis & Missing Coverage Fallback):**
-   - Runs after Unit tests, SAST, and Nexus IQ have concluded.
-   - If code coverage was not yet calculated during Unit tests, SonarQube triggers coverage collection (`checkCoverage()`) automatically before executing the scanner, ingests test & coverage reports, and renders SonarQube badges.
+   - **SAST (HCL AppScan):** Compiles and queues the scan of every service in a copy of the workspace (`<WORKSPACE_TMP>/dso-sast-workspace`), so its compile never touches the files the other branches read, then waits for the results and the reports.
+   - **SonarQube:** Starts a service once the unit tests of every service in the same source folder have written their coverage. If code coverage was not yet calculated during Unit tests, SonarQube triggers coverage collection (`checkCoverage()`) automatically before executing the scanner, ingests test & coverage reports, and renders SonarQube badges.
+3. **Stage 3: Results:** A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.
+   - The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (*Dynamic analysis*, `dynamicAnalysis.parallel`).
 4. **Stage 4: Static Security PR Decoration & Final Report:**
    - Posts inline SAST and SonarQube vulnerability comments with suggested remediation directly on the exact file and line of the Golden Pull Request (resolved relative to each repository root).
    - Generates the final HTML report containing the **Unit Tests** card (listed per module/repository + all-modules summary), **Code Coverage** card (listed per module/repository + summary), **SAST** report links, **SonarQube** dashboard link & badges, and **Nexus IQ GoldenFix** card with Golden Fix link, Golden Pull Request link, and SAST inline comments list.
@@ -300,6 +300,10 @@ Every stage automatically emits telemetry points to InfluxDB:
 - **DORA Metrics:** Deployment Frequency, Lead Time for Changes, Change Failure Rate, Time to Restore Service (MTTR).
 - **Quality & Duration Metrics:** Build duration, test counts, JaCoCo/LCOV coverage points, vulnerability totals.
 - Visualize results across BBH enterprise Grafana dashboards.
+
+The pipeline report of every run also shows:
+- **Parallel stages:** the stages that ran at the same time, how long they would take one after another and how long they took, and the time saved.
+- **Manual actions vs DevSecOps Automated Actions** (at the bottom): for every step that ran, the time it would take by hand next to the time the pipeline took, recalculated on every run. By hand, each build, scan, deployment and test adds 10 minutes to start it and a DAST takes 6 x 60 minutes; automated, the scans and the tests with DAST take the longest of their stages when they ran at the same time. The table ends with the totals and the time recovered by the run. The minutes are `report.manualEffort` of the library defaults.
 
 ---
 
@@ -341,6 +345,10 @@ projects:
       appId: '10982'                              # Application ID in HCL ASOC (the API key comes from the library defaults)
     sast:
       scanName: 'PAYHUB-BACKEND-API'              # Optional custom scan label
+
+    # Stages at the same time: both are on by default, set false only to run the stages one after another
+    # staticAnalysis:  {parallel: false}          # Unit tests, Nexus IQ, SAST and SonarQube one after another
+    # dynamicAnalysis: {parallel: false}          # Regression, smoke and performance tests and DAST one after another
 
     # 5. Security & Code Quality Tools
     tools:
