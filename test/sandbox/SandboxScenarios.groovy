@@ -172,7 +172,7 @@ Map iqReportWithNulls = [components: [
          dependencyData     : jsonNull, violations: [[policyThreatLevel: 7]], packageUrl: 'pkg:maven/org.yaml/snakeyaml@1.30']]]
 String rawFailure = ''
 try {
-    parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(iqReportWithNulls, 2, false, ['maven', 'npm', 'pypi']) }
+    parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(iqReportWithNulls, 2, ['maven', 'npm', 'pypi']) }
 } catch (Throwable t) {
     rawFailure = t.message ?: t.getClass().simpleName
 }
@@ -180,7 +180,7 @@ List cleanedCandidates = []
 String cleanedFailure = ''
 try {
     def cleaned = parserHarness.run { parserHarness.type('com.bbh.utils.RestClient').withoutJsonNulls(iqReportWithNulls) }
-    cleanedCandidates = parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(cleaned, 2, false, ['maven', 'npm', 'pypi']) } as List
+    cleanedCandidates = parserHarness.run { parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates(cleaned, 2, ['maven', 'npm', 'pypi']) } as List
 } catch (Throwable t) {
     cleanedFailure = t.message ?: t.getClass().simpleName
 }
@@ -294,11 +294,11 @@ try {
         def goldenFix = gfHarness.type('com.bbh.remediation.model.GoldenFix')
         String app = 'CertValidityMonitoring-GUI'
         List fixes = [
-                goldenFix.create('maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0', 'recommended-non-breaking-with-dependencies', '', 8, true, app, true),
-                goldenFix.create('maven', 'com.fasterxml.jackson.core', 'jackson-databind', '2.13.4', '2.15.4', 'next-no-violations', '', 8, true, app),
+                goldenFix.create('maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4', 'recommended-non-breaking-with-dependencies', '', 8, true, app, true),
+                goldenFix.create('maven', 'com.fasterxml.jackson.core', 'jackson-databind', '2.13.4', '2.13.12', 'next-no-violations', '', 8, true, app),
                 goldenFix.create('maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final', 'next-no-violations', '', 4, true, app),
                 goldenFix.create('npm', '', 'lodash', '4.17.15', '4.17.21', 'next-no-violations', '', 4, true, app),
-                goldenFix.create('pypi', '', 'requests', '2.25.1', '2.32.3', 'next-no-violations', '', 4, true, app),
+                goldenFix.create('pypi', '', 'requests', '2.25.1', '2.25.2', 'next-no-violations', '', 4, true, app),
                 goldenFix.create('pub', '', 'http', '0.13.4', '0.13.6', 'next-no-violations', '', 4, true, app),
                 goldenFix.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'next-no-violations', '', 4, true, app)
         ]
@@ -312,7 +312,8 @@ try {
         List updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater', 'NugetUpdater'].collect {
             gfHarness.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
         }
-        def service = gfHarness.type('com.bbh.remediation.GoldenFixService').newInstance(gfScript, state, source, repository, publisher, updaters)
+        def service = gfHarness.type('com.bbh.remediation.GoldenFixService').newInstance(gfScript, state, source, repository, publisher, updaters,
+                gfHarness.type('com.bbh.fixture.PassingBuildVerifier').newInstance())
         service.remediate([[application: app, serverUrl: 'https://tools.bbh.com/IQ', scanId: 'a' * 32, reportUrl: 'https://tools.bbh.com/IQ/report']])
         gfResult = (state.projectsGoldenFix['gui'] ?: [:]) as Map
         gfFiles = repository.written
@@ -491,7 +492,7 @@ Closure preCheckRun = { Closure buildOutcome ->
                     '2.13.9', 'next-non-failing', '', 8, true, app, false, true, ['2.13.7', '2.13.5'])]
             def state = h.type('com.bbh.core.PipelineState').newInstance()
             state.currentProjectName = 'gui'
-            state.cfg = [buildTool: 'maven', goldenFix: [enabled: true, verify: [enabled: true, maxAttempts: 3]],
+            state.cfg = [buildTool: 'maven', goldenFix: [enabled: true, verify: [maxAttempts: 3]],
                          scm: [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
             def repository = h.type('com.bbh.fixture.InMemorySourceRepository').newInstance([[
                     'pom.xml': '<project><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
@@ -536,11 +537,11 @@ check('GoldenFix: remediation runs under the sandbox without a rejection', gfErr
         (gfErrors + gfLog).join('\n      '))
 check('GoldenFix: pull request raised with the GoldenFix-YYYYMMDDHHMM name', gfResult.status == 'PR_CREATED' && ((gfResult.prTitle ?: '') as String) ==~ /GoldenFix-\d{12}/,
         gfResult)
-check('GoldenFix: Maven dependency and version property upgraded in pom.xml', (gfFiles['pom.xml'] ?: '').contains('<version>1.10.0</version>')
-        && (gfFiles['pom.xml'] ?: '').contains('<jackson.version>2.15.4</jackson.version>'), gfFiles['pom.xml'])
+check('GoldenFix: Maven dependency and version property upgraded in pom.xml', (gfFiles['pom.xml'] ?: '').contains('<version>1.9.4</version>')
+        && (gfFiles['pom.xml'] ?: '').contains('<jackson.version>2.13.12</jackson.version>'), gfFiles['pom.xml'])
 check('GoldenFix: Gradle version property upgraded in gradle.properties', (gfFiles['gradle.properties'] ?: '').contains('nettyVersion=4.1.108.Final'), gfFiles['gradle.properties'])
 check('GoldenFix: npm dependency upgraded keeping the range operator', (gfFiles['web/package.json'] ?: '').contains('"lodash": "^4.17.21"'), gfFiles['web/package.json'])
-check('GoldenFix: pip requirement upgraded, other pins untouched', (gfFiles['tools/requirements.txt'] ?: '').contains('requests==2.32.3')
+check('GoldenFix: pip requirement upgraded, other pins untouched', (gfFiles['tools/requirements.txt'] ?: '').contains('requests==2.25.2')
         && (gfFiles['tools/requirements.txt'] ?: '').contains('urllib3==1.26.5'), gfFiles['tools/requirements.txt'])
 check('GoldenFix: Flutter pubspec dependency upgraded keeping the caret', (gfFiles['mobile/pubspec.yaml'] ?: '').contains('http: ^0.13.6')
         && (gfFiles['mobile/pubspec.yaml'] ?: '').contains('intl: 0.17.0') && (gfFiles['mobile/pubspec.yaml'] ?: '').contains('version: 1.4.0'),
@@ -576,10 +577,10 @@ Closure catalogRun = { Map<String, String> files, List<Map> services, Map option
             List updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater'].collect {
                 h.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
             }
-            def verifier = options.verify ? h.type('com.bbh.build.ManifestBuildVerifier').newInstance(sc) : null
+            def verifier = options.verify ? h.type('com.bbh.build.ManifestBuildVerifier').newInstance(sc) : h.type('com.bbh.fixture.PassingBuildVerifier').newInstance()
             services.each { Map svc ->
                 state.currentProjectName = svc.name
-                state.cfg = [goldenFix: [enabled: true, verify: [enabled: options.verify as boolean]] + ((svc.goldenFix ?: [:]) as Map),
+                state.cfg = [goldenFix: [enabled: true] + ((svc.goldenFix ?: [:]) as Map),
                              scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/TA/repos/cert-scanner', credentialsId: 'bb']]]
                 List fixes = (svc.fixes as List).collect { List f -> model.create(f[0], f[1], f[2], f[3], f[4], 'next-no-violations', '', 8, true, 'APP', false, null, f.size() > 5 ? f[5] : []) }
                 def source = h.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([fixes] as Object[])
@@ -640,17 +641,17 @@ spring = { id = "org.springframework.boot", version = "3.1.0" }
 ''',
         'gui/build.gradle'         : 'dependencies {\n    implementation libs.jackson.databind\n    implementation "com.fasterxml.jackson.core:jackson-core:${libs.versions.jackson.core.get()}"\n}\n'
 ], [[name: 'gui', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'], ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final'],
-                          ['maven', 'ch.qos.logback', 'logback-classic', '1.4.5', '1.4.14'], ['maven', 'com.google.guava', 'guava', '31.0-jre', '31.1-jre'],
+                          ['maven', 'ch.qos.logback', 'logback-classic', '1.4.5', '1.4.14'], ['maven', 'com.google.guava', 'guava', '31.0-jre', '31.0.1-jre'],
                           ['maven', jackson, 'jackson-core', '2.13.4', '2.13.5'], ['maven', 'org.postgresql', 'postgresql', '42.5.0', '42.5.6'],
-                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0'],
-                          ['maven', 'commons-io', 'commons-io', '2.11.0', '2.14.0'], ['maven', 'org.slf4j', 'slf4j-api', '2.0.1', '2.0.9']]]], [verify: true])
+                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4'],
+                          ['maven', 'commons-io', 'commons-io', '2.11.0', '2.11.1'], ['maven', 'org.slf4j', 'slf4j-api', '2.0.1', '2.0.9']]]], [verify: true])
 String toml = ((tomlRun.written as Map)['gradle/libs.versions.toml'] ?: '') as String
 check('GoldenFix catalogs: every [versions] and [libraries] form of a Gradle TOML catalog is raised in place, in any key order and with rich versions',
         tomlRun.errors.isEmpty() && ['jackson = "2.13.5" # shared', 'netty = { strictly = "4.1.108.Final" }', 'logback = { require = "1.4.14" }',
-                                     'guava = { strictly = "[30.0,32.0[", prefer = "31.1-jre" }', 'jackson_core = "2.13.5"',
+                                     'guava = { strictly = "[30.0,32.0[", prefer = "31.0.1-jre" }', 'jackson_core = "2.13.5"',
                                      'postgresql = { name = "postgresql", version = "42.5.6", group = "org.postgresql" }',
-                                     'snakeyaml = { version = { strictly = "2.2" }, module = "org.yaml:snakeyaml" }', '"org.apache.commons:commons-text:1.10.0"',
-                                     'version = "2.14.0"', 'spring = { id = "org.springframework.boot", version = "3.1.0" }'].every { toml.contains(it) }
+                                     'snakeyaml = { version = { strictly = "1.33.2" }, module = "org.yaml:snakeyaml" }', '"org.apache.commons:commons-text:1.9.4"',
+                                     'version = "2.11.1"', 'spring = { id = "org.springframework.boot", version = "3.1.0" }'].every { toml.contains(it) }
                 && !(tomlRun.written as Map).containsKey('gui/build.gradle'),
         "${tomlRun.errors} ${toml}")
 check('GoldenFix catalogs: a catalog alias written with - _ or . is one version key, and the change shows the alias of the catalog entry',
@@ -682,12 +683,12 @@ include 'app'
         'gradle/shared.toml'    : '[versions]\nnetty = "4.1.86.Final"\n\n[libraries]\nnetty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }\n',
         'svc-a/app/build.gradle': 'dependencies {\n    implementation deps.jackson.databind\n    implementation "org.postgresql:postgresql:$deps.versions.pg"\n    implementation libs.netty.codec.http\n}\n'
 ], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'], ['maven', 'org.postgresql', 'postgresql', '42.5.0', '42.5.6'],
-                            ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0'],
+                            ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4'],
                             ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final']]]], [verify: true])
 String dslSettings = ((dslRun.written as Map)['svc-a/settings.gradle'] ?: '') as String
 check('GoldenFix catalogs: the settings.gradle catalog DSL and a catalog imported with libs { from(files(..)) } under another file name are raised',
-        dslRun.errors.isEmpty() && ['version("jackson", "2.13.5")', "version('pg', '42.5.6')", '"org.apache.commons:commons-text:1.10.0"',
-                                    '"snakeyaml").version("2.2")', '.versionRef("jackson")'].every { dslSettings.contains(it) }
+        dslRun.errors.isEmpty() && ['version("jackson", "2.13.5")', "version('pg', '42.5.6')", '"org.apache.commons:commons-text:1.9.4"',
+                                    '"snakeyaml").version("1.33.2")', '.versionRef("jackson")'].every { dslSettings.contains(it) }
                 && ((dslRun.written as Map)['gradle/shared.toml'] as String)?.contains('netty = "4.1.108.Final"') && !reasonsOf(dslRun, 'svc-a')
                 && dslRun.builds == [cdTo('svc-a')],
         "${dslRun.errors} ${dslSettings} ${dslRun.written} ${reasonsOf(dslRun, 'svc-a')} ${dslRun.builds}")
@@ -695,10 +696,10 @@ Map settingsClasspath = catalogRun([
         'settings.gradle': "buildscript {\n    ext.jacksonVersion = '2.13.4'\n    dependencies {\n        classpath 'org.yaml:snakeyaml:1.33'\n    }\n}\nrootProject.name = 'svc'\n",
         'build.gradle'   : "ext.jacksonVersion = '2.13.4'\ndependencies {\n    implementation 'org.yaml:snakeyaml:1.33'\n" +
                            '    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"\n}\n'
-], [[name: 'svc', fixes: [['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
+], [[name: 'svc', fixes: [['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
 check('GoldenFix catalogs: in settings.gradle only the catalog block is raised, a buildscript classpath and a property of the same name stay as on the main branch',
         settingsClasspath.errors.isEmpty() && gfOf(settingsClasspath, 'svc').status == 'PR_CREATED' && (settingsClasspath.written as Map).keySet() == ['build.gradle'] as Set
-                && ((settingsClasspath.written as Map)['build.gradle'] as String).contains("'org.yaml:snakeyaml:2.2'")
+                && ((settingsClasspath.written as Map)['build.gradle'] as String).contains("'org.yaml:snakeyaml:1.33.2'")
                 && ((settingsClasspath.written as Map)['build.gradle'] as String).contains("ext.jacksonVersion = '2.13.5'"),
         "${settingsClasspath.errors} ${settingsClasspath.written} ${gfOf(settingsClasspath, 'svc').changes}")
 
@@ -720,13 +721,13 @@ Map listedRun = catalogRun([
         'svc-a/build.gradle'           : 'dependencies { }\n'
 ], [[name: 'svc-a', goldenFix: [versionCatalogs: ['catalog/deps.toml', 'missing/*.toml', '../outside.toml', 'build/generated.versions.toml']],
      fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]], [verify: true])
-check('GoldenFix catalogs: a listed catalog with another name is raised, a missing, excluded or outside path is a run note, and a catalog no build imports is not verified',
+check('GoldenFix catalogs: a listed catalog with another name is raised, a missing, excluded or outside path is a run note, and a catalog no build imports is not verified, so no pull request is raised',
         listedRun.errors.isEmpty() && ((listedRun.written as Map)['catalog/deps.toml'] as String)?.contains('version = "2.13.5"')
                 && gfOf(listedRun, 'svc-a').notes == ['version catalog missing/*.toml not found in the repository', 'version catalog ../outside.toml is outside the repository',
                                                       'version catalog build/generated.versions.toml not found in the repository']
                 && !gfOf(listedRun, 'svc-a').unresolved && listedRun.builds.isEmpty()
-                && (listedRun.log as List).contains('GoldenFix: no Gradle build found for catalog/deps.toml - not verified')
-                && ((listedRun.prs as List)[0]?.description as String)?.contains('- version catalog ../outside.toml is outside the repository'),
+                && (listedRun.log as List).contains('GoldenFix: no build found for catalog/deps.toml - not verified')
+                && gfOf(listedRun, 'svc-a').status == 'NOT_VERIFIED' && !listedRun.prs,
         "${listedRun.errors} ${gfOf(listedRun, 'svc-a').notes} ${listedRun.builds} ${listedRun.log}")
 
 Map scriptRun = catalogRun([
@@ -735,37 +736,37 @@ Map scriptRun = catalogRun([
                                       '    implementation "org.yaml:snakeyaml:${snakeyamlVersion}"\n    implementation(\'io.netty:netty-codec-http\') { version { strictly \'4.1.86.Final\' } }\n}\n',
         'svc-a/sub/build.gradle.kts': 'dependencies {\n    implementation("org.apache.commons:commons-text") { version { require("1.9") } }\n}\n',
         'gradle/dependencies.gradle': "ext.versions = [jackson: '2.13.4', netty: '4.1.86.Final']\next {\n    snakeyamlVersion = '1.33'\n}\n"
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'], ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'],
-                            ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0']]]], [verify: true])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'], ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2'],
+                            ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final'], ['maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4']]]], [verify: true])
 String applied = ((scriptRun.written as Map)['gradle/dependencies.gradle'] ?: '') as String
 check('GoldenFix catalogs: a script plugin found through apply from, its ext map, and rich versions of the Groovy and Kotlin DSL are raised; the script is verified in the root build',
-        scriptRun.errors.isEmpty() && applied.contains("[jackson: '2.13.5', netty: '4.1.86.Final']") && applied.contains("snakeyamlVersion = '2.2'")
+        scriptRun.errors.isEmpty() && applied.contains("[jackson: '2.13.5', netty: '4.1.86.Final']") && applied.contains("snakeyamlVersion = '1.33.2'")
                 && ((scriptRun.written as Map)['svc-a/build.gradle'] as String)?.contains("version { strictly '4.1.108.Final' }")
-                && ((scriptRun.written as Map)['svc-a/sub/build.gradle.kts'] as String)?.contains('version { require("1.10.0") }')
+                && ((scriptRun.written as Map)['svc-a/sub/build.gradle.kts'] as String)?.contains('version { require("1.9.4") }')
                 && scriptRun.builds == [cdTo('svc-a'), cdTo('svc-a/sub'), cdTo('')],
         "${scriptRun.errors} ${scriptRun.written} ${scriptRun.builds}")
 
 Map platformRun = catalogRun([
         'settings.gradle'      : "include 'platform', 'svc-a', 'svc-b'\n",
-        'platform/build.gradle': "plugins { id 'java-platform' }\ndependencies {\n    constraints {\n        api 'com.example:lib:2.0'\n        api 'com.fasterxml.jackson.core:jackson-databind:2.13.4'\n    }\n}\n",
+        'platform/build.gradle': "plugins { id 'java-platform' }\ndependencies {\n    constraints {\n        api 'com.example:lib:1.0.7'\n        api 'com.fasterxml.jackson.core:jackson-databind:2.13.4'\n    }\n}\n",
         'svc-a/build.gradle'   : "dependencies { implementation platform(project(':platform')) }\n",
-        'svc-b/build.gradle'   : "dependencies {\n    implementation 'com.example:lib:1.0'\n}\n"
-], [[name: 'svc-b', fixes: [['maven', 'com.example', 'lib', '1.0', '1.9'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]], [verify: true])
+        'svc-b/build.gradle'   : "dependencies {\n    implementation 'com.example:lib:1.0.1'\n}\n"
+], [[name: 'svc-b', fixes: [['maven', 'com.example', 'lib', '1.0.1', '1.0.5'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]], [verify: true])
 check('GoldenFix catalogs: a java-platform module is raised and verified in its build root, and an inline declaration takes the catalog version with a note',
         platformRun.errors.isEmpty() && ((platformRun.written as Map)['platform/build.gradle'] as String)?.contains("api 'com.fasterxml.jackson.core:jackson-databind:2.13.5'")
-                && ((platformRun.written as Map)['svc-b/build.gradle'] as String)?.contains("'com.example:lib:2.0'")
+                && ((platformRun.written as Map)['svc-b/build.gradle'] as String)?.contains("'com.example:lib:1.0.7'")
                 && gfOf(platformRun, 'svc-b').notes == ['svc-b/build.gradle: com.example:lib declared outside the catalog platform/build.gradle']
                 && platformRun.builds == [cdTo(''), cdTo('svc-b')],
         "${platformRun.errors} ${platformRun.written} ${gfOf(platformRun, 'svc-b').notes} ${platformRun.builds}")
 
 Map alignedRun = catalogRun([
         'settings.gradle'          : "include 'svc-a', 'svc-b'\n",
-        'gradle/libs.versions.toml': '[libraries]\nlib = "com.example:lib:2.0"\n',
-        'svc-b/build.gradle'       : "dependencies {\n    implementation 'com.example:lib:1.0'\n}\n"
-], [[name: 'svc-b', fixes: [['maven', 'com.example', 'lib', '1.0', '1.9']]]])
-check('GoldenFix catalogs: catalog 2.0, inline 1.0 and Nexus IQ target 1.9 raise the inline declaration to 2.0 and name the catalog entry in the pull request',
+        'gradle/libs.versions.toml': '[libraries]\nlib = "com.example:lib:1.0.7"\n',
+        'svc-b/build.gradle'       : "dependencies {\n    implementation 'com.example:lib:1.0.1'\n}\n"
+], [[name: 'svc-b', fixes: [['maven', 'com.example', 'lib', '1.0.1', '1.0.5']]]])
+check('GoldenFix catalogs: catalog 1.0.7, inline 1.0.1 and Nexus IQ target 1.0.5 raise the inline declaration to 1.0.7 and name the catalog entry in the pull request',
         alignedRun.errors.isEmpty() && !(alignedRun.written as Map).containsKey('gradle/libs.versions.toml')
-                && ((alignedRun.written as Map)['svc-b/build.gradle'] as String)?.contains("'com.example:lib:2.0'")
+                && ((alignedRun.written as Map)['svc-b/build.gradle'] as String)?.contains("'com.example:lib:1.0.7'")
                 && ((alignedRun.prs as List)[0]?.description as String)?.contains('- svc-b/build.gradle: com.example:lib declared outside the catalog gradle/libs.versions.toml (lib)'),
         "${alignedRun.errors} ${alignedRun.written} ${gfOf(alignedRun, 'svc-b').notes}")
 
@@ -783,29 +784,29 @@ Map halfMovedRun = catalogRun([
         'gradle/libs.versions.toml'           : jacksonToml,
         'svc-a/build.gradle.kts'              : 'dependencies {\n    implementation(libs.jackson.databind)\n    implementation("com.fasterxml.jackson.core:jackson-core:${Versions.jackson}")\n}\n',
         'buildSrc/src/main/kotlin/Versions.kt': 'object Versions {\n    const val jackson = "2.13.4"\n}\n'
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12'], ['maven', jackson, 'jackson-core', '2.13.4', '2.13.12']]]])
 String halfMovedPr = ((halfMovedRun.prs as List)[0]?.description ?: '') as String
 check('GoldenFix catalogs: a catalog key and a buildSrc constant of the same name keep apart, so the catalog row names only its own component and the other keeps the buildSrc reason',
         halfMovedRun.errors.isEmpty() && (gfOf(halfMovedRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
-                ['gradle/libs.versions.toml jackson 2.13.4 -> 2.15.4 com.fasterxml.jackson.core:jackson-databind']
+                ['gradle/libs.versions.toml jackson 2.13.4 -> 2.13.12 com.fasterxml.jackson.core:jackson-databind']
                 && reasonsOf(halfMovedRun, 'svc-a') == ['com.fasterxml.jackson.core:jackson-core: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically']
-                && halfMovedPr.contains('| `gradle/libs.versions.toml` | com.fasterxml.jackson.core:jackson-databind (property `jackson`) | 2.13.4 | **2.15.4** |')
-                && halfMovedPr.contains('- com.fasterxml.jackson.core:jackson-core 2.13.4 -> 2.15.4: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically')
+                && halfMovedPr.contains('| `gradle/libs.versions.toml` | com.fasterxml.jackson.core:jackson-databind (property `jackson`) | 2.13.4 | **2.13.12** |')
+                && halfMovedPr.contains('- com.fasterxml.jackson.core:jackson-core 2.13.4 -> 2.13.12: version jackson is defined in buildSrc/src/main/kotlin/Versions.kt: not updated automatically')
                 && (halfMovedRun.written as Map).keySet() == ['gradle/libs.versions.toml'] as Set,
         "${halfMovedRun.errors} ${gfOf(halfMovedRun, 'svc-a').changes} ${reasonsOf(halfMovedRun, 'svc-a')} ${(halfMovedRun.written as Map).keySet()}")
 Map keyReadRun = catalogRun([
         'settings.gradle'          : "include 'svc-a'\n",
         'gradle/libs.versions.toml': jacksonToml,
         'svc-a/build.gradle'       : "dependencies {\n    implementation libs.jackson.databind\n    implementation \"com.fasterxml.jackson.core:jackson-core:\${libs.versions.jackson.get()}\"\n}\n"
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12'], ['maven', jackson, 'jackson-core', '2.13.4', '2.13.12']]]])
 String keyReadPr = ((keyReadRun.prs as List)[0]?.description ?: '') as String
 String keyReadComponents = 'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'
 check('GoldenFix catalogs: a build script that reads a catalog key the catalog raised, as libs.versions.jackson.get(), is named in the row of the key and not listed as not applied',
         keyReadRun.errors.isEmpty() && (gfOf(keyReadRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
-                ["gradle/libs.versions.toml jackson 2.13.4 -> 2.15.4 ${keyReadComponents}".toString()]
+                ["gradle/libs.versions.toml jackson 2.13.4 -> 2.13.12 ${keyReadComponents}".toString()]
                 && !gfOf(keyReadRun, 'svc-a').unresolved && !keyReadPr.contains('Not applied automatically')
-                && keyReadPr.contains("| `gradle/libs.versions.toml` | ${keyReadComponents} (property `jackson`) | 2.13.4 | **2.15.4** |".toString())
-                && (keyReadRun.written as Map)['gradle/libs.versions.toml'] == jacksonToml.replace('2.13.4', '2.15.4') && (keyReadRun.written as Map).size() == 1,
+                && keyReadPr.contains("| `gradle/libs.versions.toml` | ${keyReadComponents} (property `jackson`) | 2.13.4 | **2.13.12** |".toString())
+                && (keyReadRun.written as Map)['gradle/libs.versions.toml'] == jacksonToml.replace('2.13.4', '2.13.12') && (keyReadRun.written as Map).size() == 1,
         "${keyReadRun.errors} ${gfOf(keyReadRun, 'svc-a').changes} ${reasonsOf(keyReadRun, 'svc-a')}")
 Map getenvRun = catalogRun([
         'settings.gradle'                        : "rootProject.name = 'svc'\n",
@@ -947,12 +948,12 @@ Map literalRun = catalogRun([
                                      "pg = { module = 'org.postgresql:postgresql', version = '42.5.0' }\nsnakeyaml = { module = 'org.yaml:snakeyaml', version.ref = 'yaml' }\n\n" +
                                      '[libraries.netty] # json\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.86.Final"\n',
         'gui/build.gradle'         : 'dependencies { implementation libs.commons }\n'
-], [[name: 'gui', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'],
-                          ['maven', 'org.postgresql', 'postgresql', '42.5.0', '42.5.6'], ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2'],
+], [[name: 'gui', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4'], ['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5'],
+                          ['maven', 'org.postgresql', 'postgresql', '42.5.0', '42.5.6'], ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2'],
                           ['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.1.108.Final']]]])
 String literalToml = ((literalRun.written as Map)['gradle/libs.versions.toml'] ?: '') as String
 check('GoldenFix catalogs: section headers with a trailing comment and TOML literal strings in single quotes are raised as on the main branch',
-        literalRun.errors.isEmpty() && ["yaml = '2.2'", "commons = 'org.apache.commons:commons-text:1.10.0'", 'version = "2.13.5" }', "version = '42.5.6' }",
+        literalRun.errors.isEmpty() && ["yaml = '1.33.2'", "commons = 'org.apache.commons:commons-text:1.9.4'", 'version = "2.13.5" }', "version = '42.5.6' }",
                                         '[libraries.netty] # json\nmodule = "io.netty:netty-codec-http"\nversion = "4.1.108.Final"'].every { literalToml.contains(it) }
                 && !gfOf(literalRun, 'gui').unresolved,
         "${literalRun.errors} ${literalToml} ${reasonsOf(literalRun, 'gui')}")
@@ -974,14 +975,14 @@ Map rangeRun = catalogRun([
         'settings.gradle'          : "include 'gui'\n",
         'gradle/libs.versions.toml': '[versions]\nnetty = { strictly = "[4.1,4.2[", prefer = "4.1.86.Final" }\n\n[libraries]\nnetty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }\n' +
                                      'guava = { module = "com.google.guava:guava", version = { strictly = "[30.0,31.0[", prefer = "30.1-jre" } }\n',
-        'gui/build.gradle'         : "dependencies {\n    implementation libs.netty.codec.http\n    implementation('org.yaml:snakeyaml') { version { strictly '(1.30,2.0]'; prefer '1.33' } }\n}\n"
+        'gui/build.gradle'         : "dependencies {\n    implementation libs.netty.codec.http\n    implementation('org.yaml:snakeyaml') { version { strictly '(1.30,1.33.1]'; prefer '1.33' } }\n}\n"
 ], [[name: 'gui', fixes: [['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.2.1.Final'], ['maven', 'com.google.guava', 'guava', '30.1-jre', '32.0.0-jre'],
-                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2']]]])
+                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2']]]])
 check('GoldenFix catalogs: a strictly range that excludes the target leaves the rich version alone and the reason names the range',
         rangeRun.errors.isEmpty() && !rangeRun.written && gfOf(rangeRun, 'gui').status == 'NO_MANIFEST_CHANGES' && reasonsOf(rangeRun, 'gui') == [
                 "io.netty:netty-codec-http: managed by version catalog gradle/libs.versions.toml (netty): strictly range '[4.1,4.2[' excludes 4.2.1.Final",
                 "com.google.guava:guava: managed by version catalog gradle/libs.versions.toml (guava): strictly range '[30.0,31.0[' excludes 32.0.0-jre",
-                "org.yaml:snakeyaml: gui/build.gradle: strictly range '(1.30,2.0]' excludes 2.2"],
+                "org.yaml:snakeyaml: gui/build.gradle: strictly range '(1.30,1.33.1]' excludes 1.33.2"],
         "${rangeRun.errors} ${rangeRun.written} ${reasonsOf(rangeRun, 'gui')}")
 Map boundRun = catalogRun([
         'settings.gradle'          : "include 'gui', 'api'\n",
@@ -999,16 +1000,16 @@ Map requireRun = catalogRun([
         'gradle/libs.versions.toml': '[versions]\nnetty = { require = "[4.1,4.2[", prefer = "4.1.86.Final" }\nlogback = { require = "[1.4,1.5[", strictly = "[1.4,2.0[", prefer = "1.4.5" }\n\n' +
                                      '[libraries]\nnetty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }\nlogback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }\n',
         'gui/build.gradle'         : "dependencies {\n    implementation libs.netty.codec.http\n    implementation libs.logback.classic\n" +
-                                     "    implementation('org.yaml:snakeyaml') { version { require '[1.30,2.0['; prefer '1.33' } }\n}\n"
-], [[name: 'gui', fixes: [['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.2.1.Final'], ['maven', 'ch.qos.logback', 'logback-classic', '1.4.5', '1.5.6'],
-                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '2.2']]]])
+                                     "    implementation('org.yaml:snakeyaml') { version { require '[1.30,1.33.1['; prefer '1.33' } }\n}\n"
+], [[name: 'gui', fixes: [['maven', 'io.netty', 'netty-codec-http', '4.1.86.Final', '4.2.1.Final'], ['maven', 'ch.qos.logback', 'logback-classic', '1.4.5', '1.4.14'],
+                          ['maven', 'org.yaml', 'snakeyaml', '1.33', '1.33.2']]]])
 String requireToml = ((requireRun.written as Map)['gradle/libs.versions.toml'] ?: '') as String
 check('GoldenFix catalogs: without strictly, a require range that excludes the target leaves the rich version alone; strictly wins when both are set',
-        requireRun.errors.isEmpty() && requireToml.contains('logback = { require = "[1.4,1.5[", strictly = "[1.4,2.0[", prefer = "1.5.6" }')
+        requireRun.errors.isEmpty() && requireToml.contains('logback = { require = "[1.4,1.5[", strictly = "[1.4,2.0[", prefer = "1.4.14" }')
                 && requireToml.contains('netty = { require = "[4.1,4.2[", prefer = "4.1.86.Final" }') && !(requireRun.written as Map).containsKey('gui/build.gradle')
                 && reasonsOf(requireRun, 'gui') == [
                 "io.netty:netty-codec-http: managed by version catalog gradle/libs.versions.toml (netty): require range '[4.1,4.2[' excludes 4.2.1.Final",
-                "org.yaml:snakeyaml: gui/build.gradle: require range '[1.30,2.0[' excludes 2.2"],
+                "org.yaml:snakeyaml: gui/build.gradle: require range '[1.30,1.33.1[' excludes 1.33.2"],
         "${requireRun.errors} ${requireToml} ${reasonsOf(requireRun, 'gui')}")
 
 Map pomRangeRun = catalogRun([
@@ -1047,20 +1048,20 @@ check('GoldenFix catalogs: a settings import written as from files(..) or with a
 
 Map<String, String> parentPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
-                         '<properties><jackson.version>2.17.0</jackson.version></properties><dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
+                         '<properties><jackson.version>2.13.15</jackson.version></properties><dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
                          '<artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency></dependencies></dependencyManagement></project>',
         'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId>' +
                          '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId>' +
                          '<artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
 ]
-Map chainedRun = catalogRun(parentPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+Map chainedRun = catalogRun(parentPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12']]]])
 check('GoldenFix catalogs: a property raised in both rounds is one row from the declared version to the catalog version',
         chainedRun.errors.isEmpty() && (gfOf(chainedRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to}".toString() } ==
-                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0'] && ((chainedRun.written as Map)['svc-a/pom.xml'] as String)?.contains('<jackson.version>2.17.0</jackson.version>'),
+                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.13.15'] && ((chainedRun.written as Map)['svc-a/pom.xml'] as String)?.contains('<jackson.version>2.13.15</jackson.version>'),
         "${chainedRun.errors} ${gfOf(chainedRun, 'svc-a').changes}")
 Map keysRun = catalogRun([
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
-                         '<properties><jackson.version>2.17.0</jackson.version></properties><dependencyManagement><dependencies>' +
+                         '<properties><jackson.version>2.13.15</jackson.version></properties><dependencyManagement><dependencies>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency>' +
                          '</dependencies></dependencyManagement></project>',
@@ -1068,10 +1069,10 @@ Map keysRun = catalogRun([
                          '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId></dependency></dependencies></project>'
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]]])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12'], ['maven', jackson, 'jackson-core', '2.13.4', '2.13.12']]]])
 check('GoldenFix catalogs: one row for a property raised in both rounds keeps every component of both rounds',
         keysRun.errors.isEmpty() && (gfOf(keysRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.componentKeys} ${it.component}".toString() } ==
-                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.17.0 [maven:com.fasterxml.jackson.core:jackson-databind, maven:com.fasterxml.jackson.core:jackson-core] ' +
+                ['svc-a/pom.xml jackson.version 2.13.4 -> 2.13.15 [maven:com.fasterxml.jackson.core:jackson-databind, maven:com.fasterxml.jackson.core:jackson-core] ' +
                  'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'] && !gfOf(keysRun, 'svc-a').unresolved,
         "${keysRun.errors} ${gfOf(keysRun, 'svc-a').changes} ${reasonsOf(keysRun, 'svc-a')}")
 Closure managingRoot = { String version ->
@@ -1084,26 +1085,26 @@ String overridingModule = '<project><parent><groupId>com.bbh</groupId><artifactI
         '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
         '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
-List jacksonFixes = [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.15.4']]
+List jacksonFixes = [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12'], ['maven', jackson, 'jackson-core', '2.13.4', '2.13.12']]
 String bothJackson = 'com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core'
-Map firstRoundRun = catalogRun(['pom.xml': managingRoot('2.14.0'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]])
+Map firstRoundRun = catalogRun(['pom.xml': managingRoot('2.13.11'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]])
 String firstRoundPr = ((firstRoundRun.prs as List)[0]?.description ?: '') as String
 String firstRoundCommit = ((firstRoundRun.commits as List)[0]?.message ?: '') as String
 check('GoldenFix catalogs: a property that the shared pom raised names every component a module uses it for, as on the main branch',
         firstRoundRun.errors.isEmpty() && (gfOf(firstRoundRun, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
-                ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${bothJackson}".toString(), "svc-a/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString()]
+                ["pom.xml jackson.version 2.13.11 -> 2.13.12 ${bothJackson}".toString(), "svc-a/pom.xml jackson.version 2.13.4 -> 2.13.12 ${bothJackson}".toString()]
                 && !gfOf(firstRoundRun, 'svc-a').unresolved && !firstRoundPr.contains('Not applied automatically')
-                && firstRoundPr.contains("| `svc-a/pom.xml` | ${bothJackson} (property `jackson.version`) | 2.13.4 | **2.15.4** |".toString())
+                && firstRoundPr.contains("| `svc-a/pom.xml` | ${bothJackson} (property `jackson.version`) | 2.13.4 | **2.13.12** |".toString())
                 && firstRoundCommit.startsWith('GoldenFix-202609191405: upgrade 1 vulnerable direct dependency')
-                && firstRoundCommit.contains("- ${bothJackson} (property jackson.version): 2.13.4 -> 2.15.4 (svc-a/pom.xml)".toString())
+                && firstRoundCommit.contains("- ${bothJackson} (property jackson.version): 2.13.4 -> 2.13.12 (svc-a/pom.xml)".toString())
                 && gfOf(firstRoundRun, 'svc-a').notes == ['svc-a/pom.xml: com.fasterxml.jackson.core:jackson-databind declared outside the catalog pom.xml (jackson.version)'],
         "${firstRoundRun.errors} ${gfOf(firstRoundRun, 'svc-a').changes} ${reasonsOf(firstRoundRun, 'svc-a')} ${gfOf(firstRoundRun, 'svc-a').notes}")
-Map firstRoundRetry = catalogRun(['pom.xml': managingRoot('2.17.0'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]],
-        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('<jackson.version>2.17.0</jackson.version>') }])
+Map firstRoundRetry = catalogRun(['pom.xml': managingRoot('2.13.15'), 'svc-a/pom.xml': overridingModule], [[name: 'svc-a', fixes: jacksonFixes]],
+        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('<jackson.version>2.13.15</jackson.version>') }])
 check('GoldenFix pre-check: the build again with the Nexus IQ versions names every component of a property that the shared pom raised',
         firstRoundRetry.errors.isEmpty() && gfOf(firstRoundRetry, 'svc-a').status == 'PR_CREATED'
                 && (gfOf(firstRoundRetry, 'svc-a').changes as List).collect { "${it.file} ${it.property} ${it.from} -> ${it.to} ${it.component}".toString() } ==
-                ["svc-a/pom.xml jackson.version 2.13.4 -> 2.15.4 ${bothJackson}".toString()]
+                ["svc-a/pom.xml jackson.version 2.13.4 -> 2.13.12 ${bothJackson}".toString()]
                 && !gfOf(firstRoundRetry, 'svc-a').unresolved && !(((firstRoundRetry.prs as List)[0]?.description ?: '') as String).contains('Not applied automatically'),
         "${firstRoundRetry.errors} ${gfOf(firstRoundRetry, 'svc-a').status} ${gfOf(firstRoundRetry, 'svc-a').changes} ${reasonsOf(firstRoundRetry, 'svc-a')}")
 List<String> manyModules = (1..300).collect { "svc-${String.format('%03d', it)}".toString() }
@@ -1111,7 +1112,7 @@ Closure jacksonDependency = { String artifact, String property ->
     "<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>${artifact}</artifactId><version>\${${property}}</version></dependency>".toString()
 }
 Map<String, String> manyPoms = ['pom.xml': '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules>' +
-        manyModules.collect { "<module>${it}</module>" }.join('') + '</modules><properties><jackson.version>2.14.0</jackson.version></properties>' +
+        manyModules.collect { "<module>${it}</module>" }.join('') + '</modules><properties><jackson.version>2.13.11</jackson.version></properties>' +
         '<dependencyManagement><dependencies>' + jacksonDependency('jackson-databind', 'jackson.version') + '</dependencies></dependencyManagement></project>']
 List<String> ownModules = manyModules.findAll { it.endsWith('0') }
 manyModules.each { String m ->
@@ -1121,12 +1122,12 @@ manyModules.each { String m ->
             jacksonDependency('jackson-databind', 'jackson.version') + jacksonDependency('jackson-core', 'jackson.version') +
             jacksonDependency('jackson-annotations', annotationsProperty) + '</dependencies></project>').toString()
 }
-Map manyRun = catalogRun(manyPoms, [[name: 'svc-a', fixes: jacksonFixes + [['maven', jackson, 'jackson-annotations', '2.13.4', '2.15.4']]]])
+Map manyRun = catalogRun(manyPoms, [[name: 'svc-a', fixes: jacksonFixes + [['maven', jackson, 'jackson-annotations', '2.13.4', '2.13.12']]]])
 String annotations = 'com.fasterxml.jackson.core:jackson-annotations'
 String allJackson = "${bothJackson}, ${annotations}".toString()
-List<String> manyRows = ["pom.xml jackson.version 2.14.0 -> 2.15.4 ${allJackson}".toString()] +
-        manyModules.collect { "${it}/pom.xml jackson.version 2.13.4 -> 2.15.4 ${allJackson}".toString() } +
-        ownModules.collect { "${it}/pom.xml ${it}.version 2.13.4 -> 2.15.4 ${annotations}".toString() }
+List<String> manyRows = ["pom.xml jackson.version 2.13.11 -> 2.13.12 ${allJackson}".toString()] +
+        manyModules.collect { "${it}/pom.xml jackson.version 2.13.4 -> 2.13.12 ${allJackson}".toString() } +
+        ownModules.collect { "${it}/pom.xml ${it}.version 2.13.4 -> 2.13.12 ${annotations}".toString() }
 String manyCommit = ((manyRun.commits as List)[0]?.message ?: '') as String
 check('GoldenFix catalogs: in a parent pom with 300 modules, a property row names every component of its property in every module, and a property of a module of its own only its own component',
         manyRun.errors.isEmpty() && gfOf(manyRun, 'svc-a').status == 'PR_CREATED'
@@ -1138,18 +1139,18 @@ check('GoldenFix catalogs: in a parent pom with 300 modules, a property row name
 Map<String, String> alignedPoms = [
         'pom.xml'      : '<project><groupId>com.bbh</groupId><artifactId>root</artifactId><packaging>pom</packaging><modules><module>svc-a</module></modules>' +
                          '<dependencyManagement><dependencies><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>' +
-                         '<version>2.17.0</version></dependency></dependencies></dependencyManagement></project>',
+                         '<version>2.13.15</version></dependency></dependencies></dependencyManagement></project>',
         'svc-a/pom.xml': '<project><parent><groupId>com.bbh</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>svc-a</artifactId><dependencies>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.13.4</version></dependency></dependencies></project>'
 ]
 Map alignedRetry = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5', ['2.13.4.2']]]]],
-        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('2.17.0') }])
+        [verify: true, fails: { Map w, String sh -> (w['svc-a/pom.xml'] ?: '').contains('2.13.15') }])
 check('GoldenFix pre-check: when the build fails with the catalog version, it is tried again with the Nexus IQ version before a lower one, and the log names the versions built',
         alignedRetry.errors.isEmpty() && gfOf(alignedRetry, 'svc-a').status == 'PR_CREATED'
                 && ((alignedRetry.written as Map)['svc-a/pom.xml'] as String)?.contains('<version>2.13.5</version>')
                 && gfOf(alignedRetry, 'svc-a').notes == ['svc-a/pom.xml: com.fasterxml.jackson.core:jackson-databind declared outside the catalog pom.xml']
                 && (alignedRetry.log as List).findAll { it.contains('Pre-check build') } == [
-                '[GOLDENFIX] Pre-check build 1 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.17.0',
+                '[GOLDENFIX] Pre-check build 1 of 3 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.15',
                 '[GOLDENFIX] Pre-check build failed - retrying with the Nexus IQ versions instead of the catalog versions',
                 '[GOLDENFIX] Pre-check build 2 of 4 for com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5',
                 '[GOLDENFIX] Pre-check build passed (maven) with com.fasterxml.jackson.core:jackson-databind 2.13.4 -> 2.13.5'],
@@ -1162,8 +1163,8 @@ check('GoldenFix pre-check: the build with the Nexus IQ version instead of the c
         "${retryBudget.errors} ${gfOf(retryBudget, 'svc-a').status} ${gfOf(retryBudget, 'svc-a').message}")
 Map alignedPom = catalogRun(alignedPoms, [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.5']]]])
 check('GoldenFix catalogs: a declaration raised to the catalog version says so in the pull request instead of naming the choice of Nexus IQ',
-        ((alignedRun.prs as List)[0]?.description as String)?.contains('| `svc-b/build.gradle` | com.example:lib | 1.0 | **2.0** | version of the shared catalog gradle/libs.versions.toml |')
-                && ((alignedPom.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind | 2.13.4 | **2.17.0** | version of the shared catalog pom.xml |'),
+        ((alignedRun.prs as List)[0]?.description as String)?.contains('| `svc-b/build.gradle` | com.example:lib | 1.0.1 | **1.0.7** | version of the shared catalog gradle/libs.versions.toml |')
+                && ((alignedPom.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind | 2.13.4 | **2.13.15** | version of the shared catalog pom.xml |'),
         "${(alignedRun.prs as List)[0]?.description} ${(alignedPom.prs as List)[0]?.description}")
 Map overtakenRun = catalogRun([
         'pom.xml'      : parentPoms['pom.xml'],
@@ -1171,21 +1172,21 @@ Map overtakenRun = catalogRun([
                          '<properties><jackson.version>2.13.4</jackson.version></properties><dependencies>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>' +
                          '<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${jackson.version}</version></dependency></dependencies></project>'
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4'], ['maven', jackson, 'jackson-core', '2.13.4', '2.18.0']]]])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12'], ['maven', jackson, 'jackson-core', '2.13.4', '2.13.20']]]])
 check('GoldenFix catalogs: a property raised to the catalog version names the shared catalog in its row, and not when another component raises it higher',
         keysRun.errors.isEmpty() && overtakenRun.errors.isEmpty()
                 && ((keysRun.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core ' +
-                '(property `jackson.version`) | 2.13.4 | **2.17.0** | version of the shared catalog pom.xml |')
+                '(property `jackson.version`) | 2.13.4 | **2.13.15** | version of the shared catalog pom.xml |')
                 && ((overtakenRun.prs as List)[0]?.description as String)?.contains('| `svc-a/pom.xml` | com.fasterxml.jackson.core:jackson-databind, com.fasterxml.jackson.core:jackson-core ' +
-                '(property `jackson.version`) | 2.13.4 | **2.18.0** | newest patch-level version |'),
+                '(property `jackson.version`) | 2.13.4 | **2.13.20** | newest patch-level version |'),
         "${keysRun.errors} ${overtakenRun.errors} ${(keysRun.prs as List)[0]?.description} ${(overtakenRun.prs as List)[0]?.description}")
 
 Map unrelatedRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b', 'svc-c'\n",
         'svc-a/build.gradle': "dependencies { implementation 'org.apache.commons:commons-text:1.9' }\n",
         'svc-b/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind' }\n",
-        'svc-c/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0' }\n"
-], [[name: 'svc-a', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.10.0']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+        'svc-c/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.15' }\n"
+], [[name: 'svc-a', fixes: [['maven', 'org.apache.commons', 'commons-text', '1.9', '1.9.4']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12']]]])
 check('GoldenFix catalogs: a newer declaration that the shared pull request did not change does not count as already raised',
         unrelatedRun.errors.isEmpty() && gfOf(unrelatedRun, 'svc-a').status == 'PR_CREATED' && gfOf(unrelatedRun, 'svc-b').status == 'NO_MANIFEST_CHANGES'
                 && reasonsOf(unrelatedRun, 'svc-b') == ['com.fasterxml.jackson.core:jackson-databind: not declared in any supported manifest (BOM/parent managed, or already upgraded)'],
@@ -1194,7 +1195,7 @@ Map ownFileRun = catalogRun([
         'settings.gradle'   : "include 'svc-a', 'svc-b'\n",
         'svc-a/build.gradle': "dependencies { implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.4' }\n",
         'svc-b/build.gradle': "dependencies {\n    implementation platform('org.springframework.boot:spring-boot-dependencies:2.7.18')\n    implementation 'com.fasterxml.jackson.core:jackson-databind'\n}\n"
-], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.15.4']]]])
+], [[name: 'svc-a', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12']]], [name: 'svc-b', fixes: [['maven', jackson, 'jackson-databind', '2.13.4', '2.13.12']]]])
 check('GoldenFix catalogs: a declaration that an earlier service raised in its own build file, not in a shared catalog, does not count as already raised',
         ownFileRun.errors.isEmpty() && gfOf(ownFileRun, 'svc-a').status == 'PR_CREATED' && gfOf(ownFileRun, 'svc-b').status == 'NO_MANIFEST_CHANGES'
                 && reasonsOf(ownFileRun, 'svc-b') == ['com.fasterxml.jackson.core:jackson-databind: not declared in any supported manifest (BOM/parent managed, or already upgraded)'],
@@ -1220,7 +1221,7 @@ check('GoldenFix npm: without the pre-check the lock file is not touched and the
         npmUnverified.errors.isEmpty() && (npmUnverified.commits as List)[0]?.files == ['web/package.json']
                 && ((npmUnverified.prs as List)[0]?.description as String)?.contains('> Lock files (package-lock.json, yarn.lock'),
         "${npmUnverified.errors} ${(npmUnverified.commits as List)[0]?.files}")
-Map npmOverride = catalogRun(npmFiles, [[name: 'web', goldenFix: [verify: [enabled: true, commands: [npm: 'npm install --legacy-peer-deps --ignore-scripts']]],
+Map npmOverride = catalogRun(npmFiles, [[name: 'web', goldenFix: [verify: [commands: [npm: 'npm install --legacy-peer-deps --ignore-scripts']]],
                                          fixes: [['npm', '', 'lodash', '4.17.15', '4.17.21']]]], [verify: true, fails: { Map w, String sh -> sh.contains('--package-lock-only') }])
 check('GoldenFix npm: an npm command of goldenFix.verify.commands runs as it is, without a lock file refresh in front and without the lock file in the commit',
         npmOverride.errors.isEmpty() && gfOf(npmOverride, 'web').status == 'PR_CREATED'
@@ -1286,7 +1287,7 @@ check('GoldenFix: a push that a hook or a branch permission declines says so wit
 List pubCandidates = parserHarness.run {
     parserHarness.type('com.bbh.scanner.NexusIqGoldenFixSource').selectCandidates([components: [
             [componentIdentifier: [format: 'pub', coordinates: [packageId: 'http', version: '0.13.4']], violations: [[policyThreatLevel: 7]]],
-            [componentIdentifier: [format: 'pub', coordinates: [name: 'intl', version: '0.17.0']], violations: [[policyThreatLevel: 7]]]]], 2, false, ['pub'])
+            [componentIdentifier: [format: 'pub', coordinates: [name: 'intl', version: '0.17.0']], violations: [[policyThreatLevel: 7]]]]], 2, ['pub'])
 } as List
 check('GoldenFix: pub components of an assumed Nexus IQ payload are named by packageId or name',
         pubCandidates.collect { "${it.name}@${it.version}".toString() } == ['http@0.13.4', 'intl@0.17.0'], pubCandidates)
@@ -1408,10 +1409,13 @@ pickHarness.run {
             ['next-no-violations', '2.0.0']]), '1.2.4')
     expect('a 0.x minor bump changes more than the patch', choice('0.13.4', [['next-non-failing', '0.13.6'],
             ['next-no-violations', '0.14.0']]), '0.13.6')
-    expect('without any patch offer the newest clean version is proposed instead', choice('1.2.3',
-            [['next-no-violations', '1.9.0'], ['next-no-violations', '1.4.0']]), '1.9.0')
-    expect('without any patch offer a clean major upgrade is still proposed', choice('1.2.3',
-            [['next-non-failing', '2.0.0'], ['next-no-violations', '3.1.0']]), '3.1.0')
+    expect('without any patch offer nothing is proposed', choice('1.2.3',
+            [['next-no-violations', '1.9.0'], ['next-no-violations', '1.4.0']]), 'none')
+    expect('without any patch offer a clean major upgrade is not proposed either', choice('1.2.3',
+            [['next-non-failing', '2.0.0'], ['next-no-violations', '3.1.0']]), 'none')
+    expect('a four-part version changes only its last number', choice('1.2.3.4',
+            [['next-no-violations', '1.2.4.0'], ['next-non-failing', '1.2.3.7']]), '1.2.3.7')
+    expect('a pre-release is never proposed', choice('1.2.3', [['next-no-violations', '1.2.4-rc1'], ['next-non-failing', '1.2.4']]), '1.2.4')
     expect('nothing is chosen when every offer is older', choice('2.0.0', [['next-no-violations', '1.9.0']]), 'none')
 }
 check('GoldenFix: the upgrade only changes the patch version, and is the newest such version without vulnerabilities',
@@ -1731,7 +1735,7 @@ Closure runScenario = { Map spec ->
                 harness.type('com.bbh.scm.BitbucketPullRequestPublisher').newInstance(script),
                 ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater'].collect {
                     harness.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
-                })
+                }, harness.type('com.bbh.build.ManifestBuildVerifier').newInstance(script))
         def nexusIq = harness.type('com.bbh.scanner.NexusIqService').newInstance(script, state, policy, remediation)
         def influx = harness.type('com.bbh.metrics.InfluxDbService').newInstance(script, state, os)
         def report = harness.type('com.bbh.report.HtmlReportService').newInstance(script, state, os, policy, spec.variant as String)
@@ -1919,8 +1923,11 @@ scenarios.each { Map spec ->
         check("${spec.name}: GoldenFix asks Nexus IQ for the application, the policy report and a remediation per eligible component",
                 calls.count { it.startsWith('GET https://tools.bbh.com/IQ/api/v2/applications?publicId=') } >= 1
                         && calls.count { it.startsWith('POST https://tools.bbh.com/IQ/api/v2/components/remediation/application/') } == 4, calls.join('\n      '))
+        check("${spec.name}: GoldenFix leaves a dependency untouched when Nexus IQ offers only a minor or major upgrade, and says why",
+                gradle.contains("'org.apache.commons:commons-text:1.9'")
+                && ((gui.unresolved ?: []) as List).any { it.component == 'org.apache.commons:commons-text' && String.valueOf(it.reason).contains('changes more than the last number of the version') }, gui.unresolved)
         check("${spec.name}: GoldenFix upgrades build.gradle to the patch version and the version property in gradle.properties",
-                gradle.contains("'org.apache.commons:commons-text:1.10.0'")
+                gradle.contains("'org.apache.commons:commons-text:1.9'")
                 && gradle.contains('"com.fasterxml.jackson.core:jackson-databind:2.13.5"') && gradle.contains('netty-codec-http:\${nettyVersion}')
                 && properties.contains('nettyVersion=4.1.108.Final') && properties.contains('org.gradle.jvmargs=-Xmx2g'), gradle + properties)
         check("${spec.name}: GoldenFix lists the BOM managed component as not applied", ((gui.unresolved ?: []) as List).any { it.component == 'org.yaml:snakeyaml' }, gui.unresolved)
@@ -2084,10 +2091,10 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
             def updater = dnHarness.type('com.bbh.remediation.updater.NugetUpdater').newInstance()
             List fixes = [
                     gf.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'recommended-non-breaking', '', 8, true, 'app'),
-                    gf.create('nuget', '', 'Serilog', '2.10.0', '2.12.0', 'next-no-violations', '', 4, true, 'app'),
+                    gf.create('nuget', '', 'Serilog', '2.10.0', '2.10.4', 'next-no-violations', '', 4, true, 'app'),
                     gf.create('nuget', '', 'Dapper', '2.0.90', '2.0.123', 'next-no-violations', '', 4, true, 'app'),
                     gf.create('nuget', '', 'AutoMapper', '10.1.1', '10.1.1-preview', 'next-no-violations', '', 4, true, 'app'),
-                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.15.0', 'next-no-violations', '', 4, true, 'app')
+                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.11.9', 'next-no-violations', '', 4, true, 'app')
             ]
             String csprojSrc = '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <NewtonsoftVer>12.0.1</NewtonsoftVer>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftVer)" />\n    <PackageReference Include="Serilog">\n      <Version>2.10.0</Version>\n    </PackageReference>\n    <PackageReference Include="AutoMapper" Version="[10.*,11.0)" />\n  </ItemGroup>\n</Project>\n'
             Map rCsproj = updater.updateDeclarations('src/Orders.Api/Orders.Api.csproj', csprojSrc, fixes)
@@ -2129,7 +2136,7 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
             def gf = dnHarness.type('com.bbh.remediation.model.GoldenFix')
             List fixes = [
                     gf.create('nuget', '', 'Newtonsoft.Json', '12.0.1', '12.0.3', 'recommended-non-breaking', '', 8, true, 'OrdersApp'),
-                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.15.0', 'next-no-violations', '', 4, true, 'OrdersApp')
+                    gf.create('nuget', '', 'RestSharp', '106.11.7', '106.11.9', 'next-no-violations', '', 4, true, 'OrdersApp')
             ]
             state.currentProjectName = 'orders-api'
             state.cfgDefaults = [sast: [maxCritical: 0, maxHigh: 0, maxMedium: 0], sca: [maxCritical: 0, maxHigh: 0, maxMedium: 0],
@@ -2137,7 +2144,7 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
             state.cfg = [
                     buildTool: 'dotnet',
                     tools    : [sonar: [projectName: 'Orders API', projectKey: 'com.bbh.orders:orders-api']],
-                    goldenFix: [enabled: true, ecosystems: ['nuget'], verify: [enabled: true, maxAttempts: 2, timeoutMinutes: 10]],
+                    goldenFix: [enabled: true, ecosystems: ['nuget'], verify: [maxAttempts: 2, timeoutMinutes: 10]],
                     scm      : [bitbucket: [url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders', credentialsId: 'bb-creds', targetBranch: 'develop']]
             ]
             state.projectsAllCfg = ['orders-api': state.cfg]
@@ -2322,10 +2329,10 @@ void verifyDotnetScenarios(File srcDir, File stubDir, File fixturesDir, Closure 
     Map nugetRes = (dotnetE2e.nuget ?: [:]) as Map
     check('NugetUpdater updates .csproj (MSBuild property + nested Version), Directory.Packages.props, and packages.config and skips ranges',
             ((nugetRes.csproj as Map)?.content as String)?.contains('<NewtonsoftVer>12.0.3</NewtonsoftVer>')
-                    && ((nugetRes.csproj as Map)?.content as String)?.contains('<Version>2.12.0</Version>')
+                    && ((nugetRes.csproj as Map)?.content as String)?.contains('<Version>2.10.4</Version>')
                     && ((nugetRes.csproj as Map)?.notes as List)?.any { (it as Map).reason?.toString()?.contains('range') }
                     && ((nugetRes.props as Map)?.content as String)?.contains('<PackageVersion Include="Dapper" Version="2.0.123" />')
-                    && ((nugetRes.pkgcfg as Map)?.content as String)?.contains('version="106.15.0"'),
+                    && ((nugetRes.pkgcfg as Map)?.content as String)?.contains('version="106.11.9"'),
             nugetRes)
 
     String winHtml = (dotnetE2e.winReportHtml ?: '') as String
@@ -2551,7 +2558,7 @@ projects:
             state.projectsVulnCounts['orders-dotnet']['sast'] = [critical: 1, high: 0, medium: 0, low: 0]
             state.nexusIqResults = [url: 'https://niq.bbh.com/orders', fix_url: 'https://niq.bbh.com/orders/fix', critical: 1, high: 0, medium: 0]
             state.recordNexusIq('FAIL')
-            state.recordGoldenFix([status: 'PR_CREATED', prId: '702', prUrl: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702', prTitle: 'GoldenFix orders-dotnet', branch: 'goldenfix-orders', targetBranch: 'develop', changes: [[file: 'Orders.csproj', component: 'Newtonsoft.Json', from: '12.0.1', to: '13.0.3']]])
+            state.recordGoldenFix([status: 'PR_CREATED', prId: '702', prUrl: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702', prTitle: 'GoldenFix orders-dotnet', branch: 'goldenfix-orders', targetBranch: 'develop', changes: [[file: 'Orders.csproj', component: 'Newtonsoft.Json', from: '12.0.1', to: '12.0.3']]])
             state.goldenFixPullRequestsByRepo['bitbucket.bbh.com/projects/ord/repos/orders-dotnet'] = [id: '702', url: 'https://bitbucket.bbh.com/projects/ORD/repos/orders-dotnet/pull-requests/702', title: 'GoldenFix orders-dotnet', branch: 'goldenfix-orders', targetBranch: 'develop']
 
             config.switchProject('core-java')
@@ -2622,13 +2629,13 @@ projects:
             ]] as Object[])
             def memPub = vh.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
             def source = vh.type('com.bbh.fixture.StaticGoldenFixSource').newInstance([[
-                    [key: 'maven:com.fasterxml.jackson.core:jackson-databind', ecosystem: 'maven', group: 'com.fasterxml.jackson.core', name: 'jackson-databind', displayName: 'com.fasterxml.jackson.core:jackson-databind', currentVersion: '2.13.0', targetVersion: '2.15.2', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
+                    [key: 'maven:com.fasterxml.jackson.core:jackson-databind', ecosystem: 'maven', group: 'com.fasterxml.jackson.core', name: 'jackson-databind', displayName: 'com.fasterxml.jackson.core:jackson-databind', currentVersion: '2.13.0', targetVersion: '2.13.5', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
             ]] as Object[])
             def state = vh.type('com.bbh.core.PipelineState').newInstance()
             def updaters = ['MavenPomUpdater', 'GradleUpdater', 'NpmPackageJsonUpdater', 'PipUpdater', 'PubUpdater', 'NugetUpdater'].collect {
                 vh.type("com.bbh.remediation.updater.${it}".toString()).newInstance()
             }
-            def gf = vh.type('com.bbh.remediation.GoldenFixService').newInstance(vs, state, source, memRepo, memPub, updaters)
+            def gf = vh.type('com.bbh.remediation.GoldenFixService').newInstance(vs, state, source, memRepo, memPub, updaters, vh.type('com.bbh.fixture.PassingBuildVerifier').newInstance())
 
             Map sharedVcRepo = [
                     url          : 'https://bitbucket.bbh.com/projects/SHARED/repos/version-catalogs',
@@ -2644,8 +2651,8 @@ projects:
 
             source.fixes.clear()
             source.fixes.addAll([
-                    [key: 'nuget:newtonsoft.json', ecosystem: 'nuget', group: '', name: 'Newtonsoft.Json', displayName: 'Newtonsoft.Json', currentVersion: '12.0.1', targetVersion: '13.0.3', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true],
-                    [key: 'nuget:serilog', ecosystem: 'nuget', group: '', name: 'Serilog', displayName: 'Serilog', currentVersion: '2.10.0', targetVersion: '2.12.0', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
+                    [key: 'nuget:newtonsoft.json', ecosystem: 'nuget', group: '', name: 'Newtonsoft.Json', displayName: 'Newtonsoft.Json', currentVersion: '12.0.1', targetVersion: '12.0.3', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true],
+                    [key: 'nuget:serilog', ecosystem: 'nuget', group: '', name: 'Serilog', displayName: 'Serilog', currentVersion: '2.10.0', targetVersion: '2.10.4', alternatives: [], remediationType: 'GOLDEN', golden: true, nonBreaking: true]
             ])
             state.currentProjectName = 'orders-dotnet'
             state.cfg = [
@@ -2672,11 +2679,11 @@ projects:
     check('Shared external versionCatalogRepo upgrades catalog dependencies in shared repo first across multiple projects and only upgrades non-catalog dependencies locally',
             (vcTest.errors as List).isEmpty()
                     && coreRes.status == 'PR_CREATED'
-                    && (written['/ws@tmp/version-catalogs/main/gradle/libs.versions.toml'] as String)?.contains('jackson = "2.15.2"')
+                    && (written['/ws@tmp/version-catalogs/main/gradle/libs.versions.toml'] as String)?.contains('jackson = "2.13.5"')
                     && !written.containsKey('build.gradle')
-                    && (written['/ws@tmp/version-catalogs/main/Directory.Packages.props'] as String)?.contains('Version="13.0.3"')
+                    && (written['/ws@tmp/version-catalogs/main/Directory.Packages.props'] as String)?.contains('Version="12.0.3"')
                     && (written['Orders.csproj'] as String)?.contains('Include="Newtonsoft.Json" Version="12.0.1"')
-                    && (written['Orders.csproj'] as String)?.contains('Include="Serilog" Version="2.12.0"')
+                    && (written['Orders.csproj'] as String)?.contains('Include="Serilog" Version="2.10.4"')
                     && ordRes.status == 'PR_CREATED'
                     && (ordRes.changes as List)?.size() == 2
                     && (ordRes.notes as List)?.any { (it as String).contains('Shared version catalog pull request:') }

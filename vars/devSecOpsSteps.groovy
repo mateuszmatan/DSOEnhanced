@@ -80,8 +80,8 @@ def staticAnalysis(def api) {
     api.scanWhileSastRuns({ sastQueue(api) }, {
         unitTests(api)
         dependenciesScan(api)
+        sonarQube(api)
     }, { sastResults(api) })
-    sonarQube(api)
     decorateStaticPullRequests(api)
 }
 

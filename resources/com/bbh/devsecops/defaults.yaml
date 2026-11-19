@@ -63,7 +63,6 @@ defaults:
 
   goldenFix:
     enabled:                true
-    onlyDirectDependencies: true   # only libraries declared directly by the application
     minThreatLevel:         2      # Nexus IQ threat level: 2+ medium (moderate), 4+ high (severe), 8+ critical
     ecosystems:             [maven, npm, pypi, nuget]
     goldenVersionTypes:            # Nexus IQ remediation types reported as the Golden Version (Maven)
@@ -72,9 +71,8 @@ defaults:
                                    # the version is chosen by two rules, in this order:
                                    # 1. only the patch version may change, x.y stays as it is
                                    # 2. of those, the newest one without known vulnerabilities
-                                   # with no patch level offer the newest clean version of any level is used
+                                   # with no patch level offer the dependency is left untouched
     verify:                          # pre-check: build the project with the proposed versions before opening the PR
-      enabled:        true           # a failing build lowers the proposed versions and tries again
       maxAttempts:    3              # how many version sets are tried before giving up
       timeoutMinutes: 20
       commands:                      # one check per ecosystem whose manifest changed, defaults shown

@@ -85,7 +85,6 @@
     },
     "goldenFix": {
       "enabled": true,
-      "onlyDirectDependencies": true,
       "minThreatLevel": 2,
       "ecosystems": [
         "maven",
@@ -97,7 +96,6 @@
         "recommended-non-breaking"
       ],
       "verify": {
-        "enabled": true,
         "maxAttempts": 3,
         "timeoutMinutes": 20
       },

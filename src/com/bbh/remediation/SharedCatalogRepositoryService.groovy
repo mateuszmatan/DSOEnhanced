@@ -3,6 +3,7 @@ package com.bbh.remediation
 import com.bbh.core.PipelineState
 import com.bbh.remediation.model.GoldenFix
 import com.bbh.remediation.model.VersionCatalogs
+import com.bbh.remediation.port.BuildVerifier
 import com.bbh.remediation.port.ManifestUpdater
 import com.bbh.remediation.port.PullRequestPublisher
 import com.bbh.remediation.port.SourceRepository
@@ -16,14 +17,16 @@ class SharedCatalogRepositoryService implements Serializable {
     private final SourceRepository repository
     private final PullRequestPublisher publisher
     private final List<ManifestUpdater> updaters
+    private final BuildVerifier verifier
 
     SharedCatalogRepositoryService(def script, PipelineState state, SourceRepository repository,
-                                   PullRequestPublisher publisher, List<ManifestUpdater> updaters) {
+                                   PullRequestPublisher publisher, List<ManifestUpdater> updaters, BuildVerifier verifier = null) {
         this.script = script
         this.state = state
         this.repository = repository
         this.publisher = publisher
         this.updaters = updaters
+        this.verifier = verifier
     }
 
     Map resolveVersionCatalogRepo(Map cfg) {
@@ -114,6 +117,14 @@ class SharedCatalogRepositoryService implements Serializable {
 
         List<String> notes = [] + (extRun.notes as List<String>)
         if (covered && raisedNote) notes << raisedNote
+
+        Map check = extRun.files ? precheck(extDir, extRun.files as List<String>, extRun.entries as Map, (cfg.verify ?: [:]) as Map, title) : [ok: true, skipped: false, log: '']
+        if (!check.ok || check.skipped) {
+            String why = check.ok ? "the pre-check build could not run (${check.log})" : "the pre-check build failed (${check.log})"
+            script.echo "[GOLDENFIX] Shared version catalog: ${why} - no pull request is raised in ${repoUrl}"
+            repository.revert(extDir)
+            return [handledKeys: [] as Set, changes: [], notes: ["Shared version catalog ${repoUrl}: ${why}, so no pull request was raised there".toString()]]
+        }
 
         String commitId = extRun.files
                 ? repository.commit(extDir, extRun.files as List<String>, GoldenFixPullRequestView.commitMessage(title, extRun.changes as List, scanRefs), [name: cfg.commitAuthorName, email: cfg.commitAuthorEmail])
@@ -266,7 +277,7 @@ class SharedCatalogRepositoryService implements Serializable {
             String what = c.property ? "property ${c.property} (${c.component})" : c.component
             script.echo "[GOLDENFIX]   [catalog-repo] ${c.file}: ${what} ${c.from} -> ${c.to}"
         }
-        return [files: extRun.files, changes: extRun.changes, found: extRun.found, notes: []]
+        return [files: extRun.files, changes: extRun.changes, found: extRun.found, notes: [], entries: entries]
     }
 
     private List<String> filesOf(ManifestUpdater updater, List<String> files) {
@@ -295,6 +306,45 @@ class SharedCatalogRepositoryService implements Serializable {
         } catch (Throwable ignored) {
             return ''
         }
+    }
+
+    private Map precheck(String extDir, List<String> files, Map entries, Map verifyCfg, String title) {
+        if (verifier == null) return [ok: true, skipped: true, log: 'no build verifier is wired in']
+        Map own = verifier.verify(extDir, files, verifyCfg + [catalogConsumers: catalogRoots(extDir, files, entries ?: [:])])
+        if (!own.skipped) return own
+        String appDir = repository.prepareWorkingCopy("${title}-catalog-check".toString())
+        try {
+            List<String> overlaid = []
+            for (String f : files) {
+                if (!readQuiet(appDir, f)) continue
+                repository.writeText(appDir, f, repository.readText(extDir, f))
+                overlaid << f
+            }
+            if (!overlaid) return [ok: true, skipped: true, log: 'the catalog repository has no build and the application has no copy of the changed files']
+            Map consumers = [:]
+            for (String f : overlaid) consumers[f] = ['']
+            script.echo "[GOLDENFIX] Shared version catalog: pre-check build of the application with ${overlaid.join(', ')}"
+            return verifier.verify(appDir, overlaid, verifyCfg + [catalogConsumers: consumers, node: state.cfg?.build?.node])
+        } finally {
+            repository.cleanup(appDir)
+        }
+    }
+
+    private Map catalogRoots(String extDir, List<String> files, Map entries) {
+        boolean gradleBuild = false
+        for (String name : ['settings.gradle', 'settings.gradle.kts', 'build.gradle', 'build.gradle.kts']) {
+            if (readQuiet(extDir, name)) gradleBuild = true
+        }
+        boolean dotnetBuild = !repository.findFiles(extDir, ['*.sln', '*.csproj', '*.fsproj', '*.vbproj'], GoldenFixService.defaultExcludedDirs()).isEmpty()
+        Map roots = [:]
+        for (String f : files) {
+            List consumers = ((entries[f] as Map)?.consumers ?: []) as List
+            String low = BuildUtils.fileNameOf(f).toLowerCase()
+            if (consumers) roots[f] = consumers
+            else if (low.endsWith('.toml') || low == 'gradle.properties') roots[f] = gradleBuild ? [''] : []
+            else if (low.endsWith('.props')) roots[f] = dotnetBuild ? [''] : []
+        }
+        return roots
     }
 
     private String prepareExternalCatalog(String url, String branch, String credentialsId, String authType) {

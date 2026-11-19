@@ -74,15 +74,10 @@ class GoldenFix implements Serializable {
         for (Map upgrade : upgrades) {
             if (patchLevelChange(currentVersion, upgrade.version as String)) patchOnly << upgrade
         }
-        if (!patchOnly.isEmpty()) {
-            Map picked = newestCleanest(patchOnly)
-            return [type: picked.type, version: picked.version, golden: isGoldenType(picked.type as String, goldenVersionTypes),
-                    nonBreaking: true, issues: picked.issues, alternatives: lowerThan(patchOnly, picked.version as String)]
-        }
-
-        Map fallback = newestCleanest(upgrades)
-        return [type: fallback.type, version: fallback.version, golden: isGoldenType(fallback.type as String, goldenVersionTypes),
-                nonBreaking: false, issues: fallback.issues, alternatives: lowerThan(upgrades, fallback.version as String)]
+        if (patchOnly.isEmpty()) return null
+        Map picked = newestCleanest(patchOnly)
+        return [type: picked.type, version: picked.version, golden: isGoldenType(picked.type as String, goldenVersionTypes),
+                nonBreaking: true, issues: picked.issues, alternatives: lowerThan(patchOnly, picked.version as String)]
     }
 
     @NonCPS
@@ -159,32 +154,35 @@ class GoldenFix implements Serializable {
     static boolean patchLevelChange(String current, String target) {
         List a = numericPrefix(current)
         List b = numericPrefix(target)
-        if (a.size() < 2 || b.size() < 2) return false
-        return a[0] == b[0] && a[1] == b[1]
+        if (a.isEmpty() || b.isEmpty() || preRelease(target)) return false
+        int size = Math.max(3, Math.max(a.size(), b.size()))
+        while (a.size() < size) a << '0'
+        while (b.size() < size) b << '0'
+        int last = a.size() - 1
+        for (int i = 0; i < last; i++) {
+            if (a[i] != b[i]) return false
+        }
+        return compareNumeric(a[last] as String, b[last] as String) < 0
+    }
+
+    @NonCPS
+    static boolean preRelease(String version) {
+        for (def token : tokenize(version)) {
+            if (!(token[0] as boolean) && (token[1] as String) in ['alpha', 'a', 'beta', 'b', 'rc', 'cr', 'm', 'milestone', 'snapshot', 'preview', 'pre', 'dev', 'ea']) return true
+        }
+        return false
     }
 
     @NonCPS
     static String selectionLabel(Map fix) {
         if (fix?.alignedTo) return "version of the shared catalog ${fix.alignedTo}".toString()
         String type = (fix?.remediationType ?: '') as String
-        String scope = (fix?.nonBreaking == false)
-                ? 'changes more than the patch version, no patch-level upgrade is offered'
-                : 'newest patch-level version'
+        String scope = 'newest patch-level version'
         String clean = type.contains('no-violations') ? ', no known vulnerabilities' : ''
         if (fix?.golden) {
             return type ? "${scope}${clean}, Nexus IQ Golden Version (${type})".toString() : "${scope}${clean}".toString()
         }
         return type ? "${scope}${clean} (${type})".toString() : scope
-    }
-
-    @NonCPS
-    static boolean backwardCompatible(String current, String target) {
-        List a = numericPrefix(current)
-        List b = numericPrefix(target)
-        if (a.isEmpty() || b.isEmpty()) return false
-        if (a[0] != b[0]) return false
-        if (a[0] == '0') return a.size() > 1 && b.size() > 1 && a[1] == b[1]
-        return true
     }
 
     @NonCPS
@@ -256,17 +254,6 @@ class GoldenFix implements Serializable {
         for (def item : (source ?: [])) {
             if (!target.contains(item)) target << item
         }
-    }
-
-    @NonCPS
-    private static boolean preferredOver(Map candidate, Map best, String currentVersion) {
-        boolean candidateCompatible = backwardCompatible(currentVersion, candidate.version as String)
-        boolean bestCompatible = backwardCompatible(currentVersion, best.version as String)
-        if (candidateCompatible != bestCompatible) return candidateCompatible
-        boolean candidateClean = (candidate.type as String).contains('no-violations')
-        boolean bestClean = (best.type as String).contains('no-violations')
-        if (candidateClean != bestClean) return candidateClean
-        return compare(candidate.version as String, best.version as String) < 0
     }
 
     @NonCPS

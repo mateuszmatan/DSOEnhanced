@@ -4,6 +4,14 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
 
 ## [Unreleased]
 
+### Changed
+- GoldenFix changes only the last number of a version (the patch): `1.2.3` may become `1.2.4`, never `1.3.0`. The fallback to a minor or major upgrade when Nexus IQ offers no patch version is removed; such a dependency is left untouched. Pre-releases are never proposed, and every manifest applies the rule to the version it declares.
+- GoldenFix proposes only direct dependencies: `goldenFix.onlyDirectDependencies` is removed. `overrides`, `resolutions` and `constraints*.txt` are changed only for components that Nexus IQ marks as direct.
+- The GoldenFix pre-check build is mandatory: `goldenFix.verify.enabled` is removed, and a change that no build can verify ends `NOT_VERIFIED` without a pull request.
+- The shared version catalog repository is verified before its pull request: its own build, or the application built with the changed catalog files; otherwise no pull request is raised there.
+- A dependency left untouched because Nexus IQ offers only a minor or major upgrade is listed in the report and in the metrics under the upgrades that were not applied automatically, with the version Nexus IQ offers.
+- With parallel static analysis, SonarQube runs while AppScan scans, after the unit tests and Nexus IQ, so the stage ends when the SAST results are read. The steps that build in the shared workspace still run one after another, so Nexus IQ never scans artifacts that are being rebuilt.
+
 ### Fixed
 - C# / .NET coverage now reaches SonarQube: `dotnet test` (and `vstest.console` with Coverlet) collects `XPlat Code Coverage;Format=opencover`, so `coverage.opencover.xml` is read by both the pipeline report and `sonar.cs.opencover.reportsPaths`. `coverageTool: cobertura` stays available for the report only and logs a `[WARN]` that SonarQube cannot import it for C#.
 - The .NET settings `build.dotnet.mode`, `useDotnetCli`, `tests.unitTests.dotnet.runner` and `coverageTool` are validated by one class (`DotnetOptions`), so the auto-resolve and the build runner accept the same values and log the same `[WARN]` fallback.

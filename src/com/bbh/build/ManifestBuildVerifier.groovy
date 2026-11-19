@@ -16,10 +16,12 @@ class ManifestBuildVerifier implements BuildVerifier {
 
     Map verify(String dir, List<String> changedFiles, Map cfg) {
         Map consumers = (cfg?.catalogConsumers ?: [:]) as Map
-        for (String file : unverified(changedFiles, consumers)) script.echo "GoldenFix: no Gradle build found for ${file} - not verified"
+        List<String> missing = unverified(changedFiles, consumers)
+        for (String file : missing) script.echo "GoldenFix: no build found for ${file} - not verified"
         List checks = plan(changedFiles, (cfg?.commands ?: [:]) as Map, consumers, (cfg?.lockFiles ?: []) as List)
-        if (checks.isEmpty()) {
-            return [ok: true, skipped: true, log: 'no manifest that the library knows how to verify was changed', checks: [], files: []]
+        if (missing || checks.isEmpty()) {
+            String what = missing ? "no build uses ${missing.join(', ')}" : 'no manifest that the library knows how to verify was changed'
+            return [ok: true, skipped: true, log: what, checks: [], files: []]
         }
         int timeoutMin = (cfg?.timeoutMinutes != null ? cfg.timeoutMinutes.toString().toInteger() : 20)
         List results = []
@@ -131,7 +133,8 @@ Write-Output "DEVSECOPS_EXIT=\$LASTEXITCODE"
     List<String> unverified(List<String> changedFiles, Map consumers) {
         List<String> out = []
         for (String path : (changedFiles ?: [])) {
-            if (consumers?.containsKey(path) && !(consumers[path] as List)) out << path
+            boolean shared = consumers?.containsKey(path)
+            if (shared ? !(consumers[path] as List) : !kindOf(BuildUtils.fileNameOf(path))) out << path
         }
         return out
     }

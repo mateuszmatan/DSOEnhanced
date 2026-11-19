@@ -198,7 +198,7 @@ def parallelScans() {
 def scanWhileSastRuns(Closure queue, Closure scans, Closure results) {
     _setup()
     String sast = PolicyEngine.stageNameFor('sast')
-    echo '[STATIC] SAST queues the scan of every service first; Unit tests and Nexus IQ then run while AppScan scans, SAST reads the results, and SonarQube runs last'
+    echo '[STATIC] SAST queues the scan of every service first; Unit tests, Nexus IQ and SonarQube then run one after another while AppScan scans, and SAST reads the results last'
     String part = 'queue'
     _state.stageStart(sast)
     try {

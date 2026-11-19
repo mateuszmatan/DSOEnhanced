@@ -257,6 +257,11 @@ class ReportViewModel implements Serializable {
                             'failed again with the other versions the pipeline tried, so nothing was proposed rather than handing over a change ' +
                             'that breaks the application. The vulnerabilities above are still there and the upgrade has to be done by a developer.']
         }
+        if (status == 'NOT_VERIFIED') {
+            return [headline   : 'The upgrade was not proposed because the pipeline could not build the application with it.',
+                    explanation: 'An upgrade is only proposed after a pre-check build with the new versions has passed. The pipeline found no ' +
+                            'build it could run for the changed files, so nothing was proposed. ' + ReportViewModel.goldenFixDetail(gf)]
+        }
         if (status == 'SKIPPED') {
             return [headline   : 'Automatic upgrades are switched off for this project.',
                     explanation: ReportViewModel.goldenFixDetail(gf)]

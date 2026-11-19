@@ -148,7 +148,7 @@ class GradleUpdater implements ManifestUpdater {
             return null
         }
         String target = fix.targetVersion as String
-        boolean upgrade = GoldenFix.isUpgrade(declared, target)
+        boolean upgrade = GoldenFix.patchLevelChange(declared, target)
         r.found << UpdaterSupport.found(path, [fix.key], upgrade ? target : declared, alias)
         if (!upgrade) return null
         Map change = UpdaterSupport.change(path, fix, declared, target)
@@ -166,7 +166,7 @@ class GradleUpdater implements ManifestUpdater {
             }
             return null
         }
-        boolean upgrade = GoldenFix.isUpgrade(value, target)
+        boolean upgrade = GoldenFix.patchLevelChange(value, target)
         r.found << UpdaterSupport.found(path, property.componentKeys as List, upgrade ? target : value, key)
         if (!upgrade) return null
         r.changes << UpdaterSupport.propertyChange(path, property + [name: key], value)
