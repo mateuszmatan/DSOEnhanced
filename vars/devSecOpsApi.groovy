@@ -387,10 +387,16 @@ private boolean _parallelSwitch(String block, def forced, String envName, String
         echo "${tag} ${parallelText}${decision.source == envName ? " (${envName}=true)" : " (${decision.key}: true, the default)"}"
     } else if (decision.source == envName) {
         echo "${tag} ${envName}=false: ${sequentialText}"
+    } else if (decision.source == 'defaults') {
+        echo "${tag} ${_defaultsOrigin()}${decision.key}: false - ${sequentialText}"
     } else {
         echo "${tag} ${(decision.optedOut as List).join(', ')}: ${decision.key}: false - ${sequentialText}"
     }
     return decision.enabled as boolean
+}
+
+private String _defaultsOrigin() {
+    return 'defaults.'
 }
 
 def sastCompileOverrides() {

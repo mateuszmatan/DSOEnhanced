@@ -4,6 +4,7 @@ import com.cloudbees.groovy.cps.NonCPS
 
 class RepoStackAutoResolver implements Serializable {
     private final def script
+    private boolean quiet = false
 
     RepoStackAutoResolver(def script) {
         this.script = script
@@ -47,6 +48,24 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     Map resolve(Map currentCfg, String serviceName = '', Map explicitCfg = null) {
+        quiet = false
+        return resolveAll(currentCfg, serviceName, explicitCfg)
+    }
+
+    Map resolveQuietly(Map currentCfg, String serviceName, Map explicitCfg) {
+        quiet = true
+        try {
+            return resolveAll(currentCfg, serviceName, explicitCfg)
+        } finally {
+            quiet = false
+        }
+    }
+
+    private void say(String line) {
+        if (!quiet) script.echo line
+    }
+
+    private Map resolveAll(Map currentCfg, String serviceName, Map explicitCfg) {
         Map cfg = currentCfg != null ? [:] + currentCfg : [:]
         def flag = cfg.get('autoresolve parameters')
         if (flag == null) flag = cfg.autoresolveParameters
@@ -77,7 +96,7 @@ class RepoStackAutoResolver implements Serializable {
                 return
             }
             String detected = detectToolFromRepo(sd) ?: (((cfg.buildTool as String) && BuildUtils.isValidBuildTool(cfg.buildTool as String)) ? BuildUtils.normalizeToolName(cfg.buildTool as String) : 'gradle')
-            script.echo "[WARN] Invalid buildTool '${existing}' in configuration. Falling back to auto-detected buildTool '${detected}'."
+            say "[WARN] Invalid buildTool '${existing}' in configuration. Falling back to auto-detected buildTool '${detected}'."
             cfg.buildTool = detected
             checkJdkAutoSetup(cfg, detected, sd)
             return
@@ -172,7 +191,7 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private String warnFallback(String problem, String what, String fallback) {
-        script.echo "[WARN] ${problem}. Falling back to auto-detected ${what} '${fallback}'."
+        say "[WARN] ${problem}. Falling back to auto-detected ${what} '${fallback}'."
         return fallback
     }
 
@@ -262,7 +281,7 @@ class RepoStackAutoResolver implements Serializable {
                 return
             }
             String fallback = hasContainer ? 'openshift' : ((cfg.deployTarget as String) ?: 'vm')
-            script.echo "[WARN] Invalid deployTarget '${existing}' in configuration. Falling back to auto-detected deployTarget '${fallback}'."
+            say "[WARN] Invalid deployTarget '${existing}' in configuration. Falling back to auto-detected deployTarget '${fallback}'."
             cfg.deployTarget = fallback
             if (fallback == 'openshift' && !cfg.appName) cfg.appName = serviceName ?: 'app'
             return

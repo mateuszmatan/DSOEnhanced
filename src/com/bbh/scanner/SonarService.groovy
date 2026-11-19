@@ -81,7 +81,7 @@ class SonarService implements Serializable {
                 String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
                 Map runCfg = effectiveSonarCfg(sonarCfg as Map, runnerTool)
                 withSonarEnv(credentialsId as String, installationName as String) {
-                    new BuildRunner(script, runCfg, runnerTool).run()
+                    new BuildRunner(script, runCfg, runnerTool, BuildUtils.pluginRepositories(state.cfg)).run()
                     if (addBadges) {
                         script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
                     }

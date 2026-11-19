@@ -49,6 +49,11 @@ defaults:
   tests:
     maxParallel: 20                # max test jobs (smoke/regression/performance) running at the same time
 
+  pluginRepositories:              # the BBH Nexus that a failed Gradle or Maven step takes a missing plugin from, before it runs again
+    enabled: true
+    gradle:  "https://tools.bbh.com/nexus/repository/gradle-plugins/"
+    maven:   "https://tools.bbh.com/nexus/repository/maven-public/"
+
   report:
     manualEffort:                  # minutes a person spends on a step done by hand: the Manual actions column of the pipeline report
       buildTrigger:  10            # starting the build of the code

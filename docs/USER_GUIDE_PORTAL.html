@@ -592,7 +592,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li>Unit tests, Nexus IQ, SAST and SonarQube run <strong>in parallel</strong> in the stage <em>Static analysis</em>; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.</li>
 <li>The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (<em>Dynamic analysis</em>).</li>
 <li>The report shows the time one after another and in parallel, and ends with the table <strong>Manual actions vs DevSecOps Automated Actions</strong> and the time recovered by the run.</li>
-<li><code>staticAnalysis.parallel: false</code> or <code>dynamicAnalysis.parallel: false</code> runs the stages one after another again.</li>
+<li>Both are on by default. Unticking <strong>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</strong> or <strong>Run the regression, smoke and performance tests and DAST at the same time</strong> in the Global Settings (<code>staticAnalysis.parallel</code>, <code>dynamicAnalysis.parallel</code>) runs the stages one after another again; without a key, <code>false</code> in <code>devsecops_config.yaml</code> does the same.</li>
 <li><strong>Streamlined Configuration:</strong></li>
 <li>The <strong>main SAST section</strong> holds only the AppScan application ID (<code>appId</code>) of the service.</li>
 <li><code>sast.scanName</code> is available in <strong>Advanced Settings</strong> for custom scan naming.</li>
@@ -647,17 +647,17 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
 <ol>
 <li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling backend code.</li>
-<li><strong>Stage 2: Concurrent Verification (Unit Tests + SAST + Nexus IQ):</strong>
+<li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (unticking <em>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</em> in the Global Settings runs them one after another).
   <ul>
-    <li><strong>Unit Tests:</strong> Runs tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
-    <li><strong>SAST (HCL AppScan):</strong> Queues static security scanning in the background and retrieves findings.</li>
-    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix.</li>
+    <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
+    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
+    <li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
+    <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.</li>
   </ul>
 </li>
-<li><strong>Stage 3: SonarQube (Static Code Analysis &amp; Quality Gate):</strong>
+<li><strong>Stage 3: Results:</strong> A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.
   <ul>
-    <li>Runs last after Unit tests, SAST, and Nexus IQ have finished.</li>
-    <li>Ingests test execution and coverage reports to enforce the SonarQube Quality Gate.</li>
+    <li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <em>Run the regression, smoke and performance tests and DAST at the same time</em> in the Global Settings).</li>
   </ul>
 </li>
 </ol>

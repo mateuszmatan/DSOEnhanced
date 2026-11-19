@@ -105,6 +105,12 @@ The `devsecops_config.yaml` file resides in the root directory of your repositor
 - If not found, it checks for `config.yaml` (100% backward compatible).
 - The library reads the `projects:` section where each service of your application is declared.
 
+### How a value is chosen:
+- A key you set is always used, also when it equals the default, so the files of earlier releases keep working.
+- A value of the wrong kind (text for a number, a word for `true`/`false`, a map for a list) falls back to the library default, with an `[INIT] [WARN]` line that names the key, the value and the default.
+- A name in `projectNames` that the file does not have is left out with an `[INIT] [WARN]` line; when no name is left, the run builds every service of the file.
+- A key whose value the library would use anyway (the library default, or what the auto-detection finds in the repository, such as `buildTool: maven` next to a `pom.xml`) is named in an `[INIT] [INFO] ... - the key can be removed from devsecops_config.yaml` line, so you can shorten the file.
+
 ---
 
 ## 4. Multi-Service and Multi-Repository Bitbucket Support
@@ -129,6 +135,7 @@ The pipeline supports all enterprise programming languages and build tools (with
 - **Java / Kotlin / Groovy / Android:**
   - Build via Maven (`buildTool: 'maven'`) or Gradle (`buildTool: 'gradle'` / `'android'`).
   - Standard command: `clean package -DskipTests` or `clean assemble -x test`.
+  - **Plugins from the BBH Nexus:** when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (`pluginRepositories` of the library defaults), and the console says which plugins came from it and where to add the repository.
 - **Node.js / TypeScript / Angular / React / Vue:**
   - Build via npm (`buildTool: 'npm'`).
   - Standard command: `npm ci && npm run build --prod`.
@@ -179,9 +186,9 @@ The pipeline supports all enterprise programming languages and build tools (with
 
 Static security analysis executed in the cloud:
 
-- **Parallel Background Scanning:**
-  - Generates the IRX archive and submits the scan to HCL ASOC in the background.
-  - Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.
+- **Stages at the same time:**
+  - By default SAST runs at the same time as the unit tests, Nexus IQ and SonarQube, as a parallel branch of *Static analysis*: it generates the IRX archive in a copy of the workspace, submits the scan to HCL ASOC and reads the results when the scan ends.
+  - `staticAnalysis.parallel: false` in any service runs the four stages one after another; the report shows how long they took one after another and in parallel.
 - **Credentials Configuration:**
   - SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (`asoc.keyId` and the Jenkins Secret text credential named in `asoc.token` of `resources/com/bbh/devsecops/defaults.yaml`).
   - A service sets only its application ID; a `keyId`, `token` or `credentialsId` of a service is ignored with a `[WARN]` line:

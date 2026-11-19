@@ -195,7 +195,7 @@ class BuildUtils implements Serializable {
             }
         }
         result.enabled = enabled
-        result.source = enabled ? 'default' : key
+        result.source = enabled ? 'default' : (inherited && strictBoolean((shared as Map).get('parallel')) == false ? 'defaults' : key)
         return result
     }
 
@@ -392,5 +392,112 @@ class BuildUtils implements Serializable {
             apps << (cfg.nexusIq.application as String).trim()
         }
         return apps.findAll { it }.unique()
+    }
+
+    @NonCPS
+    static Map pluginRepositories(Map cfg, Map fallback = null) {
+        def raw = cfg?.get('pluginRepositories')
+        if (!(raw instanceof Map)) raw = fallback?.get('pluginRepositories')
+        Map repositories = (raw instanceof Map ? raw : [:]) as Map
+        if (!booleanValue(repositories.enabled, true)) return [:]
+        return [gradle: ((repositories.gradle ?: '') as String).trim(), maven: ((repositories.maven ?: '') as String).trim()]
+    }
+
+    @NonCPS
+    static String folderKey(String path) {
+        String key = (path ?: 'workspace').replaceAll('[^A-Za-z0-9]+', '_').replaceAll('^_+|_+$', '')
+        return key.length() > 80 ? key.substring(key.length() - 80) : (key ?: 'workspace')
+    }
+
+    @NonCPS
+    static List<String> missingPlugins(String tool, String output) {
+        List<String> found = []
+        String text = output ?: ''
+        if (tool == 'gradle') {
+            def ids = text =~ "Plugin \\[id: '([^']+)'(?:, version: '([^']+)')?[^\\]]*\\] was not found"
+            while (ids.find()) found << (ids.group(2) ? "${ids.group(1)}:${ids.group(2)}".toString() : ids.group(1) as String)
+            if (text =~ "Could not resolve all (?:files|artifacts|dependencies) for configuration '[^']*classpath'") {
+                def modules = text =~ "Could not (?:find|resolve) ([\\w.\\-]+:[\\w.\\-]+:[\\w.\\-+]*[\\w+])"
+                while (modules.find()) found << modules.group(1)
+            }
+        } else {
+            def plugins = text =~ "Plugin ([\\w.\\-]+:[\\w.\\-]+:[\\w.\\-]*\\w) or one of its dependencies could not be resolved"
+            while (plugins.find()) found << plugins.group(1)
+            def descriptors = text =~ "Failed to retrieve plugin descriptor for ([\\w.\\-]+:[\\w.\\-]+:[\\w.\\-]*\\w)"
+            while (descriptors.find()) found << descriptors.group(1)
+            def prefixes = text =~ "No plugin found for prefix '([^']+)'"
+            while (prefixes.find()) found << "prefix ${prefixes.group(1)}".toString()
+        }
+        return found.unique()
+    }
+
+    @NonCPS
+    static boolean ownMavenSettings(List flags) {
+        return (flags ?: []).any { def f -> (f as String) in ['-s', '--settings'] || (f as String).startsWith('--settings=') }
+    }
+
+    @NonCPS
+    static String gradlePluginInitScript(String url) {
+        String quoted = "'" + url.replace('\\', '\\\\').replace("'", "\\'") + "'"
+        return """def bbhNexusPlugins = ${quoted}
+def bbhNexusFirst = { def repositories ->
+    def bbh = repositories.maven {
+        name = 'bbhNexusPlugins'
+        url = bbhNexusPlugins
+    }
+    repositories.remove(bbh)
+    repositories.addFirst(bbh)
+}
+beforeSettings { settings ->
+    bbhNexusFirst(settings.pluginManagement.repositories)
+}
+settingsEvaluated { settings ->
+    def repositories = settings.pluginManagement.repositories
+    if (repositories.findAll { it.name != 'bbhNexusPlugins' }.isEmpty()) repositories.gradlePluginPortal()
+}
+allprojects { project ->
+    bbhNexusFirst(project.buildscript.repositories)
+}
+""".toString()
+    }
+
+    @NonCPS
+    static String mavenPluginSettings(String own, String url) {
+        String escaped = url.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        String profile = """<profile>
+      <id>bbh-nexus-plugins</id>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>bbh-nexus-plugins</id>
+          <url>${escaped}</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>""".toString()
+        String active = '<activeProfile>bbh-nexus-plugins</activeProfile>'
+        String text = (own ?: '').trim()
+        int end = text.lastIndexOf('</settings>')
+        if (end < 0) {
+            return """<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <profiles>
+    ${profile}
+  </profiles>
+  <activeProfiles>
+    ${active}
+  </activeProfiles>
+</settings>
+""".toString()
+        }
+        String head = text.substring(0, end)
+        String tail = text.substring(end)
+        int profiles = head.indexOf('<profiles>')
+        head = profiles >= 0 ? head.substring(0, profiles + 10) + '\n    ' + profile + head.substring(profiles + 10)
+                : head + '  <profiles>\n    ' + profile + '\n  </profiles>\n'
+        int actives = head.indexOf('<activeProfiles>')
+        head = actives >= 0 ? head.substring(0, actives + 16) + '\n    ' + active + head.substring(actives + 16)
+                : head + '  <activeProfiles>\n    ' + active + '\n  </activeProfiles>\n'
+        return head + tail + '\n'
     }
 }

@@ -61,14 +61,16 @@ check('BuildUtils.parallelSwitch: a wrong variable and wrong service values are 
         wrongValues)
 Map inherited = decide([gui: on, api: on], [staticAnalysis: [parallel: true]], null)
 Map optedOut = decide([gui: on, api: off, web: off], [:], null)
+Map sharedOff = decide([gui: off, api: off], [staticAnalysis: [parallel: false]], null)
 Map envOn = decide([gui: [:]], [:], 'true')
 Map envOff = decide([gui: on], [:], 'false')
-check('BuildUtils.parallelSwitch: true in the defaults is named once instead of each service, services that set false are listed, and the variable is reported as the source',
+check('BuildUtils.parallelSwitch: true in the defaults is named once instead of each service, services that set false are listed, false in the defaults is named as the source, and the variable is reported as the source',
         inherited.notes == ['defaults.staticAnalysis.parallel: true equals the built-in default - the key can be removed from the defaults'] && inherited.enabled == true
                 && optedOut.enabled == false && optedOut.optedOut == ['api', 'web'] && optedOut.source == 'staticAnalysis.parallel'
+                && sharedOff.enabled == false && sharedOff.source == 'defaults' && sharedOff.notes == [] && sharedOff.warnings == []
                 && envOn.enabled == true && envOn.source == 'DSO_STATIC_ANALYSIS_PARALLEL' && envOn.notes == ['DSO_STATIC_ANALYSIS_PARALLEL=true equals the default staticAnalysis.parallel: true - the variable can be removed']
                 && envOff.enabled == false && envOff.notes == [],
-        [inherited, optedOut, envOn, envOff])
+        [inherited, optedOut, sharedOff, envOn, envOff])
 
 Map timeText = harness.run {
     [zero: utils().formatDuration(0L), seconds: utils().formatDuration(42999L), minutes: utils().formatDuration(185000L), hours: utils().formatDuration(7380000L),

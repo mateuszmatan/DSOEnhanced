@@ -100,6 +100,9 @@ Map logRules = [
         'L2 the auto-detect line names the file read'                  : { List log -> log.collect { (it as String).replace('devsecops_config.yaml', 'config.yaml') } },
         'L3 the bundled defaults moved to a namespaced resource path'  : { List log ->
             log.collect { (it as String).replace("resources/${bundledName}", 'resources/defaults.yaml') }
+        },
+        'L4 the loader names the settings that equal the value the library uses without them': { List log ->
+            log.findAll { String line -> !(line.startsWith('[INIT] [INFO] ') && (line.contains(' - the key can be removed from ') || line.contains(' - the parameter can be removed from the Jenkinsfile'))) }
         }
 ]
 Closure normaliseLog = { Map run -> logRules.values().inject((run.log ?: []) as List) { List log, Closure rule -> rule(log) } }

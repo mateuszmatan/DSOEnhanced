@@ -374,6 +374,7 @@ pre code {
 <li><a href='#available-pipeline-entry-points' style='padding-left: 20px; font-size: 0.8rem;'>Available Pipeline Entry Points:</a></li>
 <li><a href='#3-the-devsecops_configyaml-configuration-file' ><span style='color:#94a3b8;font-weight:600;'>3.</span> The devsecops_config.yaml Configuration File</a></li>
 <li><a href='#file-evaluation-order' style='padding-left: 20px; font-size: 0.8rem;'>File Evaluation Order:</a></li>
+<li><a href='#how-a-value-is-chosen' style='padding-left: 20px; font-size: 0.8rem;'>How a value is chosen:</a></li>
 <li><a href='#4-multi-service-and-multi-repository-bitbucket-support' ><span style='color:#94a3b8;font-weight:600;'>4.</span> Multi-Service and Multi-Repository Bitbucket Support</a></li>
 <li><a href='#1-multiple-services-in-one-pipeline-multi-service' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>1.</span> Multiple Services in One Pipeline (Multi-Service)</a></li>
 <li><a href='#2-multi-module-projects' style='padding-left: 20px; font-size: 0.8rem;'><span style='color:#94a3b8;font-weight:600;'>2.</span> Multi-Module Projects</a></li>
@@ -495,6 +496,13 @@ devSecOpsPipeline(
 <li>If not found, it checks for <code>config.yaml</code> (100% backward compatible).</li>
 <li>The library reads the <code>projects:</code> section where each service of your application is declared.</li>
 </ul>
+<h3 id="how-a-value-is-chosen">How a value is chosen:</h3>
+<ul>
+<li>A key you set is always used, also when it equals the default, so the files of earlier releases keep working.</li>
+<li>A value of the wrong kind (text for a number, a word for <code>true</code>/<code>false</code>, a map for a list) falls back to the library default, with an <code>[INIT] [WARN]</code> line that names the key, the value and the default.</li>
+<li>A name in <code>projectNames</code> that the file does not have is left out with an <code>[INIT] [WARN]</code> line; when no name is left, the run builds every service of the file.</li>
+<li>A key whose value the library would use anyway (the library default, or what the auto-detection finds in the repository, such as <code>buildTool: maven</code> next to a <code>pom.xml</code>) is named in an <code>[INIT] [INFO] ... - the key can be removed from devsecops_config.yaml</code> line, so you can shorten the file.</li>
+</ul>
 <hr />
 <h2 id="4-multi-service-and-multi-repository-bitbucket-support">4. Multi-Service and Multi-Repository Bitbucket Support</h2>
 <p>The standalone pipeline natively supports complex project architectures:</p>
@@ -513,7 +521,7 @@ devSecOpsPipeline(
 <h2 id="5-supported-languages-and-build-tools">5. Supported Languages and Build Tools</h2>
 <p>The pipeline supports all enterprise programming languages and build tools (with automatic detection and <code>[WARN]</code> fallback when an invalid value is configured):</p>
 <ul>
-<li><strong>Java / Kotlin / Groovy / Android:</strong> Build via Maven (<code>buildTool: 'maven'</code>) or Gradle (<code>buildTool: 'gradle'</code> / <code>'android'</code>).</li>
+<li><strong>Java / Kotlin / Groovy / Android:</strong> Build via Maven (<code>buildTool: 'maven'</code>) or Gradle (<code>buildTool: 'gradle'</code> / <code>'android'</code>). <strong>Plugins from the BBH Nexus:</strong> when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (<code>pluginRepositories</code> of the library defaults), and the console says which plugins came from it and where to add the repository.</li>
 <li><strong>Node.js / TypeScript / Angular / React / Vue:</strong> Build via npm (<code>buildTool: 'npm'</code>) or Stage 0 (<code>build.node.enabled: true</code>).</li>
 <li><strong>Python:</strong> Build via pip (<code>buildTool: 'pip'</code>), auto-detected from <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>setup.py</code>, or <code>Pipfile</code>.</li>
 <li><strong>SQL / PL-SQL (Liquibase):</strong> Automatic detection of database changelogs, validated via Liquibase, SonarQube, and AppScan SAST.</li>
@@ -553,9 +561,9 @@ devSecOpsPipeline(
 <h2 id="7-static-application-security-testing-sast-hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</h2>
 <p>Static security analysis executed in the cloud:</p>
 <ul>
-<li><strong>Parallel Background Scanning:</strong></li>
-<li>Generates the IRX archive and submits the scan to HCL ASOC in the background.</li>
-<li>Unit tests and Nexus IQ execute concurrently while ASOC processes the code. Results are retrieved at the end of the static stage.</li>
+<li><strong>Stages at the same time:</strong></li>
+<li>By default SAST runs at the same time as the unit tests, Nexus IQ and SonarQube, as a parallel branch of <em>Static analysis</em>: it generates the IRX archive in a copy of the workspace, submits the scan to HCL ASOC and reads the results when the scan ends.</li>
+<li><code>staticAnalysis.parallel: false</code> in any service runs the four stages one after another; the report shows how long they took one after another and in parallel.</li>
 <li><strong>Credentials Configuration:</strong></li>
 <li>SAST and DAST of every service sign in with the one API key of the functional HCL ASOC user, kept by the DevSecOps team in the library defaults (<code>asoc.keyId</code> and the Jenkins Secret text credential named in <code>asoc.token</code> of <code>resources/com/bbh/devsecops/defaults.yaml</code>).</li>
 <li>A service sets only its application ID; a <code>keyId</code>, <code>token</code> or <code>credentialsId</code> of a service is ignored with a <code>[WARN]</code> line:

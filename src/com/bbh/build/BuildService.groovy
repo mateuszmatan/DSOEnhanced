@@ -46,7 +46,7 @@ class BuildService implements Serializable {
         switch (tool) {
             case ['gradle', 'android', 'maven']:
                 String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
-                BuildRunner runner = new BuildRunner(script, state.cfg.build as Map, runnerTool)
+                BuildRunner runner = new BuildRunner(script, state.cfg.build as Map, runnerTool, BuildUtils.pluginRepositories(state.cfg))
                 if (!runner.ifExist()) {
                     script.error "[BUILD] Build tool is NOT installed on an agent"
                 }
@@ -126,7 +126,7 @@ class BuildService implements Serializable {
             case ['gradle', 'android', 'maven']:
                 String runnerTool = tool == 'android' ? 'gradle' : (tool as String)
                 if (state.cfg.tests.unitTests) {
-                    BuildRunner runner = new BuildRunner(script, state.cfg.tests.unitTests as Map, runnerTool)
+                    BuildRunner runner = new BuildRunner(script, state.cfg.tests.unitTests as Map, runnerTool, BuildUtils.pluginRepositories(state.cfg))
                     if (!runner.ifExist()) {
                         script.error "[TEST] Build tool is NOT installed on an agent"
                     }
