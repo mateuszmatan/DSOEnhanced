@@ -4,6 +4,12 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
 
 ## [Unreleased]
 
+### Documentation
+- Review of the three sources of 2026-11-20: `roadmap.md` has section 26 with its results, the stale known limitation about Nexus IQ and SonarQube one after another is replaced, and the limitation that nothing of sections 22 to 26 was run against the real BBH systems is named. New `TODO.md`, the prioritised list of open work for the library and the portal, and `docs/MANAGEMENT_OVERVIEW.md`, the overview for senior management; both are the same file in `DSOEnhancedWithoutPortal`, `main` and the portal.
+
+### Tests
+- `StaticAnalysisScenarios.groovy` has the detection matrix of `RepoStackAutoResolver`: the marker files of every supported technology, with the files of a later one next to them, give the documented build tool, and a repository without a marker gives no build tool.
+
 ### Changed
 - The Nexus delivery is one service, `NexusDeliveryService`. The snapshot of stage 6 is published under one tag per run, `<BUILD_NUMBER>-<yyyyMMdd-HHmmss>` in UTC, shared by every service of the run and written to `build.tag`, which the security pipeline archives and the extended pipeline copies with `pipeline-config.yaml` and `release-gate.json`.
 - The snapshot is described under `delivery.push`: `delivery.push.maven` (goals and the artifacts by file name, extension and classifier) and `delivery.push.gradle` (repository, group, artifact and the artifacts to publish). A Gradle service publishes the matched files with its own wrapper on a generated project in the temporary folder of the build (`resources/com/bbh/devsecops/nexus-delivery.gradle`), which is removed afterwards. The earlier `delivery.maven` with `build.buildPath` still works. A Gradle service without `delivery.push.gradle.artifacts` is not required in stage 6 and its UrbanCode versions keep the build number.
