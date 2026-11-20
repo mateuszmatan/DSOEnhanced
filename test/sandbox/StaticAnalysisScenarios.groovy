@@ -343,6 +343,48 @@ check('RepoStackAutoResolver: a Python repository is detected as buildTool pip, 
         autoResult.python?.cfg?.buildTool == 'pip' && pythonScript.log.any { it.contains('buildTool = pip (') && it.contains('found (Python)') },
         "python=${autoResult.python}")
 
+Map detectionMatrix = [
+        'flutter'         : [tool: 'flutter', files: ['pubspec.yaml': 'name: app\n', 'pom.xml': '<project/>', 'package.json': '{}']],
+        'ios-podfile'     : [tool: 'ios', files: ['Podfile': "platform :ios, '15.0'\n", 'package.json': '{}']],
+        'ios-swift'       : [tool: 'ios', files: ['Package.swift': '// swift-tools-version:5.9\n']],
+        'ios-xcodeproj'   : [tool: 'ios', files: ['Payments.xcodeproj': '']],
+        'ios-xcworkspace' : [tool: 'ios', files: ['Payments.xcworkspace': '']],
+        'maven'           : [tool: 'maven', files: ['pom.xml': '<project/>', 'build.gradle': '', 'requirements.txt': 'requests==2.31.0\n', 'package.json': '{}']],
+        'gradle-groovy'   : [tool: 'gradle', files: ['build.gradle': "plugins { id 'java' }\n", 'package.json': '{}']],
+        'gradle-kotlin'   : [tool: 'gradle', files: ['build.gradle.kts': 'plugins { java }\n']],
+        'gradle-settings' : [tool: 'gradle', files: ['settings.gradle': "rootProject.name = 'payments'\n"]],
+        'gradle-settings-kts': [tool: 'gradle', files: ['settings.gradle.kts': 'rootProject.name = "payments"\n']],
+        'gradle-wrapper'  : [tool: 'gradle', files: ['gradle/wrapper/gradle-wrapper.properties': 'distributionUrl=gradle-8.5-bin.zip\n']],
+        'android'         : [tool: 'android', files: ['build.gradle': '', 'app/src/main/AndroidManifest.xml': '<manifest/>']],
+        'dotnet-sln'      : [tool: 'dotnet', files: ['Payments.sln': '', 'src/Payments/Payments.csproj': '<Project Sdk="Microsoft.NET.Sdk"/>', 'package.json': '{}']],
+        'dotnet-csproj'   : [tool: 'dotnet', files: ['src/Payments/Payments.csproj': '<Project Sdk="Microsoft.NET.Sdk"/>']],
+        'dotnet-global'   : [tool: 'dotnet', files: ['global.json': '{"sdk": {"version": "8.0.100"}}']],
+        'liquibase'       : [tool: 'liquibase', files: ['db/changelog/db.changelog-master.xml': '<databaseChangeLog/>', 'db/tables/orders.sql': 'CREATE TABLE orders (id NUMBER);\n', 'requirements.txt': '', 'package.json': '{}']],
+        'liquibase-props' : [tool: 'liquibase', files: ['liquibase.properties': 'changeLogFile=changelog.xml\n']],
+        'pip-requirements': [tool: 'pip', files: ['requirements.txt': 'requests==2.31.0\n', 'package.json': '{}']],
+        'pip-pyproject'   : [tool: 'pip', files: ['pyproject.toml': '[project]\nname = "payments"\n']],
+        'pip-setup'       : [tool: 'pip', files: ['setup.py': 'from setuptools import setup\n']],
+        'pip-pipfile'     : [tool: 'pip', files: ['Pipfile': '[packages]\n']],
+        'npm'             : [tool: 'npm', files: ['package.json': '{"name": "web"}', 'db/tables/orders.sql': 'CREATE TABLE orders (id NUMBER);\n']],
+        'angular'         : [tool: 'npm', files: ['angular.json': '{"version": 1}']],
+        'sql'             : [tool: 'sql', files: ['db/tables/orders.sql': 'CREATE TABLE orders (id NUMBER);\n', 'db/packages/orders_pkg.pks': 'CREATE OR REPLACE PACKAGE orders_pkg AS END;\n/\n', 'README.md': '# orders\n']],
+        'nothing'         : [tool: 'gradle', files: ['README.md': '# empty\n']]
+]
+Map detectionFound = [:]
+try {
+    detectionMatrix.each { String name, Map row ->
+        FakeScript ds = new FakeScript()
+        ds.deepGlob = true
+        ds.files.putAll(row.files as Map)
+        detectionFound[name] = ((harness.run { harness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(ds).resolve(defaults, [:], merged([:]), 'payments') } as Map).cfg as Map).buildTool
+    }
+} catch (Throwable t) {
+    detectionFound.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+check('RepoStackAutoResolver: the detection matrix gives the build tool of every supported technology (Flutter, iOS, Maven, Gradle in Groovy and Kotlin, Android, .NET, Liquibase, Python, npm and Angular, SQL and PL/SQL files) in the documented order, and keeps buildTool of the library defaults for a repository without a marker',
+        !detectionFound.error && detectionMatrix.every { String name, Map row -> detectionFound[name] == row.tool },
+        detectionMatrix.findAll { String name, Map row -> detectionFound[name] != row.tool }.collect { String name, Map row -> "${name}: expected ${row.tool}, found ${detectionFound[name]}" } + [detectionFound.error])
+
 
 Map prUnits = [:]
 try {

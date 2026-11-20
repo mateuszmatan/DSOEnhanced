@@ -4,6 +4,12 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
 
 ## [Unreleased]
 
+### Documentation
+- Review of the three sources of 2026-11-20: `roadmap.md` has section 26 with its results, the stale known limitation about Nexus IQ and SonarQube one after another is replaced, and the limitation that nothing of sections 22 to 26 was run against the real BBH systems is named. New `TODO.md`, the prioritised list of open work for the library and the portal, and `docs/MANAGEMENT_OVERVIEW.md`, the overview for senior management; both are the same file in `DSOEnhancedWithoutPortal`, `main` and the portal.
+
+### Tests
+- `StaticAnalysisScenarios.groovy` has the detection matrix of `RepoStackAutoResolver`: the marker files of every supported technology, with the files of a later one next to them, give the documented build tool, and a repository without a marker gives the build tool of the library defaults.
+
 ### Changed
 - The auto-resolve of the settings detects the build tool in the same order as the library without the portal: `pubspec.yaml` (Flutter), `Podfile`, `Package.swift`, an Xcode project or workspace (iOS), `pom.xml` (Maven), the Gradle build files (Gradle, or Android with an `AndroidManifest.xml`), the .NET files, a Liquibase changelog, `requirements.txt`, `pyproject.toml`, `setup.py` or `Pipfile` (pip), `package.json` or `angular.json` (npm), and last only SQL and PL/SQL files (`sql`). A Python repository is now detected as `pip` instead of keeping the build tool of the Global Settings, a repository with a Liquibase changelog and a `package.json` but no other build file is detected as `liquibase`, and a value set for the service still wins.
 - The Nexus delivery is one service, `NexusDeliveryService`. The snapshot of stage 6 is published under one tag per run, `<BUILD_NUMBER>-<yyyyMMdd-HHmmss>` in UTC, shared by every service of the run and written to `build.tag`, which the security pipeline archives and the extended pipeline copies with `pipeline-config.yaml` and `release-gate.json`.
