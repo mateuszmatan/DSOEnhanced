@@ -6,6 +6,7 @@ import com.bbh.core.PolicyEngine
 import com.bbh.utils.BuildUtils
 import com.bbh.utils.DatabaseSettings
 import com.bbh.utils.LiquibaseOutput
+import com.bbh.utils.SqlChangelog
 
 class DatabaseBuild implements Serializable {
 
@@ -67,6 +68,7 @@ class DatabaseBuild implements Serializable {
             }
             if (!problems && variant in ['full', 'security']) {
                 Map s = DatabaseSettings.resolve(name, cfg)
+                if (s.sql) sqlChangelog(name, s, true)
                 String out = script.sh(returnStdout: true, label: "DB: check the files of ${name}", script: DatabaseSettings.filesCheckScript(s))
                 problems = DatabaseSettings.missingFiles(s, out)
             }
@@ -279,6 +281,7 @@ class DatabaseBuild implements Serializable {
     private Map packageOnly(Map c, String version) {
         Map s = c.s as Map
         String name = c.name
+        if (s.sql) sqlChangelog(name, s, false)
         String root = s.searchRoot
         String base = "${(s.package as Map).artifactId}-${version}"
         state.recordDatabase([version: version])
@@ -392,6 +395,39 @@ class DatabaseBuild implements Serializable {
         state.recordDatabase([version: delivery, package: fetched])
         script.archiveArtifacts(artifacts: zip, allowEmptyArchive: true)
         return fetched
+    }
+
+    void sqlChangelog(String name, Map s, boolean clean) {
+        if (state.sqlChangelogs[name]) return
+        String dir = liquibaseRunner.workDir(name)
+        String root = s.searchRoot as String
+        try {
+            script.writeFile(file: "${dir}/static-facts.awk", text: LiquibaseOutput.factsAwk())
+            int status = script.sh(returnStatus: true, label: "DB: read the SQL and PL/SQL sources of ${name} for its changelog",
+                    script: LiquibaseOutput.factsScript(root, '.', dir)) as int
+            if (status != 0) {
+                script.error "[DB] ${name}: buildTool sql could not read the SQL and PL/SQL files under ${root} (exit code ${status})"
+            }
+            String testPath = ((((s.profiles as Map).test as Map).utplsql ?: [:]) as Map).testPath as String
+            Map found = SqlChangelog.entries(LiquibaseOutput.facts(script.readFile("${dir}/static-facts.txt") as String), testPath, (s.ignoreFiles ?: []) as List)
+            if (found.foreign) {
+                script.error "[DB] ${name}: ${DatabaseSettings.join(root, SqlChangelog.fileName())} is in the repository: buildTool sql writes this changelog itself - rename the file, or keep it and set buildTool: liquibase with database.changelogFile: ${SqlChangelog.fileName()}"
+            }
+            if (!found.entries) {
+                script.error "[DB] ${name}: buildTool sql found no SQL or PL/SQL file (.${SqlChangelog.extensions().join(', .')}) under ${root}: set sourceDir or database.searchPath to the folder of the files"
+            }
+            script.writeFile(file: DatabaseSettings.join(root, s.changelog as String), text: SqlChangelog.changelog(found.entries as List))
+            for (String line : SqlChangelog.summary(name, root, found)) {
+                script.echo line
+            }
+            state.sqlChangelogs[name] = [files: (found.entries as List).size(), path: DatabaseSettings.join(root, s.changelog as String)]
+        } finally {
+            if (clean) {
+                script.dir(dir) {
+                    script.deleteDir()
+                }
+            }
+        }
     }
 
     private List staticChecks(Map c) {

@@ -292,6 +292,19 @@ Library pull request #6 and portal pull request #4.
 
 ---
 
+## 25. SQL and PL/SQL files without a changelog (2026-11-19)
+
+| Change | Description |
+|--------|-------------|
+| **`buildTool: sql`** | A service of only SQL and PL/SQL files, also written `plsql`, `pl/sql` or `pl-sql`, is a database block without `database.changelogFile`. At the start of a full or security run the library reads the files of the search root and writes the changelog `dso-changelog.xml`; the validation, the static checks, the review SQL, the zip, utPLSQL and the RD and QC deployments then run as for a Liquibase service with a database block. |
+| **How the files are deployed** | A file whose first line is `--liquibase formatted sql` is included as it is. `CREATE OR REPLACE` of a type, synonym, package, view, function, procedure, type body, package body or trigger is one changeset with `runOnChange`. Every other file is one changeset that runs once. The order is: type specifications, the run-once files in the natural order of their paths, then the code by kind. PL/SQL units and anonymous blocks are sent unsplit with their comments, and files under the utPLSQL test folder get the `test` context. |
+| **Detection** | A service without `buildTool` whose folder holds only SQL and PL/SQL files, no build file and no Liquibase changelog, is detected as `sql`, after every other build tool. The auto-resolve also sets `database.searchPath` to the one top folder of the files and `buildToolAutoSetup` when the service has no `javaPath`. A service with `database.changelogFile` is never detected as `sql`, and the detection of the other build tools is unchanged. |
+| **Backward compatible** | `buildTool: sql` on a service with `database.changelogFile`, `build.liquibase`, `tests.unitTests.liquibase` or a Liquibase changelog in its search root runs as `buildTool: liquibase`, with an `[INIT] [WARN]` line that names the keys to set. A `buildTool` or `database.searchPath` that equals the detected value is named in an `[INIT] [INFO]` line as a key that can be removed. A `dso-changelog.xml` of the repository without the mark of the library stops the build instead of being overwritten. |
+| **Tests** | Layout (d) of `test/fixtures/database` is a repository of SQL and PL/SQL files without a changelog. `DatabaseScenarios.groovy` runs it in the full (golden `database-full-sql-only-green.txt`), security and SAST pipelines and checks the generated changelog, the explicit `plsql`, the fall back to `liquibase`, a foreign and a stale `dso-changelog.xml`, an empty file, files at the repository root and a search root without files. `DatabaseUnitScenarios.groovy` checks the kinds, the natural order, the real `awk` facts and that the static checks find nothing in the generated changelog. With the tools in the cache, the real Liquibase 4.33.0 and 5.0.4 validate the generated changelog and write its update SQL. |
+| **Documentation** | Chapter 14 has the third way to configure a database service, layout (d) with its generated changelog and console, the section *The changelog of buildTool sql*, the new settings defaults and the new messages; chapters 16 and 19 name `sql`. |
+
+---
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.

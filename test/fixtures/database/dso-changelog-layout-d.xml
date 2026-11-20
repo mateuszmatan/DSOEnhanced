@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DSO-GENERATED-CHANGELOG: written by the DevSecOps pipeline for buildTool sql from the SQL and PL/SQL files of this folder; do not edit or commit it -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+    logicalFilePath="dso-changelog.xml">
+
+    <changeSet id="types/t_order_line.tps" author="devsecops" runOnChange="true">
+        <sqlFile path="types/t_order_line.tps" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="migrations/1_orders.sql" author="devsecops">
+        <sqlFile path="migrations/1_orders.sql" relativeToChangelogFile="true" encoding="UTF-8"/>
+    </changeSet>
+    <changeSet id="migrations/2_order_items.sql" author="devsecops">
+        <sqlFile path="migrations/2_order_items.sql" relativeToChangelogFile="true" encoding="UTF-8"/>
+    </changeSet>
+    <changeSet id="migrations/10_order_status.sql" author="devsecops">
+        <sqlFile path="migrations/10_order_status.sql" relativeToChangelogFile="true" encoding="UTF-8"/>
+    </changeSet>
+    <include file="migrations/11_order_notes.sql" relativeToChangelogFile="true"/>
+    <changeSet id="migrations/20_grant_app_role.sql" author="devsecops">
+        <sqlFile path="migrations/20_grant_app_role.sql" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+    </changeSet>
+    <changeSet id="code/pkg_orders.pks" author="devsecops" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pks" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="test/ut_pkg_orders.pks" author="devsecops" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pks" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="code/v_order_totals.vw" author="devsecops" runOnChange="true">
+        <sqlFile path="code/v_order_totals.vw" relativeToChangelogFile="true" encoding="UTF-8" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="code/pkg_orders.pkb" author="devsecops" runOnChange="true">
+        <sqlFile path="code/pkg_orders.pkb" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="test/ut_pkg_orders.pkb" author="devsecops" runOnChange="true" context="test">
+        <sqlFile path="test/ut_pkg_orders.pkb" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+    <changeSet id="code/trg_orders_bi.trg" author="devsecops" runOnChange="true">
+        <sqlFile path="code/trg_orders_bi.trg" relativeToChangelogFile="true" encoding="UTF-8" splitStatements="false" stripComments="false"/>
+        <rollback/>
+    </changeSet>
+</databaseChangeLog>

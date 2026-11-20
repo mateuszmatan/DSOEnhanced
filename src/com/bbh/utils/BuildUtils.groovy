@@ -125,8 +125,28 @@ class BuildUtils implements Serializable {
         if (low in ['flutter', 'dart']) return 'flutter'
         if (low == 'android') return 'android'
         if (low in ['ios', 'xcode', 'swift', 'cocoapods']) return 'ios'
-        if (low in ['liquibase', 'sql', 'plsql']) return 'liquibase'
+        if (low in ['liquibase', 'sql', 'plsql', 'pl/sql', 'pl-sql']) return 'liquibase'
         return (tool ?: '').trim()
+    }
+
+    @NonCPS
+    static String canonicalToolName(String tool) {
+        String low = (tool ?: '').trim().toLowerCase()
+        return low in ['sql', 'plsql', 'pl/sql', 'pl-sql'] ? 'sql' : normalizeToolName(tool)
+    }
+
+    @NonCPS
+    static boolean sqlSources(Map cfg) {
+        return canonicalToolName((cfg?.buildTool ?: '') as String) == 'sql'
+    }
+
+    @NonCPS
+    static List<String> liquibaseMarkers() {
+        return ['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.json', 'changelog.sql',
+                'db/changelog.xml', 'db/changelog.yaml', 'db/changelog.sql', 'db/changelog/db.changelog-master.xml',
+                'db/changelog/db.changelog-master.yaml', 'sql/changelog.xml', 'sql/changelog.sql', 'liquibase/changelog.xml',
+                'src/main/resources/db/changelog/db.changelog-master.xml', 'src/main/resources/db/changelog/db.changelog-master.yaml',
+                'src/main/resources/changelog.xml']
     }
 
     @NonCPS
@@ -313,6 +333,7 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static boolean databaseBlock(Map cfg) {
+        if (sqlSources(cfg)) return true
         return ((cfg?.buildTool ?: '') as String).trim().equalsIgnoreCase('liquibase') && cfg.database instanceof Map && ((cfg.database.changelogFile ?: '') as String).trim()
     }
 

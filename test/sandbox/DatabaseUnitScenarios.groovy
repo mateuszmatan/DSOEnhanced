@@ -339,7 +339,7 @@ validation()
 Closure settings = {
     Map plain = harness.run { ds().resolve('svc', [buildTool: 'liquibase', database: [changelogFile: 'db/changelog.xml']]) } as Map
     Map rdProfile = [name: 'rd', url: '', credentialsId: '', contexts: '!test', labels: '', defaultSchema: '', liquibaseSchema: '', parameters: [:], timeoutMinutes: 30, parsed: [:]]
-    Map expected = [name: 'svc', changelog: 'db/changelog.xml', sourceDir: '.', searchRoot: '.', packageFolder: 'db', oracleVersion: '19.0', contexts: '!test', labels: '',
+    Map expected = [name: 'svc', sql: false, changelog: 'db/changelog.xml', sourceDir: '.', searchRoot: '.', packageFolder: 'db', oracleVersion: '19.0', contexts: '!test', labels: '',
                     defaultSchema: '', liquibaseSchema: '', parameters: [:], requireRollback: false, tag: true, lockWait: 5,
                     compileCheck: [enabled: true, recompile: true, ignoreObjects: []], ignoreFiles: [],
                     package: [groupId: '', artifactId: 'svc', nexusDelivery: true, mvnPath: '', snapshot: [id: '', url: ''], release: [id: '', url: '']],
@@ -732,6 +732,26 @@ Total change sets:           10
 }
 parsers()
 
+Closure superset = { Map tree ->
+    List paths = tree.keySet().toList().sort()
+    List records = paths.collect { "F\t${it}" }
+    paths.each { String path ->
+        List lines = (tree[path] as String).readLines()
+        lines.eachWithIndex { String line, int i -> records << "L\t${path}\t${i + 1}\t${line}" }
+        int last = lines.findLastIndexOf { it.trim() }
+        records << "E\t${path}\t${last + 1}\t${last >= 0 ? lines[last] : ''}"
+    }
+    records.join('\n') + '\n'
+}
+Closure realFacts = { String name, Map tree, String folder ->
+    File dir = new File(tmp, name)
+    File work = new File(tmp, "${name}-tmp")
+    work.mkdirs()
+    writeTree(dir, tree)
+    new File(work, 'static-facts.awk').setText(harness.run { lo().factsAwk() } as String, 'UTF-8')
+    Map ran = bash(harness.run { lo().factsScript(dir.path, folder, work.path) } as String, [:], tmp)
+    [status: ran.status, out: ran.out, text: new File(work, 'static-facts.txt').getText('UTF-8')]
+}
 Closure staticChecks = {
     Map planted = [
             'db/changelog.xml'  : '''<?xml version="1.0" encoding="UTF-8"?>
@@ -803,26 +823,6 @@ Closure staticChecks = {
             'db/changelog.xml line 30: ${db_password} names a secret or a variable of the agent - use database.parameters for values that differ between databases, with a name that holds no password, passwd, pwd, secret, token, credential, key or user and does not start with LIQUIBASE_, DSO_ or JENKINS',
             'db/code/user.sql line 3: ${DSO_USER} names a secret or a variable of the agent - use database.parameters for values that differ between databases, with a name that holds no password, passwd, pwd, secret, token, credential, key or user and does not start with LIQUIBASE_, DSO_ or JENKINS'
     ]
-    Closure superset = { Map tree ->
-        List paths = tree.keySet().toList().sort()
-        List records = paths.collect { "F\t${it}" }
-        paths.each { String path ->
-            List lines = (tree[path] as String).readLines()
-            lines.eachWithIndex { String line, int i -> records << "L\t${path}\t${i + 1}\t${line}" }
-            int last = lines.findLastIndexOf { it.trim() }
-            records << "E\t${path}\t${last + 1}\t${last >= 0 ? lines[last] : ''}"
-        }
-        records.join('\n') + '\n'
-    }
-    Closure realFacts = { String name, Map tree, String folder ->
-        File dir = new File(tmp, name)
-        File work = new File(tmp, "${name}-tmp")
-        work.mkdirs()
-        writeTree(dir, tree)
-        new File(work, 'static-facts.awk').setText(harness.run { lo().factsAwk() } as String, 'UTF-8')
-        Map ran = bash(harness.run { lo().factsScript(dir.path, folder, work.path) } as String, [:], tmp)
-        [status: ran.status, out: ran.out, text: new File(work, 'static-facts.txt').getText('UTF-8')]
-    }
     Map real = realFacts('planted', planted, 'db')
     Map none = [ignoreFiles: []]
     List findings = harness.run { [lo().staticFindings(lo().facts(superset(planted)), none), lo().staticFindings(lo().facts(real.text as String), none)] } as List
@@ -850,6 +850,105 @@ Closure staticChecks = {
             layoutReal.status == 0 && layoutFindings == [[], []] && candidates == [true, true, true, false, true, false], [layoutReal.out, layoutFindings, candidates])
 }
 staticChecks()
+
+Closure sqlChangelogs = {
+    Closure sc = { -> harness.type('com.bbh.utils.SqlChangelog') }
+    Closure numbered = { String text -> List out = []; text.readLines().eachWithIndex { String l, int i -> out << [i + 1, l] }; out }
+    List kindCases = [['a package body', 'CREATE OR REPLACE PACKAGE BODY pkg_orders AS', [kind: 'package body', replace: true]],
+                      ['an editionable package in lower case', '  create or replace editionable package pkg_a is', [kind: 'package', replace: true]],
+                      ['the kind on the next line after a comment', 'CREATE OR REPLACE -- the orders API\n-- version 2\n  PACKAGE BODY pkg_orders AS', [kind: 'package body', replace: true]],
+                      ['a forced view', 'CREATE OR REPLACE FORCE VIEW v_a AS SELECT 1 AS n FROM dual;', [kind: 'view', replace: true]],
+                      ['a public synonym', 'CREATE OR REPLACE PUBLIC SYNONYM orders FOR orders_owner.orders;', [kind: 'synonym', replace: true]],
+                      ['a type body', 'CREATE OR REPLACE TYPE BODY t_line AS', [kind: 'type body', replace: true]],
+                      ['a non-editionable function', 'CREATE OR REPLACE NONEDITIONABLE FUNCTION f RETURN NUMBER IS', [kind: 'function', replace: true]],
+                      ['a table', 'CREATE TABLE orders (', [kind: 'table', replace: false]],
+                      ['a global temporary table', 'CREATE GLOBAL TEMPORARY TABLE gtt (id NUMBER) ON COMMIT DELETE ROWS;', [kind: 'table', replace: false]],
+                      ['a unique index', 'CREATE UNIQUE INDEX orders_uk ON orders (customer);', [kind: 'index', replace: false]],
+                      ['a materialized view', 'CREATE MATERIALIZED VIEW mv_totals AS SELECT 1 AS n FROM dual;', [kind: 'materialized view', replace: false]],
+                      ['a package without OR REPLACE', 'CREATE PACKAGE pkg_once AS', [kind: 'package', replace: false]],
+                      ['a user', 'CREATE USER app IDENTIFIED EXTERNALLY;', [kind: 'other', replace: false]],
+                      ['no CREATE, only a column created_at', 'ALTER TABLE orders ADD (created_at DATE);', [kind: '', replace: false]]]
+    List kindWrong = mismatches(kindCases) { List c -> harness.run { sc().kindOf(numbered(c[1] as String)) } }
+    check('SqlChangelog.kindOf: the kind of the first CREATE, with its modifiers, over up to three lines that skip comments, and other or nothing without a known one',
+            kindWrong.isEmpty(), kindWrong)
+
+    List orderCases = [['numbers in a name', 'm/2_b.sql', 'm/10_a.sql', -1], ['leading zeros count as the number', 'm/002_b.sql', 'm/10_a.sql', -1],
+                       ['the same number, the shorter text first', 'm/1_a.sql', 'm/001_a.sql', -1], ['case before position', 'B.sql', 'a.sql', 1],
+                       ['Flyway names', 'V2__orders.sql', 'V10__items.sql', -1], ['a prefix first', 'code/a', 'code/a/b', -1], ['equal', 'x/1.sql', 'x/1.sql', 0],
+                       ['a long number', 'm/123456789012345678901234567890.sql', 'm/123456789012345678901234567891.sql', -1]]
+    List orderWrong = mismatches(orderCases) { List c -> harness.run { Integer.signum(sc().naturalCompare(c[1], c[2]) as int) } }
+    check('SqlChangelog.naturalCompare: numbers compare by value of any length, then by their zeros, and text without case first', orderWrong.isEmpty(), orderWrong)
+
+    Map sample = [files: ['.idea/x.sql', 'README.md', 'code/a.pkb', 'empty.sql', 'legacy/old.sql', 'dso-changelog.xml'],
+                  lines: ['code/a.pkb': [[1, 'CREATE OR REPLACE PACKAGE BODY a AS'], [4, '/']], 'dso-changelog.xml': [[1, '<?xml version="1.0"?>'], [2, '<!-- DSO-GENERATED-CHANGELOG: old -->']]],
+                  last : ['.idea/x.sql': [1, 'SELECT 1 FROM dual;'], 'code/a.pkb': [4, '/'], 'empty.sql': [0, ''], 'legacy/old.sql': [1, 'DROP TABLE t;'], 'dso-changelog.xml': [3, '</databaseChangeLog>']]]
+    Map found = harness.run { sc().entries(sample, '', ['legacy']) } as Map
+    Map foreign = harness.run { sc().entries(sample + [lines: (sample.lines as Map) + ['dso-changelog.xml': [[1, '<databaseChangeLog/>']]]], '', []) } as Map
+    check('SqlChangelog.entries: hidden folders, other files and database.checks.ignoreFiles are left out, an empty file is named, and a dso-changelog.xml without the mark is foreign',
+            (found.entries as List).collect { it.path } == ['code/a.pkb'] && found.empty == ['empty.sql'] && !found.foreign && foreign.foreign
+                    && (foreign.entries as List).collect { it.path } == ['legacy/old.sql', 'code/a.pkb'], [found, foreign.foreign])
+
+    String odd = harness.run { sc().changelog([[path: 'a&b/<x>.sql', formatted: false, runOnChange: false, unit: false, view: false, test: true]]) } as String
+    check('SqlChangelog.changelog: a path is escaped for XML, and a file under the utPLSQL test path gets context test',
+            odd.contains('<changeSet id="a&amp;b/&lt;x&gt;.sql" author="devsecops" context="test">') && odd.contains('<sqlFile path="a&amp;b/&lt;x&gt;.sql" relativeToChangelogFile="true" encoding="UTF-8"/>'), odd)
+
+    Map tree = [:]
+    File layoutD = new File(fixtures, 'layout-d/db')
+    layoutD.eachFileRecurse { File f -> if (f.file) tree[f.path.substring(layoutD.path.length() + 1)] = f.getText('UTF-8') }
+    Map real = realFacts('layout-d-facts', tree, '.')
+    Map generated = harness.run {
+        Map entries = sc().entries(lo().facts(real.text as String), 'test', []) as Map
+        String xml = sc().changelog(entries.entries as List)
+        Map withChangelog = lo().facts(superset(tree + ['dso-changelog.xml': xml]))
+        [xml: xml, fromSuperset: sc().changelog((sc().entries(lo().facts(superset(tree)), 'test', []) as Map).entries as List),
+         findings: lo().staticFindings(withChangelog, [ignoreFiles: []])]
+    } as Map
+    check('SqlChangelog: the real awk facts of layout d give the changelog of test/fixtures/database/dso-changelog-layout-d.xml, as the full facts do',
+            real.status == 0 && generated.xml == fixture('dso-changelog-layout-d.xml') && generated.fromSuperset == generated.xml, [real.out, generated.xml])
+    check('SqlChangelog: the static checks S1-S6 find nothing in layout d with its generated changelog', generated.findings == [], generated.findings)
+
+    Map sqlSettings = harness.run { ds().resolve('orders-db', [buildTool: 'sql', database: [searchPath: 'db']]) } as Map
+    Map plsqlSettings = harness.run { ds().resolve('orders-db', [buildTool: 'PL/SQL', sourceDir: 'orders-db']) } as Map
+    List rootProblems = harness.run { ds().problems('orders-db', [buildTool: 'sql', database: [:]], allowAll, 'full') } as List
+    List dbProblems = harness.run { ds().problems('orders-db', [buildTool: 'sql', database: [searchPath: 'db']], allowAll, 'full') } as List
+    check('DatabaseSettings for buildTool sql: the changelog is dso-changelog.xml in the search root, with no V1, and V47 at the root of the repository',
+            sqlSettings.sql == true && sqlSettings.changelog == 'dso-changelog.xml' && sqlSettings.searchRoot == 'db' && plsqlSettings.sql == true && plsqlSettings.searchRoot == 'orders-db'
+                    && rootProblems.toString().contains('buildTool sql writes its changelog dso-changelog.xml into the search root and packages the whole search root, which is the root of the repository')
+                    && !dbProblems.toString().contains('database.changelogFile is required') && !dbProblems.toString().contains('buildTool sql writes'),
+            [sqlSettings.subMap(['sql', 'changelog', 'searchRoot']), plsqlSettings.searchRoot, rootProblems, dbProblems])
+
+    Closure bu = { -> harness.type('com.bbh.utils.BuildUtils') }
+    List names = harness.run {
+        ['sql', ' PLSQL ', 'pl/sql', 'pl-sql', 'Liquibase', 'gradle'].collect { [bu().canonicalToolName(it), bu().normalizeToolName(it), bu().isValidBuildTool(it)] } +
+                [[bu().databaseBlock([buildTool: 'sql']), bu().databaseBlock([buildTool: 'plsql', database: 'ORDERS']), bu().sqlSources([buildTool: 'liquibase'])]]
+    } as List
+    check('BuildUtils: sql, plsql, pl/sql and pl-sql are the build tool sql, run as Liquibase, and always a database block',
+            names == [['sql', 'liquibase', true], ['sql', 'liquibase', true], ['sql', 'liquibase', true], ['sql', 'liquibase', true], ['liquibase', 'liquibase', true],
+                      ['gradle', 'gradle', true], [true, true, false]], names)
+
+    Map planted = tree.collectEntries { k, v -> [("db/${k}".toString()): v] } + ['README.md': '# orders-db\n', '.idea/scratch.sql': 'SELECT 1 FROM dual;\n']
+    Closure resolveWith = { Map files, Map cfg ->
+        FakeScript j = new FakeScript()
+        j.deepGlob = true
+        j.files.putAll(files)
+        harness.run { harness.type('com.bbh.utils.RepoStackAutoResolver').newInstance(j).resolve(cfg, 'orders-db') } as Map
+    }
+    Map detected = resolveWith(planted, [database: [test: [url: 'jdbc:oracle:thin:@//dev-db.bbh.com:1521/ORDERS_CI']]])
+    Map named = resolveWith(planted, [buildTool: 'plsql', database: [:]])
+    Map own = resolveWith(planted, [buildTool: 'sql', database: [searchPath: 'db/code']])
+    Map spread = resolveWith(planted + ['grants.sql': 'GRANT SELECT ON orders TO app;\n'], [database: [:]])
+    Map maven = resolveWith(planted + ['pom.xml': '<project/>'], [:])
+    Map liquibase = resolveWith(planted + ['db/changelog/db.changelog-master.yaml': 'databaseChangeLog: []\n'], [:])
+    Map nothing = resolveWith(['README.md': '# x\n', '.idea/scratch.sql': 'SELECT 1 FROM dual;\n'], [:])
+    check('RepoStackAutoResolver: SQL and PL/SQL files alone give buildTool sql with the JDK auto setup and database.searchPath of their one top folder; plsql is the same build tool',
+            detected.buildTool == 'sql' && detected.buildToolAutoSetup == true && (detected.database as Map).searchPath == 'db' && (detected.database as Map).test
+                    && named.buildTool == 'sql' && (named.database as Map).searchPath == 'db',
+            [detected.subMap(['buildTool', 'buildToolAutoSetup', 'database']), named.subMap(['buildTool', 'database'])])
+    check('RepoStackAutoResolver: a searchPath that is set is kept, files in more than one top folder get none, any build file wins over the SQL files, a Liquibase changelog that only the stages detect leaves buildTool to them, and a hidden folder alone gives nothing',
+            (own.database as Map).searchPath == 'db/code' && spread.buildTool == 'sql' && !(spread.database as Map).searchPath && maven.buildTool == 'maven' && !liquibase.buildTool
+                    && !nothing.buildTool, [own.database, spread.subMap(['buildTool', 'database']), maven.buildTool, liquibase.buildTool, nothing.buildTool])
+}
+sqlChangelogs()
 
 Closure scripts = {
     String password = 'p\\a"b\'c@d/e'

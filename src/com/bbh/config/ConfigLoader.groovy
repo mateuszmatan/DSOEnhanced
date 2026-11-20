@@ -2,6 +2,7 @@ package com.bbh.config
 
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.DatabaseSettings
 import com.bbh.utils.RepoStackAutoResolver
 import com.cloudbees.groovy.cps.NonCPS
 
@@ -73,7 +74,7 @@ class ConfigLoader implements Serializable {
                 }
                 Map rawProj = ownSettings(pName as String, (projects[pName] ?: [:]) as Map)
                 Map merged = SettingsAdvisor.copy(deepMerge(state.cfgDefaults, rawProj))
-                state.projectsAllCfg[pName] = autoResolver.resolve(merged, pName, rawProj)
+                state.projectsAllCfg[pName] = sqlOrLiquibase(pName as String, rawProj, autoResolver.resolve(merged, pName, rawProj))
                 recordAutoResolved(pName as String, merged, state.projectsAllCfg[pName] as Map)
                 warnIgnoredAppScanKey(pName as String, rawProj)
                 adviseRemovableKeys(pName as String, rawProj, state.projectsAllCfg[pName] as Map)
@@ -304,14 +305,44 @@ class ConfigLoader implements Serializable {
         if (targetDir && (!current.sourceDir || current.sourceDir == '.')) {
             current = [:] + current + [sourceDir: targetDir]
         }
-        Map updated = autoResolver.resolve(current, projectName, rawProj)
+        Map updated = sqlOrLiquibase(projectName, rawProj, autoResolver.resolve(current, projectName, rawProj))
         recordAutoResolved(projectName, current, updated)
         state.projectsAllCfg[projectName] = updated
         if (state.currentProjectName == projectName) state.cfg = updated
     }
 
+    private Map sqlOrLiquibase(String projectName, Map rawProj, Map resolved) {
+        if (!BuildUtils.sqlSources(resolved)) return resolved
+        Map fallback = sqlFallback(rawProj, resolved)
+        if (!fallback) return resolved
+        String tool = ((rawProj?.buildTool ?: resolved.buildTool) ?: 'sql') as String
+        String changelog = (fallback.changelog ?: '') as String
+        Map raw = [:] + (rawProj ?: [:]) + [buildTool: 'liquibase']
+        if (changelog) raw.database = (rawProj?.database instanceof Map ? [:] + (rawProj.database as Map) : [:]) + [changelogFile: changelog]
+        if (resolved.buildToolAutoSetup == true && raw.buildToolAutoSetup == null && !raw.javaPath) raw.buildToolAutoSetup = true
+        String using = changelog ? " with database.changelogFile ${changelog}".toString() : ''
+        String setting = changelog ? " and database.changelogFile: ${changelog}".toString() : ''
+        script.echo "[INIT] [WARN] ${projectName}: buildTool ${tool} is for SQL and PL/SQL files without a Liquibase changelog, but ${fallback.reason}: the service runs as buildTool liquibase${using} - set buildTool: liquibase${setting} in ${state.configFile}"
+        return autoResolver.resolve(SettingsAdvisor.copy(deepMerge(state.cfgDefaults, raw)), projectName, raw)
+    }
+
+    private Map sqlFallback(Map rawProj, Map cfg) {
+        Map db = cfg.database instanceof Map ? (cfg.database as Map) : [:]
+        if (((db.changelogFile ?: '') as String).trim()) return [reason: 'database.changelogFile is set']
+        Map build = rawProj?.build instanceof Map ? (rawProj.build as Map) : [:]
+        if (build.liquibase) return [reason: 'build.liquibase is set']
+        Map tests = rawProj?.tests instanceof Map ? (rawProj.tests as Map) : [:]
+        Map unitTests = tests.unitTests instanceof Map ? (tests.unitTests as Map) : [:]
+        if (unitTests.liquibase) return [reason: 'tests.unitTests.liquibase is set']
+        Map rawDb = rawProj?.database instanceof Map ? (rawProj.database as Map) : [:]
+        String root = DatabaseSettings.join(((cfg.sourceDir ?: '.') as String), ((rawDb.searchPath ?: '.') as String))
+        String found = autoResolver.liquibaseChangelogIn(root)
+        if (!found) return [:]
+        return [reason: "the repository has the Liquibase changelog ${DatabaseSettings.join(root, found)}".toString(), changelog: found]
+    }
+
     private void recordAutoResolved(String projectName, Map before, Map after) {
-        List<Map> found = RepoStackAutoResolver.changes(before, after)
+        List<Map> found = RepoStackAutoResolver.changes(before, after, state.cfgDefaults)
         Map<String, Map> byField = [:]
         for (def r : ((state.projectsAutoResolved[projectName] ?: []) as List<Map>) + found) byField[r.field as String] = r as Map
         state.projectsAutoResolved[projectName] = byField.values() as List

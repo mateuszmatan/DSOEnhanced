@@ -130,6 +130,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Map<String, Map<String, String>> upstream = [:]
     boolean unix = true
     boolean jsonLib = true
+    boolean deepGlob = false
     String cwd = ''
     Closure shHandler = { Map args -> '' }
     Closure readFileHandler = null
@@ -223,7 +224,9 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     Object findFiles(Map args) {
         String glob = String.valueOf(args.glob ?: '*')
-        String regex = glob.replace('.', '\\.').replace('**/', '(.*/)?').replace('*', '[^/]*')
+        String regex = deepGlob
+                ? glob.replace('.', '\\.').replace('**/', '\u0000').replace('*', '[^/]*').replace('\u0000', '(?:.*/)?')
+                : glob.replace('.', '\\.').replace('**/', '(.*/)?').replace('*', '[^/]*')
         List<FakeFile> out = files.keySet().findAll { it ==~ regex }.sort().collect {
             new FakeFile(path: it, name: it.tokenize('/').last(), directory: false)
         }

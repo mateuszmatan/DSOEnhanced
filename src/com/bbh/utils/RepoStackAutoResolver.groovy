@@ -11,19 +11,30 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     @NonCPS
-    static List<Map> changes(Map before, Map after) {
+    static List<Map> changes(Map before, Map after, Map defaults = null) {
         Map<String, Object> old = [:]
         Map<String, Object> now = [:]
+        Map<String, Object> builtIn = [:]
         flatten(before, '', old)
         flatten(after, '', now)
+        flatten(defaults ?: [:], '', builtIn)
         List<Map> out = []
         for (def entry : now.entrySet()) {
             String field = entry.key as String
             def value = entry.value
+            String was = display(old[field])
             if (!old.containsKey(field)) {
                 out << [field: field, value: display(value), reason: 'not set - detected from the repository']
-            } else if (display(old[field]) != display(value)) {
-                out << [field: field, value: display(value), reason: "replaces the invalid or unsupported value '${display(old[field])}'".toString()]
+            } else if (was != display(value)) {
+                String reason = "replaces the invalid or unsupported value '${was}'".toString()
+                if (field == 'buildTool' && BuildUtils.canonicalToolName(was) == display(value)) {
+                    reason = "'${was}' is the build tool ${display(value)}".toString()
+                } else if (field == 'buildTool' && BuildUtils.canonicalToolName(was) == 'sql' && display(value) == 'liquibase') {
+                    reason = "'${was}' is for SQL and PL/SQL files without a Liquibase changelog, and this service has one".toString()
+                } else if (builtIn.containsKey(field) && display(builtIn[field]) == was) {
+                    reason = "detected from the repository instead of the library default '${was}'".toString()
+                }
+                out << [field: field, value: display(value), reason: reason]
             }
         }
         return out
@@ -79,6 +90,7 @@ class RepoStackAutoResolver implements Serializable {
         resolveNodeStage0(cfg)
         resolveDeployTarget(cfg, serviceName, explicitCfg)
         resolveLiquibase(cfg)
+        resolveSqlSearchPath(cfg)
         resolveFlutter(cfg)
         resolveSonar(cfg, serviceName)
         return cfg
@@ -90,7 +102,7 @@ class RepoStackAutoResolver implements Serializable {
         String sd = sourceRoot(cfg)
         if (existing && !existing.equalsIgnoreCase('auto')) {
             if (BuildUtils.isValidBuildTool(existing)) {
-                String normalized = BuildUtils.normalizeToolName(existing)
+                String normalized = BuildUtils.canonicalToolName(existing)
                 cfg.buildTool = normalized
                 checkJdkAutoSetup(cfg, normalized, sd)
                 return
@@ -102,7 +114,7 @@ class RepoStackAutoResolver implements Serializable {
             return
         }
         String detected = detectToolFromRepo(sd)
-        if (detected == 'liquibase' && BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) return
+        if (detected in ['liquibase', 'sql'] && BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) return
         if (detected) {
             cfg.buildTool = detected
             checkJdkAutoSetup(cfg, detected, sd)
@@ -127,19 +139,44 @@ class RepoStackAutoResolver implements Serializable {
         if (existsIn(sd, 'pubspec.yaml')) return 'flutter'
         if (isIosPresent(sd)) return 'ios'
         if (existsIn(sd, 'pom.xml')) return 'maven'
-        if (existsIn(sd, 'build.gradle') || existsIn(sd, 'build.gradle.kts') || existsIn(sd, 'gradle/wrapper/gradle-wrapper.properties')) {
+        if (existsIn(sd, 'build.gradle') || existsIn(sd, 'build.gradle.kts') || existsIn(sd, 'settings.gradle') || existsIn(sd, 'settings.gradle.kts') || existsIn(sd, 'gradle/wrapper/gradle-wrapper.properties')) {
             return (existsIn(sd, 'AndroidManifest.xml') || existsIn(sd, 'app/src/main/AndroidManifest.xml')) ? 'android' : 'gradle'
         }
         if (isDotnetPresent(sd)) return 'dotnet'
         if (isLiquibasePresent(sd)) return 'liquibase'
         if (isPipPresent(sd)) return 'pip'
         if (isNpmPresent(sd)) return 'npm'
+        if (!BuildUtils.liquibaseMarkers().any { String f -> existsIn(sd, f) } && sqlFiles(sd)) return 'sql'
         return null
+    }
+
+    private List<String> sqlFiles(String sd) {
+        List<String> found = []
+        String prefix = sd ? "${sd}/".toString() : ''
+        for (String p : findPaths("${prefix}**/*".toString())) {
+            String path = p.replace('\\', '/')
+            String rel = prefix && path.startsWith(prefix) ? path.substring(prefix.length()) : path
+            if (SqlChangelog.source(rel) && !SqlChangelog.hidden(rel)) found << rel
+        }
+        return found
+    }
+
+    private void resolveSqlSearchPath(Map cfg) {
+        if (!BuildUtils.sqlSources(cfg) || sourceRoot(cfg)) return
+        Map db = cfg.database instanceof Map ? (cfg.database as Map) : [:]
+        if (((db.searchPath ?: '') as String).trim()) return
+        List<String> files = sqlFiles('')
+        if (!files || files.any { String f -> !f.contains('/') }) return
+        List<String> tops = files.collect { String f -> f.substring(0, f.indexOf('/')) }.unique()
+        if (tops.size() != 1) return
+        cfg.database = [:] + db + [searchPath: tops[0]]
     }
 
     private void checkJdkAutoSetup(Map cfg, String tool, String sd) {
         if (cfg.javaPath || cfg.buildToolAutoSetup != null) return
-        if (tool == 'maven' && existsIn(sd, 'pom.xml')) {
+        if (tool == 'sql') {
+            cfg.buildToolAutoSetup = true
+        } else if (tool == 'maven' && existsIn(sd, 'pom.xml')) {
             if (readIn(sd, 'pom.xml') =~ /<java\.version>|<maven\.compiler\.source>|<maven\.compiler\.target>|<release>/) {
                 cfg.buildToolAutoSetup = true
             }
@@ -326,6 +363,14 @@ class RepoStackAutoResolver implements Serializable {
             if (existsIn(sd, c)) return sd && script.fileExists("${sd}/${c}") ? "${sd}/${c}" : c
         }
         return 'src/main/resources/changelog.xml'
+    }
+
+    String liquibaseChangelogIn(String root) {
+        String prefix = root && root != '.' ? "${root}/".toString() : ''
+        for (String f : BuildUtils.liquibaseMarkers()) {
+            if (f != 'liquibase.properties' && script.fileExists("${prefix}${f}".toString())) return f
+        }
+        return ''
     }
 
     private boolean isLiquibasePresent(String sd) {

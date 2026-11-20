@@ -85,7 +85,7 @@ Closure layoutFiles = { String layout ->
     File dir = new File(fixtures, "layout-${layout}")
     Map<String, String> files = [:]
     dir.eachFileRecurse(groovy.io.FileType.FILES) { File f -> files[dir.toPath().relativize(f.toPath()).toString()] = f.getText('UTF-8') }
-    if (layout != 'a') {
+    if (layout in ['b', 'c']) {
         String into = layout == 'b' ? 'orders-db/src/main/resources/db/changelog/' : 'orders-db/'
         File sources = new File(fixtures, 'layout-a/db')
         ['tables', 'code', 'test'].each { String sub -> new File(sources, sub).eachFile { File f -> files["${into}${sub}/${f.name}".toString()] = f.getText('UTF-8') } }
@@ -615,6 +615,78 @@ focused('D31 utPLSQL does not end', unit + [failedStage: UNIT, timeoutAt: 'DB: u
 focused('D32 changesets of another branch in the test database', unit + [result: 'SUCCESS', unexpected: true],
         '[DB] orders-db test: 2 changesets in the test database are not in this changelog (another branch or job?) - set database.test.reset to true, or give each pipeline its own test schema')
 
+List<String> sqlCode = ['code/pkg_orders.pks', 'test/ut_pkg_orders.pks', 'code/v_order_totals.vw', 'code/pkg_orders.pkb', 'test/ut_pkg_orders.pkb', 'code/trg_orders_bi.trg']
+List<String> sqlIds = ['types/t_order_line.tps', 'migrations/1_orders.sql', 'migrations/2_order_items.sql', 'migrations/10_order_status.sql'].collect { "dso-changelog.xml::${it}::devsecops".toString() } +
+        ['migrations/11_order_notes.sql::11-order-notes::orders-team'] + (['migrations/20_grant_app_role.sql'] + sqlCode).collect { "dso-changelog.xml::${it}::devsecops".toString() }
+Map sqlOnly = [layout: 'd', ids: sqlIds, testIds: sqlIds.findAll { it.contains('::test/') }, prepare: { FakeScript j -> j.deepGlob = true }]
+String sqlXml = new File(fixtures, 'dso-changelog-layout-d.xml').getText('UTF-8')
+List<String> sqlSummary = ['[DB] orders-db: buildTool sql - dso-changelog.xml generated in db from 12 SQL and PL/SQL files: 4 run once, 7 run again when they change, 1 Liquibase formatted SQL file included as it is, 2 only on the test database (context test)',
+                           '[DB] orders-db: 1. types/t_order_line.tps - create or replace type, runs again when it changes',
+                           '[DB] orders-db: 2. migrations/1_orders.sql - create sequence, runs once',
+                           '[DB] orders-db: 3. migrations/2_order_items.sql - create table, runs once',
+                           '[DB] orders-db: 4. migrations/10_order_status.sql - SQL script, runs once',
+                           '[DB] orders-db: 5. migrations/11_order_notes.sql - Liquibase formatted SQL, included as it is, its own changesets',
+                           '[DB] orders-db: 6. migrations/20_grant_app_role.sql - PL/SQL block, runs once',
+                           '[DB] orders-db: 7. code/pkg_orders.pks - create or replace package, runs again when it changes',
+                           '[DB] orders-db: 8. test/ut_pkg_orders.pks - create or replace package, runs again when it changes, test database only',
+                           '[DB] orders-db: 9. code/v_order_totals.vw - create or replace view, runs again when it changes',
+                           '[DB] orders-db: 10. code/pkg_orders.pkb - create or replace package body, runs again when it changes',
+                           '[DB] orders-db: 11. test/ut_pkg_orders.pkb - create or replace package body, runs again when it changes, test database only',
+                           '[DB] orders-db: 12. code/trg_orders_bi.trg - create or replace trigger, runs again when it changes']
+String sqlStep = 'DB: read the SQL and PL/SQL sources of orders-db for its changelog'
+Map sqlFull = verify(full + sqlOnly + [name: 'D33 full, SQL and PL/SQL files only, detected', executed: fullStages, skipped: [STATIC, DYNAMIC], result: 'SUCCESS',
+                                       golden: 'full-sql-only-green'])
+check('D33: the service without buildTool is detected as buildTool sql with database.searchPath db, the JDK auto setup and the changelog dso-changelog.xml',
+        logOf(sqlFull).findAll { it.startsWith('[INIT]') && it.contains('orders-db') }.size() > 0, logOf(sqlFull).findAll { it.startsWith('[INIT]') })
+check('D33: the pipeline writes db/dso-changelog.xml: types first, the run-once files in natural order with the formatted file included, then the code by kind, the utPLSQL tests with context test',
+        (sqlFull.j as FakeScript).files['db/dso-changelog.xml'] == sqlXml, (sqlFull.j as FakeScript).files['db/dso-changelog.xml'])
+check('D33: the summary of the generated changelog names every file, its kind and when it runs',
+        logOf(sqlFull).findAll { it.startsWith('[DB] orders-db: buildTool sql') || it ==~ /\[DB\] orders-db: \d+\. .*/ } == sqlSummary,
+        logOf(sqlFull).findAll { it.startsWith('[DB] orders-db: buildTool sql') || it ==~ /\[DB\] orders-db: \d+\. .*/ })
+check('D33: the changelog is generated once, before the files check, the package holds the search root db, and the static checks find nothing',
+        labels(sqlFull).count(sqlStep) == 1 && labels(sqlFull).indexOf(sqlStep) < labels(sqlFull).indexOf('DB: check the files of orders-db')
+                && callsOf(sqlFull).any { it.contains("cp -R 'db/.' '.dso-db/orders-db/package/'") } && stageOf(sqlFull, BUILD) == 'PASS'
+                && !(sqlFull.j as FakeScript).files.containsKey('.dso-db/orders-db/static-checks.txt'),
+        [labels(sqlFull).take(4), stageOf(sqlFull, BUILD)])
+Map sqlSecurity = verify(security + sqlOnly + [name: 'D33 security, SQL and PL/SQL files only, detected', executed: securityStages, skipped: [STATIC], result: 'SUCCESS'])
+check('D33: the security pipeline generates the same changelog once and delivers the snapshot',
+        labels(sqlSecurity).count(sqlStep) == 1 && (sqlSecurity.j as FakeScript).files['db/dso-changelog.xml'] == sqlXml && stageOf(sqlSecurity, SNAPSHOT) == 'PASS',
+        [labels(sqlSecurity).count(sqlStep), stageOf(sqlSecurity, SNAPSHOT)])
+Map sqlSast = verify(sast + sqlOnly + [name: 'D33 SAST, SQL and PL/SQL files only, detected', executed: [MONITOR, BUILD, SAST], skipped: [], result: 'SUCCESS'])
+check('D33: the SAST pipeline scans the SQL and PL/SQL sources without a compile step and generates no changelog',
+        !labels(sqlSast).contains(sqlStep) && (callsOf(sqlSast).find { it.contains('" prepare ') } ?: '').contains(' -sco'), labels(sqlSast))
+
+Closure sqlTool = { String tool, String searchPath -> orders { Map db, Map svc -> svc.buildTool = tool; if (searchPath) db.searchPath = searchPath } }
+Map sqlNamed = verify(security + sqlOnly + [name: 'D34 buildTool plsql with its search path', result: 'SUCCESS', configure: sqlTool('plsql', 'db')])
+check('D34: plsql is the build tool sql, and the log says that buildTool and database.searchPath equal the detected values and can be removed',
+        (sqlNamed.j as FakeScript).files['db/dso-changelog.xml'] == sqlXml
+                && has(sqlNamed, '[INIT] [INFO] orders-db: buildTool: sql equals the auto-detected value - the key can be removed from devsecops_config.yaml')
+                && has(sqlNamed, '[INIT] [INFO] orders-db: database.searchPath: db equals the auto-detected value - the key can be removed from devsecops_config.yaml'),
+        logOf(sqlNamed).findAll { it.startsWith('[INIT]') })
+Map sqlWithChangelog = verify(plsql + [name: 'D35 buildTool sql with database.changelogFile', result: 'SUCCESS', configure: { Map p -> dropTargets(['test', 'rd', 'qc'])(p); (p['orders-db'] as Map).buildTool = 'sql' }])
+check('D35: buildTool sql with a changelog of its own runs as buildTool liquibase, with a warning, and generates nothing',
+        has(sqlWithChangelog, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but database.changelogFile is set: the service runs as buildTool liquibase - set buildTool: liquibase in devsecops_config.yaml')
+                && !labels(sqlWithChangelog).contains(sqlStep) && !(sqlWithChangelog.j as FakeScript).files.containsKey('db/dso-changelog.xml')
+                && callsOf(sqlWithChangelog).any { it.contains("'--changelog-file=db/changelog-master.xml'") },
+        logOf(sqlWithChangelog).findAll { it.startsWith('[INIT]') })
+Map sqlWithMarker = verify(security + sqlOnly + [name: 'D35 buildTool sql in a repository with a Liquibase changelog', configure: sqlTool('sql', 'db'),
+                                                 files: ['db/changelog.xml': masterXml.replace('path="tables/"', 'path="migrations/"')]])
+check('D35: buildTool sql in a search root with a Liquibase changelog runs as buildTool liquibase with that changelog, and says which keys to set',
+        has(sqlWithMarker, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but the repository has the Liquibase changelog db/changelog.xml: the service runs as buildTool liquibase with database.changelogFile changelog.xml - set buildTool: liquibase and database.changelogFile: changelog.xml in devsecops_config.yaml')
+                && !labels(sqlWithMarker).contains(sqlStep) && callsOf(sqlWithMarker).any { it.contains("'--changelog-file=changelog.xml'") },
+        logOf(sqlWithMarker).findAll { it.startsWith('[INIT]') })
+focused('D36 a dso-changelog.xml of the repository', security + sqlOnly + [failedStage: MONITOR, files: ['db/dso-changelog.xml': '<databaseChangeLog/>\n']],
+        '[DB] orders-db: db/dso-changelog.xml is in the repository: buildTool sql writes this changelog itself - rename the file, or keep it and set buildTool: liquibase with database.changelogFile: dso-changelog.xml')
+Map sqlStale = verify(security + sqlOnly + [name: 'D36 the changelog of an earlier build and an empty file', result: 'SUCCESS',
+                                            files: ['db/dso-changelog.xml': sqlXml.replace('migrations/2_order_items.sql', 'migrations/removed.sql'), 'db/migrations/30_empty.sql': ' \n']])
+check('D36: a dso-changelog.xml with the mark of the pipeline is written again, and an empty file is named and left out',
+        (sqlStale.j as FakeScript).files['db/dso-changelog.xml'] == sqlXml && has(sqlStale, '[DB] orders-db: migrations/30_empty.sql is empty - left out of the generated changelog'),
+        logOf(sqlStale).findAll { it.contains('empty') })
+focused('D37 SQL files at the root of the repository', security + sqlOnly + [failedStage: MONITOR, files: ['grants.sql': 'GRANT SELECT ON orders TO orders_app_role;\n']],
+        '[DB] orders-db: buildTool sql writes its changelog dso-changelog.xml into the search root and packages the whole search root, which is the root of the repository: set database.searchPath or sourceDir to the folder of the SQL and PL/SQL files')
+focused('D37 a search root without SQL files', security + sqlOnly + [failedStage: MONITOR, configure: sqlTool('sql', 'docs')],
+        '[DB] orders-db: buildTool sql found no SQL or PL/SQL file (.sql, .pks, .pkb, .pls, .plb, .pck, .prc, .fnc, .trg, .tps, .tpb, .typ, .bdy, .vw) under docs: set sourceDir or database.searchPath to the folder of the files')
+
 Closure before = { List<String> items, Closure first, Closure then -> int at = items.findIndexOf(first); at >= 0 && at < items.findIndexOf(then) }
 Map withSteps = verify(unit + [name: 'N2 a database block with the Liquibase commands of build.liquibase and tests.unitTests.liquibase', result: 'SUCCESS',
                                configure: orders { Map db, Map svc -> ownSteps(svc) }])
@@ -760,14 +832,14 @@ doc.eachWithIndex { String line, int i ->
 Yaml yaml = new Yaml()
 Closure projectsOf = { File f -> (yaml.load(f.getText('UTF-8')) as Map).projects as Map }
 Closure copyOf = { Map m -> yaml.load(yaml.dump(m)) as Map }
-Map layoutProjects = ['a', 'b', 'c'].collectEntries { [(it): projectsOf(new File(fixtures, "layout-${it}/devsecops_config.yaml"))] }
+Map layoutProjects = ['a', 'b', 'c', 'd'].collectEntries { [(it): projectsOf(new File(fixtures, "layout-${it}/devsecops_config.yaml"))] }
 layoutProjects.each { String layout, Map projects ->
-    Map db = projects.values().find { (it as Map).buildTool == 'liquibase' } as Map
+    Map db = projects.values().find { (it as Map).buildTool == 'liquibase' || !(it as Map).buildTool } as Map
     String master = [db.sourceDir, db.database.searchPath, db.database.changelogFile].findAll { it && it != '.' }.join('/')
     String marker = "Files of layout (${layout}) ({{test/fixtures/database/layout-${layout}}}):".toString()
     List<String> tree = doc.contains(marker) ? blockAfter(doc.indexOf(marker)) : []
-    List<String> shown = ['devsecops_config.yaml', master, 'Jenkinsfile'].collect { "test/fixtures/database/layout-${layout}/${it}".toString() }
-    check("Chapter 14: the tree of layout (${layout}) lists every file of the layout once, and its configuration, changelog master and Jenkinsfile are examples",
+    List<String> shown = (['devsecops_config.yaml', 'Jenkinsfile'] + (db.database.changelogFile ? [master] : [])).collect { "test/fixtures/database/layout-${layout}/${it}".toString() }
+    check("Chapter 14: the tree of layout (${layout}) lists every file of the layout once, and its configuration, its changelog master when it has one and its Jenkinsfile are examples",
             tree && tree.size() == tree.toSet().size() && tree.toSet() == (layoutFiles(layout) as Map).keySet() && examples.containsAll(shown), [tree: tree, missing: shown - examples])
     String jenkinsfile = new File(fixtures, "layout-${layout}/Jenkinsfile").getText('UTF-8')
     check("Chapter 14: the Jenkinsfile of layout (${layout}) names the services of its configuration in their order",
@@ -802,11 +874,13 @@ merged = { Map base, Map over ->
     over.each { k, v -> result[k] = v instanceof Map && result[k] instanceof Map ? merged(result[k] as Map, v as Map) : v }
     result
 }
-['a', 'b', 'c'].each { String layout ->
+Map detectedKeys = [buildTool: 'sql', buildToolAutoSetup: true, database: [searchPath: 'db']]
+['a', 'b', 'c', 'd'].each { String layout ->
     (layoutProjects[layout] as Map).each { String name, Map cfg ->
         if (!cfg?.database) return
+        Map service = layout == 'd' ? merged(merged(globalDefaults, cfg), detectedKeys) : merged(globalDefaults, cfg)
         List problems = ['full', 'security'].collectMany { String variant ->
-            harness.run { harness.type('com.bbh.utils.DatabaseSettings').problems(name, merged(globalDefaults, cfg), globalDefaults, variant) } as List
+            harness.run { harness.type('com.bbh.utils.DatabaseSettings').problems(name, service, globalDefaults, variant) } as List
         }
         check("Chapter 14: the settings of ${name} in devsecops_config.yaml of layout (${layout}) pass the settings check of the full and security pipelines", !problems, problems)
     }
