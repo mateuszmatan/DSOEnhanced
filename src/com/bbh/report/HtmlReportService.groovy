@@ -951,7 +951,9 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
     @NonCPS
     protected String manualComparisonHtml(Map stageTimes, Map stageResults) {
         Map minutes = BuildUtils.manualEffort(state.cfgDefaults ?: [:]).minutes as Map
-        Map table = ReportViewModel.manualComparison(stageTimes, stageResults, (state.parallelGroups ?: []) as List, minutes)
+        List services = []
+        for (def name : ((state.projectsAllCfg ?: [:]) as Map).keySet()) services << (name as String)
+        Map table = ReportViewModel.manualComparison(stageTimes, stageResults, (state.parallelGroups ?: []) as List, minutes, services, (state.projectStageTimes ?: [:]) as Map)
         List rows = (table.rows ?: []) as List
         if (!rows) return ''
         String cell = "padding:8px 12px;vertical-align:top;"
@@ -967,7 +969,13 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
             blockBefore = block
             String blockNote = block != null ? "<span style='${note}'>${esc(block)}: runs in parallel</span>" : ''
             String automated = row.automated != null ? "<b>${BuildUtils.formatDuration(row.automated as long) ?: '0s'}</b>" : "<span style='color:#94a3b8;'>-</span>"
-            body.append("<tr><td style='${cell}${edge}'><span style='font-weight:600;'>${esc(row.step as String)}</span> <b style='margin-left:6px;'>${BuildUtils.formatDuration(row.ms as long) ?: '0s'}</b>${blockNote}</td>")
+            StringBuilder serviceLines = new StringBuilder()
+            for (def sv : ((row.services ?: []) as List)) {
+                Map service = sv as Map
+                String time = (service.ran as boolean) ? "<b style='color:#334155;'>${BuildUtils.formatDuration(service.ms as long) ?: '0s'}</b>" : 'not run for this service'
+                serviceLines.append("<span class='step-service' style='${note}padding-left:14px;'>${esc(service.name as String)} ${time}</span>")
+            }
+            body.append("<tr><td style='${cell}${edge}'><span style='font-weight:600;'>${esc(row.step as String)}</span> <b style='margin-left:6px;'>${BuildUtils.formatDuration(row.ms as long) ?: '0s'}</b>${blockNote}${serviceLines}</td>")
                     .append("<td style='${right}${edge}'><b>${BuildUtils.formatDuration(row.manual as long) ?: '0s'}</b><span style='${note}'>${esc(row.manualNote as String)}</span></td>")
                     .append("<td style='${right}${edge}'>${automated}<span style='${note}'>${esc(row.automatedNote as String)}</span></td>")
             int span = row.span as int
@@ -987,10 +995,7 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
                 .append("<td style='${right}${top}color:#15803d;'><b>${percent}%</b><span style='${note}'>${ReportViewModel.secondsAndMinutes(recovered)}</span></td></tr>")
         return "\n<section id='manual-vs-automated' class='card' style='margin-top:20px;'><h2>Manual Actions vs DevSecOps</h2>" +
                 "<div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Step</th><th style='text-align:right;'>Manual actions</th>" +
-                "<th style='text-align:right;'>DevSecOps Automated Actions</th><th style='text-align:right;'>Time gained</th></tr></thead><tbody>${body}</tbody></table></div>" +
-                "<div style='margin-top:10px;font-size:0.9rem;color:#15803d;font-weight:700;'>DevSecOps gained <b>${BuildUtils.formatDuration(recovered) ?: '0s'}</b> in this run (${ReportViewModel.secondsAndMinutes(recovered)}), <b>${percent}%</b> of the manual time: " +
-                "${ReportViewModel.secondsAndMinutes(manual)} by hand, ${ReportViewModel.secondsAndMinutes(automated)} with DevSecOps</div>" +
-                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run. The time next to a step is its own run. Manual actions add the time a person needs to start the step or to raise its ticket (report.manualEffort in the library defaults). Of the steps that run in parallel only the longest counts for DevSecOps.</div></section>"
+                "<th style='text-align:right;'>DevSecOps Automated Actions</th><th style='text-align:right;'>Time gained</th></tr></thead><tbody>${body}</tbody></table></div></section>"
     }
 
     @NonCPS

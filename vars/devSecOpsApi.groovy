@@ -173,17 +173,28 @@ def eachProject(Closure body) {
     _setup()
     def projects = _config.resolveProjectNames()
     Map kit = _kit()
+    PipelineState state = kit.state as PipelineState
     if (!kit.branch) {
         for (pName in projects) {
             _config.switchProject(pName)
-            body(pName)
+            long started = System.currentTimeMillis()
+            try {
+                body(pName)
+            } finally {
+                state.addProjectTime(state.currentStage, pName as String, System.currentTimeMillis() - started)
+            }
         }
         return
     }
     for (pName in projects) {
-        List vars = _config.switchProject(pName as String, kit.state as PipelineState) + _branchToolEnv((kit.state as PipelineState).cfg)
-        withEnv(vars) {
-            body(pName)
+        List vars = _config.switchProject(pName as String, state) + _branchToolEnv(state.cfg)
+        long started = System.currentTimeMillis()
+        try {
+            withEnv(vars) {
+                body(pName)
+            }
+        } finally {
+            state.addProjectTime(state.currentStage, pName as String, System.currentTimeMillis() - started)
         }
     }
 }
@@ -270,6 +281,7 @@ def awaitUnitTests(String unitBranch) {
     waitUntil(quiet: true) { _unitTestsReady(unitBranch, peers) }
     long waited = System.currentTimeMillis() - start
     kit.waitMs = ((kit.waitMs ?: 0L) as long) + waited
+    (kit.state as PipelineState).addProjectTime((kit.state as PipelineState).currentStage, name, -waited)
     echo "[STATIC] ${name}: SonarQube starts after waiting ${BuildUtils.formatDuration(waited)} for the unit tests"
 }
 

@@ -1938,6 +1938,18 @@ Closure runScenario = { Map spec ->
             state.recordParallelGroup(group.key as String, clock, groupEnd, branches)
             clock = groupEnd + 4000L
         }
+        Random shares = new Random((spec.seed as long) + 7L)
+        List<String> serviceNames = config.resolveProjectNames() as List<String>
+        durationOf.each { String name, Long duration ->
+            if (name == MONITOR) return
+            List<Integer> weights = serviceNames.collect { 2 + shares.nextInt(5) }
+            long left = duration
+            serviceNames.eachWithIndex { String service, int i ->
+                long part = i == serviceNames.size() - 1 ? left : (((duration * weights[i]).intdiv(weights.sum() as int)).intdiv(1000L)) * 1000L
+                left -= part
+                state.addProjectTime(name, service, part)
+            }
+        }
         (state.projectsRemoteTestResults as Map).each { p, byStage ->
             (byStage as Map).each { s, jobs -> (jobs as List).each { Map j -> j.durationMs = (rnd(random, 45, 1260) as long) * 1000L } }
         }
