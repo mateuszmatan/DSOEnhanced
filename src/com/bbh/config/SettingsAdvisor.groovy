@@ -16,7 +16,7 @@ class SettingsAdvisor implements Serializable {
                 'build.gradle.tasks', 'tests.unitTests.gradle.tasks', 'build.maven.goals', 'build.maven.flags', 'tests.unitTests.maven.goals',
                 'build.node.enabled', 'build.node.dir', 'build.node.version', 'tests.unitTests.node.cypress', 'tests.unitTests.cypress.enabled',
                 'build.liquibase.commands', 'build.liquibase.flags', 'tests.unitTests.liquibase.commands',
-                'tests.unitTests.liquibase.flags', 'flutter.platform']
+                'tests.unitTests.liquibase.flags', 'flutter.platform', 'database.searchPath']
     }
 
     @NonCPS

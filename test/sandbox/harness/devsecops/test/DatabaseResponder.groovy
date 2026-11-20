@@ -163,7 +163,8 @@ class DatabaseResponder {
         String props = j.files["${j.env.DSO_TMP}/${j.env.DSO_PROPS}".toString()] ?: ''
         String database = 'ORDERS_OWNER@' + (props.readLines().find { it.startsWith('liquibase.command.url=') } ?: '').replaceFirst(/^[^=]*=/, '').replace('\\\\', '\\')
         String changelog = quoted(text, /'--changelog-file=([^']+)'/)
-        List<String> filtered = text.contains("'--context-filter=!test'") ? IDS.take(8) : IDS
+        List<String> all = (spec.ids ?: IDS) as List<String>
+        List<String> filtered = text.contains("'--context-filter=!test'") ? all - ((spec.ids ? (spec.testIds ?: []) : IDS.drop(8)) as List<String>) : all
         Map<String, Object> answer = [status: 0, text: '']
         Closure reply = { int status, String output -> answer.status = status; answer.text = output }
         Map compile = ((spec.compile ?: [:]) as Map)[target] as Map ?: [:]
@@ -199,13 +200,13 @@ class DatabaseResponder {
             case "DB: Liquibase update on ${target}".toString():
                 if ((spec.updateError as Map)?.get(target)) {
                     String name = (spec.updateError as Map)[target] as String
-                    reply(1, (name == 'lock' ? 'Waiting for changelog lock....\n' : '') + (name == 'ora-00955' ? IDS.take(3).collect { "Running Changeset: ${it}\n" }.join('') : '') + failed(version, name, ''))
+                    reply(1, (name == 'lock' ? 'Waiting for changelog lock....\n' : '') + (name == 'ora-00955' ? all.take(3).collect { "Running Changeset: ${it}\n" }.join('') : '') + failed(version, name, ''))
                     break
                 }
                 List<String> ran = spec.nothingRan == target ? [] : filtered
                 reply(0, header(version) + ran.collect { "Running Changeset: ${it}" }.join('\n') + "\n\nUPDATE SUMMARY\nRun:                          ${ran.size()}\n" +
-                        "Previously run:               ${filtered.size() - ran.size()}\nFiltered out:                 ${IDS.size() - filtered.size()}\n-------------------------------\n" +
-                        "Total change sets:           ${IDS.size()}\n\n" + (IDS.size() > filtered.size() ? "\nFILTERED CHANGE SETS SUMMARY\nContext mismatch:             ${IDS.size() - filtered.size()}\n\n" : '') +
+                        "Previously run:               ${filtered.size() - ran.size()}\nFiltered out:                 ${all.size() - filtered.size()}\n-------------------------------\n" +
+                        "Total change sets:           ${all.size()}\n\n" + (all.size() > filtered.size() ? "\nFILTERED CHANGE SETS SUMMARY\nContext mismatch:             ${all.size() - filtered.size()}\n\n" : '') +
                         'Liquibase: Update has been successful. Rows affected: 0\n' + done('update'))
                 break
             case "DB: compile check on ${target}".toString():

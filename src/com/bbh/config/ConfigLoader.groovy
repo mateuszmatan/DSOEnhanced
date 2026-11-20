@@ -2,6 +2,7 @@ package com.bbh.config
 
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
+import com.bbh.utils.DatabaseSettings
 import com.bbh.utils.RepoStackAutoResolver
 import com.cloudbees.groovy.cps.NonCPS
 
@@ -139,7 +140,7 @@ class ConfigLoader implements Serializable {
                 }
                 Map rawProj = ownSettings(pName as String, (projects[pName] ?: [:]) as Map)
                 Map merged = SettingsAdvisor.copy(deepMerge(state.cfgDefaults, rawProj))
-                Map auto = autoResolver.resolve(state.cfgDefaults, rawProj, merged, pName as String)
+                Map auto = sqlOrLiquibase(pName as String, rawProj, autoResolver.resolve(state.cfgDefaults, rawProj, merged, pName as String), false)
                 state.projectsAllCfg[pName] = auto.cfg
                 state.projectsAutoResolved[pName] = auto.resolved
                 warnIgnoredAppScanKey(pName as String, rawProj)
@@ -375,12 +376,47 @@ class ConfigLoader implements Serializable {
         if (targetDir && (!current.sourceDir || current.sourceDir == '.')) {
             current = [:] + current + [sourceDir: targetDir]
         }
-        Map auto = autoResolver.resolve(state.cfgDefaults, [:] + rawProj + [sourceDir: current.sourceDir], current, projectName, targetDir ? true : false)
+        Map auto = sqlOrLiquibase(projectName, [:] + rawProj + [sourceDir: current.sourceDir],
+                autoResolver.resolve(state.cfgDefaults, [:] + rawProj + [sourceDir: current.sourceDir], current, projectName, targetDir ? true : false), targetDir ? true : false)
         Map<String, Map> byField = [:]
         for (def r : ((state.projectsAutoResolved[projectName] ?: []) as List) + ((auto.resolved ?: []) as List)) byField[(r as Map).field as String] = r as Map
         state.projectsAutoResolved[projectName] = byField.values() as List
         state.projectsAllCfg[projectName] = auto.cfg
         if (state.currentProjectName == projectName) state.cfg = auto.cfg
+    }
+
+    private Map sqlOrLiquibase(String projectName, Map rawProj, Map auto, boolean separateRepository) {
+        Map resolved = (auto.cfg ?: [:]) as Map
+        if (!BuildUtils.sqlSources(resolved)) return auto
+        Map fallback = sqlFallback(rawProj, resolved)
+        if (!fallback) return auto
+        String tool = ((rawProj?.buildTool ?: resolved.buildTool) ?: 'sql') as String
+        String changelog = (fallback.changelog ?: '') as String
+        Map raw = [:] + (rawProj ?: [:]) + [buildTool: 'liquibase']
+        if (changelog) raw.database = (rawProj?.database instanceof Map ? [:] + (rawProj.database as Map) : [:]) + [changelogFile: changelog]
+        if (resolved.buildToolAutoSetup == true && raw.buildToolAutoSetup == null && !raw.javaPath) raw.buildToolAutoSetup = true
+        String using = changelog ? " with database.changelogFile ${changelog}".toString() : ''
+        String setting = changelog ? " and database.changelogFile: ${changelog}".toString() : ''
+        script.echo "[INIT] [WARN] ${projectName}: buildTool ${tool} is for SQL and PL/SQL files without a Liquibase changelog, but ${fallback.reason}: the service runs as buildTool liquibase${using} - set buildTool: liquibase${setting} in ${state.settingsPlace()}"
+        Map again = autoResolver.resolve(state.cfgDefaults, raw, SettingsAdvisor.copy(deepMerge(state.cfgDefaults, raw)), projectName, separateRepository)
+        List<Map> named = [[field: 'buildTool', value: 'liquibase', reason: "'${tool}' is for SQL and PL/SQL files without a Liquibase changelog, and this service has one".toString()]]
+        if (changelog) named << [field: 'database.changelogFile', value: changelog, reason: 'Liquibase changelog found in the search root']
+        return [cfg: again.cfg, resolved: named + ((again.resolved ?: []) as List)]
+    }
+
+    private Map sqlFallback(Map rawProj, Map cfg) {
+        Map db = cfg.database instanceof Map ? (cfg.database as Map) : [:]
+        if (((db.changelogFile ?: '') as String).trim()) return [reason: 'database.changelogFile is set']
+        Map build = rawProj?.build instanceof Map ? (rawProj.build as Map) : [:]
+        if (build.liquibase) return [reason: 'build.liquibase is set']
+        Map tests = rawProj?.tests instanceof Map ? (rawProj.tests as Map) : [:]
+        Map unitTests = tests.unitTests instanceof Map ? (tests.unitTests as Map) : [:]
+        if (unitTests.liquibase) return [reason: 'tests.unitTests.liquibase is set']
+        Map rawDb = rawProj?.database instanceof Map ? (rawProj.database as Map) : [:]
+        String root = DatabaseSettings.join(((cfg.sourceDir ?: '.') as String), ((rawDb.searchPath ?: '.') as String))
+        String found = autoResolver.liquibaseChangelogIn(root)
+        if (!found) return [:]
+        return [reason: "the repository has the Liquibase changelog ${DatabaseSettings.join(root, found)}".toString(), changelog: found]
     }
 
     private void warnIgnoredAppScanKey(String projectName, Map rawProj) {

@@ -60,6 +60,7 @@ class PipelineState implements Serializable {
     Map goldenFixPullRequestsByRepo = [:]
     Map projectsDatabase = [:]
     Map databaseTools    = [:]
+    Map sqlChangelogs    = [:]
     Map sastScansByAppId = [:]
     Map sonarScansByProjectKey = [:]
     Map nexusIqScansByApp      = [:]
@@ -106,6 +107,7 @@ class PipelineState implements Serializable {
         branch.goldenFixPullRequestsByRepo = goldenFixPullRequestsByRepo
         branch.projectsDatabase = projectsDatabase
         branch.databaseTools = databaseTools
+        branch.sqlChangelogs = sqlChangelogs
         branch.sastScansByAppId = sastScansByAppId
         branch.sonarScansByProjectKey = sonarScansByProjectKey
         branch.nexusIqScansByApp = nexusIqScansByApp

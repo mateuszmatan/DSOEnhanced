@@ -115,6 +115,7 @@ class RepoStackAutoResolver implements Serializable {
         resolveNodeStage0(cfg)
         resolveDeployTarget(cfg, serviceName)
         resolveLiquibaseDirect(cfg)
+        resolveSqlSearchPath(cfg, baseDir(cfg), [])
         resolveFlutterDirect(cfg)
         resolveSonarDirect(cfg, serviceName)
 
@@ -124,15 +125,15 @@ class RepoStackAutoResolver implements Serializable {
     private void resolveBuildToolDirect(Map cfg) {
         String existing = ((cfg.buildTool ?: '') as String).trim()
         if (existing) {
+            if (BuildUtils.sqlSources(cfg)) {
+                existing = 'sql'
+                cfg.buildTool = existing
+            }
             checkJdkAutoSetup(cfg, existing)
             return
         }
         if (script.fileExists('pubspec.yaml')) {
             cfg.buildTool = 'flutter'
-            return
-        }
-        if (isLiquibasePresent()) {
-            if (!BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) cfg.buildTool = 'liquibase'
             return
         }
         if (script.fileExists('pom.xml')) {
@@ -149,15 +150,58 @@ class RepoStackAutoResolver implements Serializable {
             cfg.buildTool = 'dotnet'
             return
         }
+        if (isLiquibasePresent()) {
+            if (!BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database])) cfg.buildTool = 'liquibase'
+            return
+        }
         if (isPipPresent()) {
             cfg.buildTool = 'pip'
             return
         }
+        if (script.fileExists('package.json') || script.fileExists('angular.json')) return
+        if (BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database]) || changelog(baseDir(cfg))) return
+        if (sqlFiles(baseDir(cfg))) {
+            cfg.buildTool = 'sql'
+            checkJdkAutoSetup(cfg, 'sql')
+        }
+    }
+
+    private List<String> sqlFiles(String base) {
+        List<String> files = []
+        String prefix = base ? "${base}/".toString() : ''
+        List hits = []
+        try { hits = (script.findFiles(glob: "${prefix}**/*".toString()) ?: []) as List } catch (Exception ignored) {}
+        for (def hit : hits) {
+            String path = ((hit?.path ?: '') as String).replace('\\', '/')
+            String rel = prefix && path.startsWith(prefix) ? path.substring(prefix.length()) : path
+            if (SqlChangelog.source(rel) && !SqlChangelog.hidden(rel)) files << rel
+        }
+        return files
+    }
+
+    private void resolveSqlSearchPath(Map cfg, String base, List<Map> resolved) {
+        if (!BuildUtils.sqlSources(cfg) || base || has(cfg, 'database.searchPath')) return
+        List<String> files = sqlFiles('')
+        if (!files || files.any { String f -> !f.contains('/') }) return
+        List<String> tops = files.collect { String f -> f.substring(0, f.indexOf('/')) }.unique()
+        if (tops.size() != 1) return
+        put(cfg, 'database.searchPath', tops[0])
+        resolved << [field: 'database.searchPath', value: tops[0], reason: 'the one top folder that holds every SQL and PL/SQL file']
+    }
+
+    String liquibaseChangelogIn(String root) {
+        String prefix = root && root != '.' ? "${root}/".toString() : ''
+        for (String f : BuildUtils.liquibaseMarkers()) {
+            if (f != 'liquibase.properties' && script.fileExists("${prefix}${f}".toString())) return f
+        }
+        return ''
     }
 
     private void checkJdkAutoSetup(Map cfg, String tool) {
         if (cfg.javaPath || cfg.buildToolAutoSetup != null) return
-        if (tool == 'maven' && script.fileExists('pom.xml')) {
+        if (tool == 'sql') {
+            cfg.buildToolAutoSetup = true
+        } else if (tool == 'maven' && script.fileExists('pom.xml')) {
             String pom = readQuiet('pom.xml')
             if (pom =~ /<java\.version>|<maven\.compiler\.source>|<maven\.compiler\.target>|<release>/) {
                 cfg.buildToolAutoSetup = true
@@ -326,13 +370,14 @@ class RepoStackAutoResolver implements Serializable {
         resolveBuildCommands(cfg, ownCfg, tool, base, resolved)
         Map node = resolveNode(cfg, ownCfg, tool, base, resolved)
         resolveLiquibase(cfg, ownCfg, tool, base, resolved)
+        resolveSqlSearchPath(cfg, base, resolved)
         resolveFlutter(cfg, ownCfg, tool, resolved)
         resolveDotnet(cfg, tool, base, resolved)
         resolveSonar(cfg, ownCfg, serviceName, resolved)
         resolveNexusIq(cfg, ownCfg, tool, node, resolved)
         suggestDeployTarget(ownCfg, base, serviceName)
 
-        if (!BuildUtils.databaseBlock(cfg)) {
+        if (!BuildUtils.databaseBlock(cfg) || BuildUtils.sqlSources(cfg)) {
             for (Map r : resolved) {
                 say "[AUTO] ${serviceName}: ${r.field} = ${r.value} (${r.reason})"
             }
@@ -374,29 +419,43 @@ class RepoStackAutoResolver implements Serializable {
         String tool = ''
         String reason = ''
         if (explicit && !explicit.equalsIgnoreCase('auto')) {
-            if (BuildUtils.isValidBuildTool(explicit)) return explicit
+            if (BuildUtils.isValidBuildTool(explicit)) {
+                if (!BuildUtils.sqlSources([buildTool: explicit])) return explicit
+                if (cfg.buildTool != 'sql') {
+                    cfg.buildTool = 'sql'
+                    resolved << [field: 'buildTool', value: 'sql', reason: "'${explicit}' is the build tool sql".toString()]
+                }
+                return 'sql'
+            }
             cfg.remove('buildTool')
         }
         if (exists(base, 'pubspec.yaml')) {
             tool = 'flutter'; reason = 'pubspec.yaml found'
+        } else if (iosMarker(base)) {
+            tool = 'ios'; reason = "${iosMarker(base)} found (iOS)"
         } else if (exists(base, 'pom.xml')) {
             tool = 'maven'; reason = 'pom.xml found'
-        } else if (exists(base, 'build.gradle') || exists(base, 'build.gradle.kts') || exists(base, 'settings.gradle') || exists(base, 'settings.gradle.kts')) {
-            tool = 'gradle'; reason = exists(base, 'build.gradle.kts') ? 'build.gradle.kts found (Kotlin DSL)' : 'Gradle build script found'
+        } else if (exists(base, 'build.gradle') || exists(base, 'build.gradle.kts') || exists(base, 'settings.gradle') || exists(base, 'settings.gradle.kts') || exists(base, 'gradle/wrapper/gradle-wrapper.properties')) {
+            if (exists(base, 'AndroidManifest.xml') || exists(base, 'app/src/main/AndroidManifest.xml')) {
+                tool = 'android'; reason = 'Gradle build script and AndroidManifest.xml found (Android)'
+            } else {
+                tool = 'gradle'; reason = exists(base, 'build.gradle.kts') ? 'build.gradle.kts found (Kotlin DSL)' : 'Gradle build script found'
+            }
         } else if (dotnetMarker(base)) {
             tool = 'dotnet'; reason = "${dotnetMarker(base)} found (C# / .NET)"
-        } else if (exists(base, 'package.json')) {
-            tool = 'npm'; reason = exists(base, 'angular.json') ? 'package.json and angular.json found (Angular)' : 'package.json found (Node.js)'
         } else if (changelog(base)) {
             if (!BuildUtils.databaseBlock(cfg)) {
                 tool = 'liquibase'; reason = "Liquibase changelog ${changelog(base)} found"
             }
+        } else if (pythonMarker(base)) {
+            tool = 'pip'; reason = "${pythonMarker(base)} found (Python)"
+        } else if (exists(base, 'package.json') || exists(base, 'angular.json')) {
+            tool = 'npm'; reason = exists(base, 'angular.json') ? 'package.json and angular.json found (Angular)' : 'package.json found (Node.js)'
+        } else if (!BuildUtils.databaseBlock([buildTool: 'liquibase', database: cfg.database]) && !BuildUtils.liquibaseMarkers().any { String f -> exists(base, f) } && sqlFiles(base)) {
+            tool = 'sql'; reason = 'only SQL and PL/SQL files found, no build file and no Liquibase changelog'
         }
         if (!tool) {
             if (explicit && !explicit.equalsIgnoreCase('auto')) say "[WARN] Invalid buildTool '${explicit}' in configuration. No build file was found, the stages detect the build tool when they run."
-            if (exists(base, 'requirements.txt') || exists(base, 'pyproject.toml') || exists(base, 'setup.py')) {
-                say "[AUTO] Python project detected - set buildTool for the service, the library builds Gradle, Maven, npm, Flutter and Liquibase"
-            }
             return ((cfg.buildTool ?: '') as String).trim()
         }
         if (explicit && !explicit.equalsIgnoreCase('auto')) {
@@ -410,8 +469,27 @@ class RepoStackAutoResolver implements Serializable {
         return tool
     }
 
+    private String pythonMarker(String base) {
+        for (String f : ['requirements.txt', 'pyproject.toml', 'setup.py', 'Pipfile']) {
+            if (exists(base, f)) return f
+        }
+        return ''
+    }
+
+    private String iosMarker(String base) {
+        for (String f : ['Podfile', 'Package.swift']) {
+            if (exists(base, f)) return f
+        }
+        for (String glob : ['*.xcodeproj', '*.xcworkspace']) {
+            List hits = []
+            try { hits = (script.findFiles(glob: at(base, glob)) ?: []) as List } catch (Exception ignored) {}
+            if (hits) return (hits[0].path ?: glob) as String
+        }
+        return ''
+    }
+
     private String dotnetMarker(String base) {
-        for (String f : ['global.json', 'Directory.Packages.props', 'Directory.Build.props', 'packages.config', 'build.cake']) {
+        for (String f : ['global.json', 'Directory.Packages.props', 'Directory.Build.props', 'packages.config', 'build.cake', '.nuke']) {
             if (exists(base, f)) return f
         }
         for (String glob : ['*.sln', '**/*.sln'] + DotnetOptions.projectGlobs()) {
@@ -459,10 +537,11 @@ class RepoStackAutoResolver implements Serializable {
     }
 
     private void resolveJdk(Map cfg, Map own, String tool, List<Map> resolved) {
-        if (!(tool in ['maven', 'gradle'])) return
+        if (!(tool in ['maven', 'gradle', 'android', 'sql'])) return
         if (has(own, 'javaPath') || own.containsKey('buildToolAutoSetup') || has(cfg, 'javaPath') || cfg.buildToolAutoSetup != null) return
         cfg.buildToolAutoSetup = true
-        resolved << [field: 'buildToolAutoSetup', value: true, reason: "no javaPath - the JDK${tool == 'gradle' ? ' and Gradle' : ' and Maven'} version are read from the build files"]
+        String how = tool == 'sql' ? 'no javaPath - Liquibase runs with the JDK of the auto setup' : "no javaPath - the JDK${tool in ['gradle', 'android'] ? ' and Gradle' : ' and Maven'} version are read from the build files".toString()
+        resolved << [field: 'buildToolAutoSetup', value: true, reason: how]
     }
 
     private void resolveBuildCommands(Map cfg, Map own, String tool, String base, List<Map> resolved) {

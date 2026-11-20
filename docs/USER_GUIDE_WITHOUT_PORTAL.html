@@ -410,7 +410,8 @@ pre code {
         <div class="doc-card">
           <h1 id="devsecops-jenkins-shared-library-standalone-user-guide-without-portal">DevSecOps Jenkins Shared Library – Standalone User Guide (Without Portal)</h1>
 <blockquote>
-<p><strong>Comprehensive Guide for Pipelines Running Without the Portal (<code>DSOEnhanced</code> library on <code>DSOEnhancedWithoutPortal</code> branch).</strong>
+<p><strong>Comprehensive Guide for Pipelines Running Without the Portal (<code>DSOEnhanced</code> library on <code>DSOEnhancedWithoutPortal</code> branch).</strong><br/>
+Engineered and maintained by the <strong>DevSecOps team in ITSS COE at Brown Brothers Harriman (BBH)</strong>.<br/>
 Fully autonomous delivery pipeline configured via code using <code>Jenkinsfile</code> and <code>devsecops_config.yaml</code> in your Git repository.
 Designed for non-technical users, Product Owners, business analysts, and engineers.</p>
 </blockquote>
@@ -427,16 +428,47 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li><a href="#8-dynamic-application-security-testing-dast--hcl-appscan">8. Dynamic Application Security Testing (DAST) – HCL AppScan</a></li>
 <li><a href="#9-code-quality--sonarqube--alternative-badge-tokens">9. Code Quality – SonarQube &amp; Alternative Badge Tokens</a></li>
 <li><a href="#10-dependency-security--goldenfix--nexus-iq">10. Dependency Security &amp; GoldenFix – Nexus IQ</a></li>
-<li><a href="#11-deployments-and-disable-nexus-delivery-openshift--vm">11. Deployments and "Disable Nexus Delivery" (OpenShift &amp; VM)</a></li>
+<li><a href="#11-deployments-and-disable-nexus-delivery-openshift-vm">11. Deployments and "Disable Nexus Delivery" (OpenShift &amp; VM)</a></li>
 <li><a href="#12-telemetry-dora-metrics-influxdb-and-grafana">12. Telemetry, DORA Metrics, InfluxDB, and Grafana</a></li>
 <li><a href="#13-complete-devsecops_configyaml-template-with-field-reference">13. Complete devsecops_config.yaml Template with Field Reference</a></li>
 </ul>
 <hr />
 <h2 id="1-overview-and-standalone-model">1. Overview and Standalone Model</h2>
-<p>In the <code>DSOEnhancedWithoutPortal</code> branch, the library operates independently of the management portal:
-- <strong>No Portal Dependency:</strong> The pipeline never polls external portal APIs for configuration.
-- <strong>Configuration as Code:</strong> All pipeline parameters are stored in <code>devsecops_config.yaml</code> (or backward-compatible <code>config.yaml</code>) at the root of your application Git repository.
-- <strong>Embedded Library Defaults:</strong> Global enterprise standards (coverage thresholds, timeouts, InfluxDB telemetry endpoints) are bundled inside the library (<code>defaults.yaml</code>), meaning you only specify settings unique to your application.</p>
+<p>In the <code>DSOEnhancedWithoutPortal</code> branch, the library operates independently of the management portal:</p>
+<ul>
+<li><strong>No Portal Dependency:</strong> The pipeline never polls external portal APIs for configuration.</li>
+<li><strong>Configuration as Code:</strong> All pipeline parameters are stored in <code>devsecops_config.yaml</code> (or backward-compatible <code>config.yaml</code>) at the root of your application Git repository.</li>
+<li><strong>Smart Auto-Detection &amp; Validation (<code>[WARN]</code> Fallback):</strong> When <code>buildTool</code>, <code>deployTarget</code>, or tool-specific sub-parameters (<code>build.dotnet.mode</code>, <code>tests.unitTests.dotnet.runner</code>, <code>coverageTool</code>) are omitted, <code>RepoStackAutoResolver</code> automatically detects them from repository files (strictly scoped to each service's <code>sourceDir</code> in multi-repository and multi-module setups). If an invalid or unrecognized value is provided, the pipeline logs a <code>[WARN]</code> message and falls back to the auto-detected setting.</li>
+<li><strong>Auto-resolved settings are visible:</strong> every value the pipeline fills in or corrects is printed in the build log as <code>[INIT] Auto-resolved for &lt;service&gt;: &lt;setting&gt; = &lt;value&gt; (&lt;why&gt;)</code> and listed in the <em>Auto-resolved settings</em> card of the pipeline report, so you can copy it into <code>devsecops_config.yaml</code> to pin it.</li>
+<li><strong>MVC &amp; Hexagonal Architecture:</strong> The library is structured around a clean Domain Core (<code>com.bbh.core</code>), Inbound/Outbound Ports (<code>com.bbh.remediation.port</code>), Hexagonal Adapters (<code>SharedCatalogRepositoryService</code>, <code>JdkToolchainSetup</code>, <code>RemoteTestJobRunner</code>, <code>LiquibaseBuildRunner</code>, <code>DotnetProjectResolver</code>, <code>AppScanEnvironmentAdapter</code>, <code>SonarScannerCommandBuilder</code>), and MVC Model-View-Controller separation (<code>ReportViewModel</code>, <code>HtmlReportCardsView</code>, <code>HtmlReportService</code>; <code>GoldenFixPullRequestView</code>, <code>SecurityFindingsParser</code>, <code>SecurityPullRequestView</code>, <code>SecurityPullRequestService</code>).</li>
+<li><strong>Embedded Library Defaults:</strong> Global enterprise standards (coverage thresholds, timeouts, InfluxDB telemetry endpoints) are bundled inside the library (<code>defaults.yaml</code>), meaning you only specify settings unique to your application.</li>
+</ul>
+<h3 id="quick-reference-index">Quick Reference Index</h3>
+<h4>A. Supported Technologies, Languages, Build Tools &amp; Catalogs</h4>
+<table>
+<thead><tr><th>Technology / Stack</th><th>Languages</th><th>Build Tool (<code>buildTool</code>)</th><th>Auto-Detection Triggers</th><th>Unit Tests &amp; Coverage</th><th>SonarQube Scanner</th><th>GoldenFix &amp; Version Catalogs</th><th>SAST Inline PR Comments</th></tr></thead>
+<tbody>
+<tr><td><strong>Java / Enterprise JVM</strong></td><td>Java, Kotlin, Groovy</td><td><code>maven</code> (<code>mvn</code>)</td><td><code>pom.xml</code></td><td>Surefire/Failsafe JUnit XML + JaCoCo XML</td><td><code>mvn sonar:sonar</code></td><td><code>pom.xml</code>, parent POMs, BOM imports, <code>&lt;properties&gt;</code></td><td><code>.java</code>, <code>.kt</code>, <code>.groovy</code>, <code>.jsp</code>, <code>.xml</code>, <code>.properties</code></td></tr>
+<tr><td><strong>JVM / Spring / Kotlin / Android</strong></td><td>Java, Kotlin, Groovy</td><td><code>gradle</code> (<code>gradlew</code>), <code>android</code></td><td><code>build.gradle(.kts)</code>, <code>gradle-wrapper.properties</code>, <code>AndroidManifest.xml</code></td><td>Gradle Test JUnit XML + JaCoCo / Kover XML</td><td><code>./gradlew sonarqube</code></td><td><code>build.gradle(.kts)</code>, <code>gradle.properties</code>, <code>gradle/libs.versions.toml</code>, <code>settings.gradle(.kts)</code>, <code>java-platform</code>, <code>buildSrc</code></td><td><code>.java</code>, <code>.kt</code>, <code>.kts</code>, <code>.groovy</code>, <code>.xml</code>, <code>.gradle</code></td></tr>
+<tr><td><strong>C# and .NET</strong> (.NET Framework 4.x, .NET Core, .NET 6–9+)</td><td>C#, F#, VB.NET, ASP.NET / Razor</td><td><code>dotnet</code> (<code>csharp</code>, <code>c#</code>, <code>net</code>, <code>fsharp</code>, <code>vbnet</code>), <code>msbuild</code> (<code>vs</code>, <code>netfx</code>)</td><td><code>*.sln</code>, <code>*.csproj</code>, <code>*.fsproj</code>, <code>*.vbproj</code>, <code>global.json</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, <code>packages.config</code>, <code>build.cake</code>, <code>.nuke</code></td><td>Modes: <code>auto</code>, <code>dotnet</code>, <code>msbuild</code>, <code>hybrid</code>, <code>cake</code>, <code>nuke</code>. Runners: <code>dotnet test</code>, <code>vstest.console.exe</code>, <code>MSTest.exe</code>, <code>nunit3-console.exe</code>, <code>xunit.console.exe</code>. Coverage: Cobertura, OpenCover, dotCover</td><td><code>SonarScanner.MSBuild.exe</code> / <code>dotnet sonarscanner</code> (or <code>sonar-scanner</code>)</td><td><code>*.csproj</code>, <code>*.fsproj</code>, <code>*.vbproj</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, custom <code>.props</code>, <code>packages.config</code></td><td><code>.cs</code>, <code>.fs</code>, <code>.vb</code>, <code>.cshtml</code>, <code>.razor</code>, <code>.aspx</code>, <code>.config</code>, <code>.csproj</code>, <code>.props</code></td></tr>
+<tr><td><strong>Node.js / SPA</strong> (Angular, React, Vue)</td><td>JavaScript, TypeScript, HTML, CSS/SCSS</td><td><code>npm</code> (<code>node</code>, <code>yarn</code>, <code>pnpm</code>, <code>angular</code>, <code>react</code>, <code>vue</code>) or Stage 0 <code>build.node.enabled: true</code></td><td><code>package.json</code>, <code>angular.json</code> (root or <code>frontend/</code>, <code>web/</code>, <code>client/</code>, <code>ui/</code>)</td><td>Jest / Karma / Vitest / Cypress + LCOV (<code>lcov.info</code>) / Cobertura / Clover</td><td><code>sonar-scanner</code> with <code>-Dsonar.javascript.lcov.reportPaths</code> &amp; <code>-Dsonar.typescript.lcov.reportPaths</code></td><td><code>package.json</code>, <code>package-lock.json</code>, <code>overrides</code>, <code>resolutions</code></td><td><code>.js</code>, <code>.jsx</code>, <code>.ts</code>, <code>.tsx</code>, <code>.mjs</code>, <code>.cjs</code>, <code>.vue</code>, <code>.svelte</code>, <code>.html</code>, <code>.css</code>, <code>.scss</code>, <code>.json</code></td></tr>
+<tr><td><strong>Python</strong></td><td>Python</td><td><code>pip</code> (<code>python</code>, <code>poetry</code>, <code>pipenv</code>)</td><td><code>requirements.txt</code>, <code>pyproject.toml</code>, <code>setup.py</code>, <code>Pipfile</code></td><td><code>pytest</code> / <code>unittest</code> JUnit XML + <code>coverage.xml</code> (Cobertura) / <code>lcov.info</code></td><td><code>sonar-scanner</code> with <code>-Dsonar.python.coverage.reportPaths=coverage.xml</code></td><td><code>requirements.txt</code>, <code>requirements/*.txt</code>, <code>constraints.txt</code></td><td><code>.py</code>, <code>.pyw</code></td></tr>
+<tr><td><strong>Flutter / Dart</strong></td><td>Dart</td><td><code>flutter</code> (<code>dart</code>)</td><td><code>pubspec.yaml</code></td><td><code>flutter test --coverage</code> (<code>test_report.json</code> + <code>lcov.info</code> / <code>total_lcov.info</code>)</td><td><code>sonar-scanner</code> (generic coverage XML + <code>dart analyze</code> issues or Flutter plugin)</td><td><code>pubspec.yaml</code></td><td><code>.dart</code>, <code>.yaml</code>, <code>.yml</code></td></tr>
+<tr><td><strong>iOS / macOS</strong></td><td>Swift, Objective-C, C/C++</td><td><code>ios</code> (<code>xcode</code>, <code>swift</code>, <code>cocoapods</code>)</td><td><code>Podfile</code>, <code>Package.swift</code>, <code>*.xcodeproj</code>, <code>*.xcworkspace</code></td><td><code>xcodebuild test</code> / <code>swift test</code></td><td><code>sonar-scanner</code> with Swift/Objective-C sources</td><td>CocoaPods / SwiftPM manifests</td><td><code>.swift</code>, <code>.m</code>, <code>.mm</code>, <code>.h</code>, <code>.hpp</code>, <code>.c</code>, <code>.cpp</code></td></tr>
+<tr><td><strong>Database / SQL &amp; PL/SQL</strong></td><td>SQL, PL/SQL, T-SQL, XML/YAML</td><td><code>liquibase</code> for a changelog, <code>sql</code> (<code>plsql</code>) for SQL and PL/SQL files without one, or combined block on Maven/Gradle</td><td><code>liquibase.properties</code>, <code>changelog.xml</code>, <code>changelog.yaml</code>, <code>changelog.sql</code>, <code>db/changelog/db.changelog-master.xml</code>; only SQL and PL/SQL files → <code>sql</code></td><td><code>liquibase validate</code> (coverage gate marked <code>NOT_REQUIRED</code> for standalone SQL)</td><td><code>sonar-scanner</code> with <code>-Dsonar.sources</code>, <code>inclusions</code>, <code>exclusions</code>, PL/SQL suffixes</td><td>JDBC/extension JARs scanned via Nexus IQ</td><td><code>.sql</code>, <code>.pls</code>, <code>.pks</code>, <code>.pkb</code>, <code>.plb</code>, <code>.prc</code>, <code>.fnc</code>, <code>.trg</code>, <code>.xml</code>, <code>.yaml</code></td></tr>
+</tbody>
+</table>
+<h4>B. Breakdown per Pipeline Type</h4>
+<table>
+<thead><tr><th>Pipeline Entry Point</th><th>Stages Executed</th><th>Required Config Sections</th><th>Produced Artifacts &amp; PRs</th></tr></thead>
+<tbody>
+<tr><td><code>devSecOpsPipeline</code> <em>(Full Pipeline)</em></td><td>All stages: 1 (Monitor), 0 (Node.js optional), 2 (Build + Unit Tests + Coverage), 3 (Nexus IQ + GoldenFix), 4 (AppScan SAST), 5 (SonarQube), 6 (Nexus Snapshot), 7 (RD Deploy), 8 (Regression), 9 (Smoke), 10 (Performance), 11 (AppScan DAST), 12 (Nexus Release), 13 (QC Deploy)</td><td><code>appId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>appscan-dast-report*.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR, Static Security PR (inline SAST + SonarQube comments), DAST PR</td></tr>
+<tr><td><code>devSecOpsSecurityPipeline</code> <em>(Security Pipeline)</em></td><td>Stages 1, 0 (optional), 2, 3, 4, 5, 6; optionally triggers <code>extendedPipeline</code></td><td><code>appId</code>, <code>tools.nexusIq</code>, <code>tools.sonar</code>, <code>deploy.&lt;target&gt;.rd</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, <code>build.tag</code>, GoldenFix PR, Static Security PR</td></tr>
+<tr><td><code>devSecOpsExtendedPipeline</code> <em>(Extended Pipeline)</em></td><td>Stages 1 (copies state and <code>build.tag</code> from <code>securityPipeline</code>), Download artifacts from Nexus Repo, 7, 8, 9, 10, 11, 12, 13</td><td><code>appId</code>, <code>deploy.&lt;target&gt;</code>, <code>tests.&lt;regression|smoke|performance&gt;</code>, <code>dast</code></td><td><code>report/pipeline-report.html</code>, <code>appscan-dast-report*.html/.pdf</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, DAST PR</td></tr>
+<tr><td><code>devSecOpsSASTScanningPipeline</code> <em>(SAST-Only)</em></td><td>Stages 1, 0 (optional), 4 (AppScan SAST)</td><td><code>appId</code></td><td><code>report/pipeline-report.html</code> (SAST view), <code>appscan-report*.html</code>, <code>pipeline-config.yaml</code>, <code>release-gate.json</code></td></tr>
+<tr><td><code>devSecOpsNexusIqGoldenFixPipeline</code> <em>(Nexus IQ + GoldenFix)</em></td><td>Stages 1, 0 (optional), 2 (Build), 3 (Nexus IQ + GoldenFix)</td><td><code>tools.nexusIq.application</code> + <code>scanPatterns</code>, <code>goldenFix</code>, <code>scm.bitbucket</code></td><td><code>report/pipeline-report.html</code> (Nexus IQ + GoldenFix view), <code>pipeline-config.yaml</code>, <code>release-gate.json</code>, GoldenFix PR</td></tr>
+</tbody>
+</table>
 <hr />
 <h2 id="2-the-jenkinsfile-defining-your-pipeline">2. The Jenkinsfile: Defining Your Pipeline</h2>
 <p>The <code>Jenkinsfile</code> in your repository root specifies the services and Jenkins agent labels:</p>
@@ -450,7 +482,9 @@ devSecOpsPipeline(
 <h3 id="available-pipeline-entry-points">Available Pipeline Entry Points:</h3>
 <ul>
 <li><code>devSecOpsPipeline</code>: Complete delivery pipeline (Build, Unit Tests, SAST, DAST, SonarQube, Nexus IQ, Delivery, Deployment).</li>
-<li><code>devSecOpsSecurityPipeline</code>: Fast security validation (Build, SAST, SonarQube, Nexus IQ).</li>
+<li><code>devSecOpsSecurityPipeline</code>: Fast security validation (Build, Unit Tests, SAST, SonarQube, Nexus IQ, Snapshot Delivery).</li>
+<li><code>devSecOpsExtendedPipeline</code>: Downstream deployment, functional/performance testing, DAST, and release promotion pipeline.</li>
+<li><code>devSecOpsSASTScanningPipeline</code>: Dedicated HCL AppScan SAST pipeline.</li>
 <li><code>devSecOpsNexusIqGoldenFixPipeline</code>: Dedicated automated dependency remediation pipeline.</li>
 </ul>
 <hr />
@@ -459,7 +493,7 @@ devSecOpsPipeline(
 <h3 id="file-evaluation-order">File Evaluation Order:</h3>
 <ul>
 <li>The library looks for <code>devsecops_config.yaml</code> first.</li>
-<li>If not found, it checks for <code>config.yaml</code>.</li>
+<li>If not found, it checks for <code>config.yaml</code> (100% backward compatible).</li>
 <li>The library reads the <code>projects:</code> section where each service of your application is declared.</li>
 </ul>
 <h3 id="how-a-value-is-chosen">How a value is chosen:</h3>
@@ -478,34 +512,36 @@ devSecOpsPipeline(
 <li>Each service can point to <strong>its own independent Bitbucket repository</strong> (<code>scm.bitbucket.repositoryUrl</code>).</li>
 <li>Each service maintains its own target branch (<code>scm.bitbucket.targetBranch</code>) and pull request reviewers list (<code>scm.bitbucket.reviewers</code>).</li>
 </ul>
-<h3 id="2-multi-module-projects">2. Multi-Module Projects</h3>
+<h3 id="2-multi-module-projects">2. Multi-Module Projects &amp; Version Catalogs</h3>
 <ul>
-<li>Multi-module Maven projects (<code>pom.xml</code>) and Gradle subprojects are automatically discovered and built.</li>
-<li>Version catalogs (<code>gradle/libs.versions.toml</code>, <code>platform/build.gradle</code>) are parsed and updated in a single consolidated Pull Request by GoldenFix.</li>
+<li>Multi-module Maven projects (<code>pom.xml</code>), Gradle subprojects, and <code>.NET</code> solutions (<code>.sln</code>) are automatically discovered and built.</li>
+<li>Shared version catalogs across all ecosystems — Gradle (<code>gradle/libs.versions.toml</code>, <code>gradle.properties</code>, <code>settings.gradle(.kts)</code>, <code>java-platform</code>, <code>buildSrc</code>), Maven (parent <code>pom.xml</code>, imported BOMs), and .NET (<code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, custom <code>.props</code>), as well as external version catalog repositories (<code>versionCatalogRepo</code>) — are parsed and updated in a single consolidated Pull Request by GoldenFix.</li>
 </ul>
 <hr />
 <h2 id="5-supported-languages-and-build-tools">5. Supported Languages and Build Tools</h2>
-<p>The pipeline supports all enterprise programming languages and build tools:</p>
+<p>The pipeline supports all enterprise programming languages and build tools (with automatic detection and <code>[WARN]</code> fallback when an invalid value is configured):</p>
 <ul>
-<li><strong>Java / Kotlin / Groovy:</strong></li>
-<li>Build via Maven (<code>tool: 'maven'</code>) or Gradle (<code>tool: 'gradle'</code>).</li>
-<li>Standard command: <code>clean package -DskipTests</code> or <code>clean assemble -x test</code>.</li>
-<li><strong>Plugins from the BBH Nexus:</strong> when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (<code>pluginRepositories</code> of the library defaults), and the console says which plugins came from it and where to add the repository.</li>
-<li><strong>Node.js / Angular:</strong></li>
-<li>Build via npm (<code>tool: 'npm'</code>).</li>
-<li>Standard command: <code>npm ci &amp;&amp; npm run build --prod</code>.</li>
-<li>Can be run as <strong>Stage 0</strong> before Maven/Gradle backend builds.</li>
-<li><strong>Python:</strong></li>
-<li>Build via pip (<code>tool: 'pip'</code>).</li>
-<li>Command: <code>pip install -r requirements.txt</code>.</li>
-<li><strong>SQL / PL-SQL (Liquibase):</strong></li>
-<li>Automatic detection of database changelogs when <code>buildTool</code> is empty. With the auto-resolve of the settings on (the default), the Liquibase files are checked before <code>pom.xml</code> and <code>build.gradle</code>, so set <code>buildTool</code> explicitly for a Maven or Gradle application that ships a Liquibase changelog (for example a Spring Boot application with <code>src/main/resources/db/changelog/db.changelog-master.xml</code>); with <code>autoresolve parameters: false</code>, <code>detectTool()</code> checks them after Flutter, Maven and Gradle.</li>
+<li><strong>Java / Kotlin / Groovy / Android:</strong> Build via Maven (<code>buildTool: 'maven'</code>) or Gradle (<code>buildTool: 'gradle'</code> / <code>'android'</code>). <strong>Plugins from the BBH Nexus:</strong> when a Gradle or Maven step fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus (<code>pluginRepositories</code> of the library defaults), and the console says which plugins came from it and where to add the repository.</li>
+<li><strong>Node.js / TypeScript / Angular / React / Vue:</strong> Build via npm (<code>buildTool: 'npm'</code>) or Stage 0 (<code>build.node.enabled: true</code>).</li>
+<li><strong>Python:</strong> Build via pip (<code>buildTool: 'pip'</code>), auto-detected from <code>requirements.txt</code>, <code>pyproject.toml</code>, <code>setup.py</code>, or <code>Pipfile</code>.</li>
+<li><strong>SQL / PL-SQL (Liquibase):</strong> Automatic detection of database changelogs, validated via Liquibase, SonarQube, and AppScan SAST.
+<ul>
+<li>With the auto-resolve of the settings on (the default), the application files come first (<code>pubspec.yaml</code>, the iOS files, <code>pom.xml</code>, <code>build.gradle</code> and the .NET files), then the Liquibase files (<code>liquibase.properties</code>, <code>changelog.xml</code>, <code>changelog.yaml</code>, <code>db/changelog/db.changelog-master.xml</code>, <code>src/main/resources/db/changelog/db.changelog-master.xml</code> and the others of chapter 14), then the Python and Node.js files, so a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service; with <code>autoresolve parameters: false</code>, <code>detectTool()</code> checks them after Flutter, Maven, Gradle and .NET.</li>
 <li>Command: <code>liquibase updateSQL</code> in Build artifact and <code>liquibase validate</code> in Unit tests, both with <code>--changelog-file=</code> and the changelog found in the repository, when the auto-resolve fills them (the default); with <code>autoresolve parameters: false</code>, <code>liquibase validate</code> with the flags of <code>build.liquibase</code> when it sets no command. A service with a database block gets no command from the auto-resolve: it runs <code>build.liquibase</code> and <code>tests.unitTests.liquibase</code> only when it sets them (<code>validate</code> when it sets only flags).</li>
 <li>With <code>database.changelogFile</code> the service gets the database block: the Build artifact stage validates and packages the changes offline, Unit tests deploys them to a test database and runs utPLSQL with coverage, and the zip is delivered to Nexus and deployed to RD and QC with Jenkins credentials and a compile check. See <a href="../documentation.html#ch14">chapter 14 of the library documentation</a>.</li>
-<li>The database block is for Oracle. In a repository with an application, the folder of the changelogs is a Liquibase service of its own, listed before the application service; chapter 14 shows three complete repository layouts.</li>
-<li>Static code analysis and validation through SonarQube.</li>
-<li><strong>Flutter / Dart:</strong></li>
-<li>Mobile and desktop application packaging with LCOV test coverage generation.</li>
+<li>The database block is for Oracle. In a repository with an application, the folder of the changelogs is a Liquibase service of its own, listed before the application service; chapter 14 shows four complete repository layouts.</li>
+<li><code>buildTool: sql</code> (also <code>plsql</code>) is for a repository of SQL and PL/SQL files without a changelog. The library writes the changelog <code>dso-changelog.xml</code> itself at the start of the run and then treats the service as a database block: files that start with <code>--liquibase formatted sql</code> are included as they are, <code>CREATE OR REPLACE</code> code runs again whenever its file changes, every other file runs once in the natural order of its path, and the files of the utPLSQL test folder go to the test database only. A repository with only such files and no <code>buildTool</code> is detected as <code>sql</code>, with <code>database.searchPath</code> set to the one top folder of the files and the JDK from the auto setup. A service with <code>buildTool: sql</code> that has a changelog after all runs as <code>buildTool: liquibase</code>, with a warning.</li>
+</ul>
+</li>
+<li><strong>C# / F# / VB.NET and .NET (<code>dotnet</code> / <code>msbuild</code>):</strong>
+<ul>
+<li>Build via <code>buildTool: 'dotnet'</code> (or <code>'msbuild'</code>), auto-detected from <code>.sln</code>, <code>.csproj</code>, <code>.fsproj</code>, <code>.vbproj</code>, <code>global.json</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, <code>packages.config</code>, <code>build.cake</code>, or <code>.nuke</code>.</li>
+<li><strong>Modes (<code>build.dotnet.mode</code>, default <code>'auto'</code>):</strong> <code>'auto'</code>, <code>'dotnet'</code> (SDK CLI), <code>'msbuild'</code> (classic Windows <code>NuGet.exe</code> + <code>MSBuild.exe</code>), <code>'hybrid'</code> (mixed .NET Framework + .NET SDK), <code>'cake'</code>, <code>'nuke'</code>.</li>
+<li><strong>Unit Test Runners (<code>tests.unitTests.dotnet.runner</code>, default <code>'auto'</code>):</strong> <code>'auto'</code>, <code>'dotnet'</code>, <code>'vstest'</code>, <code>'mstest'</code>, <code>'nunit'</code>, <code>'xunit'</code>, <code>'hybrid'</code>.</li>
+<li><strong>Coverage Tools (<code>tests.unitTests.dotnet.coverageTool</code>, default <code>'auto'</code>):</strong> <code>'auto'</code>, <code>'coverlet'</code> / <code>'xplat'</code> (<code>XPlat Code Coverage</code> in OpenCover format, the default for <code>dotnet test</code>, read by the report and by SonarQube), <code>'cobertura'</code> (counted by the report, not imported by SonarQube for C#, so a <code>[WARN]</code> is logged), <code>'opencover'</code>, <code>'dotcover'</code>, <code>'none'</code>.</li>
+<li><strong>Invalid Parameter Fallback:</strong> any invalid <code>buildTool</code>, <code>mode</code>, <code>useDotnetCli</code>, <code>runner</code>, or <code>coverageTool</code> logs a <code>[WARN]</code> message and falls back to the auto-detected value.</li>
+</ul></li>
+<li><strong>Flutter / Dart &amp; iOS / Swift:</strong> Mobile, web, and desktop application packaging with LCOV test coverage and SonarQube analysis.</li>
 </ul>
 <hr />
 <h2 id="6-unit-testing-and-multi-report-code-coverage">6. Unit Testing and Multi-Report Code Coverage</h2>
@@ -513,7 +549,9 @@ devSecOpsPipeline(
 <li><strong>Automated Multi-Report Discovery:</strong></li>
 <li>The pipeline automatically searches all workspace directories for test reports:<ul>
 <li><strong>JaCoCo XML:</strong> Java, Kotlin, Groovy test coverage reports.</li>
+<li><strong>Cobertura XML &amp; OpenCover XML:</strong> C# / .NET Coverlet (<code>XPlat Code Coverage</code>) and <code>OpenCover.Console.exe</code> reports on both Windows and Linux agents.</li>
 <li><strong>LCOV (<code>lcov.info</code>):</strong> JavaScript, TypeScript, Angular, Python, Flutter, and Cypress reports.</li>
+<li>Visual Studio <code>.trx</code> test results and JUnit XML are automatically parsed for <code>.NET</code> unit tests.</li>
 </ul>
 </li>
 <li><strong>Node.js &amp; Cypress Unit Testing:</strong></li>
@@ -525,7 +563,7 @@ devSecOpsPipeline(
 <li><strong>Project Run Summary:</strong></li>
 <li>Calculates an aggregated average line for the entire project (<code>All services</code>).</li>
 <li><strong>Release Quality Gate:</strong></li>
-<li><code>coverage.minimum: 80</code> enforces code coverage. If the project average is below 80%, the build fails, protecting production.</li>
+<li><code>coverage.minLine</code> (default <code>60</code> in bundled <code>defaults.yaml</code>) enforces code coverage across every service.</li>
 </ul>
 <hr />
 <h2 id="7-static-application-security-testing-sast-hcl-appscan">7. Static Application Security Testing (SAST) – HCL AppScan</h2>
@@ -583,9 +621,9 @@ devSecOpsPipeline(
     goldenFix:
       enabled: true
       pullRequest: true</code></li>
-<li>Creates a dedicated branch and opens a Bitbucket Pull Request with the updated <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, or <code>libs.versions.toml</code>.</li>
-<li><strong>External Version Catalog Repository:</strong></li>
-<li>When version catalogs or BOMs reside in an external Bitbucket repository:
+<li>Creates a dedicated branch and opens a Bitbucket Pull Request with the updated <code>pom.xml</code>, <code>build.gradle</code>, <code>package.json</code>, <code>requirements.txt</code>, <code>libs.versions.toml</code>, <code>*.csproj</code> / <code>*.fsproj</code> / <code>*.vbproj</code>, <code>Directory.Packages.props</code>, or <code>packages.config</code> (supported on both Linux and Windows agents).</li>
+<li><strong>Shared External Version Catalog Repository (<code>versionCatalogRepo</code> Priority Upgrade):</strong></li>
+<li>When version catalogs, parent POMs, imported BOMs, or Central Package Management files (<code>libs.versions.toml</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, <code>pom.xml</code>, <code>gradle.properties</code>) reside in a shared external Bitbucket repository used across multiple projects:
     <pre><code class="language-yaml">goldenFix:
   versionCatalogRepo:
     url: 'ssh://git@bitbucket.bbh.com/shared/version-catalogs.git'
@@ -593,22 +631,29 @@ devSecOpsPipeline(
     branch: 'main'
     path: 'catalogs/libs.versions.toml'</code></pre>
 </li>
-<li>GoldenFix checks out the external repository, upgrades dependency versions, validates changes, and submits the Pull Request directly to the external catalog repository.</li>
+<li><strong>Priority Upgrade Rule:</strong> GoldenFix (<code>SharedCatalogRepositoryService</code>) inspects the shared <code>versionCatalogRepo</code> <strong>first</strong>. Any vulnerable dependency (or version property referenced by the project) that is managed in the shared catalog repository is upgraded there first, committed, pushed, and raised/updated as a shared Pull Request in the catalog repository across all participating projects. Only remaining dependencies not managed in the shared version catalog are upgraded in the local project repository.</li>
 </ul>
-<h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
+<h3 id="decoupled-pipeline-execution-order">Decoupled Multi-Module &amp; Multi-Repository Static Security Flow:</h3>
+<p>For every module in a multi-module project and every repository attached to a multi-repository project:</p>
 <ol>
-<li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling the backend application.</li>
-<li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (<code>staticAnalysis.parallel: false</code> in any service runs them one after another).
+<li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline first builds application artifacts for every service/module without executing unit tests (e.g., <code>-DskipTests</code> / <code>-x test</code>, or <code>NuGet.exe</code> + <code>MSBuild.exe</code> / <code>dotnet build</code> for .NET). If a Node.js build is configured (<code>build.node.enabled: true</code>), npm commands run as Stage 0 before compiling the backend application.</li>
+<li><strong>Stage 2: Static analysis at the same time (Unit Tests with Coverage + Nexus IQ + SAST + SonarQube &rarr; Golden PR):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (<code>staticAnalysis.parallel: false</code> in any service runs them one after another).
   <ul>
-    <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
-    <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
+    <li><strong>Unit Tests &amp; Coverage (per module/repository):</strong> Runs automated unit tests (<code>vstest.console.exe</code>, <code>dotnet test</code>, Gradle, Maven, pytest, npm, Flutter, Cypress), parses <code>.trx</code> and JUnit XML results, and aggregates JaCoCo, Cobertura, OpenCover &amp; LCOV code coverage per module/repository.</li>
+    <li><strong>Nexus IQ &amp; GoldenFix:</strong> Evaluates open-source dependencies against security policies, upgrades shared <code>versionCatalogRepo</code> catalogs first and local manifests second, and raises/updates the Golden Pull Request.</li>
     <li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
-    <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.</li>
+    <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage. If code coverage was not yet calculated during Unit tests, SonarQube triggers coverage collection (<code>checkCoverage()</code>) automatically before executing the scanner, ingests test &amp; coverage reports, and renders SonarQube badges.</li>
   </ul>
 </li>
 <li><strong>Stage 3: Results:</strong> A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.
   <ul>
     <li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <code>dynamicAnalysis.parallel</code>).</li>
+  </ul>
+</li>
+<li><strong>Stage 4: Static Security PR Decoration &amp; Final Report:</strong>
+  <ul>
+    <li>Posts inline SAST and SonarQube vulnerability comments with suggested remediation directly on the exact file and line of the Golden Pull Request (resolved relative to each repository root).</li>
+    <li>Generates the final HTML report containing the <strong>Unit Tests</strong> card (listed per module/repository + all-modules summary), <strong>Code Coverage</strong> card (listed per module/repository + summary), <strong>SAST</strong> report links, <strong>SonarQube</strong> dashboard link &amp; badges, and <strong>Nexus IQ GoldenFix</strong> card with Golden Fix link, Golden Pull Request link, and SAST inline comments list.</li>
   </ul>
 </li>
 </ol>
@@ -792,7 +837,7 @@ projects:
 <tr>
 <td><code>build.tool</code></td>
 <td>Compilation tool</td>
-<td><code>maven</code>, <code>gradle</code>, <code>npm</code>, <code>pip</code></td>
+<td><code>maven</code>, <code>gradle</code>, <code>dotnet</code>, <code>msbuild</code>, <code>npm</code>, <code>pip</code></td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
 <tr>

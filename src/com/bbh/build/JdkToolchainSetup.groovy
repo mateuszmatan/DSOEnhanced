@@ -38,11 +38,7 @@ class JdkToolchainSetup implements Serializable {
             script.echo "Detected tool is .NET"
             return 'dotnet'
         }
-        if (['liquibase.properties', 'changelog.xml', 'changelog.yaml', 'changelog.yml', 'changelog.json', 'changelog.sql',
-             'db/changelog.xml', 'db/changelog.yaml', 'db/changelog.sql', 'db/changelog/db.changelog-master.xml',
-             'db/changelog/db.changelog-master.yaml', 'sql/changelog.xml', 'sql/changelog.sql', 'liquibase/changelog.xml',
-             'src/main/resources/db/changelog/db.changelog-master.xml', 'src/main/resources/db/changelog/db.changelog-master.yaml',
-             'src/main/resources/changelog.xml'].any { String f -> script.fileExists(f) }) {
+        if (BuildUtils.liquibaseMarkers().any { String f -> script.fileExists(f) }) {
             script.echo "Detected tool is Liquibase"
             return 'liquibase'
         }

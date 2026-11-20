@@ -495,7 +495,7 @@ class LiquibaseOutput implements Serializable {
     static String factsAwk() {
         return '''FNR == 1 { if (NR > 1) dso_end(); f = FILENAME; full = (f ~ /\\.(xml|yaml|yml|json)$/); last = 0; lastText = "" }
 { sub(/\\r$/, ""); if ($0 ~ /[^ \\t]/) { last = FNR; lastText = $0 } }
-full || FNR == 1 || tolower($0) ~ /^[ \\t]*(\\/|set[ \\t]|show[ \\t]|prompt|spool|whenever|exit[ \\t]|define[ \\t]|exec|@|--changeset|--liquibase)|identified|\\$\\{|create|begin|declare/ { print "L\\t" f "\\t" FNR "\\t" $0 }
+full || FNR == 1 || tolower($0) ~ /^[ \\t]*(\\/|set[ \\t]|show[ \\t]|prompt|spool|whenever|exit[ \\t]|define[ \\t]|exec|@|--changeset|--liquibase)|identified|\\$\\{|create|begin|declare|^[ \\t]*(or[ \\t]+replace|editionable|noneditionable|editioning|force|noforce|public|unique|bitmap|global|private|package|type|view|materialized|function|procedure|trigger|table|sequence|index|synonym)([ \\t]|$)/ { print "L\\t" f "\\t" FNR "\\t" $0 }
 END { if (NR > 0) dso_end() }
 function dso_end() { print "E\\t" f "\\t" last "\\t" lastText }
 '''

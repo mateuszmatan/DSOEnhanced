@@ -711,11 +711,11 @@ class BuildService implements Serializable {
         return toolchain.setupBuildTool()
     }
 
-    @NonCPS
     String autoSetupJavaHome(String buildTool, Map extraEnv) {
         return toolchain.autoSetupJavaHome(buildTool, extraEnv)
     }
 
+    @NonCPS
     boolean hasLiquibaseStep(def rawCfg) {
         return LiquibaseBuildRunner.hasLiquibaseStep(rawCfg)
     }

@@ -165,7 +165,7 @@ Closure layout = { String name, String kind ->
     File ws = new File(base, "work space+${name}")
     copyTree(new File(fixtures, "layout-${kind}"), ws)
     String into = kind == 'b' ? 'orders-db/src/main/resources/db/changelog' : 'orders-db'
-    if (kind != 'a') ['tables', 'code', 'test'].each { copyTree(new File(fixtures, "layout-a/db/${it}"), new File(ws, "${into}/${it}")) }
+    if (kind in ['b', 'c']) ['tables', 'code', 'test'].each { copyTree(new File(fixtures, "layout-a/db/${it}"), new File(ws, "${into}/${it}")) }
     return ws
 }
 Closure toolsOf = { String version ->
@@ -245,6 +245,24 @@ String validLine = 'validated from the package'
                 entries.contains(changelog) && entries.contains('dso-deploy.properties') && !entries.any { it.endsWith('/') } && !new File("${ws.path}@tmp/dso-db/orders-db").exists(),
                 entries)
     }
+
+    Map sqlCfg = ordersCfg('d', version) + [buildTool: 'sql']
+    (sqlCfg.database as Map).searchPath = 'db'
+    (sqlCfg.database as Map).test = [utplsql: [testPath: 'test']]
+    File sqlWs = layout("${version}-d", 'd')
+    Map sqlRun = service(sqlWs, 'orders-db', sqlCfg)
+    String sqlFailure = attempt { sqlRun.database.validateServices('full'); sqlRun.database.build('full') }
+    Map sqlRecord = (sqlRun.state.projectsDatabase['orders-db'] ?: [:]) as Map
+    Map sqlPkg = (sqlRecord.package ?: [:]) as Map
+    List<String> sqlEntries = sqlPkg.path && new File(sqlWs, sqlPkg.path as String).file ? entriesOf(new File(sqlWs, sqlPkg.path as String)) : []
+    String generated = new File(sqlWs, 'db/dso-changelog.xml').file ? new File(sqlWs, 'db/dso-changelog.xml').getText('UTF-8') : ''
+    check("Liquibase ${version}, layout d (buildTool sql): the generated changelog is valid for the real CLI, its 12 changesets run in update-sql and 10 in the review SQL without the test context, and the static checks find nothing",
+            !sqlFailure && generated == new File(fixtures, 'dso-changelog-layout-d.xml').getText('UTF-8') && sqlRecord.liquibase == version && sqlPkg.changesets == 12
+                    && sqlPkg.reviewChangesets == 10 && sqlPkg.findings == 0 && (sqlRun.j as RealScript).log.any { it.contains(validLine) },
+            [sqlFailure, sqlPkg, (sqlRun.j as RealScript).log.findAll { it.startsWith('[DB]') }])
+    check("Liquibase ${version}, layout d (buildTool sql): the zip holds dso-changelog.xml at its root, every SQL and PL/SQL file and dso-deploy.properties",
+            ['dso-changelog.xml', 'dso-deploy.properties', 'types/t_order_line.tps', 'migrations/20_grant_app_role.sql', 'test/ut_pkg_orders.pkb'].every { sqlEntries.contains(it) }
+                    && !sqlEntries.any { it.endsWith('/') }, sqlEntries)
 
     String searchPath = 'Validation Failed: 1 changes have validation failures The file code/pkg_orderz.pkb was not found in the configured search path: - '
     Map variants = [

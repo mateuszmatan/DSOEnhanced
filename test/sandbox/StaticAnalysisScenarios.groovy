@@ -339,8 +339,8 @@ check('RepoStackAutoResolver: a Kotlin DSL Gradle build with JaCoCo and a root p
         g.buildTool == 'gradle' && g.build?.gradle?.tasks == ['clean', 'assemble'] && g.tests?.unitTests?.gradle?.tasks == ['test', 'jacocoTestReport']
                 && g.build?.node?.enabled == true && !g.build?.node?.dir,
         "gradle=${autoResult.gradle}")
-check('RepoStackAutoResolver: a Python repository keeps the build tool of the defaults and says how to set it',
-        autoResult.python?.cfg?.buildTool == 'gradle' && pythonScript.log.any { it.contains('Python project detected') },
+check('RepoStackAutoResolver: a Python repository is detected as buildTool pip, with the file that showed it',
+        autoResult.python?.cfg?.buildTool == 'pip' && pythonScript.log.any { it.contains('buildTool = pip (') && it.contains('found (Python)') },
         "python=${autoResult.python}")
 
 
