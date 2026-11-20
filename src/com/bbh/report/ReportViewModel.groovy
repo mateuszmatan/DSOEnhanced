@@ -138,9 +138,28 @@ class ReportViewModel implements Serializable {
     }
 
     @NonCPS
+    static List manualSteps() {
+        return [
+                [stage: 'Node.js build', label: 'Node.js build', effort: 'build', action: 'manual trigger'],
+                [stage: 'Build artifact', label: 'Build', effort: 'build', action: 'manual trigger'],
+                [stage: 'Unit tests', label: 'Unit test with Code Coverage', effort: 'unitTests', action: null],
+                [stage: 'Dependencies scan (Nexus IQ)', label: 'Nexus IQ', effort: 'nexusIq', action: 'manual trigger'],
+                [stage: 'SAST - Static Application Security Tests - HCL AppScan', label: 'SAST', effort: 'sast', action: 'manual trigger'],
+                [stage: 'SCA (SonarQube)', label: 'SonarQube', effort: 'sonar', action: 'manual trigger'],
+                [stage: 'Nexus delivery (Static analysis passed)', label: 'Nexus delivery (snapshot)', effort: 'nexusDelivery', action: null],
+                [stage: 'Download artifacts from Nexus Repo', label: 'Nexus delivery (download)', effort: 'nexusDelivery', action: null],
+                [stage: 'Lower test region deployment', label: 'Lower region test deployment', effort: 'lowerDeployment', action: null],
+                [stage: 'Regression tests (>60% user stories coverage)', label: 'Regression tests', effort: 'regression', action: 'manual trigger'],
+                [stage: 'Smoke tests', label: 'Smoke tests', effort: 'smoke', action: 'manual trigger'],
+                [stage: 'Performance tests', label: 'Performance tests', effort: 'performance', action: 'manual trigger'],
+                [stage: 'DAST - Dynamic Application Security Tests - HCL AppScan', label: 'DAST', effort: 'dast', action: 'ticket to CyberTrack'],
+                [stage: 'Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities', label: 'Nexus delivery (release)', effort: 'nexusDelivery', action: null],
+                [stage: 'Higher test environment deployment', label: 'Higher region test deployment', effort: 'higherDeployment', action: 'ticket to SRM']
+        ]
+    }
+
+    @NonCPS
     static Map manualComparison(Map stageTimes, Map stageResults, List parallelGroups, Map minutes) {
-        String sast = 'SAST - Static Application Security Tests - HCL AppScan'
-        String dast = 'DAST - Dynamic Application Security Tests - HCL AppScan'
         Map waits = [:]
         Map groupOf = [:]
         for (def g : (parallelGroups ?: [])) {
@@ -151,131 +170,100 @@ class ReportViewModel implements Serializable {
                 groupOf[branch.stage as String] = group.name as String
             }
         }
-        List lines = [
-                [step: 'Code Build Trigger', trigger: 'buildTrigger', stages: [['Build artifact', 'Build'], ['Node.js build', 'Node.js build']]],
-                [step: 'Unit Test + Code Coverage', trigger: null, stages: [['Unit tests', 'Unit tests']]],
-                [step: null, trigger: 'scanTrigger', stages: [[sast, 'SAST'], ['Dependencies scan (Nexus IQ)', 'Nexus IQ'], ['SCA (SonarQube)', 'SonarQube']]],
-                [step: 'Deploy lower test region', trigger: 'deployTrigger', stages: [['Lower test region deployment', 'Deployment']]],
-                [step: null, trigger: 'testTrigger', stages: [['Regression tests (>60% user stories coverage)', 'Regression'], ['Smoke tests', 'Smoke'],
-                                                              ['Performance tests', 'Performance'], [dast, 'DAST']]]
-        ]
         long minute = 60000L
         List rows = []
+        boolean buildCounted = false
+        for (def d : ReportViewModel.manualSteps()) {
+            Map step = d as Map
+            String stage = step.stage as String
+            if (!ReportViewModel.stageRan(stageTimes, stageResults, stage, stage == 'Build artifact')) continue
+            long waited = (waits[stage] ?: 0L) as long
+            long elapsed = ReportViewModel.stageWork(stageTimes, stage, 0L)
+            long work = Math.max(0L, elapsed - waited)
+            long extra = ((minutes?.get(step.effort) ?: 0L) as long)
+            String action = step.action as String
+            if (step.effort == 'build') {
+                if (buildCounted) { extra = 0L; action = null }
+                buildCounted = true
+            }
+            String manualNote = (action != null || extra > 0L)
+                    ? "the run + ${ReportViewModel.minutesText(extra)} ${action ?: 'manual trigger'}".toString() : 'the same as the run'
+            rows << [step: step.label, stage: stage, ms: work, elapsedMs: elapsed, waitMs: waited, extraMinutes: extra, manual: work + extra * minute,
+                     manualNote: manualNote, automated: work, automatedNote: 'the run', block: groupOf[stage], span: 1, gainManual: work + extra * minute, gainAutomated: work]
+        }
+        Map blocks = [:]
+        for (def r : rows) {
+            Map row = r as Map
+            if (row.block != null) {
+                if (!blocks.containsKey(row.block)) blocks[row.block] = []
+                (blocks[row.block] as List) << row
+            }
+        }
+        for (def entry : blocks.entrySet()) {
+            List members = entry.value as List
+            if (members.size() < 2) {
+                (members[0] as Map).block = null
+                continue
+            }
+            Map longest = members[0] as Map
+            long manualSum = 0L
+            for (def m : members) {
+                Map member = m as Map
+                manualSum += member.manual as long
+                if ((member.elapsedMs as long) > (longest.elapsedMs as long)) longest = member
+            }
+            for (int i = 0; i < members.size(); i++) {
+                Map member = members[i] as Map
+                boolean isLongest = (member.stage as String) == (longest.stage as String)
+                member.automated = isLongest ? member.elapsedMs : null
+                member.automatedNote = isLongest
+                        ? ("the longest of the ${members.size()} in parallel" + (((member.waitMs as long) > 0L) ? ", with ${ReportViewModel.formatDuration(member.waitMs as long)} of waiting for the unit tests" : '')).toString()
+                        : "in parallel, within the time of ${longest.step}".toString()
+                member.span = i == 0 ? members.size() : 0
+                member.gainManual = manualSum
+                member.gainAutomated = longest.elapsedMs
+            }
+        }
         long manualTotal = 0L
         long automatedTotal = 0L
-        for (def l : lines) {
-            Map line = l as Map
-            List ran = []
-            List labels = []
-            long sum = 0L
-            long longest = 0L
-            long overhead = 0L
-            int triggers = 0
-            boolean manualDast = false
-            for (def s : (line.stages as List)) {
-                String stage = (s as List)[0] as String
-                if (!ReportViewModel.stageRan(stageTimes, stageResults, stage, stage == 'Build artifact')) continue
-                long work = ReportViewModel.stageWork(stageTimes, stage, (waits[stage] ?: 0L) as long)
-                ran << stage
-                labels << ((s as List)[1] as String)
-                sum += work
-                longest = Math.max(longest, work)
-                if (stage == dast) {
-                    manualDast = true
-                    overhead += ((minutes?.dast ?: 0L) as long) * minute
-                } else if (line.trigger) {
-                    triggers++
-                    overhead += ((minutes?.get(line.trigger) ?: 0L) as long) * minute
-                }
-            }
-            if (!ran) continue
-            boolean parallel = ran.size() > 1
-            for (int i = 0; i < ran.size(); i++) {
-                String group = groupOf[ran[i] as String] as String
-                if (group == null || group != (groupOf[ran[0] as String] as String)) parallel = false
-            }
-            long automated = parallel ? longest : sum
-            long manual = sum + overhead
-            List parts = []
-            if (triggers == 1) parts << "${minutes?.get(line.trigger)} min to start ${ran.size() == 1 ? 'it' : 'one of them'} by hand".toString()
-            if (triggers > 1) parts << "${triggers} x ${minutes?.get(line.trigger)} min to start them by hand".toString()
-            if (manualDast) parts << "${minutes?.dast} min for the DAST by hand".toString()
-            String what = ran.size() == 1 ? 'the run' : "the ${ran.size()} runs one after another".toString()
-            String manualNote = parts ? "${what} + ${parts.join(' + ')}".toString() : 'the same as automated'
-            String automatedNote = ran.size() == 1 ? 'the run' : (parallel ? "the longest of the ${ran.size()}: they run in parallel".toString() : "the ${ran.size()} runs one after another".toString())
-            rows << [step: (line.step ?: labels.join(' + ')) as String, stages: ran, manual: manual, automated: automated,
-                     manualNote: manualNote, automatedNote: automatedNote, parallel: parallel]
-            manualTotal += manual
-            automatedTotal += automated
+        for (def r : rows) {
+            Map row = r as Map
+            manualTotal += row.manual as long
+            automatedTotal += (row.automated ?: 0L) as long
+            row.gainPercent = ReportViewModel.gainPercent(row.gainManual as long, row.gainAutomated as long)
         }
-        return [rows: rows, manual: manualTotal, automated: automatedTotal, recovered: Math.max(0L, manualTotal - automatedTotal)]
+        long recovered = Math.max(0L, manualTotal - automatedTotal)
+        return [rows: rows, manual: manualTotal, automated: automatedTotal, recovered: recovered,
+                percent: ReportViewModel.gainPercent(manualTotal, automatedTotal)]
     }
 
     @NonCPS
-    static Map executionComparison(Map stageTimes, Map stageResults, List parallelGroups) {
-        String unit = 'Unit tests'
-        String sonar = 'SCA (SonarQube)'
-        List definitions = [
-                [name: 'Static analysis', setting: 'staticAnalysis.parallel',
-                 stages: [[unit, 'Unit tests'], ['Dependencies scan (Nexus IQ)', 'Nexus IQ'],
-                          ['SAST - Static Application Security Tests - HCL AppScan', 'SAST'], [sonar, 'SonarQube']]],
-                [name: 'Dynamic analysis', setting: 'dynamicAnalysis.parallel',
-                 stages: [['Regression tests (>60% user stories coverage)', 'Regression tests'], ['Smoke tests', 'Smoke tests'],
-                          ['Performance tests', 'Performance tests'], ['DAST - Dynamic Application Security Tests - HCL AppScan', 'DAST']]]
-        ]
-        List rows = []
-        long sequentialTotal = 0L
-        long parallelTotal = 0L
-        long actualTotal = 0L
-        for (def d : definitions) {
-            Map definition = d as Map
-            Map labels = [:]
-            for (def s : (definition.stages as List)) labels[(s as List)[0] as String] = (s as List)[1] as String
-            Map measured = null
-            for (def g : (parallelGroups ?: [])) {
-                Map group = g as Map
-                for (def b : ((group.branches ?: []) as List)) {
-                    if (labels.containsKey((b as Map).stage as String)) measured = group
-                }
-            }
-            List stages = []
-            long sum = 0L
-            long longest = 0L
-            Map workOf = [:]
-            if (measured != null) {
-                for (def b : ((measured.branches ?: []) as List)) {
-                    Map branch = b as Map
-                    long ms = (branch.ms ?: 0L) as long
-                    long waited = Math.min(ms, (branch.waitMs ?: 0L) as long)
-                    String stage = branch.stage as String
-                    stages << [stage: stage, label: (labels[stage] ?: stage) as String, ms: ms - waited, waitMs: waited]
-                    sum += ms - waited
-                }
-            } else {
-                for (def s : (definition.stages as List)) {
-                    String stage = (s as List)[0] as String
-                    if (!ReportViewModel.stageRan(stageTimes, stageResults, stage, false)) continue
-                    long work = ReportViewModel.stageWork(stageTimes, stage, 0L)
-                    stages << [stage: stage, label: labels[stage] as String, ms: work, waitMs: 0L]
-                    workOf[stage] = work
-                    sum += work
-                    longest = Math.max(longest, work)
-                }
-            }
-            if (stages.size() < 2) continue
-            boolean ranInParallel = measured != null
-            long sequential = ranInParallel ? Math.max(sum, (measured.sequentialMs ?: 0L) as long) : sum
-            long parallel = ranInParallel ? (measured.actualMs ?: 0L) as long
-                    : Math.max(longest, ((workOf[unit] ?: 0L) as long) + ((workOf[sonar] ?: 0L) as long))
-            long actual = ranInParallel ? parallel : sequential
-            rows << [name: definition.name, setting: definition.setting, stages: stages, ranInParallel: ranInParallel,
-                     sequentialMs: sequential, parallelMs: parallel, actualMs: actual, savedMs: Math.max(0L, sequential - parallel)]
-            sequentialTotal += sequential
-            parallelTotal += parallel
-            actualTotal += actual
+    static long gainPercent(long manual, long automated) {
+        return (manual > 0L && automated < manual) ? Math.round((manual - automated) * 100.0d / manual) : 0L
+    }
+
+    @NonCPS
+    static String minutesText(long minutes) {
+        if (minutes >= 60L && minutes % 60L == 0L) return "${minutes.intdiv(60L)} h".toString()
+        return "${minutes} min".toString()
+    }
+
+    @NonCPS
+    static String secondsAndMinutes(long ms) {
+        long seconds = Math.round(ms / 1000.0d)
+        long minutes = Math.round(ms / 60000.0d)
+        return "${ReportViewModel.grouped(seconds)} s = ${ReportViewModel.grouped(minutes)} min".toString()
+    }
+
+    @NonCPS
+    static String grouped(long value) {
+        String digits = value as String
+        StringBuilder out = new StringBuilder()
+        for (int i = 0; i < digits.length(); i++) {
+            if (i > 0 && (digits.length() - i) % 3 == 0) out.append(' ')
+            out.append(digits.charAt(i))
         }
-        return [rows: rows, sequentialMs: sequentialTotal, parallelMs: parallelTotal, actualMs: actualTotal,
-                savedMs: Math.max(0L, sequentialTotal - parallelTotal)]
+        return out.toString()
     }
 
     @NonCPS

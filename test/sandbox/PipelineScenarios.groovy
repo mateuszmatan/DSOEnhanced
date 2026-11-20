@@ -121,7 +121,7 @@ Closure reordered = { List<String> lines ->
     copyScript.each { String line -> copies.times { kept.remove(line) } }
     kept.sort()
 }
-Closure sequentialView = { String text -> text.replaceAll(/\n?<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
+Closure sequentialView = { String text -> text.replace(sastCopy, '/ws') }
 
 Closure goldenView = { Map r -> ScenarioRunner.goldenView(r) }
 
@@ -419,11 +419,9 @@ Closure verify = { Map spec ->
                         && staticLines[2] == '[PARALLEL] Static analysis: Unit tests, Dependencies scan (Nexus IQ), SAST - Static Application Security Tests - HCL AppScan, SCA (SonarQube) run at the same time'
                         && staticLines[3] ==~ /\[PARALLEL\] Static analysis: one after another \d+s, in parallel \d+s.*/,
                 staticLines)
-        check("${name}: the report shows the stages that ran in parallel with the time one after another and in parallel",
-                html.contains("<section id='parallel-stages'") && html.contains('<h2>Execution time: one after another vs in parallel</h2>')
-                        && html.contains(">Static analysis</div>") && html.contains('>THIS RUN</span>')
-                        && html.indexOf("<section id='parallel-stages'") < html.indexOf("<section id='manual-vs-automated'")
-                        && html.contains('The stages ran in parallel: <b>'), 'no execution time table in the report')
+        check("${name}: the report has no table of the time one after another and in parallel, and the Manual Actions vs DevSecOps table marks the steps of the static analysis as parallel",
+                !html.contains("<section id='parallel-stages'") && html.contains('>Static analysis: runs in parallel</span>') && html.contains('>the longest of the '),
+                'the parallel steps are not marked in the report')
     }
     if (spec.executed.contains(DYNAMIC)) {
         List<String> calls = j.calls
@@ -434,28 +432,27 @@ Closure verify = { Map spec ->
                         && dynamicLines[0] == '[DYNAMIC] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)'
                         && dynamicLines[1] == "[PARALLEL] Dynamic analysis: ${testStages.join(', ')} run at the same time".toString()
                         && dynamicLines[2] ==~ /\[PARALLEL\] Dynamic analysis: one after another \d+s, in parallel \d+s.*/
-                        && html.contains('>Dynamic analysis</div>'),
+                        && html.contains('>Dynamic analysis: runs in parallel</span>'),
                 [branches: branches, log: dynamicLines])
     }
-    List<String> manualRows = (html =~ /<tr><td style='padding:8px 12px;vertical-align:top;font-weight:600;'>([^<]+)<\/td>/).collect { it[1] as String }
     Map loggedResults = [:]
     (log.join('\n') =~ /\[STAGE\]  ([^\n]+)\n\[RESULT\] (\S+)/).each { loggedResults[it[1] as String] = it[2] as String }
     Closure loggedRun = { String stage -> loggedResults.containsKey(stage) && !(loggedResults[stage] in ['SKIP', 'NOT_REQUIRED', 'BLOCKED']) }
-    List<String> expectedRows = []
-    if (loggedResults.containsKey(BUILD) && loggedResults[BUILD] != 'SKIP') expectedRows << 'Code Build Trigger'
-    if (loggedRun(UNIT)) expectedRows << 'Unit Test + Code Coverage'
-    List<String> scansRan = [[SAST, 'SAST'], [NIQ, 'Nexus IQ'], [SONAR, 'SonarQube']].findAll { loggedRun(it[0] as String) }.collect { it[1] as String }
-    if (scansRan) expectedRows << scansRan.join(' + ')
-    if (loggedRun(RD)) expectedRows << 'Deploy lower test region'
-    List<String> testsRan = [[REGRESSION, 'Regression'], [SMOKE, 'Smoke'], [PERFORMANCE, 'Performance'], [DAST, 'DAST']].findAll { loggedRun(it[0] as String) }.collect { it[1] as String }
-    if (testsRan) expectedRows << testsRan.join(' + ')
+    List<String> expectedRows = [[NODE, 'Node.js build'], [BUILD, 'Build'], [UNIT, 'Unit test with Code Coverage'], [NIQ, 'Nexus IQ'], [SAST, 'SAST'], [SONAR, 'SonarQube'],
+                                 [SNAPSHOT, 'Nexus delivery (snapshot)'], [PULL, 'Nexus delivery (download)'], [RD, 'Lower region test deployment'],
+                                 [REGRESSION, 'Regression tests'], [SMOKE, 'Smoke tests'], [PERFORMANCE, 'Performance tests'], [DAST, 'DAST'],
+                                 [RELEASE, 'Nexus delivery (release)'], [QC, 'Higher region test deployment']].findAll { List step ->
+        step[0] == BUILD ? (loggedResults.containsKey(BUILD) && !(loggedResults[BUILD] in ['SKIP', 'BLOCKED'])) : loggedRun(step[0] as String)
+    }.collect { it[1] as String }
     int manualAt = html.indexOf("<section id='manual-vs-automated'")
     String manualSection = manualAt < 0 ? '' : html.substring(manualAt, html.indexOf('</section>', manualAt))
-    check("${name}: the report ends with the Manual actions vs DevSecOps Automated Actions table, one line per step that ran (${expectedRows.join('; ')}), its totals and the time recovered",
+    List<String> manualRows = (manualSection =~ /<tr><td style='[^']*'><span style='font-weight:600;'>([^<]+)<\/span>/).collect { it[1] as String }
+    check("${name}: the report ends with the Manual Actions vs DevSecOps table, one line per step that ran in the order of the pipeline (${expectedRows.join('; ')}), the time gained and the summary in seconds and minutes",
             manualRows == expectedRows && manualAt > html.indexOf("<div style='flex:1.4;min-width:620px;'>") && manualAt < html.indexOf('</body>')
-                    && manualSection.contains('<h2>Manual actions vs DevSecOps Automated Actions</h2>') && manualSection.contains('>Total</td>')
-                    && manualSection.contains('Time recovered in this run: <b>')
-                    && (testsRan != ['Regression', 'Smoke', 'Performance', 'DAST'] || manualSection.contains("<b>6h 30m</b><span style='display:block;margin-top:2px;color:#64748b;font-size:0.74rem;'>the 4 runs one after another + 3 x 10 min to start them by hand + 360 min for the DAST by hand</span>")),
+                    && manualSection.contains('<h2>Manual Actions vs DevSecOps</h2>') && manualSection.contains('>Summary</td>')
+                    && manualSection.contains('>Time gained</th>') && manualSection.contains('DevSecOps gained <b>') && manualSection =~ /\d s = \d+ min by hand, /
+                    && (!expectedRows.contains('DAST') || manualSection.contains('>the run + 6 h ticket to CyberTrack</span>'))
+                    && (!expectedRows.contains('Higher region test deployment') || manualSection.contains('>the run + 0 min ticket to SRM</span>')),
             [rows: manualRows, expected: expectedRows, results: loggedResults])
     Map files = (spec.files ?: [:]) as Map
     List<String> probed = j.probes.findAll { it.tokenize(' ').last() in repositoryFiles }

@@ -1704,10 +1704,10 @@ Closure dataFor = { Random r, boolean fail, String project ->
 }
 
 Map<String, List<String>> stagesOf = [
-        security: [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT],
-        sast    : [MONITOR, SAST],
+        security: [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT],
+        sast    : [MONITOR, BUILD, SAST],
         nexusiq : [MONITOR, BUILD, NIQ],
-        full    : [MONITOR, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
+        full    : [MONITOR, BUILD, UNIT, NIQ, SAST, SONAR, SNAPSHOT, RD, REGRESSION, SMOKE, PERFORMANCE, DAST, RELEASE, QC]
 ]
 Map<String, List<Integer>> minutesOf = [
         (MONITOR): [1, 2], (UNIT): [4, 9], (BUILD): [3, 7], (NIQ): [2, 4], (SAST): [18, 34], (SONAR): [3, 6], (SNAPSHOT): [1, 3],
@@ -1847,6 +1847,9 @@ Closure runScenario = { Map spec ->
             os.chmodX('gradlew')
             config.initialize()
         }
+        if (stages.contains(BUILD)) stage(BUILD) {
+            eachProject { String p -> build.buildArtifact() }
+        }
         if (stages.contains(UNIT)) stage(UNIT) {
             eachProject { String p ->
                 script.files[state.cfg.buildTool == 'maven' ? 'target/site/jacoco/jacoco.xml' : 'build/reports/jacoco/test/jacocoTestReport.xml'] = '<report/>'
@@ -1854,9 +1857,6 @@ Closure runScenario = { Map spec ->
                 build.unitTests()
                 build.checkCoverage()
             }
-        }
-        if (stages.contains(BUILD)) stage(BUILD) {
-            eachProject { String p -> build.buildArtifact() }
         }
         if (stages.contains(NIQ)) {
             stage(NIQ) {

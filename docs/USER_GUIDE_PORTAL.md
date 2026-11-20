@@ -210,7 +210,7 @@ Static security analysis inspects application source code for security vulnerabi
 - **Stages at the same time (default):**
   - Unit tests, Nexus IQ, SAST and SonarQube run **in parallel** in the stage *Static analysis*; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.
   - The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (*Dynamic analysis*).
-  - The report has the table **Execution time: one after another vs in parallel** with the time saved, and ends with the table **Manual actions vs DevSecOps Automated Actions** and the time recovered by the run.
+  - The report ends with the table **Manual Actions vs DevSecOps**: every step of the run with its own time, the time by hand, the time with DevSecOps (of the steps that run in parallel only the longest), the time gained in percent and a summary in seconds, minutes and percent.
   - Both are on by default. Unticking **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** or **Run the regression, smoke and performance tests and DAST at the same time** in the Global Settings (`staticAnalysis.parallel`, `dynamicAnalysis.parallel`) runs the stages one after another again; without a key, `false` in `devsecops_config.yaml` does the same.
 - **Streamlined Configuration:**
   - The **main SAST section** holds only the AppScan application ID (`appId`) of the service.
