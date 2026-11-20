@@ -15,6 +15,15 @@ class SecurityPullRequestView implements Serializable {
     }
 
     @NonCPS
+    static String staticSummary(String project, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues) {
+        StringBuilder sb = new StringBuilder("**DevSecOps static security results - ${project}**\n\n")
+        sb.append("- Nexus IQ GoldenFix: ${gfChanges ? gfChanges.size() + ' dependency upgrade(s)' : 'no dependency upgrade'}\n")
+        sb.append("- AppScan SAST: ${sastFindings.size()} finding(s) with a file and line\n")
+        sb.append("- SonarQube: ${sonarIssues.size()} open issue(s) on the analysed branch\n")
+        return sb.toString()
+    }
+
+    @NonCPS
     static String generateStaticReport(List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues) {
         StringBuilder sb = new StringBuilder("# DevSecOps Static Analysis & Quality Gate Report\n\n")
         sb.append("This Pull Request consolidates static security and code quality remediations from **Nexus IQ GoldenFix**, **AppScan SAST**, and **SonarQube**.\n\n")

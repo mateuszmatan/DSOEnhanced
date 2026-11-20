@@ -28,6 +28,10 @@ class RecordingPullRequestPublisher implements PullRequestPublisher {
         return null
     }
 
+    List<String> existingComments(Map scmCfg, Map pullRequest) {
+        return (comments + lineComments).collect { it.text as String }
+    }
+
     Map repositoryInfo(Map scmCfg) {
         return [cloneUrl: 'https://bitbucket.bbh.com/scm/ta/cert-scanner.git', cloud: false]
     }

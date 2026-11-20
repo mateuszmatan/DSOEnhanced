@@ -234,54 +234,100 @@ check('AppScanService.removeStagedSources: one step removes the SAST staging cop
                 && removal(false) == ['powershell Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'],
         removal(true) + removal(false))
 
-FakeScript sonarScript = new FakeScript()
-sonarScript.env.vars.putAll([
-        WORKSPACE    : '/ws',
-        PATH         : '/usr/bin',
-        CHANGE_BRANCH: 'feature/DSO-2026',
-        GIT_BRANCH   : 'origin/master'
-])
-sonarScript.files['pom.xml'] = '<project><properties><kotlin.version>1.9.22</kotlin.version></properties><modules><module>core-module</module><module>api-module</module></modules></project>'
-sonarScript.files['src/main/kotlin/App.kt'] = 'package com.bbh'
-Map sonarResult = [:]
-try {
-    harness.run {
-        def state = harness.type('com.bbh.core.PipelineState').newInstance()
-        state.cfg = [
-                appName  : 'my-payment-service',
-                buildTool: 'maven',
-                tools    : [sonar: [installationName: 'SonarBBH', maven: [goals: ['sonar:sonar']]]]
-        ]
-        def os = harness.type('com.bbh.core.OsHelper').newInstance(sonarScript)
-        os.detect()
-        def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(sonarScript, state, os)
-        def build = harness.type('com.bbh.build.BuildService').newInstance(sonarScript, state, os, policy)
-        def sonar = harness.type('com.bbh.scanner.SonarService').newInstance(sonarScript, state, os, build)
-        sonar.scan()
-        sonarResult.propertiesText = sonarScript.files['sonar-project.properties']
-        sonarResult.sonarStatus = state.sonarResults.status
-        sonarResult.sonarUrl = state.sonarResults.url
+Closure sonarRun = { Map cfg, Map files, Closure shHandler = null ->
+    FakeScript sc = new FakeScript()
+    if (shHandler) sc.shHandler = shHandler
+    sc.env.vars.putAll([WORKSPACE: '/ws', PATH: '/usr/bin', CHANGE_BRANCH: 'feature/DSO-2026', GIT_BRANCH: 'origin/master'])
+    sc.files.putAll(files)
+    Map out = [:]
+    try {
+        harness.run {
+            def state = harness.type('com.bbh.core.PipelineState').newInstance()
+            state.cfg = cfg
+            state.currentProjectName = 'payments'
+            def os = harness.type('com.bbh.core.OsHelper').newInstance(sc)
+            os.detect()
+            def policy = harness.type('com.bbh.core.PolicyEngine').newInstance(sc, state, os)
+            def build = harness.type('com.bbh.build.BuildService').newInstance(sc, state, os, policy)
+            harness.type('com.bbh.scanner.SonarService').newInstance(sc, state, os, build).scan()
+            out.url = state.sonarResults.url
+        }
+    } catch (Throwable t) {
+        out.error = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
-} catch (Throwable t) {
-    sonarResult.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+    out.props = (sc.files['sonar-project.properties'] ?: '') as String
+    out.log = sc.log.join('\n')
+    out.calls = sc.calls.join('\n')
+    return out
 }
-check('SonarQube: applies default sonar-project.properties when missing with com.bbh: key, detected modules, kotlin sources, and pipeline branch (not master)',
-        !sonarResult.error && sonarResult.propertiesText
-                && (sonarResult.propertiesText as String).contains('sonar.projectKey=com.bbh:my-payment-service')
-                && (sonarResult.propertiesText as String).contains('sonar.java.binaries=target/classes')
-                && (sonarResult.propertiesText as String).contains('sonar.java.coveragePlugin=jacoco')
-                && (sonarResult.propertiesText as String).contains('sonar.jacoco.reportPaths=target/jacoco.exec')
-                && (sonarResult.propertiesText as String).contains('sonar.junit.reportPaths=target/surefire-reports')
-                && (sonarResult.propertiesText as String).contains('sonar.language=kotlin')
-                && (sonarResult.propertiesText as String).contains('sonar.sources=src/main/kotlin')
-                && (sonarResult.propertiesText as String).contains('sonar.sourceEncoding=UTF-8')
-                && (sonarResult.propertiesText as String).contains('sonar.dynamicAnalysis=reuseReports')
-                && (sonarResult.propertiesText as String).contains('sonar.modules=core-module,api-module')
-                && (sonarResult.propertiesText as String).contains('sonar.branch.name=feature/DSO-2026')
-                && !(sonarResult.propertiesText as String).contains('sonar.branch.name=master')
-                && (sonarResult.propertiesText as String).contains('core-module.sonar.projectName=core-module')
-                && (sonarResult.sonarUrl as String).contains('dashboard?id=com.bbh:my-payment-service'),
-        "error=${sonarResult.error} props=${sonarResult.propertiesText} url=${sonarResult.sonarUrl}")
+Map multiModule = ['pom.xml'                        : '<project><modules><module>core-module</module><module>api-module</module></modules></project>',
+                   'core-module/src/main/java'      : '', 'core-module/src/test/java': '', 'api-module/src/main/kotlin': '',
+                   'core-module/target/classes'     : '']
+Map scanner = sonarRun([appName: 'my-payment-service', buildTool: 'maven', tools: [sonar: [installationName: 'SonarBBH']]], multiModule)
+check('SonarQube without sonar-project.properties: the library writes its defaults (com.bbh: key, Maven paths, the modules with their own folders) and the SonarScanner scans the branch of the build',
+        !scanner.error && scanner.props.contains('sonar.projectKey=com.bbh:my-payment-service')
+                && scanner.props.contains('sonar.java.binaries=target/classes') && scanner.props.contains('sonar.java.coveragePlugin=jacoco')
+                && scanner.props.contains('sonar.jacoco.reportPaths=target/jacoco.exec') && scanner.props.contains('sonar.junit.reportPaths=target/surefire-reports')
+                && scanner.props.contains('sonar.language=java') && scanner.props.contains('sonar.sources=src/main/java')
+                && scanner.props.contains('sonar.sourceEncoding=UTF-8') && scanner.props.contains('sonar.dynamicAnalysis=reuseReports')
+                && scanner.props.contains('sonar.modules=core-module,api-module') && scanner.props.contains('core-module.sonar.tests=src/test/java')
+                && scanner.props.contains('api-module.sonar.sources=src/main/kotlin') && scanner.props.contains('api-module.sonar.tests=\n')
+                && !scanner.props.contains('sonar.branch.name')
+                && scanner.calls.contains("'sonar-scanner' -Dsonar.host.url=https://tools.bbh.com/sonar -Dsonar.projectKey=com.bbh:my-payment-service -Dsonar.branch.name=feature/DSO-2026")
+                && !scanner.calls.contains('sonar.branch.name=master') && (scanner.url as String).contains('dashboard?id=com.bbh:my-payment-service'),
+        "error=${scanner.error}\nprops=${scanner.props}\ncalls=${scanner.calls}")
+
+Map repoProps = sonarRun([appName: 'x', buildTool: 'maven', tools: [sonar: [installationName: 'SonarBBH']]], multiModule + ['sonar-project.properties': 'sonar.projectKey=team-key\n'])
+check('SonarQube with sonar-project.properties: the file of the repository is left as it is',
+        !repoProps.error && repoProps.props == 'sonar.projectKey=team-key\n', "error=${repoProps.error} props=${repoProps.props}")
+
+Map plugin = sonarRun([appName: 'x', buildTool: 'maven', tools: [sonar: [installationName: 'SonarBBH', projectKey: 'team-key', maven: [goals: ['sonar:sonar']]]]], ['pom.xml': '<project/>'])
+check('SonarQube with tools.sonar.maven.goals: the Maven plugin runs with the branch of the build and keeps its own project key, no properties file is written',
+        !plugin.error && !plugin.props && plugin.calls.contains("'sonar:sonar' '-Dsonar.branch.name=feature/DSO-2026'") && !plugin.calls.contains('-Dsonar.projectKey'),
+        "error=${plugin.error} calls=${plugin.calls}")
+
+Map npmFlags = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', npm: [sources: 'app', flags: ['-Dsonar.exclusions=**/*.spec.ts']]]]],
+        ['package.json': '{"name":"web"}', 'coverage/lcov.info': ''])
+check('SonarQube of an npm service: the SonarScanner keeps the arguments, the sources and the coverage report of tools.sonar.npm',
+        !npmFlags.error && npmFlags.calls.contains("'sonar-scanner' -Dsonar.host.url=https://tools.bbh.com/sonar -Dsonar.projectKey=com.bbh:web -Dsonar.branch.name=feature/DSO-2026 -Dsonar.exclusions=**/*.spec.ts -Dsonar.sources=app -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info"),
+        "error=${npmFlags.error} calls=${npmFlags.calls}")
+
+Map gradleFlags = sonarRun([appName: 'svc', buildTool: 'gradle', tools: [sonar: [installationName: 'SonarBBH', gradle: [flags: ['--info', '-Dsonar.exclusions=gen/**']]]]], ['build.gradle': ''])
+check('SonarQube of a Gradle service without sonar tasks: the SonarScanner gets only the -Dsonar. arguments of tools.sonar.gradle.flags',
+        !gradleFlags.error && gradleFlags.calls.contains("'sonar-scanner' ") && gradleFlags.calls.contains(' -Dsonar.exclusions=gen/**') && !gradleFlags.calls.contains('--info'),
+        "error=${gradleFlags.error} calls=${gradleFlags.calls}")
+
+Map androidPlugin = sonarRun([appName: 'app', buildTool: 'android', tools: [sonar: [installationName: 'SonarBBH', projectKey: 'team-key', gradle: [tasks: ['sonarqube']]]]], ['build.gradle': '', 'app/src/main/AndroidManifest.xml': ''])
+check('SonarQube of an Android service with tools.sonar.gradle.tasks: the Gradle plugin runs, not the SonarScanner',
+        !androidPlugin.error && androidPlugin.calls.contains('sonarqube') && androidPlugin.calls.contains('-Dsonar.branch.name=feature/DSO-2026') && !androidPlugin.calls.contains("'sonar-scanner'"),
+        "error=${androidPlugin.error} calls=${androidPlugin.calls}")
+
+List refused = []
+Map noBranch = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH']]], ['package.json': '{"name":"web"}'], { Map args ->
+    String text = (args.script ?: '') as String
+    if (text.contains("'sonar-scanner'") && text.contains('-Dsonar.branch.name=')) {
+        refused << text
+        throw new RuntimeException('script returned exit code 2')
+    }
+    return ''
+})
+check('SonarQube that refuses the branch: the analysis runs again without -Dsonar.branch.name and passes',
+        !noBranch.error && refused.size() == 1 && noBranch.calls.readLines().any { it.contains("'sonar-scanner'") && !it.contains('-Dsonar.branch.name=') },
+        "error=${noBranch.error} refused=${refused} calls=${noBranch.calls}")
+
+Map branchOff = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: false]]], ['package.json': '{"name":"web"}'])
+check('SonarQube with tools.sonar.branchAnalysis: false: no branch name is passed',
+        !branchOff.error && branchOff.calls.contains("'sonar-scanner'") && !branchOff.calls.contains('sonar.branch.name'),
+        "error=${branchOff.error} calls=${branchOff.calls}")
+
+Map branchWrong = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: 'sometimes']]], ['package.json': '{"name":"web"}'])
+Map branchDefault = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: true]]], ['package.json': '{"name":"web"}'])
+check('SonarQube with a wrong tools.sonar.branchAnalysis: the default true is used with a warning, and an explicit true is named as a key that can be removed',
+        !branchWrong.error && branchWrong.calls.contains('-Dsonar.branch.name=feature/DSO-2026')
+                && branchWrong.log.contains("[WARN] [SONAR] payments: tools.sonar.branchAnalysis: 'sometimes' is not true or false - using the default true")
+                && branchDefault.calls.contains('-Dsonar.branch.name=feature/DSO-2026')
+                && branchDefault.log.contains('[INFO] [SONAR] payments: tools.sonar.branchAnalysis: true equals the default - the key can be removed'),
+        "wrong=${branchWrong.log} default=${branchDefault.log}")
 
 def autoScript = new FakeScript()
 autoScript.files['pom.xml'] = '<project><properties><java.version>17</java.version></properties></project>'
@@ -357,6 +403,52 @@ try {
 check('RepoStackAutoResolver: the detection matrix gives the build tool of every supported technology (Flutter, iOS, Maven, Gradle in Groovy and Kotlin, Android, .NET, Liquibase, Python, npm and Angular, SQL and PL/SQL files) in the documented order, and none for a repository without a marker',
         !detectionFound.error && detectionMatrix.every { String name, Map row -> detectionFound[name] == row.tool },
         detectionMatrix.findAll { String name, Map row -> detectionFound[name] != row.tool }.collect { String name, Map row -> "${name}: expected ${row.tool}, found ${detectionFound[name]}" } + [detectionFound.error])
+
+Map prUnits = [:]
+try {
+    harness.run {
+        def svc = harness.type('com.bbh.remediation.SecurityPullRequestService')
+        def pub = harness.type('com.bbh.scm.BitbucketPullRequestPublisher')
+        def parser = harness.type('com.bbh.remediation.SecurityFindingsParser')
+        def catalogs = harness.type('com.bbh.remediation.SharedCatalogRepositoryService')
+        prUnits.sonar = parser.sonarIssuesFromJson([issues: [[component: 'com.bbh:pay:src/main/java/A.java', line: 12, severity: 'CRITICAL', rule: 'java:S2076', message: 'Injection'],
+                                                         [component: 'com.bbh:pay:pom.xml', severity: 'MAJOR', rule: 'xml:S1', message: 'no line']]])
+        prUnits.kept = svc.atLeast([[severity: 'LOW'], [severity: 'MEDIUM'], [severity: 'CRITICAL']], 'MEDIUM', svc.sastOrder())
+        prUnits.limits = svc.decorationLimits([maxComments: 'many', sastMinSeverity: 'urgent', sonarMinSeverity: 'major'])
+        prUnits.noLimits = svc.decorationLimits([:])
+        prUnits.ownLimits = svc.decorationLimits([maxComments: 5, sastMinSeverity: 'high', sonarMinSeverity: 'BLOCKER'])
+        prUnits.posted = svc.alreadyPosted(['**[SonarQube] CRITICAL: java:S2076**\n\nInjection'], '**[SonarQube] CRITICAL: java:S2076**\n\nInjection')
+        prUnits.fresh = svc.alreadyPosted(['other'], 'new text')
+        prUnits.server = pub.commentTexts([values: [[action: 'COMMENTED', comment: [text: 'a']], [action: 'APPROVED']]], false)
+        prUnits.cloud = pub.commentTexts([values: [[content: [raw: 'b']]]], true)
+        prUnits.catalog = catalogs.catalogSettings([url: 'https://bitbucket.bbh.com/scm/plat/catalog.git', path: '/gradle/libs.versions.toml', credentialsId: 'bb'])
+        prUnits.noCatalog = catalogs.catalogSettings([branch: 'main'])
+        prUnits.html = parser.sastFindingsFromHtml('<p>Issue ID: 1</p><p>Severity: High</p><p>Status: Open</p><p>Issue Type: SQL Injection, x</p><p>File: src/main/java/A.java</p><p>Line: 42</p>' +
+                '<p>Issue ID: 2</p><p>Severity: High</p><p>Status: Noise</p><p>File: src/B.java</p><p>Line: 3</p>')
+    }
+} catch (Throwable t) {
+    prUnits.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+check('pull request decoration: SonarQube issues with a line become line findings, the minimum severity filters, a comment already on the pull request is not posted again',
+        !prUnits.error && prUnits.sonar.size() == 1 && prUnits.sonar[0].file == 'src/main/java/A.java' && prUnits.sonar[0].line == 12
+                && prUnits.kept.size() == 2 && prUnits.posted == true && prUnits.fresh == false
+                && prUnits.server == ['a'] && prUnits.cloud == ['b'],
+        prUnits)
+check('pull request decoration: a wrong limit falls back to its default with a warning, a limit equal to the default is named as removable, and a limit that is set wins',
+        !prUnits.error && prUnits.limits.maxComments == 25 && prUnits.limits.sastMinSeverity == 'MEDIUM' && prUnits.limits.sonarMinSeverity == 'MAJOR'
+                && prUnits.limits.warnings == ["pullRequestDecoration.maxComments: 'many' is not a number of comments - using the default 25",
+                                               "pullRequestDecoration.sastMinSeverity: 'urgent' is not one of LOW, MEDIUM, HIGH, CRITICAL - using the default MEDIUM"]
+                && prUnits.limits.notes == ['pullRequestDecoration.sonarMinSeverity: MAJOR equals the default - the key can be removed']
+                && prUnits.noLimits.maxComments == 25 && !prUnits.noLimits.warnings && !prUnits.noLimits.notes
+                && prUnits.ownLimits.maxComments == 5 && prUnits.ownLimits.sastMinSeverity == 'HIGH' && prUnits.ownLimits.sonarMinSeverity == 'BLOCKER' && !prUnits.ownLimits.warnings,
+        prUnits)
+check('pull request decoration: an AppScan SAST finding marked Noise is not commented',
+        !prUnits.error && prUnits.html.size() == 1 && prUnits.html[0].file == 'src/main/java/A.java' && prUnits.html[0].line == 42 && prUnits.html[0].severity == 'HIGH',
+        prUnits.html)
+check('GoldenFix: goldenFix.versionCatalogRepo names the shared version catalog repository, its branch (main by default) and its files',
+        !prUnits.error && prUnits.catalog.url == 'https://bitbucket.bbh.com/scm/plat/catalog.git' && prUnits.catalog.branch == 'main'
+                && prUnits.catalog.paths == ['gradle/libs.versions.toml'] && prUnits.catalog.credentialsId == 'bb' && prUnits.noCatalog == [:],
+        prUnits)
 
 Map credResult = [:]
 try {

@@ -123,17 +123,6 @@ class SonarScannerCommandBuilder implements Serializable {
                 }
             }
         } catch (Exception ignored) {}
-        List<String> excluded = []
-        for (def entry : (state.projectsAllCfg ?: [:]).entrySet()) {
-            Map p = (entry.value instanceof Map) ? (entry.value as Map) : [:]
-            if (BuildUtils.databaseBlock(p)) {
-                String dir = (p.sourceDir ?: p.database?.searchPath ?: entry.key) as String
-                if (dir) excluded << dir
-            }
-        }
-        if (excluded) {
-            modules.removeAll { String m -> excluded.any { String ex -> m == ex || m.startsWith("${ex}/") } }
-        }
         return modules
     }
 

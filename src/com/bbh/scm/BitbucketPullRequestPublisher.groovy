@@ -91,6 +91,36 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
         }
     }
 
+    List<String> existingComments(Map scmCfg, Map pullRequest) {
+        try {
+            Map repo = parse(scmCfg)
+            if (repo.error || !pullRequest?.id) return []
+            return authorized(scmCfg) { Map auth ->
+                boolean cloud = repo.type == 'cloud'
+                String url = cloud ? "${cloudPullRequests(repo)}/${pullRequest.id}/comments?pagelen=100"
+                        : "${repo.apiBase}/pull-requests/${pullRequest.id}/activities?limit=500"
+                return commentTexts(rest.getJson(url, auth, "Bitbucket: comments of pull request ${pullRequest.id}"), cloud)
+            } as List<String>
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            return []
+        }
+    }
+
+    @NonCPS
+    static List<String> commentTexts(def page, boolean cloud) {
+        List<String> texts = []
+        def values = (page instanceof Map) ? (page as Map).values : null
+        if (!(values instanceof List)) return texts
+        for (def v : (values as List)) {
+            if (!(v instanceof Map)) continue
+            Map value = v as Map
+            def text = cloud ? (value.content instanceof Map ? (value.content as Map).raw : null) : (value.comment instanceof Map ? (value.comment as Map).text : null)
+            if (text) texts << (text as String)
+        }
+        return texts
+    }
+
     def authorized(Map scmCfg, Closure body) {
         String credentialsId = (scmCfg.credentialsId ?: '') as String
         if (!credentialsId) script.error("[GOLDENFIX] scm.bitbucket.credentialsId is required to raise a pull request")

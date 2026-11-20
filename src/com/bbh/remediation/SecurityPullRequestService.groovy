@@ -63,8 +63,12 @@ class SecurityPullRequestService implements Serializable {
             if (!pr.url && !gfChanges && !hasSast && !hasSonar) return
 
             String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
-            List<Map> sastFindings = findingsParser.extractSastFindings(projectName, cfg)
-            List<Map> sonarIssues = findingsParser.extractSonarIssues(projectName, cfg)
+            Map limits = decorationLimits(prCfg)
+            for (def warning : (limits.warnings as List)) script.echo "[WARN] [SECURITY-PR] ${projectName}: ${warning}"
+            for (def note : (limits.notes as List)) script.echo "[INFO] [SECURITY-PR] ${projectName}: ${note}"
+            List<Map> sastFindings = atLeast(findingsParser.extractSastFindings(projectName, cfg), limits.sastMinSeverity as String, sastOrder())
+            List<Map> sonarIssues = atLeast(findingsParser.extractSonarIssues(projectName, cfg), limits.sonarMinSeverity as String, sonarOrder())
+            decorateDeveloperPullRequest(scmCfg, projectName, gfChanges, sastFindings, sonarIssues, limits.maxComments as int)
 
             if (!pr.url && !gfChanges && sastFindings.isEmpty() && sonarIssues.isEmpty()) return
 
@@ -106,7 +110,7 @@ class SecurityPullRequestService implements Serializable {
                 def idM = (pr.url as String) =~ /\/pull-requests\/(\d+)/
                 if (idM.find()) pr = [:] + pr + [id: idM.group(1)]
             }
-            decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues)
+            decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, limits.maxComments as int)
             recordProjectPullRequestComments(projectName, pr, sastFindings)
         } catch (Throwable t) {
             if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
@@ -225,30 +229,109 @@ class SecurityPullRequestService implements Serializable {
         }
     }
 
-    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues) {
-        for (int i = 0; i < sastFindings.size(); i++) {
-            Map f = sastFindings[i]
-            if (f.file && f.line) {
-                String text = SecurityPullRequestView.sastLineComment(f)
-                try {
-                    publisher.addLineComment(scmCfg, pr, f.file as String, (f.line as Number).intValue(), text)
-                } catch (Exception e) {
-                    script.echo "[SECURITY-PR] Could not add SAST line comment: ${e.message}"
-                }
+    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
+        List<String> posted = publisher.existingComments(scmCfg, pr) ?: []
+        List<Map> comments = sastFindings.collect { [finding: it, text: SecurityPullRequestView.sastLineComment(it), tool: 'SAST'] } +
+                sonarIssues.collect { [finding: it, text: SecurityPullRequestView.sonarLineComment(it), tool: 'SonarQube'] }
+        int added = 0
+        for (Map c : comments) {
+            Map f = c.finding as Map
+            if (!f.file || !f.line || alreadyPosted(posted, c.text as String)) continue
+            if (added >= maxComments) {
+                script.echo "[SECURITY-PR] Further findings are listed in the report only (pullRequestDecoration.maxComments: ${maxComments})"
+                break
+            }
+            try {
+                publisher.addLineComment(scmCfg, pr, f.file as String, (f.line as Number).intValue(), c.text as String)
+                posted << (c.text as String)
+                added++
+            } catch (Exception e) {
+                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                script.echo "[SECURITY-PR] Could not add ${c.tool} line comment: ${e.message}"
             }
         }
+    }
 
-        for (int i = 0; i < sonarIssues.size(); i++) {
-            Map s = sonarIssues[i]
-            if (s.file && s.line) {
-                String text = SecurityPullRequestView.sonarLineComment(s)
-                try {
-                    publisher.addLineComment(scmCfg, pr, s.file as String, (s.line as Number).intValue(), text)
-                } catch (Exception e) {
-                    script.echo "[SECURITY-PR] Could not add SonarQube line comment: ${e.message}"
-                }
+    private void decorateDeveloperPullRequest(Map scmCfg, String projectName, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
+        Map pr = developerPullRequest(scmCfg)
+        if (!pr?.id) return
+        decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments)
+        String summary = SecurityPullRequestView.staticSummary(projectName, gfChanges, sastFindings, sonarIssues)
+        if (!alreadyPosted(publisher.existingComments(scmCfg, pr) ?: [], summary)) {
+            try {
+                publisher.addComment(scmCfg, pr, summary)
+            } catch (Exception e) {
+                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                script.echo "[SECURITY-PR] Comment on pull request ${pr.url ?: pr.id} not added: ${e.message}"
             }
         }
+        script.echo "[SECURITY-PR] ${projectName}: pull request ${pr.url ?: pr.id} of the analysed branch decorated with ${sastFindings.size()} SAST and ${sonarIssues.size()} SonarQube finding(s)"
+    }
+
+    private Map developerPullRequest(Map scmCfg) {
+        String changeId = (script.env.CHANGE_ID ?: '') as String
+        if (changeId) return [id: changeId, url: (script.env.CHANGE_URL ?: '') as String]
+        String branch = BuildUtils.normalizeBranch((script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String)
+        if (!branch || branch == 'HEAD' || branch.startsWith('GoldenFix-') || branch.startsWith('security-')) return null
+        return publisher.findOpenPullRequest(scmCfg, branch, '')
+    }
+
+    @NonCPS
+    static Map decorationLimits(Map prCfg) {
+        List<String> warnings = []
+        List<String> notes = []
+        int maxComments = 25
+        String rawMax = (prCfg?.maxComments == null ? '' : prCfg.maxComments as String).trim()
+        if (rawMax) {
+            if (rawMax ==~ /\d{1,6}/) {
+                maxComments = rawMax.toInteger()
+                if (maxComments == 25) notes << 'pullRequestDecoration.maxComments: 25 equals the default - the key can be removed'
+            } else {
+                warnings << "pullRequestDecoration.maxComments: '${rawMax}' is not a number of comments - using the default 25".toString()
+            }
+        }
+        return [maxComments     : maxComments,
+                sastMinSeverity : severityLimit(prCfg, 'sastMinSeverity', 'MEDIUM', sastOrder(), warnings, notes),
+                sonarMinSeverity: severityLimit(prCfg, 'sonarMinSeverity', 'MAJOR', sonarOrder(), warnings, notes),
+                warnings        : warnings,
+                notes           : notes]
+    }
+
+    @NonCPS
+    static String severityLimit(Map prCfg, String key, String fallback, List<String> order, List<String> warnings, List<String> notes) {
+        String raw = ((prCfg?.get(key) ?: '') as String).trim().toUpperCase()
+        if (!raw) return fallback
+        if (!order.contains(raw)) {
+            warnings << "pullRequestDecoration.${key}: '${prCfg.get(key)}' is not one of ${order.join(', ')} - using the default ${fallback}".toString()
+            return fallback
+        }
+        if (raw == fallback) notes << "pullRequestDecoration.${key}: ${fallback} equals the default - the key can be removed".toString()
+        return raw
+    }
+
+    @NonCPS
+    static boolean alreadyPosted(List<String> existing, String text) {
+        String wanted = (text ?: '').trim()
+        for (String e : (existing ?: [])) {
+            if ((e ?: '').trim() == wanted || (e ?: '').contains(wanted)) return true
+        }
+        return false
+    }
+
+    @NonCPS
+    static List<String> sastOrder() {
+        return ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+    }
+
+    @NonCPS
+    static List<String> sonarOrder() {
+        return ['INFO', 'MINOR', 'MAJOR', 'CRITICAL', 'BLOCKER']
+    }
+
+    @NonCPS
+    static List<Map> atLeast(List<Map> findings, String minimum, List<String> order) {
+        int min = Math.max(order.indexOf(minimum), 0)
+        return (findings ?: []).findAll { order.indexOf(((it.severity ?: '') as String).toUpperCase()) >= min } as List<Map>
     }
 
     private void ensureSecurityDir(String dir) {

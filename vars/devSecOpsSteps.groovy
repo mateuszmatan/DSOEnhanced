@@ -105,7 +105,13 @@ def staticAnalysis(def api) {
             sonarQube(api)
         }, { sastResults(api) })
     }
-    api.publishStaticSecurityPullRequest()
+    decorateStaticPullRequests(api)
+}
+
+def decorateStaticPullRequests(def api) {
+    api.eachProject {
+        api.publishStaticSecurityPullRequest()
+    }
 }
 
 def dynamicAnalysis(def api, Map options = [:]) {
@@ -167,7 +173,7 @@ def sonarQube(def api) {
         }
     }
     if (!api.parallelScans()) {
-        api.publishStaticSecurityPullRequest()
+        decorateStaticPullRequests(api)
     }
 }
 
@@ -249,8 +255,8 @@ def dast(def api, Map options = [:]) {
         }
         api.eachProject {
             api.dastScan()
+            api.publishDastPullRequest()
         }
-        api.publishDastPullRequest()
     }
 }
 

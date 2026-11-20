@@ -11,7 +11,7 @@
 
 - [1. Overview and Standalone Model](#1-overview-and-standalone-model)
 - [2. The Jenkinsfile: Defining Your Pipeline](#2-the-jenkinsfile-defining-your-pipeline)
-- [3. The devsecops_config.yaml Configuration File](#3-the-devsecops_configyaml-configuration-file)
+- [3. The devsecops_config.yaml Configuration File](#3-the-devsecopsconfigyaml-configuration-file)
 - [4. Multi-Service and Multi-Repository Bitbucket Support](#4-multi-service-and-multi-repository-bitbucket-support)
 - [5. Supported Languages and Build Tools](#5-supported-languages-and-build-tools)
 - [6. Unit Testing and Multi-Report Code Coverage](#6-unit-testing-and-multi-report-code-coverage)
@@ -21,7 +21,11 @@
 - [10. Dependency Security & GoldenFix – Nexus IQ](#10-dependency-security--goldenfix--nexus-iq)
 - [11. Deployments and "Disable Nexus Delivery" (OpenShift & VM)](#11-deployments-and-disable-nexus-delivery-openshift--vm)
 - [12. Telemetry, DORA Metrics, InfluxDB, and Grafana](#12-telemetry-dora-metrics-influxdb-and-grafana)
-- [13. Complete devsecops_config.yaml Template with Field Reference](#13-complete-devsecops_configyaml-template-with-field-reference)
+- [13. Complete devsecops_config.yaml Template with Field Reference](#13-complete-devsecopsconfigyaml-template-with-field-reference)
+- [14. Auto-Resolve in Standalone Mode (`autoresolve parameters: true`)](#14-auto-resolve-in-standalone-mode-autoresolve-parameters-true)
+- [15. Auto-Resolved Parameters Reference](#15-auto-resolved-parameters-reference)
+- [16. Bitbucket Pull Request Decoration & Shift-Left Feedback](#16-bitbucket-pull-request-decoration--shift-left-feedback)
+- [17. SAST REST API and the AppScan API key](#17-sast-rest-api-and-the-appscan-api-key)
 
 ---
 
@@ -236,6 +240,11 @@ tools:
 > [!TIP]
 > Provide **either** `badgeToken` OR `badgeCredentialsId`. Configuring both is not required.
 
+### How the Analysis Runs:
+- **Gradle, Android and Maven with analysis commands of their own** (`tools.sonar.gradle.tasks`, for Android as well, or `tools.sonar.maven.goals`) run them with the plugin of the build.
+- **Every other Gradle, Android and Maven service, and every npm, pip and iOS service** is analysed with the `sonar-scanner` CLI: the Jenkins tool `sonar-scanner-cli-<version>` named in `tools.sonar.sonarScannerVersion`, otherwise `sonar-scanner` on the `PATH` of the agent. It gets `tools.sonar.<tool>.flags` (of a Gradle, Android or Maven block only the arguments that start with `-Dsonar.`), the sources of the service and the coverage report of pip (`coverage.xml`) and npm (`coverage/lcov.info`). An argument of the service wins over the one the library would add.
+- **Branch and retry:** the branch of the build is passed as `-Dsonar.branch.name`. A server that refuses the branch name, as the Community Edition does, fails that attempt; the library logs a `[SONAR]` line and runs the analysis once more without the branch, and the stage fails only when the second attempt fails as well. `tools.sonar.branchAnalysis: false` skips the first attempt.
+
 ---
 
 ## 10. Dependency Security & GoldenFix – Nexus IQ
@@ -341,7 +350,7 @@ projects:
 
     # 2. Build Stage
     build:
-      tool: 'maven'                               # Supported: maven, gradle, dotnet, msbuild, npm, pip, liquibase, flutter
+      tool: 'maven'                               # Supported: maven, gradle, android, dotnet, msbuild, npm, pip, ios, liquibase, sql, flutter
       tasks: 'clean package -DskipTests'          # Build command
 
     # 3. Unit Tests & Code Coverage
@@ -446,7 +455,7 @@ projects:
 | `projects.<service>` | Identifier name of your component | `backend-api` | <span class="badge badge-required">YES</span> |
 | `scm.bitbucket.repositoryUrl` | Git repository SSH URL | `ssh://git@bitbucket.bbh.com/...` | <span class="badge badge-required">YES</span> |
 | `scm.bitbucket.targetBranch` | Main branch to build | `main` | <span class="badge badge-required">YES</span> |
-| `build.tool` | Compilation tool | `maven`, `gradle`, `dotnet`, `msbuild`, `npm`, `pip` | <span class="badge badge-required">YES</span> |
+| `build.tool` | Compilation tool | `maven`, `gradle`, `android`, `dotnet`, `msbuild`, `npm`, `pip`, `ios`, `liquibase`, `sql`, `flutter` | <span class="badge badge-required">YES</span> |
 | `build.tasks` | Build command string | `clean package -DskipTests` | <span class="badge badge-required">YES</span> |
 | `unitTests.tasks` | Test command string | `test` or `npm test` | <span class="badge badge-optional">OPTIONAL</span> |
 | `unitTests.cypress.enabled` | Enable Cypress component tests | `true` or `false` | <span class="badge badge-optional">OPTIONAL</span> |
@@ -462,3 +471,93 @@ projects:
 | `goldenFix.pullRequest` | Auto-create remediation PR | `true` | <span class="badge badge-default">DEFAULT TRUE</span> |
 | `nexusDeliveryEnabled` | Toggle Nexus delivery | `false` | <span class="badge badge-optional">OPTIONAL</span> |
 
+---
+
+## 14. Auto-Resolve in Standalone Mode (`autoresolve parameters: true`)
+
+The standalone library features automated repository stack detection (`RepoStackAutoResolver`).
+
+### Default Behaviour:
+Auto-resolve is enabled by default (`autoresolve parameters: true`). Application teams can omit build tool details, compiler paths, Node.js directories, and Sonar properties from `devsecops_config.yaml`.
+
+### Minimal Configuration Example:
+Application teams need to provide only the application ID in `devsecops_config.yaml`; the AppScan API key is the one of the functional user in the library defaults:
+```yaml
+projects:
+  payment-service:
+    appId: "APP-54321"
+```
+
+The pipeline automatically resolves the build tool (Maven, Gradle, Android, iOS, Flutter, C# / .NET, Liquibase, SQL / PL/SQL files, Python or npm), compiler version, Stage 0 Node.js frontend, OpenShift target, and SonarQube properties from the repository workspace files.
+
+### Disabling Auto-Resolve:
+To mandate strict manual configuration and disable heuristic resolution, set `autoresolve parameters: false`:
+```yaml
+projects:
+  payment-service:
+    autoresolve parameters: false
+    buildTool: maven
+    deployTarget: vm
+    appId: "APP-54321"
+```
+
+---
+
+## 15. Auto-Resolved Parameters Reference
+
+The build tool is detected in this order, in the library and in **Scan & Auto-fill** of the Portal alike: `pubspec.yaml` (Flutter), the iOS files, `pom.xml` (Maven), the Gradle files (Android with an `AndroidManifest.xml`), the .NET files, a Liquibase changelog, the Python files, `package.json` or `angular.json` at the root (npm), and at last a repository of only SQL and PL/SQL files (`sql`).
+
+| Setting / Field | Target Key / Form Field | Workspace Indicator / Manifest | Resolved Default Value |
+|---|---|---|---|
+| Build Tool | `buildTool` | `pom.xml` present | `maven` |
+| Build Tool | `buildTool` | `Podfile`, `Package.swift`, `*.xcodeproj` or `*.xcworkspace` present | `ios` |
+| Build Tool | `buildTool` | `build.gradle(.kts)`, `settings.gradle(.kts)` or `gradle/wrapper/gradle-wrapper.properties` present | `gradle` |
+| Build Tool | `buildTool` | Gradle files and `AndroidManifest.xml` at the root or in `app/src/main` | `android` |
+| Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, `liquibase.properties` | `liquibase` |
+| Build Tool | `buildTool` | `pubspec.yaml` present | `flutter` |
+| Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | `pip` |
+| Build Tool | `buildTool` | `package.json` or `angular.json` at the root and none of the files above | `npm` |
+| Build Tool Auto Setup | `buildToolAutoSetup` | Set to `true` whenever Maven or Gradle is detected | `true` |
+| Java / JDK Version | `build.maven.javaVersion` / `build.gradle.javaVersion` | `<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, `<release>` in `pom.xml`, or `jvmToolchain`, `sourceCompatibility` in `build.gradle` | Matched JDK version (`17`, `21`, `11`, `8`) |
+| Gradle Version | `build.gradle.version` | `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` | Exact Gradle wrapper version (e.g. `8.7`, `7.6`) |
+| Node.js Stage 0 Enabled | `build.node.enabled` | `package.json` exists in root or standard frontend folders | `true` |
+| Node.js Directory | `build.node.dir` | Detected subfolder holding `package.json` | `.`, `frontend`, `web`, `client`, or `ui` |
+| Node.js Engine Version | `build.node.version` | `engines.node` in `package.json` (e.g. `>=20.0.0`) | Major Node version (e.g. `20`) |
+| Cypress Unit Testing | `tests.unitTests.node.cypress` | `cypress` in `devDependencies` / `dependencies` of `package.json` | `true` |
+| Jest Unit Testing | `tests.unitTests.node.jest` | `jest` in `devDependencies` / `dependencies` of `package.json` | `true` |
+| Liquibase Build Command | `build.liquibase.commands` | Detected `changelog.xml` / `liquibase.properties` | `['updateSQL']` |
+| Liquibase Test Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']` |
+| Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, `helm/` present | `openshift` (otherwise defaults to `vm`) |
+| Sonar Project Key | `tools.sonar.projectKey` | Empty or missing in config | `com.bbh:<projectName>` or `com.bbh:<appName>` |
+| Sonar Language | `sonar.language` | Source tree inspection (`pubspec.yaml` -> `dart`, `requirements.txt` -> `py`, Kotlin files -> `kotlin`, Liquibase -> `sql`, else `java`) | Detected language code |
+| Sonar Sources Directory | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python) |
+| Sonar Tests Directory | `sonar.tests` | Missing `sonar-project.properties` | `src/test/java` (Java), `src/test/kotlin` (Kotlin), `test` (Dart), `tests` (Python) |
+| Sonar Java Binaries | `sonar.java.binaries` | Maven: `target/classes`; Gradle: `target/classes,build/classes/java/main` | Standard build output directories |
+| Sonar Submodules | `sonar.modules` | Submodules in `pom.xml` (`<module>`) or `settings.gradle` (`include '...'`) | Comma-separated module names |
+| Sonar Branch Pinning | `sonar.branch.name` | Auto-detected from pipeline branch (`CHANGE_BRANCH`, `BRANCH_NAME`, `GIT_BRANCH`) | Active evaluated branch (never master) |
+
+---
+
+## 16. Bitbucket Pull Request Decoration & Shift-Left Feedback
+
+Security feedback is reported directly in Bitbucket Pull Requests:
+1. **Static Analysis Consolidated Pull Request**:
+   - Nexus IQ GoldenFix safe dependency updates, AppScan SAST inline vulnerability comments, and SonarQube quality findings are presented together in a single Pull Request review.
+   - Findings marked as `Noise` are automatically excluded.
+2. **Dynamic Analysis Dedicated Pull Request**:
+   - DAST dynamic runtime findings are placed in a dedicated separate Pull Request to isolate runtime operational issues from source code changes.
+
+### Pull Request of the Analysed Branch, Limits and Repeated Runs:
+- **The pull request of the developer:** in a pull request build, or when the analysed branch has an open pull request in Bitbucket, that pull request gets the line comments of the SAST and SonarQube findings and one summary comment. Branches the library creates itself (`GoldenFix-*`, `security-*`) are left out.
+- **Limits:** `pullRequestDecoration.maxComments` (default 25) is the number of line comments one run adds to one pull request; `pullRequestDecoration.sastMinSeverity` (default `MEDIUM`) and `pullRequestDecoration.sonarMinSeverity` (default `MAJOR`) leave out the findings below them. A wrong value falls back to its default with a `[WARN]` line, and a value equal to the default is named in an `[INFO]` line as a key that can be removed.
+- **Repeated runs:** the library reads the comments that are already on the pull request and adds only those that are missing, so a second run of the same commit adds no duplicate.
+- **Shared version catalog repository:** the clone of `goldenFix.versionCatalogRepo` signs in the way the push of the GoldenFix branch does: an SSH URL with the SSH key credential, an HTTPS URL with `authType: bearer` with a Secret text credential as the access token, any other HTTPS URL with a username and password credential. `credentialsId` and `authType` of the catalog fall back to those of `scm.bitbucket` of the service, and the credential never appears in the log.
+
+---
+
+## 17. SAST REST API and the AppScan API key
+
+Static analysis communicates directly with HCL AppScan on Cloud via REST API v4:
+- **Authentication:** Obtains an API bearer token with the one API key of the functional user, `asoc.keyId` and the Secret text credential named in `asoc.token` of `resources/com/bbh/devsecops/defaults.yaml` of the library. DAST reuses the token of SAST. A `keyId`, `token` or `credentialsId` under `asoc`, `sast` or `dast` of a service is ignored with a `[WARN]` line.
+- **No secret on the console:** the sign-in body is written to the temporary folder of the build and removed after the call.
+- **Noise Filtering:** Findings marked with status `Noise` in the AppScan portal are filtered out and not counted against the release quality gate.

@@ -31,16 +31,18 @@ class SharedCatalogRepositoryService implements Serializable {
 
     Map resolveVersionCatalogRepo(Map cfg) {
         def raw = cfg?.versionCatalogRepo ?: cfg?.versionCatalogRepository ?: state.cfg?.versionCatalogRepo ?: state.cfg?.versionCatalogRepository ?: state.cfg?.tools?.nexusIq?.versionCatalogRepo ?: state.cfg?.tools?.nexusIq?.versionCatalogRepository ?: cfg?.goldenFix?.versionCatalogRepo ?: cfg?.goldenFix?.versionCatalogRepository
-        if (raw instanceof CharSequence) {
-            String u = raw.toString().trim()
-            return u ? [url: u] : [:]
-        }
-        if (raw instanceof Map) {
-            Map m = raw as Map
-            String u = ((m.url ?: m.repositoryUrl ?: m.cloneUrl ?: '') as String).trim()
-            return u ? ([:] + m + [url: u]) : [:]
-        }
-        return [:]
+        return SharedCatalogRepositoryService.catalogSettings(raw)
+    }
+
+    @NonCPS
+    static Map catalogSettings(def raw) {
+        Map m = raw instanceof Map ? (raw as Map) : (raw instanceof CharSequence ? [url: raw.toString()] : [:])
+        String u = ((m.url ?: m.repositoryUrl ?: m.cloneUrl ?: '') as String).trim()
+        if (!u) return [:]
+        return [:] + m + [url          : u,
+                          branch       : ((m.branch ?: m.targetBranch ?: 'main') as String).trim(),
+                          paths        : CatalogDiscovery.listed(m.paths ?: m.path).collect { it.replaceFirst('^/+', '') },
+                          credentialsId: ((m.credentialsId ?: '') as String).trim()]
     }
 
     Map executeExternalCatalogRepo(Map vcRepo, Map scmCfg, List<Map> fixes, List<Map> scanRefs, Map cfg,
@@ -60,7 +62,7 @@ class SharedCatalogRepositoryService implements Serializable {
         Map vcPr = (prsByRepo[repoKey] ?: [:]) as Map
         String title = (vcPr.title ?: "GoldenFix-${formattedTimestamp}") as String
         script.echo "[GOLDENFIX] Using shared version catalog repository: ${repoUrl} (branch: ${targetBranch})"
-        String extDir = (vcPr.extDir ?: prepareExternalCatalog(repoUrl, targetBranch, credId)) as String
+        String extDir = (vcPr.extDir ?: prepareExternalCatalog(repoUrl, targetBranch, credId, (vcScmCfg.authType ?: 'basic') as String)) as String
         if (!extDir) {
             return [handledKeys: [] as Set, changes: [], notes: ["Could not prepare external version catalog repository ${repoUrl}".toString()]]
         }
@@ -345,9 +347,9 @@ class SharedCatalogRepositoryService implements Serializable {
         return roots
     }
 
-    private String prepareExternalCatalog(String url, String branch, String credentialsId) {
+    private String prepareExternalCatalog(String url, String branch, String credentialsId, String authType) {
         try {
-            return repository.prepareExternalRepository(url, branch, credentialsId)
+            return repository.prepareExternalRepository(url, branch, credentialsId, authType)
         } catch (Throwable t) {
             script.echo "[GOLDENFIX] Warning: could not clone external version catalog repository ${url}: ${t.message}"
             return null

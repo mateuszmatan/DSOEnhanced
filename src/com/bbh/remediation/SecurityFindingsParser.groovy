@@ -43,42 +43,48 @@ class SecurityFindingsParser implements Serializable {
         if (!reportFile) return out
 
         try {
-            String html = AppScanReportParser.maybeUnescape(script.readFile(reportFile) ?: '')
-            String[] parts = html.split(/(?i)(?:Issue\s*ID|Finding\s*ID)\s*:/)
-            if (parts.length <= 1) {
-                parts = html.split(/(?is)(?=<div\b[^>]*class\s*=\s*["']name["'][^>]*>\s*Severity\s*:)/)
-            }
-            for (int i = 1; i < parts.length; i++) {
-                String text = parts[i].replaceAll(/(?s)<[^>]+>/, ' ').replaceAll(/\s+/, ' ').trim()
-                def sevM = text =~ /(?i)Severity\s*:?\s*(Critical|High|Medium|Low|Informational|Info)/
-                if (!sevM.find()) continue
-                def statM = text =~ /(?i)Status\s*:?\s*(Open|New|In\s*Progress|Reopened|Passed|Noise|Fixed)/
-                if (statM.find()) {
-                    String st = statM.group(1).toLowerCase()
-                    if (st in ['noise', 'passed', 'fixed']) continue
-                }
-
-                def typeM = text =~ /(?i)(?:Issue\s*Type|Vulnerability\s*Type|Type)\s*:?\s*(.+?)(?=\s+(?:Source\s*File|File\s*Name|Filename|File|Location|Path|Line|Severity|Status|Fix\s*Recommendation|How\s*to\s*Fix|Recommendation|Remediation|Cause|Details|CWE|CVSS)\s*:|[,\n\r]|$)/
-                def fileM = text =~ /(?i)(?:Source\s*File|File\s*Name|Filename|File|Location|Path)\s*:?\s*([^\s,;<>'"]+?\.(?:java|kt|kts|groovy|scala|jsp|jspx|cs|csx|fs|fsx|vb|cshtml|vbhtml|razor|aspx|ascx|ashx|xaml|config|csproj|fsproj|vbproj|props|targets|py|pyw|js|jsx|ts|tsx|mjs|cjs|vue|svelte|html|htm|css|scss|dart|swift|m|mm|h|hpp|c|cc|cpp|sql|pls|plb|pks|pkb|pck|prc|fnc|trg|xml|yaml|yml|json|gradle|properties|sh|ps1))(?:[:\(](\d+)\)?|\b)/
-                def lineM = text =~ /(?i)Line(?:\s*Number|\s*#)?\s*:?\s*(\d+)/
-                def remM = text =~ /(?i)(?:Fix\s*Recommendation|How\s*to\s*Fix|Recommendation|Remediation)\s*:?\s*(.+?)(?=(?:Issue\s*ID|Finding\s*ID|Cause|Details|CWE|$))/
-
-                boolean hasFile = fileM.find()
-                String file = hasFile ? SecurityFindingsParser.normalizeRepoPath(fileM.group(1), ws, repoPrefix) : null
-                String lineRaw = lineM.find() ? lineM.group(1) : (hasFile ? fileM.group(2) : null)
-                Integer line = lineRaw ? Integer.parseInt(lineRaw) : (file ? 1 : null)
-                if (file && line) {
-                    out << [
-                            file       : file,
-                            line       : line,
-                            severity   : sevM.group(1).toUpperCase(),
-                            type       : typeM.find() ? typeM.group(1).trim() : 'Security Vulnerability',
-                            description: "Vulnerability detected by HCL AppScan SAST in ${file}:${line}".toString(),
-                            remediation: remM.find() ? remM.group(1).trim() : 'Review source code and sanitize input or apply defensive controls.'
-                    ]
-                }
-            }
+            out.addAll(SecurityFindingsParser.sastFindingsFromHtml(AppScanReportParser.maybeUnescape(script.readFile(reportFile) ?: ''), ws, repoPrefix))
         } catch (Exception ignored) {
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<Map> sastFindingsFromHtml(String html, String ws = '', String repoPrefix = '') {
+        List<Map> out = []
+        String[] parts = (html ?: '').split(/(?i)(?:Issue\s*ID|Finding\s*ID)\s*:/)
+        if (parts.length <= 1) {
+            parts = (html ?: '').split(/(?is)(?=<div\b[^>]*class\s*=\s*["']name["'][^>]*>\s*Severity\s*:)/)
+        }
+        for (int i = 1; i < parts.length; i++) {
+            String text = parts[i].replaceAll(/(?s)<[^>]+>/, ' ').replaceAll(/\s+/, ' ').trim()
+            def sevM = text =~ /(?i)Severity\s*:?\s*(Critical|High|Medium|Low|Informational|Info)/
+            if (!sevM.find()) continue
+            def statM = text =~ /(?i)Status\s*:?\s*(Open|New|In\s*Progress|Reopened|Passed|Noise|Fixed)/
+            if (statM.find()) {
+                String st = statM.group(1).toLowerCase()
+                if (st in ['noise', 'passed', 'fixed']) continue
+            }
+
+            def typeM = text =~ /(?i)(?:Issue\s*Type|Vulnerability\s*Type|Type)\s*:?\s*(.+?)(?=\s+(?:Source\s*File|File\s*Name|Filename|File|Location|Path|Line|Severity|Status|Fix\s*Recommendation|How\s*to\s*Fix|Recommendation|Remediation|Cause|Details|CWE|CVSS)\s*:|[,\n\r]|$)/
+            def fileM = text =~ /(?i)(?:Source\s*File|File\s*Name|Filename|File|Location|Path)\s*:?\s*([^\s,;<>'"]+?\.(?:java|kt|kts|groovy|scala|jsp|jspx|cs|csx|fs|fsx|vb|cshtml|vbhtml|razor|aspx|ascx|ashx|xaml|config|csproj|fsproj|vbproj|props|targets|py|pyw|js|jsx|ts|tsx|mjs|cjs|vue|svelte|html|htm|css|scss|dart|swift|m|mm|h|hpp|c|cc|cpp|sql|pls|plb|pks|pkb|pck|prc|fnc|trg|xml|yaml|yml|json|gradle|properties|sh|ps1))(?:[:\(](\d+)\)?|\b)/
+            def lineM = text =~ /(?i)Line(?:\s*Number|\s*#)?\s*:?\s*(\d+)/
+            def remM = text =~ /(?i)(?:Fix\s*Recommendation|How\s*to\s*Fix|Recommendation|Remediation)\s*:?\s*(.+?)(?=(?:Issue\s*ID|Finding\s*ID|Cause|Details|CWE|$))/
+
+            boolean hasFile = fileM.find()
+            String file = hasFile ? SecurityFindingsParser.normalizeRepoPath(fileM.group(1), ws, repoPrefix) : null
+            String lineRaw = lineM.find() ? lineM.group(1) : (hasFile ? fileM.group(2) : null)
+            Integer line = lineRaw ? Integer.parseInt(lineRaw) : (file ? 1 : null)
+            if (file && line) {
+                out << [
+                        file       : file,
+                        line       : line,
+                        severity   : sevM.group(1).toUpperCase(),
+                        type       : typeM.find() ? typeM.group(1).trim() : 'Security Vulnerability',
+                        description: "Vulnerability detected by HCL AppScan SAST in ${file}:${line}".toString(),
+                        remediation: remM.find() ? remM.group(1).trim() : 'Review source code and sanitize input or apply defensive controls.'
+                ]
+            }
         }
         return out
     }
@@ -98,26 +104,32 @@ class SecurityFindingsParser implements Serializable {
                 String url = "${sonarUrl}/api/issues/search?componentKeys=${projectKey}&resolved=false&ps=30"
                 Map resp = rest.request('GET', url, null, [type: 'bearer', tokenVar: 'SONAR_TOKEN'], 'SonarQube: search issues')
                 def json = (resp.status >= 200 && resp.status < 300) ? rest.parseJson(resp.body as String) : null
-                if (json?.issues instanceof List) {
-                    for (def iss : (json.issues as List)) {
-                        String comp = (iss.component ?: '') as String
-                        String file = comp.contains(':') ? comp.substring(comp.lastIndexOf(':') + 1) : comp
-                        def rawLine = iss.line ?: iss.textRange?.startLine ?: 0
-                        int line = rawLine.toString().isInteger() ? Integer.parseInt(rawLine.toString()) : 0
-                        if (file && line > 0) {
-                            out << [
-                                    file       : SecurityFindingsParser.normalizeRepoPath(file, ws, repoPrefix),
-                                    line       : line,
-                                    severity   : (iss.severity ?: 'MAJOR') as String,
-                                    rule       : (iss.rule ?: 'SonarRule') as String,
-                                    message    : (iss.message ?: 'Quality or security issue') as String,
-                                    remediation: "Resolve SonarQube rule ${iss.rule ?: ''} violation (${iss.type ?: 'CODE_SMELL'}).".toString()
-                            ]
-                        }
-                    }
-                }
+                out.addAll(SecurityFindingsParser.sonarIssuesFromJson(json, ws, repoPrefix))
             }
         } catch (Exception ignored) {
+        }
+        return out
+    }
+
+    @NonCPS
+    static List<Map> sonarIssuesFromJson(def json, String ws = '', String repoPrefix = '') {
+        List<Map> out = []
+        if (!(json?.issues instanceof List)) return out
+        for (def iss : (json.issues as List)) {
+            String comp = (iss.component ?: '') as String
+            String file = comp.contains(':') ? comp.substring(comp.lastIndexOf(':') + 1) : comp
+            def rawLine = iss.line ?: iss.textRange?.startLine ?: 0
+            int line = rawLine.toString().isInteger() ? Integer.parseInt(rawLine.toString()) : 0
+            if (file && line > 0) {
+                out << [
+                        file       : SecurityFindingsParser.normalizeRepoPath(file, ws, repoPrefix),
+                        line       : line,
+                        severity   : (iss.severity ?: 'MAJOR') as String,
+                        rule       : (iss.rule ?: 'SonarRule') as String,
+                        message    : (iss.message ?: 'Quality or security issue') as String,
+                        remediation: "Resolve SonarQube rule ${iss.rule ?: ''} violation (${iss.type ?: 'CODE_SMELL'}).".toString()
+                ]
+            }
         }
         return out
     }
