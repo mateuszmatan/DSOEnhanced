@@ -447,13 +447,16 @@ Closure verify = { Map spec ->
     int manualAt = html.indexOf("<section id='manual-vs-automated'")
     String manualSection = manualAt < 0 ? '' : html.substring(manualAt, html.indexOf('</section>', manualAt))
     List<String> manualRows = (manualSection =~ /<tr><td style='[^']*'><span style='font-weight:600;'>([^<]+)<\/span>/).collect { it[1] as String }
-    check("${name}: the report ends with the Manual Actions vs DevSecOps table, one line per step that ran in the order of the pipeline (${expectedRows.join('; ')}), the time gained and the summary in seconds and minutes",
+    List<String> listedServices = (manualSection =~ /padding-left:14px;'>(\S+) /).collect { it[1] as String }
+    check("${name}: the report ends with the Manual Actions vs DevSecOps table, one line per step that ran in the order of the pipeline (${expectedRows.join('; ')}), the time gained, the summary in seconds and minutes and, with several services, every service under every step",
             manualRows == expectedRows && manualAt > html.indexOf("<div style='flex:1.4;min-width:620px;'>") && manualAt < html.indexOf('</body>')
                     && manualSection.contains('<h2>Manual Actions vs DevSecOps</h2>') && manualSection.contains('>Summary</td>')
-                    && manualSection.contains('>Time gained</th>') && manualSection.contains('DevSecOps gained <b>') && manualSection =~ /\d s = \d+ min by hand, /
+                    && manualSection.contains('>Time gained</th>') && !manualSection.contains('DevSecOps gained') && !manualSection.contains('Recalculated on every run')
+                    && manualSection =~ /\d s = \d+ min<\/span>/ && (!expectedRows.contains('SAST') || manualSection.contains('>the run + 10 min manual trigger</span>'))
+                    && listedServices.size() == listedServices.unique(false).size() * manualRows.size() && listedServices.unique(false).size() != 1
                     && (!expectedRows.contains('DAST') || manualSection.contains('>the run + 6 h ticket to CyberTrack</span>'))
                     && (!expectedRows.contains('Higher region test deployment') || manualSection.contains('>the run + 0 min ticket to SRM</span>')),
-            [rows: manualRows, expected: expectedRows, results: loggedResults])
+            [rows: manualRows, expected: expectedRows, services: listedServices, results: loggedResults])
     Map files = (spec.files ?: [:]) as Map
     List<String> probed = j.probes.findAll { it.tokenize(' ').last() in repositoryFiles }
     if (files && !spec.keyless) {

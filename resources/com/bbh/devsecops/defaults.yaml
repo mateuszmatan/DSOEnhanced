@@ -72,7 +72,7 @@ defaults:
       build:            10         # manual trigger of the build
       unitTests:        0          # the unit tests with code coverage run with the build
       nexusIq:          10         # manual trigger of the Nexus IQ scan
-      sast:             0          # manual trigger of the SAST
+      sast:             10         # manual trigger of the SAST
       sonar:            10         # manual trigger of the SonarQube analysis
       nexusDelivery:    0          # upload to or download from the Nexus
       lowerDeployment:  0          # deployment to the lower test region

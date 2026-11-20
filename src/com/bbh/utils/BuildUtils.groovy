@@ -259,7 +259,7 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static Map manualEffort(Map cfgDefaults) {
-        Map builtIn = [build: 10, unitTests: 0, nexusIq: 10, sast: 0, sonar: 10, nexusDelivery: 0, lowerDeployment: 0,
+        Map builtIn = [build: 10, unitTests: 0, nexusIq: 10, sast: 10, sonar: 10, nexusDelivery: 0, lowerDeployment: 0,
                        regression: 10, smoke: 10, performance: 10, dast: 360, higherDeployment: 0]
         Map formerNames = [build: 'buildTrigger', nexusIq: 'scanTrigger', sonar: 'scanTrigger', lowerDeployment: 'deployTrigger',
                            regression: 'testTrigger', smoke: 'testTrigger', performance: 'testTrigger']

@@ -27,7 +27,7 @@ Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and t
 |---|------|-------|-----|
 | 3.1 | **Static analysis at the same time on Windows agents.** They keep the order one after another. | Library, both branches | .NET services gain the same time as the others. |
 | 3.2 | **Time recovered across projects.** Send the summary of the table *Manual Actions vs DevSecOps* as a metric and show them per product and for BBH in Grafana and in the portal. | All three | Gives management the saving as one figure. |
-| 3.3 | **Calibrate `report.manualEffort`** with measured BBH times (10 minutes of a manual trigger for the build, Nexus IQ, SonarQube and each test, 6 hours of the CyberTrack ticket for a DAST and 0 minutes for the SAST trigger and the SRM ticket are the agreed assumptions). | Library defaults, Global Settings | The saving in the report is as good as these values. |
+| 3.3 | **Calibrate `report.manualEffort`** with measured BBH times (10 minutes of a manual trigger for the build, Nexus IQ, SAST, SonarQube and each test, 6 hours of the CyberTrack ticket for a DAST and 0 minutes for the SRM ticket are the agreed assumptions). | Library defaults, Global Settings | The saving in the report is as good as these values. |
 | 3.4 | **GoldenFix beyond the repository of the service**: a catalog published as an artifact or kept in another repository, a BOM or parent from Nexus, a constant in `buildSrc`; one pull request for the services of one repository. | Library, both branches | Today such a component is named with the reason and not raised. |
 | 3.5 | **Front-end formatting.** Four files of the portal front end do not pass the Prettier check. | Portal | Keeps the lint run clean. |
 | 3.6 | **Dart rules in SonarQube**, and the name of a pub component in a real Nexus IQ report. | Library, both branches | Known limitations of Flutter projects. |
@@ -42,7 +42,7 @@ Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and t
 - 2.6: the user guides are merged; `docs/USER_GUIDE_PORTAL` and `docs/USER_GUIDE_WITHOUT_PORTAL` are the same files in the three sources, their pages are rendered by `tools/render-user-guides.sh`, and the library suite regenerates a page that does not match its Markdown file (`test/checks/user-guides.sh`).
 
 - Pull request comments carry the fix AppScan recommends, read from the AppScan API (no report is parsed): under the line of a file the pull request changes, otherwise in a pull request comment that names the file; Nexus IQ upgrades are commented with the version Nexus IQ recommends. Both library branches; the answers of the real AppScan tenant are part of 1.1.
-- The report ends with the table *Manual Actions vs DevSecOps*: one line per step in the order of the pipeline, the time gained in percent and a summary in seconds, minutes and percent; the demo reports of `examples/reports` show it with the stages the pipelines run now.
+- The report ends with the table *Manual Actions vs DevSecOps*: one line per step in the order of the pipeline, the time gained in percent, a summary in seconds, minutes and percent and, with several services, every configured service under every step; the demo reports of `examples/reports` show it with the stages the pipelines run now.
 
 ## Done in the review of 2026-11-20
 

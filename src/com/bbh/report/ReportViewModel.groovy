@@ -159,7 +159,7 @@ class ReportViewModel implements Serializable {
     }
 
     @NonCPS
-    static Map manualComparison(Map stageTimes, Map stageResults, List parallelGroups, Map minutes) {
+    static Map manualComparison(Map stageTimes, Map stageResults, List parallelGroups, Map minutes, List services = [], Map serviceTimes = [:]) {
         Map waits = [:]
         Map groupOf = [:]
         for (def g : (parallelGroups ?: [])) {
@@ -188,7 +188,14 @@ class ReportViewModel implements Serializable {
             }
             String manualNote = (action != null || extra > 0L)
                     ? "the run + ${ReportViewModel.minutesText(extra)} ${action ?: 'manual trigger'}".toString() : 'the same as the run'
-            rows << [step: step.label, stage: stage, ms: work, elapsedMs: elapsed, waitMs: waited, extraMinutes: extra, manual: work + extra * minute,
+            List perService = []
+            if (((services ?: []) as List).size() > 1) {
+                Map recorded = ((serviceTimes ?: [:]).get(stage) ?: [:]) as Map
+                for (def name : services) {
+                    perService << [name: name as String, ran: recorded.containsKey(name as String), ms: (recorded.get(name as String) ?: 0L) as long]
+                }
+            }
+            rows << [services: perService, step: step.label, stage: stage, ms: work, elapsedMs: elapsed, waitMs: waited, extraMinutes: extra, manual: work + extra * minute,
                      manualNote: manualNote, automated: work, automatedNote: 'the run', block: groupOf[stage], span: 1, gainManual: work + extra * minute, gainAutomated: work]
         }
         Map blocks = [:]

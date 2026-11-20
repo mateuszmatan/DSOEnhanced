@@ -3606,7 +3606,7 @@ Every report of the full, security, extended, SAST and Nexus IQ GoldenFix pipeli
 | Build (and Node.js build) | 10 min manual trigger, once per run | `build` |
 | Unit test with Code Coverage | nothing | `unitTests` |
 | Nexus IQ | 10 min manual trigger | `nexusIq` |
-| SAST | 0 min manual trigger | `sast` |
+| SAST | 10 min manual trigger | `sast` |
 | SonarQube | 10 min manual trigger | `sonar` |
 | Nexus delivery (snapshot, download, release) | nothing | `nexusDelivery` |
 | Lower region test deployment | nothing | `lowerDeployment` |
@@ -3616,7 +3616,7 @@ Every report of the full, security, extended, SAST and Nexus IQ GoldenFix pipeli
 | DAST | 6 h ticket to CyberTrack | `dast` |
 | Higher region test deployment | 0 min ticket to SRM | `higherDeployment` |
 
-The parallel groups are **Static analysis** (unit tests, Nexus IQ, SAST, SonarQube) and **Dynamic analysis** (regression, smoke and performance tests, DAST). When SonarQube, which waits for the coverage of the unit tests, ends last, its time in the DevSecOps column includes that wait. The line **Summary** adds up the manual and the DevSecOps column and shows each in seconds and minutes, with the time gained in percent; the sentence under the table repeats it: "DevSecOps gained &lt;time&gt; in this run (&lt;seconds&gt; s = &lt;minutes&gt; min), &lt;share&gt;% of the manual time".
+The parallel groups are **Static analysis** (unit tests, Nexus IQ, SAST, SonarQube) and **Dynamic analysis** (regression, smoke and performance tests, DAST). When SonarQube, which waits for the coverage of the unit tests, ends last, its time in the DevSecOps column includes that wait. The line **Summary** adds up the manual and the DevSecOps column and shows each in seconds and minutes, with the time gained in percent and in seconds and minutes. Nothing is written under the table. When more than one service is configured, every step lists all configured services under its name, each with the time the step took for it, or *not run for this service*.
 
 The minutes are `report.manualEffort` of the bundled defaults, which only the DevSecOps team changes; a value that is not a whole number of minutes is named in a `[WARN] [REPORT]` line and its default is used. The former names `buildTrigger`, `scanTrigger` (Nexus IQ and SonarQube), `deployTrigger` (lower region deployment) and `testTrigger` (regression, smoke and performance tests) are still read when the new name is not set, each with a `[WARN] [REPORT]` line that asks to rename it.
 
@@ -3637,7 +3637,7 @@ All thresholds are Global Settings of the DevSecOps portal, which only the DevSe
 | DAST result polling | pollTimeoutMin / pollIntervalSec | 60 min / 60 s | no |
 | Unit tests, Nexus IQ, SAST and SonarQube at the same time | staticAnalysis.parallel | true; the Global Settings checkbox is ticked by default | only without a key: false in any service of `devsecops_config.yaml` or `config.yaml` runs them one after another |
 | Tests and DAST at the same time | dynamicAnalysis.parallel | true; the Global Settings checkbox is ticked by default | only without a key: false in any service runs them one after another |
-| Minutes of the manual steps in the report | report.manualEffort | 10 min manual trigger of the build, Nexus IQ, SonarQube and each test, 360 min for the CyberTrack ticket of a DAST, 0 for the other steps; read from the library defaults only, not a Global Settings value | no |
+| Minutes of the manual steps in the report | report.manualEffort | 10 min manual trigger of the build, Nexus IQ, SAST, SonarQube and each test, 360 min for the CyberTrack ticket of a DAST, 0 for the other steps; read from the library defaults only, not a Global Settings value | no |
 
 The required coverage is shown in the report exactly as configured in the Global Settings, so raising or lowering it there immediately changes the value the report checks against and displays.
 

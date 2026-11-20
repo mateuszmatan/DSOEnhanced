@@ -66,6 +66,7 @@ class PipelineState implements Serializable {
     Map nexusIqScansByApp      = [:]
     List parallelGroups        = []
     Map projectsSastFindings   = [:]
+    Map projectStageTimes      = [:]
 
     @NonCPS
     PipelineState fork() {
@@ -114,6 +115,7 @@ class PipelineState implements Serializable {
         branch.nexusIqScansByApp = nexusIqScansByApp
         branch.parallelGroups = parallelGroups
         branch.projectsSastFindings = projectsSastFindings
+        branch.projectStageTimes = projectStageTimes
         return branch
     }
 
@@ -140,6 +142,17 @@ class PipelineState implements Serializable {
         if (branch.goldenFixPullRequest != goldenFixPullRequest) goldenFixPullRequest = branch.goldenFixPullRequest
         if (branch.goldenFixPullRequestsByRepo != goldenFixPullRequestsByRepo) goldenFixPullRequestsByRepo = branch.goldenFixPullRequestsByRepo
         if (branch.databaseTools != databaseTools) databaseTools = branch.databaseTools
+    }
+
+    @NonCPS
+    void addProjectTime(String stage, String project, long ms) {
+        if (!stage || !project) return
+        Map byProject = projectStageTimes[stage] as Map
+        if (byProject == null) {
+            byProject = [:]
+            projectStageTimes[stage] = byProject
+        }
+        byProject[project] = Math.max(0L, ((byProject[project] ?: 0L) as long) + ms)
     }
 
     @NonCPS
