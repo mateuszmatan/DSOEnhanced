@@ -193,7 +193,7 @@ private List _branchToolEnv(Map cfg) {
     String javaPath = ((cfg?.javaPath ?: '') as String).trim()
     String javaHome = (_branchEnv.JAVA_HOME ?: '') as String
     String path = (_branchEnv.PATH ?: '') as String
-    if (javaPath && (tool in ['liquibase', 'npm', 'node', 'pip', 'ios'] || BuildUtils.isDotnetTool(tool))) {
+    if (javaPath && (tool in ['liquibase', 'sql', 'plsql', 'npm', 'node', 'pip', 'ios'] || BuildUtils.isDotnetTool(tool))) {
         javaHome = javaPath
         path = "${javaPath}/bin:${path}"
     }
