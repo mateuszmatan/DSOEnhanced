@@ -322,8 +322,7 @@ Every stage automatically emits telemetry points to InfluxDB:
 - Visualize results across BBH enterprise Grafana dashboards.
 
 The pipeline report of every run also shows:
-- **Execution time: one after another vs in parallel:** a table above *Manual actions vs DevSecOps Automated Actions* with the stages of *Static analysis* and *Dynamic analysis*, the time one after another, the time in parallel and the time saved. The column of the way the run worked is marked *THIS RUN*; after a run one after another the parallel time is an estimate.
-- **Manual actions vs DevSecOps Automated Actions** (at the bottom): for every step that ran, the time it would take by hand next to the time the pipeline took, recalculated on every run. By hand, each build, scan, deployment and test adds 10 minutes to start it and a DAST takes 6 x 60 minutes; automated, the scans and the tests with DAST take the longest of their stages when they ran at the same time. The table ends with the totals and the time recovered by the run. The minutes are `report.manualEffort` of the library defaults.
+- **Manual Actions vs DevSecOps** (at the bottom): one line per step that ran, in the order of the pipeline, recalculated on every run. *Step* shows the step with its own time. *Manual actions* adds what a person needs to start it: 10 minutes of a manual trigger for the build, Nexus IQ, SonarQube and each of the regression, smoke and performance tests, 6 hours of the CyberTrack ticket for a DAST, and nothing for the unit tests, SAST, the Nexus delivery and the deployments (the SRM ticket of the higher region counts 0 minutes). *DevSecOps Automated Actions* shows the time of the pipeline; of the steps that run in parallel only the longest has a time. *Time gained* is the saving in percent, and the line *Summary* gives both totals and the gain in seconds, minutes and percent. The minutes are `report.manualEffort` in the library defaults.
 
 ---
 

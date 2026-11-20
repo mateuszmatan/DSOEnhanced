@@ -259,20 +259,31 @@ class BuildUtils implements Serializable {
 
     @NonCPS
     static Map manualEffort(Map cfgDefaults) {
-        Map builtIn = [buildTrigger: 10, scanTrigger: 10, deployTrigger: 10, testTrigger: 10, dast: 360]
+        Map builtIn = [build: 10, unitTests: 0, nexusIq: 10, sast: 0, sonar: 10, nexusDelivery: 0, lowerDeployment: 0,
+                       regression: 10, smoke: 10, performance: 10, dast: 360, higherDeployment: 0]
+        Map formerNames = [build: 'buildTrigger', nexusIq: 'scanTrigger', sonar: 'scanTrigger', lowerDeployment: 'deployTrigger',
+                           regression: 'testTrigger', smoke: 'testTrigger', performance: 'testTrigger']
         Map given = (((((cfgDefaults ?: [:]) as Map).get('report') ?: [:]) as Map).get('manualEffort') ?: [:]) as Map
         Map minutes = [:]
         List warnings = []
         for (def entry : builtIn.entrySet()) {
             String key = entry.key as String
+            String name = key
             def raw = given.get(key)
+            if (raw == null && formerNames[key] != null && given.get(formerNames[key]) != null) {
+                name = formerNames[key] as String
+                raw = given.get(name)
+                String moved = "report.manualEffort.${name} is the former name of report.manualEffort.${key} - its value '${raw}' is used, rename it".toString()
+                if (!warnings.contains(moved)) warnings << moved
+            }
             long value = entry.value as long
             if (raw != null) {
                 String text = (raw as String).trim()
                 if (text ==~ /\d{1,6}/) {
                     value = text as long
                 } else {
-                    warnings << "report.manualEffort.${key}: '${raw}' is not a number of minutes - the default ${entry.value} is used".toString()
+                    String wrong = "report.manualEffort.${name}: '${raw}' is not a number of minutes - the default ${entry.value} of report.manualEffort.${key} is used".toString()
+                    if (!warnings.contains(wrong)) warnings << wrong
                 }
             }
             minutes[key] = value

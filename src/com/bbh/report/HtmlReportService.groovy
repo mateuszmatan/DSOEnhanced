@@ -942,63 +942,10 @@ ${sonarBadgesCards(ctx)}
 ${coverageCard(coverage, projectsCoverage)}${databaseCard(projectsDatabase, buildUrl + 'artifact/')}${unitTestsCard(projectsUnitTests) ? '\n' + unitTestsCard(projectsUnitTests) : ''}
 ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}${autoResolvedCardHtml()}
 </div>
-</div>${executionTimeHtml(stageTimes, stageResults)}${manualComparisonHtml(stageTimes, stageResults)}
+</div>${manualComparisonHtml(stageTimes, stageResults)}
 </div>
 </body>
 </html>"""
-    }
-
-    @NonCPS
-    protected String executionTimeHtml(Map stageTimes, Map stageResults) {
-        Map table = ReportViewModel.executionComparison(stageTimes, stageResults, (state.parallelGroups ?: []) as List)
-        List rows = (table.rows ?: []) as List
-        if (!rows) return ''
-        String cell = "padding:8px 12px;vertical-align:top;"
-        String note = "display:block;margin-top:2px;color:#64748b;font-size:0.74rem;"
-        String right = "${cell}text-align:right;white-space:nowrap;"
-        StringBuilder body = new StringBuilder()
-        boolean anyParallel = false
-        List sequentialOnly = []
-        for (def r : rows) {
-            Map row = r as Map
-            boolean ranInParallel = row.ranInParallel as boolean
-            if (ranInParallel) anyParallel = true else sequentialOnly << "${row.name} (${row.setting}: false)".toString()
-            StringBuilder stages = new StringBuilder()
-            for (def s : (row.stages as List)) {
-                Map stage = s as Map
-                long waited = (stage.waitMs ?: 0L) as long
-                String waitedNote = waited > 0L ? " <span style='color:#64748b;'>(after waiting ${BuildUtils.formatDuration(waited)} for the unit tests)</span>" : ''
-                stages.append("<span style='display:block;font-size:0.8rem;color:#334155;font-weight:400;'>${esc(stage.label as String)} <b>${BuildUtils.formatDuration(stage.ms as long)}</b>${waitedNote}</span>")
-            }
-            long sequential = row.sequentialMs as long
-            long parallel = row.parallelMs as long
-            long saved = row.savedMs as long
-            long percent = sequential > 0L ? Math.round(saved * 100.0d / sequential) : 0L
-            String ran = "<span style='display:inline-block;margin-left:6px;padding:1px 6px;font-size:0.68rem;font-weight:700;color:#fff;background:#15803d;'>THIS RUN</span>"
-            body.append("<tr><td style='${cell}'><div class='execution-group' style='font-weight:700;color:#0f172a;'>${esc(row.name as String)}</div>${stages}</td>")
-                    .append("<td style='${right}'><b>${BuildUtils.formatDuration(sequential)}</b>${ranInParallel ? '' : ran}<span style='${note}'>${ranInParallel ? 'the sum of the stages' : 'measured'}</span></td>")
-                    .append("<td style='${right}'><b>${BuildUtils.formatDuration(parallel)}</b>${ranInParallel ? ran : ''}<span style='${note}'>${ranInParallel ? 'measured' : 'estimated'}</span></td>")
-                    .append("<td style='${right}color:#15803d;'><b>${BuildUtils.formatDuration(saved)}</b><span style='${note}'>${percent}%${ranInParallel ? '' : ' if parallel'}</span></td></tr>")
-        }
-        long sequentialTotal = table.sequentialMs as long
-        long parallelTotal = table.parallelMs as long
-        long savedTotal = table.savedMs as long
-        long percentTotal = sequentialTotal > 0L ? Math.round(savedTotal * 100.0d / sequentialTotal) : 0L
-        String total = "${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;"
-        body.append("<tr><td style='${cell}font-weight:800;border-top:2px solid #e2e8f0;'>Total</td>")
-                .append("<td style='${total}'>${BuildUtils.formatDuration(sequentialTotal)}</td>")
-                .append("<td style='${total}'>${BuildUtils.formatDuration(parallelTotal)}</td>")
-                .append("<td style='${total}color:#15803d;'>${BuildUtils.formatDuration(savedTotal)} (${percentTotal}%)</td></tr>")
-        String summary = !sequentialOnly
-                ? "The stages ran in parallel: <b>${BuildUtils.formatDuration(parallelTotal)}</b> instead of <b>${BuildUtils.formatDuration(sequentialTotal)}</b> one after another - <b>${BuildUtils.formatDuration(savedTotal)}</b> (${percentTotal}%) saved in this run"
-                : (anyParallel
-                ? "In parallel <b>${BuildUtils.formatDuration(parallelTotal)}</b>, one after another <b>${BuildUtils.formatDuration(sequentialTotal)}</b>; ${esc(sequentialOnly.join(', '))} ran one after another in this run"
-                : "The stages ran one after another: <b>${BuildUtils.formatDuration(sequentialTotal)}</b>. In parallel they would take about <b>${BuildUtils.formatDuration(parallelTotal)}</b> - about <b>${BuildUtils.formatDuration(savedTotal)}</b> (${percentTotal}%) less; ${esc(sequentialOnly.join(', '))}")
-        return "\n<section id='parallel-stages' class='card' style='margin-top:20px;'><h2>Execution time: one after another vs in parallel</h2>" +
-                "<div style='overflow-x:auto;'><table style='min-width:560px;'><thead><tr><th>Stages</th><th style='text-align:right;'>One after another</th>" +
-                "<th style='text-align:right;'>In parallel</th><th style='text-align:right;'>Time saved</th></tr></thead><tbody>${body}</tbody></table></div>" +
-                "<div style='margin-top:10px;font-size:0.9rem;color:${sequentialOnly ? '#334155' : '#15803d'};font-weight:700;'>${summary}</div>" +
-                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run. One after another is the sum of the stages; in parallel is the time of the whole group.</div></section>"
     }
 
     @NonCPS
@@ -1009,25 +956,41 @@ ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remo
         if (!rows) return ''
         String cell = "padding:8px 12px;vertical-align:top;"
         String note = "display:block;margin-top:2px;color:#64748b;font-size:0.74rem;"
+        String right = "${cell}text-align:right;white-space:nowrap;"
+        String top = "border-top:2px solid #e2e8f0;"
         StringBuilder body = new StringBuilder()
+        String blockBefore = null
         for (def r : rows) {
             Map row = r as Map
-            body.append("<tr><td style='${cell}font-weight:600;'>${esc(row.step as String)}</td>")
-                    .append("<td style='${cell}text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(row.manual as long)}</b><span style='${note}'>${esc(row.manualNote as String)}</span></td>")
-                    .append("<td style='${cell}text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(row.automated as long)}</b><span style='${note}'>${esc(row.automatedNote as String)}</span></td></tr>")
+            String block = row.block as String
+            String edge = (block != blockBefore && (block != null || blockBefore != null)) ? 'border-top:1px solid #cbd5e1;' : ''
+            blockBefore = block
+            String blockNote = block != null ? "<span style='${note}'>${esc(block)}: runs in parallel</span>" : ''
+            String automated = row.automated != null ? "<b>${BuildUtils.formatDuration(row.automated as long) ?: '0s'}</b>" : "<span style='color:#94a3b8;'>-</span>"
+            body.append("<tr><td style='${cell}${edge}'><span style='font-weight:600;'>${esc(row.step as String)}</span> <b style='margin-left:6px;'>${BuildUtils.formatDuration(row.ms as long) ?: '0s'}</b>${blockNote}</td>")
+                    .append("<td style='${right}${edge}'><b>${BuildUtils.formatDuration(row.manual as long) ?: '0s'}</b><span style='${note}'>${esc(row.manualNote as String)}</span></td>")
+                    .append("<td style='${right}${edge}'>${automated}<span style='${note}'>${esc(row.automatedNote as String)}</span></td>")
+            int span = row.span as int
+            if (span > 0) {
+                body.append("<td${span > 1 ? " rowspan='${span}'" : ''} style='${right}${edge}color:#15803d;${span > 1 ? 'vertical-align:middle;border-left:1px solid #e2e8f0;' : ''}'><b>${row.gainPercent}%</b>")
+                        .append(span > 1 ? "<span style='${note}'>the ${span} steps together</span>" : '').append("</td>")
+            }
+            body.append("</tr>")
         }
         long manual = table.manual as long
         long automated = table.automated as long
         long recovered = table.recovered as long
-        long percent = manual > 0L ? Math.round(recovered * 100.0d / manual) : 0L
-        body.append("<tr><td style='${cell}font-weight:800;border-top:2px solid #e2e8f0;'>Total</td>")
-                .append("<td style='${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;'>${BuildUtils.formatDuration(manual)}</td>")
-                .append("<td style='${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;'>${BuildUtils.formatDuration(automated)}</td></tr>")
-        return "\n<section id='manual-vs-automated' class='card' style='margin-top:20px;'><h2>Manual actions vs DevSecOps Automated Actions</h2>" +
-                "<div style='overflow-x:auto;'><table style='min-width:560px;'><thead><tr><th>Step</th><th style='text-align:right;'>Manual actions</th>" +
-                "<th style='text-align:right;'>DevSecOps Automated Actions</th></tr></thead><tbody>${body}</tbody></table></div>" +
-                "<div style='margin-top:10px;font-size:0.9rem;color:#15803d;font-weight:700;'>Time recovered in this run: <b>${BuildUtils.formatDuration(recovered)}</b> (${percent}% of the manual time)</div>" +
-                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run; the manual overheads are report.manualEffort in the library defaults.</div></section>"
+        long percent = table.percent as long
+        body.append("<tr><td style='${cell}${top}font-weight:800;'>Summary</td>")
+                .append("<td style='${right}${top}'><b>${BuildUtils.formatDuration(manual) ?: '0s'}</b><span style='${note}'>${ReportViewModel.secondsAndMinutes(manual)}</span></td>")
+                .append("<td style='${right}${top}'><b>${BuildUtils.formatDuration(automated) ?: '0s'}</b><span style='${note}'>${ReportViewModel.secondsAndMinutes(automated)}</span></td>")
+                .append("<td style='${right}${top}color:#15803d;'><b>${percent}%</b><span style='${note}'>${ReportViewModel.secondsAndMinutes(recovered)}</span></td></tr>")
+        return "\n<section id='manual-vs-automated' class='card' style='margin-top:20px;'><h2>Manual Actions vs DevSecOps</h2>" +
+                "<div style='overflow-x:auto;'><table style='min-width:640px;'><thead><tr><th>Step</th><th style='text-align:right;'>Manual actions</th>" +
+                "<th style='text-align:right;'>DevSecOps Automated Actions</th><th style='text-align:right;'>Time gained</th></tr></thead><tbody>${body}</tbody></table></div>" +
+                "<div style='margin-top:10px;font-size:0.9rem;color:#15803d;font-weight:700;'>DevSecOps gained <b>${BuildUtils.formatDuration(recovered) ?: '0s'}</b> in this run (${ReportViewModel.secondsAndMinutes(recovered)}), <b>${percent}%</b> of the manual time: " +
+                "${ReportViewModel.secondsAndMinutes(manual)} by hand, ${ReportViewModel.secondsAndMinutes(automated)} with DevSecOps</div>" +
+                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run. The time next to a step is its own run. Manual actions add the time a person needs to start the step or to raise its ticket (report.manualEffort in the library defaults). Of the steps that run in parallel only the longest counts for DevSecOps.</div></section>"
     }
 
     @NonCPS

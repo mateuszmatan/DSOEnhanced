@@ -87,7 +87,7 @@ String PERFORMANCE = 'Performance tests'
 String DAST = 'DAST - Dynamic Application Security Tests - HCL AppScan'
 long MIN = 60000L
 Closure span = { long startMin, long minutes -> [start: startMin * MIN, end: (startMin + minutes) * MIN] }
-Map effort = [buildTrigger: 10L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 360L]
+Map effort = [build: 10L, unitTests: 0L, nexusIq: 10L, sast: 0L, sonar: 10L, nexusDelivery: 0L, lowerDeployment: 0L, regression: 10L, smoke: 10L, performance: 10L, dast: 360L, higherDeployment: 0L]
 Map fullTimes = ['Build artifact': span(0, 4), (UNIT): span(4, 6), (NIQ): span(4, 3), (SAST): span(4, 20), (SONAR): span(4, 8), (DEPLOY): span(30, 5),
                  (REGRESSION): span(40, 15), (SMOKE): span(40, 2), (PERFORMANCE): span(40, 12), (DAST): span(40, 45), 'Smoke tests (skipped)': span(0, 1)]
 Map fullResults = ['Build artifact': 'PASS', (UNIT): 'PASS', (NIQ): 'PASS', (SAST): 'WARN', (SONAR): 'PASS', (DEPLOY): 'PASS',
@@ -103,32 +103,62 @@ Map comparison = harness.run {
     Map none = viewModel().manualComparison([:], [:], null, effort) as Map
     [parallel: parallelRun, sequential: sequentialRun, partial: partial, none: none]
 } as Map
-Closure rowsOf = { Map table -> (table.rows as List).collect { Map r -> [r.step, (r.manual as long).intdiv(MIN), (r.automated as long).intdiv(MIN)] } }
-check('ReportViewModel.manualComparison: the manual column adds the triggers by hand (10 min each, 6 x 60 min for the DAST), the automated column takes the longest of the stages that ran in one parallel group and the sum when they ran one after another, and skipped stages are left out, except the build, which is NOT_REQUIRED when only its Node.js part was',
-        rowsOf(comparison.parallel as Map) == [['Code Build Trigger', 14L, 4L], ['Unit Test + Code Coverage', 6L, 6L], ['SAST + Nexus IQ + SonarQube', 55L, 20L],
-                                               ['Deploy lower test region', 15L, 5L], ['Regression + Smoke + Performance + DAST', 464L, 45L]]
-                && (comparison.parallel as Map).manual == 554L * MIN && (comparison.parallel as Map).automated == 80L * MIN && (comparison.parallel as Map).recovered == 474L * MIN
-                && ((comparison.parallel as Map).rows as List)[0].manualNote == 'the run + 10 min to start it by hand'
-                && ((comparison.partial as Map).rows as List)[2].manualNote == 'the 2 runs one after another + 10 min to start one of them by hand + 360 min for the DAST by hand'
-                && ((comparison.parallel as Map).rows as List)[2].manualNote == 'the 3 runs one after another + 3 x 10 min to start them by hand'
-                && ((comparison.parallel as Map).rows as List)[2].automatedNote == 'the longest of the 3: they run in parallel'
-                && ((comparison.parallel as Map).rows as List)[4].manualNote == 'the 4 runs one after another + 3 x 10 min to start them by hand + 360 min for the DAST by hand'
-                && ((comparison.parallel as Map).rows as List)[1].manualNote == 'the same as automated'
-                && rowsOf(comparison.sequential as Map) == [['Code Build Trigger', 14L, 4L], ['Unit Test + Code Coverage', 6L, 6L], ['SAST + Nexus IQ + SonarQube', 61L, 31L],
-                                                            ['Deploy lower test region', 15L, 5L], ['Regression + Smoke + Performance + DAST', 464L, 74L]]
-                && ((comparison.sequential as Map).rows as List)[2].automatedNote == 'the 3 runs one after another'
-                && rowsOf(comparison.partial as Map) == [['Code Build Trigger', 11L, 1L], ['SAST', 17L, 7L], ['Regression + DAST', 375L, 5L]]
+Closure rowsOf = { Map table -> (table.rows as List).collect { Map r -> [r.step, (r.ms as long).intdiv(MIN), (r.manual as long).intdiv(MIN), r.automated == null ? null : (r.automated as long).intdiv(MIN)] } }
+Closure gainsOf = { Map table -> (table.rows as List).collect { Map r -> [r.span, r.gainPercent] } }
+check('ReportViewModel.manualComparison: one line per step that ran, in the order of the pipeline, with its own time; the manual column adds the minutes of the step (trigger by hand, 6 h of the CyberTrack ticket for the DAST); of the steps of one parallel group only the longest has a time in the DevSecOps column and the group shares one gain; after a run one after another every step has its time; skipped steps are left out, except the build, which is NOT_REQUIRED when only its Node.js part was',
+        rowsOf(comparison.parallel as Map) == [['Build', 4L, 14L, 4L], ['Unit test with Code Coverage', 6L, 6L, null], ['Nexus IQ', 3L, 13L, null], ['SAST', 20L, 20L, 20L], ['SonarQube', 2L, 12L, null],
+                                               ['Lower region test deployment', 5L, 5L, 5L], ['Regression tests', 15L, 25L, null], ['Smoke tests', 2L, 12L, null],
+                                               ['Performance tests', 12L, 22L, null], ['DAST', 45L, 405L, 45L]]
+                && gainsOf(comparison.parallel as Map) == [[1, 71L], [4, 61L], [0, 61L], [0, 61L], [0, 61L], [1, 0L], [4, 90L], [0, 90L], [0, 90L], [0, 90L]]
+                && (comparison.parallel as Map).manual == 534L * MIN && (comparison.parallel as Map).automated == 74L * MIN && (comparison.parallel as Map).recovered == 460L * MIN
+                && (comparison.parallel as Map).percent == 86L
+                && ((comparison.parallel as Map).rows as List).collect { it.manualNote } == ['the run + 10 min manual trigger', 'the same as the run', 'the run + 10 min manual trigger', 'the run + 0 min manual trigger',
+                                                                                              'the run + 10 min manual trigger', 'the same as the run', 'the run + 10 min manual trigger', 'the run + 10 min manual trigger',
+                                                                                              'the run + 10 min manual trigger', 'the run + 6 h ticket to CyberTrack']
+                && ((comparison.parallel as Map).rows as List)[3].automatedNote == 'the longest of the 4 in parallel'
+                && ((comparison.parallel as Map).rows as List)[2].automatedNote == 'in parallel, within the time of SAST'
+                && ((comparison.parallel as Map).rows as List)[1].block == 'Static analysis' && ((comparison.parallel as Map).rows as List)[0].block == null
+                && rowsOf(comparison.sequential as Map) == [['Build', 4L, 14L, 4L], ['Unit test with Code Coverage', 6L, 6L, 6L], ['Nexus IQ', 3L, 13L, 3L], ['SAST', 20L, 20L, 20L], ['SonarQube', 8L, 18L, 8L],
+                                                            ['Lower region test deployment', 5L, 5L, 5L], ['Regression tests', 15L, 25L, 15L], ['Smoke tests', 2L, 12L, 2L],
+                                                            ['Performance tests', 12L, 22L, 12L], ['DAST', 45L, 405L, 45L]]
+                && (comparison.sequential as Map).manual == 540L * MIN && (comparison.sequential as Map).automated == 120L * MIN
+                && ((comparison.sequential as Map).rows as List).every { it.span == 1 && it.block == null }
+                && rowsOf(comparison.partial as Map) == [['Build', 1L, 11L, 1L], ['SAST', 7L, 7L, 7L], ['Regression tests', 3L, 13L, 3L], ['DAST', 2L, 362L, 2L]]
                 && (comparison.none as Map).rows == [] && (comparison.none as Map).recovered == 0L,
         comparison)
 
-Map effortRead = harness.run {
-    [builtIn: utils().manualEffort(null), given: utils().manualEffort([report: [manualEffort: [buildTrigger: 5, dast: '240', testTrigger: 'ten', scanTrigger: -1]]])]
+Map waitingRun = harness.run {
+    viewModel().manualComparison([(UNIT): span(0, 6), (NIQ): span(0, 3), (SAST): span(0, 7), (SONAR): span(0, 11), 'Higher test environment deployment': span(20, 3),
+                                  'Nexus delivery (Static analysis passed)': span(12, 2)],
+            [(UNIT): 'PASS', (NIQ): 'PASS', (SAST): 'PASS', (SONAR): 'PASS', 'Higher test environment deployment': 'PASS', 'Nexus delivery (Static analysis passed)': 'PASS'],
+            [[name: 'Static analysis', branches: [[stage: UNIT, waitMs: 0L], [stage: NIQ, waitMs: 0L], [stage: SAST, waitMs: 0L], [stage: SONAR, waitMs: 6 * MIN]]]], effort + [higherDeployment: 90L]) as Map
 } as Map
-check('BuildUtils.manualEffort: the built-in minutes, minutes given in the defaults as numbers or text, and a value that is not a number of minutes named in a warning with the default used',
-        (effortRead.builtIn as Map).minutes == [buildTrigger: 10L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 360L] && (effortRead.builtIn as Map).warnings == []
-                && (effortRead.given as Map).minutes == [buildTrigger: 5L, scanTrigger: 10L, deployTrigger: 10L, testTrigger: 10L, dast: 240L]
-                && (effortRead.given as Map).warnings == ["report.manualEffort.scanTrigger: '-1' is not a number of minutes - the default 10 is used",
-                                                         "report.manualEffort.testTrigger: 'ten' is not a number of minutes - the default 10 is used"],
+check('ReportViewModel.manualComparison: SonarQube that waited for the unit tests is the longest of its group with the waiting counted, the Nexus delivery and the higher region deployment follow in the order of the pipeline, and the summary is written in seconds and minutes',
+        rowsOf(waitingRun) == [['Unit test with Code Coverage', 6L, 6L, null], ['Nexus IQ', 3L, 13L, null], ['SAST', 7L, 7L, null], ['SonarQube', 5L, 15L, 11L],
+                               ['Nexus delivery (snapshot)', 2L, 2L, 2L], ['Higher region test deployment', 3L, 93L, 3L]]
+                && (waitingRun.rows as List)[3].automatedNote == 'the longest of the 4 in parallel, with 6m 0s of waiting for the unit tests'
+                && (waitingRun.rows as List)[5].manualNote == 'the run + 90 min ticket to SRM'
+                && harness.run { [viewModel().secondsAndMinutes(534L * MIN), viewModel().secondsAndMinutes(0L), viewModel().minutesText(360L), viewModel().minutesText(90L)] } == ['32 040 s = 534 min', '0 s = 0 min', '6 h', '90 min'],
+        waitingRun)
+
+Map effortRead = harness.run {
+    [builtIn: utils().manualEffort(null), given: utils().manualEffort([report: [manualEffort: [build: 5, dast: '240', smoke: 'ten', sonar: -1, sast: 15]]]),
+     former: utils().manualEffort([report: [manualEffort: [buildTrigger: 5, scanTrigger: 20, sonar: 7, deployTrigger: 'x', testTrigger: 15, dast: 300]]])]
+} as Map
+Map builtInEffort = [build: 10L, unitTests: 0L, nexusIq: 10L, sast: 0L, sonar: 10L, nexusDelivery: 0L, lowerDeployment: 0L, regression: 10L, smoke: 10L, performance: 10L, dast: 360L, higherDeployment: 0L]
+check('BuildUtils.manualEffort: the built-in minutes of every step, minutes given in the defaults as numbers or text, a value that is not a number of minutes named in a warning with the default used, and the former names buildTrigger, scanTrigger, deployTrigger and testTrigger still read, each with a line that asks to rename it',
+        (effortRead.builtIn as Map).minutes == builtInEffort && (effortRead.builtIn as Map).warnings == []
+                && (effortRead.given as Map).minutes == builtInEffort + [build: 5L, dast: 240L, sast: 15L]
+                && (effortRead.given as Map).warnings == ["report.manualEffort.sonar: '-1' is not a number of minutes - the default 10 of report.manualEffort.sonar is used",
+                                                         "report.manualEffort.smoke: 'ten' is not a number of minutes - the default 10 of report.manualEffort.smoke is used"]
+                && (effortRead.former as Map).minutes == builtInEffort + [build: 5L, nexusIq: 20L, sonar: 7L, regression: 15L, smoke: 15L, performance: 15L, dast: 300L]
+                && (effortRead.former as Map).warnings == ["report.manualEffort.buildTrigger is the former name of report.manualEffort.build - its value '5' is used, rename it",
+                                                          "report.manualEffort.scanTrigger is the former name of report.manualEffort.nexusIq - its value '20' is used, rename it",
+                                                          "report.manualEffort.deployTrigger is the former name of report.manualEffort.lowerDeployment - its value 'x' is used, rename it",
+                                                          "report.manualEffort.deployTrigger: 'x' is not a number of minutes - the default 0 of report.manualEffort.lowerDeployment is used",
+                                                          "report.manualEffort.testTrigger is the former name of report.manualEffort.regression - its value '15' is used, rename it",
+                                                          "report.manualEffort.testTrigger is the former name of report.manualEffort.smoke - its value '15' is used, rename it",
+                                                          "report.manualEffort.testTrigger is the former name of report.manualEffort.performance - its value '15' is used, rename it"],
         effortRead)
 
 Map sources = [gui: [sourceDir: '.'], api: [sourceDir: './'], web: [sourceDir: 'web/'], docs: [:], mobile: [sourceDir: 'mobile']]
@@ -541,28 +571,6 @@ check('Bitbucket: the files a pull request changes are read from the changes of 
                 && apiUnits.cloud == [known: true, paths: ['src/A.java', 'gone.txt'], next: 'https://api.bitbucket.org/next', nextStart: null]
                 && apiUnits.notAPage.known == false,
         apiUnits.error ?: [apiUnits.server, apiUnits.cloud, apiUnits.notAPage])
-
-Map timeTable = [:]
-try {
-    harness.run {
-        def vm = harness.type('com.bbh.report.ReportViewModel')
-        timeTable.parallel = vm.executionComparison(fullTimes, fullResults, groups.collect { Map g -> g + [actualMs: g.name == 'Static analysis' ? 20 * MIN : 45 * MIN, sequentialMs: g.name == 'Static analysis' ? 31 * MIN : 74 * MIN] })
-        timeTable.sequential = vm.executionComparison([(UNIT): span(0, 6), (NIQ): span(6, 3), (SAST): span(9, 20), (SONAR): span(29, 8), (REGRESSION): span(40, 15), (DAST): span(55, 45)], fullResults, [])
-        timeTable.single = vm.executionComparison([(SAST): span(0, 7)], [(SAST): 'PASS'], [])
-        timeTable.none = vm.executionComparison([:], [:], null)
-    }
-} catch (Throwable t) {
-    timeTable.error = SandboxHarness.rejectionOf(t) ?: t.toString()
-}
-Closure minutesOf = { Map table -> (table.rows as List).collect { Map r -> [r.name, r.ranInParallel, (r.sequentialMs as long).intdiv(MIN), (r.parallelMs as long).intdiv(MIN), (r.savedMs as long).intdiv(MIN)] } }
-check('ReportViewModel.executionComparison: after a run in parallel the table takes the measured time of each group and the sum of its stages without the wait of SonarQube; after a run one after another the sum is measured and the parallel time is the longest stage, for the static analysis at least the unit tests followed by SonarQube; one stage alone gives no line',
-        !timeTable.error && minutesOf(timeTable.parallel as Map) == [['Static analysis', true, 31L, 20L, 11L], ['Dynamic analysis', true, 74L, 45L, 29L]]
-                && (timeTable.parallel as Map).sequentialMs == 105L * MIN && (timeTable.parallel as Map).parallelMs == 65L * MIN && (timeTable.parallel as Map).savedMs == 40L * MIN
-                && (((timeTable.parallel as Map).rows as List)[0].stages as List).collect { [it.label, (it.ms as long).intdiv(MIN), (it.waitMs as long).intdiv(MIN)] } == [['Unit tests', 6L, 0L], ['Nexus IQ', 3L, 0L], ['SAST', 20L, 0L], ['SonarQube', 2L, 6L]]
-                && minutesOf(timeTable.sequential as Map) == [['Static analysis', false, 37L, 20L, 17L], ['Dynamic analysis', false, 60L, 45L, 15L]]
-                && (timeTable.sequential as Map).actualMs == 97L * MIN
-                && (timeTable.single as Map).rows == [] && (timeTable.none as Map).rows == [],
-        timeTable.error ?: [timeTable.parallel, timeTable.sequential])
 
 Map decorated = [:]
 try {
