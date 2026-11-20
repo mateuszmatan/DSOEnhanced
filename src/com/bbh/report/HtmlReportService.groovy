@@ -936,7 +936,7 @@ ${failureReasonHtml(firstFailed)}
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>
 <div style='flex:1;min-width:360px;margin-top:0;background:#f1f5f9;border-radius:0;padding:16px;box-shadow:0 2px 6px rgba(0,0,0,0.10);border:1px solid #cbd5e1;'>
 <h2>Pipeline Stages</h2>
-<div style='display:flex;flex-direction:column;gap:0;'>${stageFlowHtml(ctx)}</div>${parallelStagesHtml()}
+<div style='display:flex;flex-direction:column;gap:0;'>${stageFlowHtml(ctx)}</div>
 </div>
 <div style='flex:1.4;min-width:620px;'>
 <div class='card' style='margin-top:0;'>
@@ -948,39 +948,63 @@ ${sonarBadgesCards(ctx)}
 ${coverageCard(coverage, projectsCoverage)}${databaseCard(projectsDatabase, buildUrl + 'artifact/')}${unitTestsCard(projectsUnitTests) ? '\n' + unitTestsCard(projectsUnitTests) : ''}
 ${testJobsCardHtml('Smoke tests', 'Smoke tests', projectsRemoteTestResults, remoteTestResults)}${autoResolvedCardHtml()}
 </div>
-</div>${manualComparisonHtml(stageTimes, stageResults)}
+</div>${executionTimeHtml(stageTimes, stageResults)}${manualComparisonHtml(stageTimes, stageResults)}
 </div>
 </body>
 </html>"""
     }
 
     @NonCPS
-    protected String parallelStagesHtml() {
-        List groups = (state.parallelGroups ?: []) as List
-        if (!groups) return ''
-        StringBuilder html = new StringBuilder()
-        html.append("<section id='parallel-stages' style='margin-top:14px;background:#fff;border:1px solid #cbd5e1;padding:12px 14px;'><h2>Parallel stages</h2>")
-        for (def g : groups) {
-            Map group = g as Map
-            long sequential = (group.sequentialMs ?: 0L) as long
-            long actual = (group.actualMs ?: 0L) as long
-            StringBuilder rows = new StringBuilder()
-            for (def b : (group.branches ?: [])) {
-                Map branch = b as Map
-                long ms = (branch.ms ?: 0L) as long
-                long waited = Math.min(ms, (branch.waitMs ?: 0L) as long)
-                String note = waited > 0L ? " <span style='color:#64748b;'>(after waiting <b>${BuildUtils.formatDuration(waited)}</b> for the unit tests)</span>" : ''
-                rows.append("<tr><td style='padding:5px 8px;'>${esc(branch.stage as String)}${note}</td><td style='padding:5px 8px;text-align:right;white-space:nowrap;'><b>${BuildUtils.formatDuration(ms - waited)}</b></td></tr>")
+    protected String executionTimeHtml(Map stageTimes, Map stageResults) {
+        Map table = ReportViewModel.executionComparison(stageTimes, stageResults, (state.parallelGroups ?: []) as List)
+        List rows = (table.rows ?: []) as List
+        if (!rows) return ''
+        String cell = "padding:8px 12px;vertical-align:top;"
+        String note = "display:block;margin-top:2px;color:#64748b;font-size:0.74rem;"
+        String right = "${cell}text-align:right;white-space:nowrap;"
+        StringBuilder body = new StringBuilder()
+        boolean anyParallel = false
+        List sequentialOnly = []
+        for (def r : rows) {
+            Map row = r as Map
+            boolean ranInParallel = row.ranInParallel as boolean
+            if (ranInParallel) anyParallel = true else sequentialOnly << "${row.name} (${row.setting}: false)".toString()
+            StringBuilder stages = new StringBuilder()
+            for (def s : (row.stages as List)) {
+                Map stage = s as Map
+                long waited = (stage.waitMs ?: 0L) as long
+                String waitedNote = waited > 0L ? " <span style='color:#64748b;'>(after waiting ${BuildUtils.formatDuration(waited)} for the unit tests)</span>" : ''
+                stages.append("<span style='display:block;font-size:0.8rem;color:#334155;font-weight:400;'>${esc(stage.label as String)} <b>${BuildUtils.formatDuration(stage.ms as long)}</b>${waitedNote}</span>")
             }
-            String saved = BuildUtils.parallelSaving(sequential, actual)
-            String savedHtml = saved ? "<div style='margin-top:4px;color:#15803d;font-weight:700;'>Saved <b>${BuildUtils.formatDuration(sequential - actual)}</b> (${Math.round((sequential - actual) * 100.0d / sequential)}%)</div>" : ''
-            html.append("<div style='margin-top:6px;font-weight:700;color:#0f172a;font-size:0.82rem;'>${esc(group.name as String)}</div>")
-                    .append("<table style='margin-top:4px;'><tbody>${rows}</tbody></table>")
-                    .append("<div style='margin-top:6px;font-size:0.8rem;color:#334155;'>One after another <b>${BuildUtils.formatDuration(sequential)}</b> &nbsp;&bull;&nbsp; in parallel <b>${BuildUtils.formatDuration(actual)}</b></div>")
-                    .append(savedHtml)
+            long sequential = row.sequentialMs as long
+            long parallel = row.parallelMs as long
+            long saved = row.savedMs as long
+            long percent = sequential > 0L ? Math.round(saved * 100.0d / sequential) : 0L
+            String ran = "<span style='display:inline-block;margin-left:6px;padding:1px 6px;font-size:0.68rem;font-weight:700;color:#fff;background:#15803d;'>THIS RUN</span>"
+            body.append("<tr><td style='${cell}'><div class='execution-group' style='font-weight:700;color:#0f172a;'>${esc(row.name as String)}</div>${stages}</td>")
+                    .append("<td style='${right}'><b>${BuildUtils.formatDuration(sequential)}</b>${ranInParallel ? '' : ran}<span style='${note}'>${ranInParallel ? 'the sum of the stages' : 'measured'}</span></td>")
+                    .append("<td style='${right}'><b>${BuildUtils.formatDuration(parallel)}</b>${ranInParallel ? ran : ''}<span style='${note}'>${ranInParallel ? 'measured' : 'estimated'}</span></td>")
+                    .append("<td style='${right}color:#15803d;'><b>${BuildUtils.formatDuration(saved)}</b><span style='${note}'>${percent}%${ranInParallel ? '' : ' if parallel'}</span></td></tr>")
         }
-        html.append('</section>')
-        return html.toString()
+        long sequentialTotal = table.sequentialMs as long
+        long parallelTotal = table.parallelMs as long
+        long savedTotal = table.savedMs as long
+        long percentTotal = sequentialTotal > 0L ? Math.round(savedTotal * 100.0d / sequentialTotal) : 0L
+        String total = "${cell}text-align:right;font-weight:800;border-top:2px solid #e2e8f0;"
+        body.append("<tr><td style='${cell}font-weight:800;border-top:2px solid #e2e8f0;'>Total</td>")
+                .append("<td style='${total}'>${BuildUtils.formatDuration(sequentialTotal)}</td>")
+                .append("<td style='${total}'>${BuildUtils.formatDuration(parallelTotal)}</td>")
+                .append("<td style='${total}color:#15803d;'>${BuildUtils.formatDuration(savedTotal)} (${percentTotal}%)</td></tr>")
+        String summary = !sequentialOnly
+                ? "The stages ran in parallel: <b>${BuildUtils.formatDuration(parallelTotal)}</b> instead of <b>${BuildUtils.formatDuration(sequentialTotal)}</b> one after another - <b>${BuildUtils.formatDuration(savedTotal)}</b> (${percentTotal}%) saved in this run"
+                : (anyParallel
+                ? "In parallel <b>${BuildUtils.formatDuration(parallelTotal)}</b>, one after another <b>${BuildUtils.formatDuration(sequentialTotal)}</b>; ${esc(sequentialOnly.join(', '))} ran one after another in this run"
+                : "The stages ran one after another: <b>${BuildUtils.formatDuration(sequentialTotal)}</b>. In parallel they would take about <b>${BuildUtils.formatDuration(parallelTotal)}</b> - about <b>${BuildUtils.formatDuration(savedTotal)}</b> (${percentTotal}%) less; ${esc(sequentialOnly.join(', '))}")
+        return "\n<section id='parallel-stages' class='card' style='margin-top:20px;'><h2>Execution time: one after another vs in parallel</h2>" +
+                "<div style='overflow-x:auto;'><table style='min-width:560px;'><thead><tr><th>Stages</th><th style='text-align:right;'>One after another</th>" +
+                "<th style='text-align:right;'>In parallel</th><th style='text-align:right;'>Time saved</th></tr></thead><tbody>${body}</tbody></table></div>" +
+                "<div style='margin-top:10px;font-size:0.9rem;color:${sequentialOnly ? '#334155' : '#15803d'};font-weight:700;'>${summary}</div>" +
+                "<div style='margin-top:4px;font-size:0.74rem;color:#64748b;'>Recalculated on every run from the stage durations of this run. One after another is the sum of the stages; in parallel is the time of the whole group.</div></section>"
     }
 
     @NonCPS

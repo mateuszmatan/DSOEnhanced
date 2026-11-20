@@ -39,8 +39,17 @@ class SecurityFindingsParser implements Serializable {
         List<Map> out = []
         String ws = (script.env.WORKSPACE ?: '').trim()
         String repoPrefix = resolveRepoPrefix(cfg)
+        Map fromApi = state.projectsSastFindings?.get(projectName) as Map
+        if (fromApi != null) {
+            for (def raw : ((fromApi.findings ?: []) as List)) {
+                Map f = raw as Map
+                out << (f + [file: f.file ? SecurityFindingsParser.normalizeRepoPath(f.file as String, ws, repoPrefix) : ''])
+            }
+            return out
+        }
         String reportFile = resolveReportPath('appscan-report', projectName, cfg)
         if (!reportFile) return out
+        script.echo "[WARN] [SECURITY-PR] ${projectName}: no findings from the AppScan API in this run - the findings and their fix recommendation are read from the HTML report ${reportFile}"
 
         try {
             out.addAll(SecurityFindingsParser.sastFindingsFromHtml(AppScanReportParser.maybeUnescape(script.readFile(reportFile) ?: ''), ws, repoPrefix))

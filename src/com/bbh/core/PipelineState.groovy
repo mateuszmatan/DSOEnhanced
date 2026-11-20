@@ -65,6 +65,7 @@ class PipelineState implements Serializable {
     Map sonarScansByProjectKey = [:]
     Map nexusIqScansByApp      = [:]
     List parallelGroups        = []
+    Map projectsSastFindings   = [:]
 
     @NonCPS
     PipelineState fork() {
@@ -112,6 +113,7 @@ class PipelineState implements Serializable {
         branch.sonarScansByProjectKey = sonarScansByProjectKey
         branch.nexusIqScansByApp = nexusIqScansByApp
         branch.parallelGroups = parallelGroups
+        branch.projectsSastFindings = projectsSastFindings
         return branch
     }
 

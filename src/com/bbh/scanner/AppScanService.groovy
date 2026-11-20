@@ -6,6 +6,7 @@ import com.bbh.build.DotnetBuildRunner
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.core.PolicyEngine
+import com.bbh.utils.AppScanIssues
 import com.bbh.utils.AppScanReportParser
 import com.bbh.utils.RestClient
 import com.bbh.utils.BuildUtils
@@ -513,6 +514,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 Map counts = (scanInfo.counts ?: [critical: 0, high: 0, medium: 0, low: 0]) as Map
                 state.vulnCounts.sast = counts
                 state.recordVulns('sast', counts)
+                if (state.projectsSastFindings.containsKey(primary)) state.projectsSastFindings[state.currentProjectName] = state.projectsSastFindings[primary]
                 script.echo "[SAST] ${state.currentProjectName}: shares AppScan application ID '${appId}' with '${primary}' - reusing report and findings"
                 return
             }
@@ -520,6 +522,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
         String scanId = scanId('sast')
         if (!scanId || scanId == 'NONE') script.error "[SAST] No scan ID available"
         sastDownloadReport(scanId)
+        collectSastFindings(scanId)
         def dest = "${script.env.WORKSPACE}/appscan-report-${script.env.APPSCAN_SCAN_NAME}.html"
         if (script.fileExists(dest)) {
             def counts = parseHtmlCounts(dest, 'sast')
@@ -532,6 +535,56 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
             if (BuildUtils.databaseBlock(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
         }
+    }
+
+    void collectSastFindings(String scanId) {
+        String project = state.currentProjectName
+        try {
+            List issues = fetchScanIssues(scanId)
+            if (issues == null) {
+                script.echo "[WARN] [SAST] ${project}: the AppScan API returned no list of issues for scan ${scanId} - the pull request comments fall back to the findings of the HTML report"
+                return
+            }
+            List<Map> findings = AppScanIssues.findings(issues)
+            List<Map> requests = AppScanIssues.advisoryRequests(findings, AppScanIssues.maxAdvisories())
+            Map advisories = [:]
+            for (int i = 0; i < requests.size(); i++) {
+                Map request = requests[i] as Map
+                ensureToken('SAST')
+                String body = (callApi(curlCommand([bearerHeader(), '-H "Accept: application/xml"'],
+                        appscanApiUrl("Issues/${request.id}/Details?format=xml&locale=en-US")), true) ?: '') as String
+                String fix = AppScanIssues.fixRecommendation(body)
+                if (fix) advisories[request.typeKey as String] = fix
+            }
+            int withFix = AppScanIssues.applyAdvisories(findings, advisories)
+            state.projectsSastFindings[project] = [source: 'api', scanId: scanId, findings: findings]
+            script.echo "[SAST] ${project}: ${findings.size()} open finding(s) read from the AppScan API (Issues/Scan/${scanId}); the recommended fix of ${advisories.size()} of ${requests.size()} issue type(s) read from Issues/{id}/Details covers ${withFix} finding(s)"
+        } catch (Throwable t) {
+            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+            script.echo "[WARN] [SAST] ${project}: the findings could not be read from the AppScan API (${t.message}) - the pull request comments fall back to the findings of the HTML report"
+        }
+    }
+
+    List fetchScanIssues(String scanId) {
+        List all = []
+        int size = AppScanIssues.pageSize()
+        String dollar = os.isWindows() ? '$' : '\\$'
+        for (int skip = 0; skip < AppScanIssues.maxIssues(); skip += size) {
+            ensureToken('SAST')
+            String response = ((callApi(curlCommand(acceptHeaders(),
+                    appscanApiUrl("Issues/Scan/${scanId}?applyPolicies=None&${dollar}top=${size}&${dollar}skip=${skip}")), true) ?: '') as String).trim()
+            List page = AppScanIssues.items(readApiJson(response))
+            if (page == null) {
+                if (skip == 0) {
+                    script.echo "[SAST] AppScan API Issues/Scan/${scanId}: ${RestClient.abbreviate(response, 300)}"
+                    return null
+                }
+                break
+            }
+            all.addAll(page)
+            if (page.size() < size) break
+        }
+        return all
     }
 
     void sastDownloadReport(String scanId) {

@@ -229,33 +229,152 @@ class SecurityPullRequestService implements Serializable {
         }
     }
 
-    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
+    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments, List<Map> dependencies = []) {
         List<String> posted = publisher.existingComments(scmCfg, pr) ?: []
-        List<Map> comments = sastFindings.collect { [finding: it, text: SecurityPullRequestView.sastLineComment(it), tool: 'SAST'] } +
-                sonarIssues.collect { [finding: it, text: SecurityPullRequestView.sonarLineComment(it), tool: 'SonarQube'] }
+        List<String> changed = publisher.changedFiles(scmCfg, pr)
+        List<Map> comments = []
+        for (Map f : sastFindings) comments << [file: f.file, line: f.line, text: SecurityPullRequestView.sastLineComment(f), tool: f.tool ?: 'AppScan SAST']
+        for (Map d : dependencies) comments << [file: d.file, line: d.line, text: SecurityPullRequestView.dependencyComment(d), tool: 'Nexus IQ']
+        for (Map i : sonarIssues) comments << [file: i.file, line: i.line, text: SecurityPullRequestView.sonarLineComment(i), tool: 'SonarQube']
+        Map plan = SecurityPullRequestService.commentPlan(comments, changed)
+        String where = (pr.url ?: pr.id) as String
+        if (changed == null) {
+            script.echo "[WARN] [SECURITY-PR] The files changed in pull request ${where} are unknown - every finding with a line is tried as a line comment"
+        }
         int added = 0
-        for (Map c : comments) {
-            Map f = c.finding as Map
-            if (!f.file || !f.line || alreadyPosted(posted, c.text as String)) continue
+        int inline = 0
+        int general = 0
+        boolean limited = false
+        for (Map c : (plan.inline as List<Map>)) {
+            if (alreadyPosted(posted, c.text as String)) continue
             if (added >= maxComments) {
-                script.echo "[SECURITY-PR] Further findings are listed in the report only (pullRequestDecoration.maxComments: ${maxComments})"
+                limited = true
                 break
             }
             try {
-                publisher.addLineComment(scmCfg, pr, f.file as String, (f.line as Number).intValue(), c.text as String)
+                publisher.addLineComment(scmCfg, pr, c.file as String, (c.line as Number).intValue(), c.text as String)
                 posted << (c.text as String)
                 added++
+                inline++
             } catch (Exception e) {
                 if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
                 script.echo "[SECURITY-PR] Could not add ${c.tool} line comment: ${e.message}"
             }
         }
+        for (Map g : (plan.general as List<Map>)) {
+            if (limited) break
+            String text = SecurityPullRequestView.unchangedFileComment(g.file as String, g.entries as List<Map>)
+            if (alreadyPosted(posted, text)) continue
+            if (added >= maxComments) {
+                limited = true
+                break
+            }
+            try {
+                publisher.addComment(scmCfg, pr, text)
+                posted << text
+                added++
+                general++
+            } catch (Exception e) {
+                if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+                script.echo "[SECURITY-PR] Could not add the comment for ${g.file ?: 'the findings without a file'}: ${e.message}"
+            }
+        }
+        if (limited) script.echo "[SECURITY-PR] Further findings are listed in the report only (pullRequestDecoration.maxComments: ${maxComments})"
+        if (added > 0) {
+            script.echo "[SECURITY-PR] Pull request ${where}: ${inline} comment(s) under the line of a changed file, ${general} pull request comment(s) for the files it does not change"
+        }
+    }
+
+    @NonCPS
+    static Map commentPlan(List<Map> comments, List<String> changed) {
+        List<Map> inline = []
+        Map byFile = [:]
+        List<String> order = []
+        for (Map c : (comments ?: [])) {
+            String file = ((c.file ?: '') as String).trim()
+            String inPullRequest = file ? SecurityPullRequestService.changedPath(file, changed) : null
+            if (file && c.line && (changed == null || inPullRequest)) {
+                inline << (c + [file: inPullRequest ?: file])
+                continue
+            }
+            if (!byFile.containsKey(file)) {
+                byFile[file] = []
+                order << file
+            }
+            (byFile[file] as List) << [line: c.line, text: c.text, tool: c.tool]
+        }
+        List<Map> general = []
+        for (String file : order) general << [file: file, entries: byFile[file]]
+        return [inline: inline, general: general]
+    }
+
+    @NonCPS
+    static String changedPath(String file, List<String> changed) {
+        if (changed == null) return null
+        if (changed.contains(file)) return file
+        String wanted = file.replace('\\', '/').replaceFirst(/^(?:\.\/|\/)+/, '')
+        List<String> matches = []
+        for (String path : changed) {
+            if (path == wanted || path.endsWith('/' + wanted) || wanted.endsWith('/' + path)) matches << path
+        }
+        return matches.size() == 1 ? matches[0] : null
+    }
+
+    private List<Map> dependencyFindings(String projectName) {
+        Map gf = (state.projectsGoldenFix?.get(projectName) ?: [:]) as Map
+        List<Map> out = []
+        Map contents = [:]
+        String goldenFixUrl = ((gf.branch ?: '') as String).startsWith('GoldenFix-') ? (gf.prUrl ?: '') as String : ''
+        for (def raw : ((gf.changes ?: []) as List)) {
+            Map c = raw as Map
+            String file = (c.file ?: '') as String
+            if (file && !contents.containsKey(file)) {
+                contents[file] = script.fileExists(file) ? (script.readFile(file) ?: '') : null
+            }
+            boolean here = file && contents[file] != null
+            out << [file: here ? file : '', line: here ? SecurityPullRequestService.manifestLine(contents[file] as String, c) : null,
+                    component: c.component, from: c.from, to: c.to, property: c.property ?: '', applied: true, prUrl: goldenFixUrl,
+                    reason: here ? '' : "declared in ${file ?: 'a file outside this repository'}".toString()]
+        }
+        for (def raw : ((gf.unresolved ?: []) as List)) {
+            Map u = raw as Map
+            out << [file: '', line: null, component: u.component, from: u.from, to: u.to, applied: false, reason: u.reason]
+        }
+        return out
+    }
+
+    @NonCPS
+    static Integer manifestLine(String content, Map change) {
+        if (!content) return null
+        String property = ((change.property ?: '') as String).trim()
+        String component = (((change.component ?: '') as String).split(', ')[0] ?: '').trim()
+        String name = component.contains(':') ? component.substring(component.lastIndexOf(':') + 1) : component
+        String from = ((change.from ?: '') as String).trim()
+        List<String> lines = content.split('\n', -1) as List<String>
+        List<String> needles = property ? [property] : [name]
+        Integer first = null
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines[i]
+            boolean named = false
+            for (String needle : needles) {
+                if (needle && line.contains(needle)) named = true
+            }
+            if (!named) continue
+            if (from && line.contains(from)) return i + 1
+            if (first == null) first = i + 1
+        }
+        if (first != null && from && !property) {
+            for (int i = first; i < Math.min(lines.size(), first + 6); i++) {
+                if (lines[i].contains(from)) return i + 1
+            }
+        }
+        return first
     }
 
     private void decorateDeveloperPullRequest(Map scmCfg, String projectName, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
         Map pr = developerPullRequest(scmCfg)
         if (!pr?.id) return
-        decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments)
+        decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments, dependencyFindings(projectName))
         String summary = SecurityPullRequestView.staticSummary(projectName, gfChanges, sastFindings, sonarIssues)
         if (!alreadyPosted(publisher.existingComments(scmCfg, pr) ?: [], summary)) {
             try {

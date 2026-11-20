@@ -121,7 +121,7 @@ Closure reordered = { List<String> lines ->
     copyScript.each { String line -> copies.times { kept.remove(line) } }
     kept.sort()
 }
-Closure sequentialView = { String text -> text.replaceAll(/<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
+Closure sequentialView = { String text -> text.replaceAll(/\n?<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
 
 Closure goldenView = { Map r -> ScenarioRunner.goldenView(r) }
 
@@ -178,7 +178,10 @@ List<Map> stackRules = [
         rule('pull request decoration reads the open SonarQube issues of the branch',
                 /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[SonarQube: open issues of the analysed branch\] .*?\n\n/, ''),
         rule('a SonarQube that does not answer the issue search is logged', /(?m)^\[error\] \[HTTP\] SonarQube: open issues of the analysed branch.*\n/, ''),
-        rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, '')
+        rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, ''),
+        rule('SAST reads the findings and their recommended fix from the AppScan API after the reports', /(?m)^sh set \+x\ncurl [^\n]*\/api\/v4\/Issues\/[^\n]*\n/, ''),
+        rule('pull request decoration reads the files a pull request changes and warns when it cannot', /(?m)^(\[error\] \[HTTP\] Bitbucket: files changed in pull request|\[WARN\] \[SECURITY-PR\]).*\n/, ''),
+        rule('SAST logs what it read from the AppScan API', /(?m)^(\[WARN\] )?\[SAST\] [^\n]*(read from the AppScan API|AppScan API Issues\/|from the AppScan API \()[^\n]*\n/, '')
 ]
 
 Closure normalise = { String text, List<Map> rules -> ScenarioRunner.normalise(text, stackRules + rules) }
@@ -417,8 +420,10 @@ Closure verify = { Map spec ->
                         && staticLines[3] ==~ /\[PARALLEL\] Static analysis: one after another \d+s, in parallel \d+s.*/,
                 staticLines)
         check("${name}: the report shows the stages that ran in parallel with the time one after another and in parallel",
-                html.contains("<section id='parallel-stages'") && html.contains('<h2>Parallel stages</h2>') && html.contains('>Static analysis</div>')
-                        && html.contains('One after another <b>'), 'no Parallel stages section in the report')
+                html.contains("<section id='parallel-stages'") && html.contains('<h2>Execution time: one after another vs in parallel</h2>')
+                        && html.contains(">Static analysis</div>") && html.contains('>THIS RUN</span>')
+                        && html.indexOf("<section id='parallel-stages'") < html.indexOf("<section id='manual-vs-automated'")
+                        && html.contains('The stages ran in parallel: <b>'), 'no execution time table in the report')
     }
     if (spec.executed.contains(DYNAMIC)) {
         List<String> calls = j.calls

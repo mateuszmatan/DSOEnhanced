@@ -13,4 +13,6 @@ interface PullRequestPublisher extends Serializable {
     Map repositoryInfo(Map scmCfg)
 
     List<String> existingComments(Map scmCfg, Map pullRequest)
+
+    List<String> changedFiles(Map scmCfg, Map pullRequest)
 }
