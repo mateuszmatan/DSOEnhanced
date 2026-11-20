@@ -210,7 +210,7 @@ Static security analysis inspects application source code for security vulnerabi
 - **Stages at the same time (default):**
   - Unit tests, Nexus IQ, SAST and SonarQube run **in parallel** in the stage *Static analysis*; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.
   - The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (*Dynamic analysis*).
-  - The report shows the time one after another and in parallel, and ends with the table **Manual actions vs DevSecOps Automated Actions** and the time recovered by the run.
+  - The report has the table **Execution time: one after another vs in parallel** with the time saved, and ends with the table **Manual actions vs DevSecOps Automated Actions** and the time recovered by the run.
   - Both are on by default. Unticking **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** or **Run the regression, smoke and performance tests and DAST at the same time** in the Global Settings (`staticAnalysis.parallel`, `dynamicAnalysis.parallel`) runs the stages one after another again; without a key, `false` in `devsecops_config.yaml` does the same.
 - **Streamlined Configuration:**
   - The **main SAST section** holds only the AppScan application ID (`appId`) of the service.
@@ -472,7 +472,7 @@ Direct feedback in developer pull requests accelerates remediation and prevents 
 1. **Static Security Pull Request (Consolidated PR)**:
    - Evaluates Nexus IQ SCA, AppScan SAST, and SonarQube.
    - GoldenFix automatically updates vulnerable package manifests (`pom.xml`, `build.gradle`, `package.json`, etc.) in a dedicated remediation branch.
-   - AppScan SAST findings are added as inline line comments on the exact source file and line, skipping findings with status `Noise`.
+   - AppScan SAST findings are added with the fix AppScan recommends, read from the AppScan API: under the line of a file the pull request changes, otherwise as a pull request comment that names the file and the line. Findings with status `Noise` are skipped.
    - SonarQube code quality issues, security vulnerabilities, and code smells are added as inline comments.
    - Developers review all static findings and dependency updates in a single, unified Pull Request.
 2. **DAST Dynamic Security Pull Request (Dedicated PR)**:
@@ -480,8 +480,9 @@ Direct feedback in developer pull requests accelerates remediation and prevents 
    - Keeps infrastructure and runtime security separated from application source code reviews.
 
 ### Pull Request of the Analysed Branch, Limits and Repeated Runs:
-- **The pull request of the developer:** in a pull request build, or when the analysed branch has an open pull request in Bitbucket, that pull request gets the line comments of the SAST and SonarQube findings and one summary comment. Branches the library creates itself (`GoldenFix-*`, `security-*`) are left out.
-- **Limits:** `pullRequestDecoration.maxComments` (default 25) is the number of line comments one run adds to one pull request; `pullRequestDecoration.sastMinSeverity` (default `MEDIUM`) and `pullRequestDecoration.sonarMinSeverity` (default `MAJOR`) leave out the findings below them. A wrong value falls back to its default with a `[WARN]` line, and a value equal to the default is named in an `[INFO]` line as a key that can be removed.
+- **Where a comment goes:** the findings and the fix AppScan recommends are read from the AppScan on Cloud REST API (`Issues/Scan/<scan id>` and `Issues/<issue id>/Details`), not from the PDF or HTML report. A finding in a file the pull request changes is a comment of that file under the line of the finding. A finding in a file the pull request does not change is written in one pull request comment per file, which names the file and the line. A Nexus IQ upgrade is commented in the same way on the manifest that declares the dependency, with the version Nexus IQ recommends; AppScan knows only its own findings, so that fix comes from Nexus IQ. If the AppScan API gives no list of issues, a `[WARN]` line says so and the comments are built from the HTML report as before.
+- **The pull request of the developer:** in a pull request build, or when the analysed branch has an open pull request in Bitbucket, that pull request gets the comments of the SAST, Nexus IQ and SonarQube findings and one summary comment. Branches the library creates itself (`GoldenFix-*`, `security-*`) are left out.
+- **Limits:** `pullRequestDecoration.maxComments` (default 25) is the number of comments one run adds to one pull request; `pullRequestDecoration.sastMinSeverity` (default `MEDIUM`) and `pullRequestDecoration.sonarMinSeverity` (default `MAJOR`) leave out the findings below them. A wrong value falls back to its default with a `[WARN]` line, and a value equal to the default is named in an `[INFO]` line as a key that can be removed.
 - **Repeated runs:** the library reads the comments that are already on the pull request and adds only those that are missing, so a second run of the same commit adds no duplicate.
 - **Shared version catalog repository:** the clone of `goldenFix.versionCatalogRepo` signs in the way the push of the GoldenFix branch does: an SSH URL with the SSH key credential, an HTTPS URL with `authType: bearer` with a Secret text credential as the access token, any other HTTPS URL with a username and password credential. `credentialsId` and `authType` of the catalog fall back to those of `scm.bitbucket` of the service, and the credential never appears in the log.
 

@@ -6,7 +6,14 @@ class SecurityPullRequestView implements Serializable {
 
     @NonCPS
     static String sastLineComment(Map f) {
-        return "**[AppScan SAST] ${f.severity}: ${f.type}**\n\n${f.description}\n\n**Suggested remediation:** ${f.remediation}".toString()
+        return "**[${f.tool ?: 'AppScan SAST'}] ${f.severity}: ${f.type}**\n\n${f.description}\n\n${recommendedFix(f)}".toString()
+    }
+
+    @NonCPS
+    static String recommendedFix(Map f) {
+        String fix = ((f.remediation ?: '') as String).trim()
+        if (fix) return "**Recommended fix (AppScan):**\n${fix}".toString()
+        return '**Recommended fix (AppScan):** AppScan returned no fix recommendation for this issue type - open the issue in AppScan for the advisory.'
     }
 
     @NonCPS
@@ -15,10 +22,32 @@ class SecurityPullRequestView implements Serializable {
     }
 
     @NonCPS
+    static String dependencyComment(Map d) {
+        String head = "**[Nexus IQ] ${d.component} ${d.from}**".toString()
+        if (d.applied) {
+            return "${head}\n\n**Recommended fix (Nexus IQ):** upgrade to `${d.to}`${d.property ? ' through `' + d.property + '`' : ''}.${d.prUrl ? ' The GoldenFix pull request ' + d.prUrl + ' makes this change.' : ''}".toString()
+        }
+        return "${head}\n\n**Recommended fix (Nexus IQ):** ${d.to ? 'upgrade to `' + d.to + '`' : 'no newer version is offered'}. Not changed automatically: ${d.reason ?: 'left for a developer'}.".toString()
+    }
+
+    @NonCPS
+    static String unchangedFileComment(String file, List<Map> entries) {
+        StringBuilder sb = new StringBuilder(file
+                ? "**[DevSecOps] Findings in `${file}`** (this pull request does not change the file)\n".toString()
+                : '**[DevSecOps] Findings without a file of this repository**\n')
+        for (Map e : (entries ?: [])) {
+            sb.append("\n---\n")
+            if (file) sb.append(e.line ? "`${file}:${e.line}`\n\n".toString() : "`${file}`\n\n".toString())
+            sb.append(e.text as String).append('\n')
+        }
+        return sb.toString()
+    }
+
+    @NonCPS
     static String staticSummary(String project, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues) {
         StringBuilder sb = new StringBuilder("**DevSecOps static security results - ${project}**\n\n")
         sb.append("- Nexus IQ GoldenFix: ${gfChanges ? gfChanges.size() + ' dependency upgrade(s)' : 'no dependency upgrade'}\n")
-        sb.append("- AppScan SAST: ${sastFindings.size()} finding(s) with a file and line\n")
+        sb.append("- AppScan SAST: ${sastFindings.size()} finding(s) with the fix AppScan recommends\n")
         sb.append("- SonarQube: ${sonarIssues.size()} open issue(s) on the analysed branch\n")
         return sb.toString()
     }

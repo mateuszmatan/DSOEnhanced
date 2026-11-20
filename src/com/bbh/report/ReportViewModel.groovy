@@ -212,6 +212,73 @@ class ReportViewModel implements Serializable {
     }
 
     @NonCPS
+    static Map executionComparison(Map stageTimes, Map stageResults, List parallelGroups) {
+        String unit = 'Unit tests'
+        String sonar = 'SCA (SonarQube)'
+        List definitions = [
+                [name: 'Static analysis', setting: 'staticAnalysis.parallel',
+                 stages: [[unit, 'Unit tests'], ['Dependencies scan (Nexus IQ)', 'Nexus IQ'],
+                          ['SAST - Static Application Security Tests - HCL AppScan', 'SAST'], [sonar, 'SonarQube']]],
+                [name: 'Dynamic analysis', setting: 'dynamicAnalysis.parallel',
+                 stages: [['Regression tests (>60% user stories coverage)', 'Regression tests'], ['Smoke tests', 'Smoke tests'],
+                          ['Performance tests', 'Performance tests'], ['DAST - Dynamic Application Security Tests - HCL AppScan', 'DAST']]]
+        ]
+        List rows = []
+        long sequentialTotal = 0L
+        long parallelTotal = 0L
+        long actualTotal = 0L
+        for (def d : definitions) {
+            Map definition = d as Map
+            Map labels = [:]
+            for (def s : (definition.stages as List)) labels[(s as List)[0] as String] = (s as List)[1] as String
+            Map measured = null
+            for (def g : (parallelGroups ?: [])) {
+                Map group = g as Map
+                for (def b : ((group.branches ?: []) as List)) {
+                    if (labels.containsKey((b as Map).stage as String)) measured = group
+                }
+            }
+            List stages = []
+            long sum = 0L
+            long longest = 0L
+            Map workOf = [:]
+            if (measured != null) {
+                for (def b : ((measured.branches ?: []) as List)) {
+                    Map branch = b as Map
+                    long ms = (branch.ms ?: 0L) as long
+                    long waited = Math.min(ms, (branch.waitMs ?: 0L) as long)
+                    String stage = branch.stage as String
+                    stages << [stage: stage, label: (labels[stage] ?: stage) as String, ms: ms - waited, waitMs: waited]
+                    sum += ms - waited
+                }
+            } else {
+                for (def s : (definition.stages as List)) {
+                    String stage = (s as List)[0] as String
+                    if (!ReportViewModel.stageRan(stageTimes, stageResults, stage, false)) continue
+                    long work = ReportViewModel.stageWork(stageTimes, stage, 0L)
+                    stages << [stage: stage, label: labels[stage] as String, ms: work, waitMs: 0L]
+                    workOf[stage] = work
+                    sum += work
+                    longest = Math.max(longest, work)
+                }
+            }
+            if (stages.size() < 2) continue
+            boolean ranInParallel = measured != null
+            long sequential = ranInParallel ? Math.max(sum, (measured.sequentialMs ?: 0L) as long) : sum
+            long parallel = ranInParallel ? (measured.actualMs ?: 0L) as long
+                    : Math.max(longest, ((workOf[unit] ?: 0L) as long) + ((workOf[sonar] ?: 0L) as long))
+            long actual = ranInParallel ? parallel : sequential
+            rows << [name: definition.name, setting: definition.setting, stages: stages, ranInParallel: ranInParallel,
+                     sequentialMs: sequential, parallelMs: parallel, actualMs: actual, savedMs: Math.max(0L, sequential - parallel)]
+            sequentialTotal += sequential
+            parallelTotal += parallel
+            actualTotal += actual
+        }
+        return [rows: rows, sequentialMs: sequentialTotal, parallelMs: parallelTotal, actualMs: actualTotal,
+                savedMs: Math.max(0L, sequentialTotal - parallelTotal)]
+    }
+
+    @NonCPS
     static boolean stageRan(Map stageTimes, Map stageResults, String stage, boolean alwaysBuilds) {
         Map times = (stageTimes ?: [:]).get(stage) as Map
         if (times == null) return false

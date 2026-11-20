@@ -338,9 +338,23 @@ The open points of the review of section 26 that made the three sources differ a
 
 Verified with `test/run-all.sh` of both branches and the backend and front-end tests of the portal. Not run against the real BBH systems; the pilot stays item 1.1 of `TODO.md`.
 
+## 28. Recommended fixes in pull requests and the time table of the report (2026-11-20)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`; the user guides are the same files in the portal.
+
+| Topic | Result |
+|---|---|
+| **AppScan findings from the API** | The open issues of the SAST scan are read from `GET /api/v4/Issues/Scan/<scan id>` and the fix AppScan recommends from `GET /api/v4/Issues/<issue id>/Details`, once per issue type. The PDF and the HTML report are not parsed for the comments; the HTML report is only the fallback when the API gives no list. |
+| **Where a comment goes** | A file the pull request changes: a comment under the line. A file it does not change: one comment of the pull request per file, with the file and the lines. The changed files come from Bitbucket Server or Cloud. |
+| **Nexus IQ** | AppScan knows only its own findings, so the fix of a Nexus IQ finding is the version Nexus IQ recommends (GoldenFix): commented on the manifest line in the pull request of the developer, and the untouched dependencies are listed. |
+| **Report** | The table *Execution time: one after another vs in parallel* stands above *Manual actions vs DevSecOps Automated Actions* and is shown after every run with at least two stages of a group. The demo reports show it. |
+
+Verified with `test/run-all.sh` of both branches. Not verified against the real AppScan on Cloud tenant and the real Bitbucket of BBH: the names of the fields of an issue and the layout of the `Details` answer are read tolerantly and have to be confirmed in the pilot (item 1.1 of `TODO.md`).
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
+- The comments of a pull request read the issues and the recommended fix from the AppScan on Cloud REST API v4. The field names of an issue (`SourceFile`, `Line`, `Location`, `IssueTypeId`) and the answer of `Issues/<issue id>/Details` are read tolerantly and are not yet confirmed against the BBH tenant; when the fix is not found the comment says so.
 - The GoldenFix pre-check builds the project and runs its unit tests with the proposed versions; integration tests that are not part of the unit test command are not run.
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
 - Every build with a key depends on the portal at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the portal-integrated library is used outside test.

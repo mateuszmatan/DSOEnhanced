@@ -190,6 +190,7 @@ Closure runPipeline = { Map spec ->
         if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
         if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
         if (text.contains('/api/v4/Scans/Dast')) return '{"Id":"DAST-SCAN-ID"}'
+        if (text.contains('/api/v4/Issues/Scan/')) return '{"Items":[]}'
         if (text.contains('/api/v4/Reports/Security/Scan/')) return '{"Id":"REPORT-ID"}'
         if (text.contains('/api/v2/applications?publicId=')) return '{"applications":[{"id":"7d3b2c1a9e8f4a6b"}]}\n200'
         if (text.contains('/policy')) return '{"components":[]}\n200'
@@ -272,7 +273,7 @@ Closure reordered = { List<String> lines ->
     copyScript.each { String line -> copies.times { kept.remove(line) } }
     kept.sort()
 }
-Closure sequentialView = { String text -> text.replaceAll(/<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
+Closure sequentialView = { String text -> text.replaceAll(/\n?<section id='parallel-stages'.*?<\/section>/, '').replace(sastCopy, '/ws') }
 
 Closure goldenView = { Map r ->
     FakeScript j = r.j as FakeScript
@@ -302,6 +303,8 @@ List<Map> baseRules = [
         rule('the times of the parallel stages are measured on the wall clock', /(?m)^(\[PARALLEL\] [^:\n]+: one after another ).*$/, '$1<times>'),
         rule('the Manual actions vs DevSecOps Automated Actions table at the bottom of the report is newer than every golden and is checked on its own',
                 /\n<section id='manual-vs-automated'.*?<\/section>/, ''),
+        rule('the execution time table (one after another vs in parallel) of the report is measured on the wall clock and is checked on its own',
+                /\n?<section id='parallel-stages'.*?<\/section>/, ''),
         rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
         rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
                 /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF')
@@ -331,7 +334,10 @@ List<Map> stackRules = [
         rule('pull request decoration reads the open SonarQube issues of the branch',
                 /(?ms)^withCredentials \[[^\]\n]*\]\nsh \[SonarQube: open issues of the analysed branch\] .*?\n\n/, ''),
         rule('a SonarQube that does not answer the issue search is logged', /(?m)^\[error\] \[HTTP\] SonarQube: open issues of the analysed branch.*\n/, ''),
-        rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, '')
+        rule('pull request decoration logs what it did', /(?m)^(\[error\] \[HTTP\] Bitbucket: (find open pull request|comments of pull request)|\[SECURITY-PR\]|\[DAST-PR\]).*\n/, ''),
+        rule('SAST reads the findings and their recommended fix from the AppScan API after the reports', /(?m)^sh set \+x\ncurl [^\n]*\/api\/v4\/Issues\/[^\n]*\n/, ''),
+        rule('pull request decoration reads the files a pull request changes and warns when it cannot', /(?m)^(\[error\] \[HTTP\] Bitbucket: files changed in pull request|\[WARN\] \[SECURITY-PR\]).*\n/, ''),
+        rule('SAST logs what it read from the AppScan API', /(?m)^(\[WARN\] )?\[SAST\] [^\n]*(read from the AppScan API|AppScan API Issues\/|from the AppScan API \()[^\n]*\n/, '')
 ]
 
 Closure normalise = { String text, List<Map> rules ->
@@ -575,8 +581,10 @@ Closure verify = { Map spec ->
                         && staticLines[3] ==~ /\[PARALLEL\] Static analysis: one after another \d+s, in parallel \d+s.*/,
                 staticLines)
         check("${name}: the report shows the stages that ran in parallel with the time one after another and in parallel",
-                html.contains("<section id='parallel-stages'") && html.contains('<h2>Parallel stages</h2>') && html.contains('>Static analysis</div>')
-                        && html.contains('One after another <b>'), 'no Parallel stages section in the report')
+                html.contains("<section id='parallel-stages'") && html.contains('<h2>Execution time: one after another vs in parallel</h2>')
+                        && html.contains(">Static analysis</div>") && html.contains('>THIS RUN</span>')
+                        && html.indexOf("<section id='parallel-stages'") < html.indexOf("<section id='manual-vs-automated'")
+                        && html.contains('The stages ran in parallel: <b>'), 'no execution time table in the report')
     }
     if (spec.executed.contains(DYNAMIC)) {
         List<String> calls = j.calls
@@ -587,7 +595,7 @@ Closure verify = { Map spec ->
                         && dynamicLines[0] == '[DYNAMIC] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)'
                         && dynamicLines[1] == "[PARALLEL] Dynamic analysis: ${testStages.join(', ')} run at the same time".toString()
                         && dynamicLines[2] ==~ /\[PARALLEL\] Dynamic analysis: one after another \d+s, in parallel \d+s.*/
-                        && html.contains('>Dynamic analysis</div>'),
+                        && html.contains(">Dynamic analysis</div>"),
                 [branches: branches, log: dynamicLines])
     }
     List<String> manualRows = (html =~ /<tr><td style='padding:8px 12px;vertical-align:top;font-weight:600;'>([^<]+)<\/td>/).collect { it[1] as String }

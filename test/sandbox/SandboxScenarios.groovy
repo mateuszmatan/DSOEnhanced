@@ -93,6 +93,9 @@ appScript.shHandler = { Map a ->
     if (!a.returnStdout) return null
     if (text.contains('ApiKeyLogin')) return '{"Token":"BEARER-TOKEN"}'
     if (text.contains('/api/v4/FileUpload')) return '{"FileId":"FILE-ID"}'
+    if (text.contains('/api/v4/Issues/Scan/')) return '{"Items":[{"Id":"ISSUE-1","Severity":"High","Status":"Open","IssueType":"SQL Injection","IssueTypeId":"Injection.SQL","SourceFile":"src/main/java/A.java","Line":42,"Cwe":89},' +
+            '{"Id":"ISSUE-2","Severity":"High","Status":"Noise","IssueType":"SQL Injection","IssueTypeId":"Injection.SQL","Location":"src/main/java/B.java:7"}]}'
+    if (text.contains('/api/v4/Issues/ISSUE-1/Details')) return '<Advisory><FixRecommendation><![CDATA[<p>Use a PreparedStatement with bound parameters.</p>]]></FixRecommendation></Advisory>'
     if (text.contains('/api/v4/Scans/Sast/')) return '{"LatestExecution":{"Status":"Ready"}}'
     if (text.contains('/api/v4/Scans/Sast')) return '{"Id":"12345678-1234-1234-1234-123456789abc"}'
     if (text.contains('/api/v4/Scans/Dast/')) return '{"LatestExecution":{"Status":"Ready"}}'
@@ -1906,12 +1909,34 @@ Closure runScenario = { Map spec ->
         if (stages.contains(QC) && script.params.DEPLOY_HIGHER_ENV && gate().allowed(QC)) stage(QC) {}
 
         long clock = Date.parse('yyyy-MM-dd HH:mm', '2026-09-19 08:30').time
+        Map<String, Long> durationOf = [:]
         stages.each { String name ->
             if (!state.stageTimes.containsKey(name)) return
             List<Integer> range = minutesOf[name]
-            long duration = (rnd(random, range[0] * 60, range[1] * 60) as long) * 1000L
-            state.stageTimes[name] = [start: clock, end: clock + duration]
-            clock += duration + 4000L
+            durationOf[name] = (rnd(random, range[0] * 60, range[1] * 60) as long) * 1000L
+        }
+        Map<String, List<String>> groupsOf = ['Static analysis': [UNIT, NIQ, SAST, SONAR], 'Dynamic analysis': [REGRESSION, SMOKE, PERFORMANCE, DAST]]
+        List<String> placed = []
+        stages.each { String name ->
+            if (!durationOf.containsKey(name) || placed.contains(name)) return
+            def group = groupsOf.find { String g, List<String> members -> members.contains(name) && members.count { durationOf.containsKey(it) } > 1 }
+            if (!group) {
+                state.stageTimes[name] = [start: clock, end: clock + durationOf[name]]
+                clock += durationOf[name] + 4000L
+                return
+            }
+            long groupEnd = clock
+            List branches = []
+            (group.value as List<String>).findAll { durationOf.containsKey(it) }.each { String member ->
+                long waited = (member == SONAR && durationOf.containsKey(UNIT)) ? durationOf[UNIT] : 0L
+                long end = clock + waited + durationOf[member]
+                state.stageTimes[member] = [start: clock, end: end]
+                branches << [stage: member, ms: end - clock, waitMs: waited]
+                groupEnd = Math.max(groupEnd, end)
+                placed << member
+            }
+            state.recordParallelGroup(group.key as String, clock, groupEnd, branches)
+            clock = groupEnd + 4000L
         }
         (state.projectsRemoteTestResults as Map).each { p, byStage ->
             (byStage as Map).each { s, jobs -> (jobs as List).each { Map j -> j.durationMs = (rnd(random, 45, 1260) as long) * 1000L } }

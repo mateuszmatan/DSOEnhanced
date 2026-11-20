@@ -8,6 +8,7 @@ class RecordingPullRequestPublisher implements PullRequestPublisher {
     List<Map> comments = []
     List<Map> lineComments = []
     String commentFailure = ''
+    List<String> changed = null
 
     Map createPullRequest(Map scmCfg, Map pullRequest) {
         created << pullRequest
@@ -30,6 +31,10 @@ class RecordingPullRequestPublisher implements PullRequestPublisher {
 
     List<String> existingComments(Map scmCfg, Map pullRequest) {
         return (comments + lineComments).collect { it.text as String }
+    }
+
+    List<String> changedFiles(Map scmCfg, Map pullRequest) {
+        return changed
     }
 
     Map repositoryInfo(Map scmCfg) {

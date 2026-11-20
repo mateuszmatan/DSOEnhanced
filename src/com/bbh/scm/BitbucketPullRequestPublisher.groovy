@@ -44,14 +44,64 @@ class BitbucketPullRequestPublisher implements PullRequestPublisher {
     Map lineComment(Map repo, String id, String path, int line, String text, Map auth) {
         boolean cloud = repo.type == 'cloud'
         String api = cloud ? "${cloudPullRequests(repo)}/${id}/comments" : "${repo.apiBase}/pull-requests/${id}/comments"
-        Map payload = cloud
-                ? [content: [raw: truncate(text)], inline: [to: line, path: path]]
-                : [text: truncate(text), anchor: [line: line, lineType: 'ADDED', fileType: 'TO', path: path]]
-        Map response = rest.request('POST', api, payload, auth, "Bitbucket: line comment on pull request ${id}")
-        if ((response.status as int) >= 400) {
-            return comment(repo, id, "[${path}:${line}] ${text}".toString(), auth)
+        String body = truncate(text)
+        String located = truncate("`${path}:${line}`\n\n${text}".toString())
+        List payloads = cloud
+                ? [[content: [raw: body], inline: [to: line, path: path]],
+                   [content: [raw: located], inline: [path: path]]]
+                : [[text: body, anchor: [line: line, lineType: 'ADDED', fileType: 'TO', path: path, diffType: 'EFFECTIVE']],
+                   [text: body, anchor: [line: line, lineType: 'CONTEXT', fileType: 'TO', path: path, diffType: 'EFFECTIVE']],
+                   [text: located, anchor: [path: path, diffType: 'EFFECTIVE']]]
+        for (int i = 0; i < payloads.size(); i++) {
+            Map response = rest.request('POST', api, payloads[i] as Map, auth,
+                    "Bitbucket: ${i < payloads.size() - 1 ? 'line' : 'file'} comment on pull request ${id}")
+            if ((response.status as int) < 400) return response
         }
-        return response
+        return comment(repo, id, located, auth)
+    }
+
+    List<String> changedFiles(Map scmCfg, Map pullRequest) {
+        try {
+            Map repo = parse(scmCfg)
+            if (repo.error || !pullRequest?.id) return null
+            return authorized(scmCfg) { Map auth ->
+                boolean cloud = repo.type == 'cloud'
+                List<String> paths = []
+                String first = cloud ? "${cloudPullRequests(repo)}/${pullRequest.id}/diffstat?pagelen=500"
+                        : "${repo.apiBase}/pull-requests/${pullRequest.id}/changes?limit=1000"
+                String url = first
+                for (int page = 0; page < 20 && url; page++) {
+                    def json = rest.getJson(url, auth, "Bitbucket: files changed in pull request ${pullRequest.id}")
+                    Map read = changedPaths(json, cloud)
+                    if (!read.known) return page == 0 ? null : paths.unique()
+                    paths.addAll(read.paths as List)
+                    url = cloud ? (read.next as String) : (read.nextStart != null ? "${first}&start=${read.nextStart}".toString() : null)
+                }
+                return paths.unique()
+            } as List<String>
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[SECURITY-PR] The files changed in pull request ${pullRequest?.id} could not be read (${e.message})"
+            return null
+        }
+    }
+
+    @NonCPS
+    static Map changedPaths(def page, boolean cloud) {
+        List<String> paths = []
+        def values = (page instanceof Map) ? (page as Map).values : null
+        if (values instanceof List) {
+            for (def v : (values as List)) {
+                if (!(v instanceof Map)) continue
+                Map value = v as Map
+                def place = cloud ? (value.get('new') ?: value.get('old')) : value.path
+                def path = (place instanceof Map) ? (cloud ? (place as Map).path : (place as Map).toString) : null
+                if (path) paths << (path as String)
+            }
+        }
+        String next = (cloud && page instanceof Map && (page as Map).next) ? ((page as Map).next as String) : null
+        def nextStart = (!cloud && page instanceof Map && (page as Map).isLastPage == false) ? (page as Map).nextPageStart : null
+        return [known: values instanceof List, paths: paths, next: next, nextStart: nextStart]
     }
 
     Map findOpenPullRequest(Map scmCfg, String sourceBranch, String targetBranch) {

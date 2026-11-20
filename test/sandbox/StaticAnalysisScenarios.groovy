@@ -450,6 +450,171 @@ check('GoldenFix: goldenFix.versionCatalogRepo names the shared version catalog 
                 && prUnits.catalog.paths == ['gradle/libs.versions.toml'] && prUnits.catalog.credentialsId == 'bb' && prUnits.noCatalog == [:],
         prUnits)
 
+Map apiUnits = [:]
+try {
+    harness.run {
+        def issues = harness.type('com.bbh.utils.AppScanIssues')
+        def svc = harness.type('com.bbh.remediation.SecurityPullRequestService')
+        def view = harness.type('com.bbh.remediation.SecurityPullRequestView')
+        def pub = harness.type('com.bbh.scm.BitbucketPullRequestPublisher')
+        apiUnits.findings = issues.findings(issues.items([Items: [
+                [Id: 'i-1', Severity: 'High', Status: 'Open', IssueType: 'SQL Injection', IssueTypeId: 'Injection.SQL', SourceFile: 'src/main/java/A.java', Line: 42, Cwe: 89, Api: 'java.sql.Statement.executeQuery'],
+                [Id: 'i-2', Severity: 'Critical', Status: 'New', IssueType: 'Command Injection', IssueTypeId: 'Injection.OS', Location: 'src/main/java/B.java:7'],
+                [Id: 'i-3', Severity: 'High', Status: 'Noise', IssueType: 'SQL Injection', IssueTypeId: 'Injection.SQL', SourceFile: 'src/main/java/C.java', Line: 3],
+                [Id: 'i-4', Severity: 'Medium', Status: 'Fixed', IssueType: 'XSS', SourceFile: 'web/a.js', Line: 1],
+                [Id: 'i-5', Severity: 'Medium', Status: 'Reopened', IssueType: 'Open source component', DiscoveryMethod: 'SCA', Location: 'commons-text-1.9.jar'],
+                [Id: 'i-6', Severity: 'High', Status: 'InProgress', IssueType: 'SQL Injection', IssueTypeId: 'Injection.SQL', Location: 'Dao.cs(88)']]]))
+        apiUnits.bare = issues.items([[Id: 'x']])
+        apiUnits.noList = issues.items([Message: 'Unauthorized'])
+        apiUnits.requests = issues.advisoryRequests(apiUnits.findings as List, 40)
+        apiUnits.limited = issues.advisoryRequests(apiUnits.findings as List, 1)
+        apiUnits.xml = issues.fixRecommendation('<?xml version="1.0"?><IssueDetails><Cause>Unvalidated input</Cause><ns:FixRecommendation xmlns:ns="x"><![CDATA[<p>Use a <b>PreparedStatement</b>.</p><ul><li>Bind every parameter</li><li>Never concatenate</li></ul>]]></ns:FixRecommendation></IssueDetails>')
+        apiUnits.escaped = issues.fixRecommendation('<advisory><fix_recommendation>&lt;p&gt;Encode the output &amp;amp; validate the input.&lt;/p&gt;</fix_recommendation></advisory>')
+        apiUnits.json = issues.fixRecommendation('{"Cause":"x","FixRecommendation":"Line one.\\nUse \\"bound\\" parameters."}')
+        apiUnits.html = issues.fixRecommendation('<html><body><h2>Cause</h2><p>x</p><h2>Fix Recommendation</h2><p>Validate the path.</p><h2>References</h2><p>y</p></body></html>')
+        apiUnits.none = issues.fixRecommendation('<IssueDetails><Cause>x</Cause></IssueDetails>')
+        apiUnits.empty = issues.fixRecommendation('')
+        apiUnits.applied = issues.applyAdvisories(apiUnits.findings as List, ['Injection.SQL': 'Use a PreparedStatement.'])
+        apiUnits.comment = view.sastLineComment((apiUnits.findings as List)[0] as Map)
+        apiUnits.noFix = view.sastLineComment((apiUnits.findings as List)[1] as Map)
+        List comments = [[file: 'src/main/java/A.java', line: 42, text: 'a', tool: 'AppScan SAST'], [file: 'src/main/java/B.java', line: 7, text: 'b', tool: 'AppScan SAST'],
+                         [file: 'src/main/java/B.java', line: 9, text: 'b2', tool: 'SonarQube'], [file: 'A.java', line: 5, text: 'short', tool: 'AppScan SAST'],
+                         [file: '', line: null, text: 'no file', tool: 'Nexus IQ'], [file: 'pom.xml', line: null, text: 'no line', tool: 'Nexus IQ']]
+        apiUnits.plan = svc.commentPlan(comments, ['src/main/java/A.java', 'pom.xml'])
+        apiUnits.unknown = svc.commentPlan(comments, null)
+        apiUnits.unchanged = view.unchangedFileComment('src/main/java/B.java', [[line: 7, text: 'b'], [line: 9, text: 'b2']])
+        apiUnits.ambiguous = svc.changedPath('A.java', ['x/A.java', 'y/A.java'])
+        apiUnits.pomLine = svc.manifestLine('<project>\n<dependencies>\n<dependency>\n<groupId>org.yaml</groupId>\n<artifactId>snakeyaml</artifactId>\n<version>1.33</version>\n</dependency>\n</dependencies>\n</project>',
+                [component: 'org.yaml:snakeyaml', from: '1.33', to: '1.34', property: ''])
+        apiUnits.gradleLine = svc.manifestLine('plugins { id "java" }\ndependencies {\n  implementation "io.netty:netty-codec:4.1.100.Final"\n}', [component: 'io.netty:netty-codec', from: '4.1.100.Final', property: ''])
+        apiUnits.propertyLine = svc.manifestLine('a=1\nnettyVersion=4.1.100.Final\n', [component: 'io.netty:netty-codec, io.netty:netty-handler', from: '4.1.100.Final', property: 'nettyVersion'])
+        apiUnits.noLine = svc.manifestLine('nothing here', [component: 'org.yaml:snakeyaml', from: '1.33', property: ''])
+        apiUnits.dependency = view.dependencyComment([component: 'org.yaml:snakeyaml', from: '1.33', to: '1.34', applied: true, prUrl: 'https://bitbucket.bbh.com/pr/1'])
+        apiUnits.untouched = view.dependencyComment([component: 'com.h2database:h2', from: '1.4.200', to: '2.2.224', applied: false, reason: 'Nexus IQ offers only 2.2.224'])
+        apiUnits.server = pub.changedPaths([values: [[path: [toString: 'src/A.java']], [path: [toString: 'pom.xml']]], isLastPage: false, nextPageStart: 25], false)
+        apiUnits.cloud = pub.changedPaths([values: [['new': [path: 'src/A.java']], ['old': [path: 'gone.txt'], 'new': null]], next: 'https://api.bitbucket.org/next'], true)
+        apiUnits.notAPage = pub.changedPaths([errors: [[message: 'no']]], false)
+    }
+} catch (Throwable t) {
+    apiUnits.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+List apiFound = (apiUnits.findings ?: []) as List
+check('AppScan API issues: an issue with the status Noise, Passed or Fixed is left out, the file and the line come from SourceFile and Line or from Location, an SCA issue is named AppScan SCA, and a page is Items or a bare list',
+        !apiUnits.error && apiFound.collect { it.id } == ['i-1', 'i-2', 'i-5', 'i-6']
+                && apiFound[0].file == 'src/main/java/A.java' && apiFound[0].line == 42 && apiFound[0].severity == 'HIGH' && apiFound[0].tool == 'AppScan SAST'
+                && apiFound[0].description == 'Found by HCL AppScan in src/main/java/A.java:42 (CWE-89, API java.sql.Statement.executeQuery)'
+                && apiFound[1].file == 'src/main/java/B.java' && apiFound[1].line == 7 && apiFound[2].tool == 'AppScan SCA' && apiFound[2].line == null
+                && apiFound[3].file == 'Dao.cs' && apiFound[3].line == 88 && apiUnits.bare == [[Id: 'x']] && apiUnits.noList == null,
+        apiUnits.error ?: apiFound)
+check('AppScan API issues: the recommended fix is asked once per issue type, the most severe first and at most as many as the limit, and is set on every finding of that type',
+        !apiUnits.error && apiUnits.requests == [[typeKey: 'Injection.OS', id: 'i-2'], [typeKey: 'Injection.SQL', id: 'i-1'], [typeKey: 'Open source component', id: 'i-5']]
+                && apiUnits.limited == [[typeKey: 'Injection.OS', id: 'i-2']] && apiUnits.applied == 2
+                && apiFound[0].remediation == 'Use a PreparedStatement.' && apiFound[3].remediation == 'Use a PreparedStatement.' && apiFound[1].remediation == '',
+        apiUnits.error ?: [apiUnits.requests, apiUnits.limited, apiUnits.applied])
+check('AppScan API issues: the recommended fix is read from an XML answer with a namespace and CDATA, from escaped markup, from JSON and from an HTML advisory, and is empty when the answer has none',
+        !apiUnits.error && apiUnits.xml == 'Use a PreparedStatement .\n- Bind every parameter\n- Never concatenate'
+                && apiUnits.escaped == 'Encode the output & validate the input.' && apiUnits.json == 'Line one.\nUse "bound" parameters.'
+                && apiUnits.html == 'Validate the path.' && apiUnits.none == '' && apiUnits.empty == '',
+        apiUnits.error ?: [apiUnits.xml, apiUnits.escaped, apiUnits.json, apiUnits.html, apiUnits.none])
+check('pull request decoration: the comment of a SAST finding carries the fix AppScan recommends, and says so when AppScan returned none',
+        !apiUnits.error && apiUnits.comment == '**[AppScan SAST] HIGH: SQL Injection**\n\nFound by HCL AppScan in src/main/java/A.java:42 (CWE-89, API java.sql.Statement.executeQuery)\n\n**Recommended fix (AppScan):**\nUse a PreparedStatement.'
+                && (apiUnits.noFix as String).endsWith('**Recommended fix (AppScan):** AppScan returned no fix recommendation for this issue type - open the issue in AppScan for the advisory.'),
+        apiUnits.error ?: [apiUnits.comment, apiUnits.noFix])
+Map plan = (apiUnits.plan ?: [:]) as Map
+Map unknownPlan = (apiUnits.unknown ?: [:]) as Map
+check('pull request decoration: a finding in a file the pull request changes is a line comment of that file, also when AppScan names the file by the end of its path; findings in a file it does not change, without a line or without a file are one pull request comment per file that names the file and the lines',
+        !apiUnits.error && (plan.inline as List).collect { [it.file, it.line] } == [['src/main/java/A.java', 42], ['src/main/java/A.java', 5]]
+                && (plan.general as List).collect { [it.file, (it.entries as List).collect { e -> e.line }] } == [['src/main/java/B.java', [7, 9]], ['', [null]], ['pom.xml', [null]]]
+                && apiUnits.unchanged == '**[DevSecOps] Findings in `src/main/java/B.java`** (this pull request does not change the file)\n\n---\n`src/main/java/B.java:7`\n\nb\n\n---\n`src/main/java/B.java:9`\n\nb2\n'
+                && apiUnits.ambiguous == null,
+        apiUnits.error ?: [plan, apiUnits.unchanged])
+check('pull request decoration: when the changed files are unknown every finding with a file and a line is tried as a line comment',
+        !apiUnits.error && (unknownPlan.inline as List).size() == 4 && (unknownPlan.general as List).collect { it.file } == ['', 'pom.xml'],
+        apiUnits.error ?: unknownPlan)
+check('pull request decoration: a Nexus IQ upgrade is placed on the line of the manifest that declares the version (pom.xml, build.gradle, a version property), and its comment names the version Nexus IQ recommends or why it was left untouched',
+        !apiUnits.error && apiUnits.pomLine == 6 && apiUnits.gradleLine == 3 && apiUnits.propertyLine == 2 && apiUnits.noLine == null
+                && apiUnits.dependency == '**[Nexus IQ] org.yaml:snakeyaml 1.33**\n\n**Recommended fix (Nexus IQ):** upgrade to `1.34`. The GoldenFix pull request https://bitbucket.bbh.com/pr/1 makes this change.'
+                && apiUnits.untouched == '**[Nexus IQ] com.h2database:h2 1.4.200**\n\n**Recommended fix (Nexus IQ):** upgrade to `2.2.224`. Not changed automatically: Nexus IQ offers only 2.2.224.',
+        apiUnits.error ?: [apiUnits.pomLine, apiUnits.gradleLine, apiUnits.propertyLine, apiUnits.noLine, apiUnits.dependency, apiUnits.untouched])
+check('Bitbucket: the files a pull request changes are read from the changes of Bitbucket Server and from the diffstat of Bitbucket Cloud, page by page, and an answer that is not a page is not taken for an empty list',
+        !apiUnits.error && apiUnits.server == [known: true, paths: ['src/A.java', 'pom.xml'], next: null, nextStart: 25]
+                && apiUnits.cloud == [known: true, paths: ['src/A.java', 'gone.txt'], next: 'https://api.bitbucket.org/next', nextStart: null]
+                && apiUnits.notAPage.known == false,
+        apiUnits.error ?: [apiUnits.server, apiUnits.cloud, apiUnits.notAPage])
+
+Map timeTable = [:]
+try {
+    harness.run {
+        def vm = harness.type('com.bbh.report.ReportViewModel')
+        timeTable.parallel = vm.executionComparison(fullTimes, fullResults, groups.collect { Map g -> g + [actualMs: g.name == 'Static analysis' ? 20 * MIN : 45 * MIN, sequentialMs: g.name == 'Static analysis' ? 31 * MIN : 74 * MIN] })
+        timeTable.sequential = vm.executionComparison([(UNIT): span(0, 6), (NIQ): span(6, 3), (SAST): span(9, 20), (SONAR): span(29, 8), (REGRESSION): span(40, 15), (DAST): span(55, 45)], fullResults, [])
+        timeTable.single = vm.executionComparison([(SAST): span(0, 7)], [(SAST): 'PASS'], [])
+        timeTable.none = vm.executionComparison([:], [:], null)
+    }
+} catch (Throwable t) {
+    timeTable.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+Closure minutesOf = { Map table -> (table.rows as List).collect { Map r -> [r.name, r.ranInParallel, (r.sequentialMs as long).intdiv(MIN), (r.parallelMs as long).intdiv(MIN), (r.savedMs as long).intdiv(MIN)] } }
+check('ReportViewModel.executionComparison: after a run in parallel the table takes the measured time of each group and the sum of its stages without the wait of SonarQube; after a run one after another the sum is measured and the parallel time is the longest stage, for the static analysis at least the unit tests followed by SonarQube; one stage alone gives no line',
+        !timeTable.error && minutesOf(timeTable.parallel as Map) == [['Static analysis', true, 31L, 20L, 11L], ['Dynamic analysis', true, 74L, 45L, 29L]]
+                && (timeTable.parallel as Map).sequentialMs == 105L * MIN && (timeTable.parallel as Map).parallelMs == 65L * MIN && (timeTable.parallel as Map).savedMs == 40L * MIN
+                && (((timeTable.parallel as Map).rows as List)[0].stages as List).collect { [it.label, (it.ms as long).intdiv(MIN), (it.waitMs as long).intdiv(MIN)] } == [['Unit tests', 6L, 0L], ['Nexus IQ', 3L, 0L], ['SAST', 20L, 0L], ['SonarQube', 2L, 6L]]
+                && minutesOf(timeTable.sequential as Map) == [['Static analysis', false, 37L, 20L, 17L], ['Dynamic analysis', false, 60L, 45L, 15L]]
+                && (timeTable.sequential as Map).actualMs == 97L * MIN
+                && (timeTable.single as Map).rows == [] && (timeTable.none as Map).rows == [],
+        timeTable.error ?: [timeTable.parallel, timeTable.sequential])
+
+Map decorated = [:]
+try {
+    SandboxHarness dh = new SandboxHarness(srcDir, stubDir, new File(root, 'test/sandbox/fixtures'))
+    FakeScript ds = new FakeScript(unix: true)
+    ds.env.vars.putAll([WORKSPACE: '/ws', CHANGE_ID: '77', CHANGE_URL: 'https://bitbucket.bbh.com/projects/PAY/repos/payments/pull-requests/77'])
+    ds.files['pom.xml'] = '<project>\n<dependency>\n<artifactId>snakeyaml</artifactId>\n<version>1.33</version>\n</dependency>\n</project>'
+    dh.run {
+        def state = dh.type('com.bbh.core.PipelineState').newInstance()
+        def recorder = dh.type('com.bbh.fixture.RecordingPullRequestPublisher').newInstance()
+        def repo = dh.type('com.bbh.fixture.InMemorySourceRepository').newInstance([[:]] as Object[])
+        Map cfg = [scm: [bitbucket: [url: 'https://bitbucket.bbh.com/projects/PAY/repos/payments', credentialsId: 'bb']], pullRequestDecoration: [enabled: true, sastMinSeverity: 'LOW']]
+        state.currentProjectName = 'payments'
+        state.cfg = cfg
+        state.projectsScanResults = [payments: [sast: 'WARN']]
+        state.projectsSastFindings = [payments: [source: 'api', scanId: 'scan-1', findings: [
+                [id: 'i-1', typeKey: 'Injection.SQL', file: '/ws/src/main/java/A.java', line: 42, severity: 'HIGH', type: 'SQL Injection', tool: 'AppScan SAST', description: 'Found by HCL AppScan in src/main/java/A.java:42', remediation: 'Use a PreparedStatement.'],
+                [id: 'i-2', typeKey: 'Injection.OS', file: 'src/main/java/B.java', line: 7, severity: 'CRITICAL', type: 'Command Injection', tool: 'AppScan SAST', description: 'Found by HCL AppScan in src/main/java/B.java:7', remediation: 'Do not pass input to a shell.'],
+                [id: 'i-3', typeKey: 'Injection.OS', file: 'src/main/java/B.java', line: 19, severity: 'CRITICAL', type: 'Command Injection', tool: 'AppScan SAST', description: 'Found by HCL AppScan in src/main/java/B.java:19', remediation: 'Do not pass input to a shell.']]]]
+        state.projectsGoldenFix = [payments: [prUrl: 'https://bitbucket.bbh.com/projects/PAY/repos/payments/pull-requests/76', prId: '76', branch: 'GoldenFix-202611201200', status: 'PR_CREATED',
+                                              changes: [[file: 'pom.xml', component: 'org.yaml:snakeyaml', from: '1.33', to: '1.34', property: '']],
+                                              unresolved: [[component: 'com.h2database:h2', from: '1.4.200', to: '2.2.224', reason: 'Nexus IQ offers only 2.2.224']]]]
+        recorder.changed = ['src/main/java/A.java', 'pom.xml']
+        def prService = dh.type('com.bbh.remediation.SecurityPullRequestService').newInstance(ds, state, recorder, repo)
+        prService.publishStaticSecurityPullRequest()
+        decorated.first = [lines: recorder.lineComments.collect { [it.pullRequest.id, it.path, it.line] }, comments: recorder.comments.size()]
+        prService.publishStaticSecurityPullRequest()
+        decorated.lines = recorder.lineComments.collect { [it.pullRequest.id, it.path, it.line, it.text] }
+        decorated.comments = recorder.comments.collect { it.text as String }
+        state.projectsSastFindings = [:]
+        decorated.fallback = dh.type('com.bbh.remediation.SecurityFindingsParser').newInstance(ds, state, null).extractSastFindings('payments', cfg)
+    }
+    decorated.log = ds.log
+} catch (Throwable t) {
+    decorated.error = SandboxHarness.rejectionOf(t) ?: t.toString()
+}
+List decoratedLines = (decorated.lines ?: []) as List
+List<String> decoratedComments = (decorated.comments ?: []) as List<String>
+check('pull request decoration, end to end: the SAST findings of the AppScan API and the Nexus IQ upgrade are comments under the line of the files the pull request changes; the findings of the file it does not change are one pull request comment that names the file and both lines, the dependency left untouched is in a comment without a file, and a second run adds nothing',
+        !decorated.error && decoratedLines.collect { it.subList(0, 3) } == [['77', 'src/main/java/A.java', 42], ['77', 'pom.xml', 4]]
+                && (decoratedLines[0][3] as String).endsWith('**Recommended fix (AppScan):**\nUse a PreparedStatement.')
+                && (decoratedLines[1][3] as String).endsWith('**Recommended fix (Nexus IQ):** upgrade to `1.34`. The GoldenFix pull request https://bitbucket.bbh.com/projects/PAY/repos/payments/pull-requests/76 makes this change.')
+                && decoratedComments.size() == 3
+                && decoratedComments[0].startsWith('**[DevSecOps] Findings in `src/main/java/B.java`** (this pull request does not change the file)')
+                && decoratedComments[0].contains('`src/main/java/B.java:7`') && decoratedComments[0].contains('`src/main/java/B.java:19`') && decoratedComments[0].contains('Do not pass input to a shell.')
+                && decoratedComments[1].startsWith('**[DevSecOps] Findings without a file of this repository**') && decoratedComments[1].contains('com.h2database:h2 1.4.200')
+                && decoratedComments[2].startsWith('**DevSecOps static security results - payments**')
+                && decorated.first == [lines: decoratedLines.collect { it.subList(0, 3) }, comments: 3]
+                && (decorated.log as List<String>).contains('[SECURITY-PR] Pull request https://bitbucket.bbh.com/projects/PAY/repos/payments/pull-requests/77: 2 comment(s) under the line of a changed file, 2 pull request comment(s) for the files it does not change')
+                && decorated.fallback == [],
+        decorated.error ?: decorated)
+
 Map credResult = [:]
 try {
     FakeScript cs = new FakeScript(unix: true)

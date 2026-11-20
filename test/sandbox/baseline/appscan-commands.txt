@@ -162,3 +162,11 @@ curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "A
 ---
 [SH]
 [ -f '/ws/appscan-report.pdf' ] && mv '/ws/appscan-report.pdf' '/ws/appscan-report-demo-scan.pdf' || true
+---
+[SH]
+set +x
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/json" "https://bbh.cloud.appscan.com/api/v4/Issues/Scan/12345678-1234-1234-1234-123456789abc?applyPolicies=None&\$top=500&\$skip=0"
+---
+[SH]
+set +x
+curl -s -S -x "http://tstproxy.bbh.com:9090" -U "PROXY_ASOCJenk:proxypass" -H "Authorization: Bearer BEARER-TOKEN" -H "Accept: application/xml" "https://bbh.cloud.appscan.com/api/v4/Issues/ISSUE-1/Details?format=xml&locale=en-US"
