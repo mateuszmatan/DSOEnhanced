@@ -3419,6 +3419,8 @@ GoldenFix builds the project with the new versions and runs its unit tests befor
 
 A shared version catalog repository (`goldenFix.versionCatalogRepo`) is verified the same way before its pull request is raised: its own build runs when it has one (a Maven BOM, a Gradle platform or catalog build, a .NET solution), otherwise the application is built in a worktree of its own with the changed catalog files copied over its copies of them. When neither is possible, or the build fails, no pull request is raised in the catalog repository. **Every ecosystem whose manifest was changed is verified**, not only the main build tool of the service, and each check runs where the change takes effect, once for each kind of manifest and folder:
 
+**Sign-in to the shared version catalog repository.** `goldenFix.versionCatalogRepo` is the URL of the repository, or a map with `url` (`repositoryUrl` and `cloneUrl` are read as well), `branch` (default `main`), `paths` of the catalog files, `credentialsId` and `authType`. The clone signs in the way the push of the GoldenFix branch does: an SSH URL uses the SSH key credential through `sshagent`; an HTTPS URL with `authType: bearer` (or `token`) uses a Secret text credential as the access token; any other HTTPS URL uses a username and password credential; without a credential the clone runs with what the agent already has. `credentialsId` and `authType` of the catalog fall back to those of `scm.bitbucket` of the service. The credential never appears in the log, the URL is logged without its user part, and a clone that fails stops the upgrade of the shared catalog with the last lines of the `git` output, while the service keeps its own GoldenFix result. Each run clones into a folder of its own under the temporary folder of the build, so two services of one run do not share a checkout.
+
 | Changed file | Where the check runs | Default pre-check |
 |---|---|---|
 | `pom.xml` | Its own folder | `mvn -B -q test` |
@@ -3473,6 +3475,16 @@ In the **Static analysis** stage the staging copy `appscan-source-staged` (Windo
 
 Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the Global Settings in the DevSecOps portal (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
 
+#### How the analysis runs
+
+The runner follows the settings of the service; a setting that is given wins, and what is missing falls back to the default:
+
+- **A Gradle, Android or Maven service with analysis commands of its own** (`tools.sonar.gradle.tasks`, for Android as well, or `tools.sonar.maven.goals`) runs them with the plugin of its build. The plugin keeps the project key of the build; `-Dsonar.projectKey` is added only when the auto-resolve filled in `tools.sonar.projectKey`.
+- **Every other Gradle, Android and Maven service, and every npm, pip and iOS service** is analysed with the `sonar-scanner` CLI: the Jenkins tool `sonar-scanner-cli-<version>` named in `tools.sonar.sonarScannerVersion`, otherwise `sonar-scanner` on the `PATH` of the agent. The CLI reads `sonar-project.properties` (below) and gets, when they are set, `tools.sonar.<tool>.flags` (for npm also `tools.sonar.node.flags`; of a Gradle, Android or Maven block only the arguments that start with `-Dsonar.`, since the other flags belong to the build tool), `tools.sonar.<tool>.sources` or `tools.sonar.sources` as `-Dsonar.sources`, `coverage.xml` of a pip service as `-Dsonar.python.coverage.reportPaths` and `coverage/lcov.info` of an npm service as `-Dsonar.javascript.lcov.reportPaths` and `-Dsonar.typescript.lcov.reportPaths`. An argument of the service wins over the same argument the library would add.
+- **Flutter, Liquibase and .NET services** run as the chapters of these build tools describe.
+
+**The branch and the retry without it.** The branch of the build is passed on the command line as `-Dsonar.branch.name`: `tools.sonar.branch` when it is set, otherwise `CHANGE_BRANCH`, `BRANCH_NAME`, `GIT_BRANCH`, the branch of `scm` and at last the branch of the checkout. A SonarQube server that refuses the branch name, as the Community Edition does, which analyses only the main branch, fails that attempt: the library logs a `[SONAR]` line with the reason and runs the analysis once more without the branch, and the stage fails only when this second attempt fails as well. `tools.sonar.branchAnalysis: false` skips the first attempt for such a server. The issue counts of the report are read for the branch that was analysed.
+
 #### Automatic SonarQube Default Configuration and Branch Analysis
 
 When a repository does not include an explicit `sonar-project.properties` file, the pipeline automatically generates and applies enterprise default configuration before invoking SonarQube (or runs the Scanner for .NET `begin`/build/`end` workflow when `buildTool` is `dotnet` / `msbuild`):
@@ -3491,7 +3503,7 @@ When a repository does not include an explicit `sonar-project.properties` file, 
   - `sonar.modules=<detected modules>` (automatically detected from `pom.xml` module elements or `settings.gradle` includes)
   - **.NET Scanner parameters**: `SonarScanner.MSBuild.exe` / `dotnet sonarscanner` automatically attaches `/d:sonar.cs.opencover.reportsPaths`, `/d:sonar.cs.vscoveragexml.reportsPaths`, and `/d:sonar.cs.vstest.reportsPaths` when reports exist.
   - **.NET report paths**: `tools.sonar.opencoverPaths` (OpenCover XML, default `**/coverage.opencover.xml`, `**/*opencover*.xml`) and `tools.sonar.vstestPaths` (TRX, default `**/TestResults/*.trx`, `**/*.trx`) override the auto-discovered reports; one path, a list or commas.
-- **Branch-specific scanning**: SonarQube always analyzes the active pipeline branch (`CHANGE_BRANCH` in Pull Request builds, or normalized `BRANCH_NAME` / `GIT_BRANCH`) via `sonar.branch.name=${branch}`, ensuring scans never fall back to `master` or `main`.
+- **Branch-specific scanning**: SonarQube analyzes the active pipeline branch (`CHANGE_BRANCH` in Pull Request builds, or normalized `BRANCH_NAME` / `GIT_BRANCH`) through `-Dsonar.branch.name` on the command line, so a scan never falls back to `master` or `main` by itself; a `sonar-project.properties` of the repository is left as it is. When the server refuses the branch, the analysis runs once more without it (see **How the analysis runs**).
 
 ### Bitbucket Pull Request Decoration and Shift-Left Feedback
 
@@ -3504,6 +3516,15 @@ During the static security pipeline, all findings and remediation changes are co
 - **Nexus IQ GoldenFix**: Automatically applies safe dependency upgrades to manifests (`pom.xml`, `build.gradle`, `package.json`, `requirements.txt`, `pubspec.yaml`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, and `packages.config`) on branch `GoldenFix-YYYYMMDDHHMM`.
 - **HCL AppScan SAST**: Inspects open findings, filters out issues marked with status `Noise`, and decorates the pull request with inline comments on the exact file and line number containing the vulnerability description and actionable remediation advice.
 - **SonarQube**: Fetches open code quality, vulnerability, and bug issues and decorates the pull request with line comments on the specific source lines.
+
+#### Pull request of the analysed branch, limits and repeated runs
+
+The decoration runs for every service of the run, and also when the service has no GoldenFix pull request:
+
+- **The pull request of the developer.** In a pull request build (`CHANGE_ID`) or when the analysed branch has an open pull request in Bitbucket, that pull request gets the line comments of the SAST and SonarQube findings and one summary comment with the number of dependency upgrades, SAST findings and SonarQube issues. Branches that the library creates itself (`GoldenFix-*`, `security-*`) are left out.
+- **Limits.** `pullRequestDecoration.maxComments` (default 25) is the number of line comments one run adds to one pull request; the findings beyond it stay in the report, and the log says so. `pullRequestDecoration.sastMinSeverity` (default `MEDIUM`) and `pullRequestDecoration.sonarMinSeverity` (default `MAJOR`) leave out the findings below them. A value that is not a number or not a severity falls back to its default with a `[WARN]` line, and a value equal to the default is named in an `[INFO]` line as a key that can be removed.
+- **Repeated runs.** Before it comments, the library reads the comments that are already on the pull request and adds only those that are missing, so a second run of the same commit adds no duplicate; when the comments cannot be read, it comments as on a first run.
+- A comment that Bitbucket refuses is logged as `[SECURITY-PR]` and does not fail the stage.
 
 #### DAST Dynamic Security Pull Request (Dedicated PR)
 

@@ -58,7 +58,8 @@ class SonarService implements Serializable {
             state.recordScan('sonar', st)
             return
         }
-        boolean pluginRun = (tool in ['gradle', 'maven']) && hasPluginCommands(sonarCfg as Map, tool as String)
+        String pluginTool = tool == 'android' ? 'gradle' : (tool as String)
+        boolean pluginRun = (pluginTool in ['gradle', 'maven']) && hasPluginCommands(sonarCfg as Map, pluginTool)
         boolean mavenPluginRun = tool == 'maven' && hasPluginCommands(sonarCfg as Map, 'maven')
         boolean scannerRun = !(tool in ['flutter', 'liquibase']) && !isDotnet && !mavenPluginRun && !BuildUtils.databaseBlock(state.cfg as Map)
         if (useGenericDotnet) commandBuilder.applyDefaultSonarProperties(sonarCfg as Map, tool as String, branch)
@@ -97,9 +98,9 @@ class SonarService implements Serializable {
                 branchUsed = withBranchFallback(branchArgs) { List extra ->
                     inSonarEnv(credentialsId as String, installationName as String) {
                         if (pluginRun) {
-                            new BuildRunner(script, pluginCfg(effectiveSonarCfg(sonarCfg as Map, tool as String), tool as String, sonarArgs.findAll { (it as String).startsWith('-Dsonar.projectKey=') } + extra), tool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults)).run()
+                            new BuildRunner(script, pluginCfg(effectiveSonarCfg(sonarCfg as Map, pluginTool), pluginTool, sonarArgs.findAll { (it as String).startsWith('-Dsonar.projectKey=') } + extra), pluginTool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults)).run()
                         } else {
-                            runScanner(sonarCfg as Map, sonarArgs + extra)
+                            runScanner(sonarCfg as Map, scannerArgs(sonarCfg as Map, tool as String, sonarArgs + extra))
                         }
                         if (addBadges) {
                             script.addSonarBadgesToDescription(sonarUrl, effectiveProjectKey, fullBadges)
@@ -212,6 +213,32 @@ class SonarService implements Serializable {
             script.echo "[SONAR] dart analyze could not be run (${e.message}) - only coverage will be imported"
             return ''
         }
+    }
+
+    private List scannerArgs(Map sonarCfg, String tool, List args) {
+        Map block = (sonarCfg.get(tool) instanceof Map ? sonarCfg.get(tool) : (tool == 'npm' && sonarCfg.node instanceof Map ? sonarCfg.node : [:])) as Map
+        List out = [] + args
+        List candidates = []
+        for (def flag : BuildUtils.normalizeTokens(block.flags ?: sonarCfg.flags)) {
+            if (tool in ['pip', 'npm', 'ios'] || (flag as String).startsWith('-Dsonar.')) candidates << (flag as String)
+        }
+        def sources = block.sources ?: sonarCfg.sources
+        if (sources) candidates << "-Dsonar.sources=${sources instanceof Collection ? (sources as Collection).join(',') : (sources as String).trim()}".toString()
+        if (tool == 'pip' && script.fileExists('coverage.xml')) {
+            candidates << '-Dsonar.python.coverage.reportPaths=coverage.xml'
+        } else if (tool == 'npm' && script.fileExists('coverage/lcov.info')) {
+            candidates << '-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info'
+            candidates << '-Dsonar.typescript.lcov.reportPaths=coverage/lcov.info'
+        }
+        for (String flag : candidates) {
+            String prefix = flag.contains('=') ? flag.substring(0, flag.indexOf('=') + 1) : flag
+            boolean present = false
+            for (def existing : out) {
+                if ((existing as String).startsWith(prefix)) present = true
+            }
+            if (!present) out << flag
+        }
+        return out
     }
 
     private void runScanner(Map sonarCfg, List args) {
@@ -555,7 +582,15 @@ rm -f "\${_TMP}"
     }
 
     String resolveBranch(Map sonarCfg = [:]) {
-        if (sonarCfg?.containsKey('branchAnalysis') && !BuildUtils.booleanValue(sonarCfg.branchAnalysis, true)) return ''
+        if (sonarCfg?.containsKey('branchAnalysis')) {
+            String wanted = ((sonarCfg.branchAnalysis == null ? '' : sonarCfg.branchAnalysis) as String).trim().toLowerCase()
+            if (wanted == 'false') return ''
+            if (wanted == 'true') {
+                script.echo "[INFO] [SONAR] ${state.currentProjectName}: tools.sonar.branchAnalysis: true equals the default - the key can be removed"
+            } else {
+                script.echo "[WARN] [SONAR] ${state.currentProjectName}: tools.sonar.branchAnalysis: '${sonarCfg.branchAnalysis}' is not true or false - using the default true"
+            }
+        }
         String raw = ((sonarCfg?.branch ?: script.env.CHANGE_BRANCH ?: script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: state.cfg?.scm?.bitbucket?.branch ?: state.cfg?.scm?.branch ?: '') as String).trim()
         if (!raw && script.isUnix()) {
             try {

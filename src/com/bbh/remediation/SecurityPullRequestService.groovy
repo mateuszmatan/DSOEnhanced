@@ -64,6 +64,8 @@ class SecurityPullRequestService implements Serializable {
 
             String targetBranch = (pr.targetBranch ?: scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
             Map limits = decorationLimits(prCfg)
+            for (def warning : (limits.warnings as List)) script.echo "[WARN] [SECURITY-PR] ${projectName}: ${warning}"
+            for (def note : (limits.notes as List)) script.echo "[INFO] [SECURITY-PR] ${projectName}: ${note}"
             List<Map> sastFindings = atLeast(findingsParser.extractSastFindings(projectName, cfg), limits.sastMinSeverity as String, sastOrder())
             List<Map> sonarIssues = atLeast(findingsParser.extractSonarIssues(projectName, cfg), limits.sonarMinSeverity as String, sonarOrder())
             decorateDeveloperPullRequest(scmCfg, projectName, gfChanges, sastFindings, sonarIssues, limits.maxComments as int)
@@ -276,9 +278,35 @@ class SecurityPullRequestService implements Serializable {
 
     @NonCPS
     static Map decorationLimits(Map prCfg) {
-        return [maxComments     : (((prCfg?.maxComments ?: 25) as String).trim() ?: '25').toInteger(),
-                sastMinSeverity : ((prCfg?.sastMinSeverity ?: 'MEDIUM') as String).toUpperCase(),
-                sonarMinSeverity: ((prCfg?.sonarMinSeverity ?: 'MAJOR') as String).toUpperCase()]
+        List<String> warnings = []
+        List<String> notes = []
+        int maxComments = 25
+        String rawMax = (prCfg?.maxComments == null ? '' : prCfg.maxComments as String).trim()
+        if (rawMax) {
+            if (rawMax ==~ /\d{1,6}/) {
+                maxComments = rawMax.toInteger()
+                if (maxComments == 25) notes << 'pullRequestDecoration.maxComments: 25 equals the default - the key can be removed'
+            } else {
+                warnings << "pullRequestDecoration.maxComments: '${rawMax}' is not a number of comments - using the default 25".toString()
+            }
+        }
+        return [maxComments     : maxComments,
+                sastMinSeverity : severityLimit(prCfg, 'sastMinSeverity', 'MEDIUM', sastOrder(), warnings, notes),
+                sonarMinSeverity: severityLimit(prCfg, 'sonarMinSeverity', 'MAJOR', sonarOrder(), warnings, notes),
+                warnings        : warnings,
+                notes           : notes]
+    }
+
+    @NonCPS
+    static String severityLimit(Map prCfg, String key, String fallback, List<String> order, List<String> warnings, List<String> notes) {
+        String raw = ((prCfg?.get(key) ?: '') as String).trim().toUpperCase()
+        if (!raw) return fallback
+        if (!order.contains(raw)) {
+            warnings << "pullRequestDecoration.${key}: '${prCfg.get(key)}' is not one of ${order.join(', ')} - using the default ${fallback}".toString()
+            return fallback
+        }
+        if (raw == fallback) notes << "pullRequestDecoration.${key}: ${fallback} equals the default - the key can be removed".toString()
+        return raw
     }
 
     @NonCPS

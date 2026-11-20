@@ -291,14 +291,29 @@ The library branches `DSOEnhancedWithoutPortal` and `main` and the DevSecOps Man
 | **Corrections of the BBH pull requests 70 to 76** | Every behaviour of the uploaded patch is in both branches: the `nexusDeliveryEnabled` switch, the build tag in `build.tag` that is archived and copied, the check of the deployment repositories, the stage *Download artifacts from Nexus Repo*, the deployment to the lower test region with UrbanCode Deploy and its component version from the build tag, and the QC publication. Lines that differ from the patch are the reworked Nexus delivery, the AppScan key of the library defaults and the Gradle script moved to the library resources. |
 | **Deployment** | `src/com/bbh/deploy` (OpenShift and UrbanCode Deploy) is equal file by file in both branches. |
 | **SAST and DAST** | AppScan differs between the branches only in where the settings come from; both sign in with the key of the functional user of the library defaults. |
-| **Supported technologies** | Gradle, Maven (Java, Kotlin, Groovy), .NET and C# (SDK and classic MSBuild), npm (Angular, Node.js), pip (Python), Liquibase, SQL and PL/SQL files, Flutter, Android and iOS are build tools of both branches. The portal has Gradle, Maven, .NET, Liquibase, SQL and Flutter, and the Node.js build of a Gradle or Maven service; npm, pip, Android and iOS as build tools of the portal are items 1.3 and 2.5 of `TODO.md`. |
+| **Supported technologies** | Gradle, Maven (Java, Kotlin, Groovy), .NET and C# (SDK and classic MSBuild), npm (Angular, Node.js), pip (Python), Liquibase, SQL and PL/SQL files, Flutter, Android and iOS are build tools of both branches and, since section 27, of the portal. MSBuild as a choice of its own in the portal is item 2.5 of `TODO.md`. |
 | **Detection** | Both branches detect in one order (chapters 14 and 16 of the documentation). The new detection matrix of `StaticAnalysisScenarios.groovy` plants the marker files of every technology, with the files of a later one next to them, and checks the build tool: 24 repositories from Flutter to SQL and PL/SQL files, and one without a marker. |
 | **Stages at the same time** | `staticAnalysis.parallel` and `dynamicAnalysis.parallel` are `true` by default in both branches and in the Global Settings of the portal; the parallel twins of the pipeline scenarios pass in both. |
 | **Backward compatibility** | The compatibility scenarios and every golden file recorded before section 22 pass unchanged in both branches. |
-| **Differences that are not the portal** | `main` has the limit and the duplicate check of the pull request decoration, the SonarQube retry without the branch name with the sonar-scanner CLI as the default runner, and more ways to sign in to a shared catalog repository. They are items 2.1 to 2.3 of `TODO.md`. |
-| **Documentation** | The stale known limitation about Nexus IQ and SonarQube one after another was replaced. The user guides of the library and of the portal have drifted (item 2.6). |
+| **Differences that are not the portal** | Closed in section 27: the pull request decoration, the SonarQube runner and the sign-in to a shared catalog repository are the same files in both branches. |
+| **Documentation** | The stale known limitation about Nexus IQ and SonarQube one after another was replaced. The user guides of the library and of the portal had drifted; section 27 merged them. |
 
 ---
+
+## 27. One behaviour in the three sources (2026-11-20)
+
+The open points of the review of section 26 that made the three sources differ are closed. Changed first in `DSOEnhancedWithoutPortal`, then in `main` and the portal.
+
+| Item of `TODO.md` | Result |
+|---|---|
+| **2.1 Pull request decoration** | The same in both branches: every service of the run, the open pull request of the analysed branch, `pullRequestDecoration.maxComments` (25), `sastMinSeverity` (`MEDIUM`), `sonarMinSeverity` (`MAJOR`), no comment twice. A wrong limit falls back to its default with a warning; a limit equal to the default is logged as removable. |
+| **2.2 SonarQube runner** | The same in both branches: the plugin of the build when the service has analysis commands of its own (Gradle, Android, Maven), otherwise the `sonar-scanner` CLI; one retry without the branch name when the server refuses it; `tools.sonar.branchAnalysis`. Backward compatible: `tools.sonar.<tool>.flags` of an npm, pip or iOS service and `tools.sonar.gradle.tasks` of an Android service keep working with the new runner. |
+| **2.3 Shared version catalog repository** | The same in both branches: SSH key, bearer token or username and password, with the credentials of `scm.bitbucket` as the fallback. |
+| **1.3 and 2.5 Portal build tools** | The portal has npm, pip, Android and iOS in the form, the import, the rendering and the database. For npm the Node.js build is the build; pip and iOS take one command line; Android writes the Gradle blocks. |
+| **2.4 Detection in the portal** | The repository scan of the portal uses the order and the markers of `RepoStackAutoResolver`. |
+| **2.6 User guides** | One merged version of `docs/USER_GUIDE_PORTAL` and `docs/USER_GUIDE_WITHOUT_PORTAL` in the three sources, rendered by `tools/render-user-guides.sh` and kept by `test/checks/user-guides.sh`. |
+
+Verified with `test/run-all.sh` of both branches and the backend and front-end tests of the portal. Not run against the real BBH systems; the pilot stays item 1.1 of `TODO.md`.
 
 ## Known limitations
 
@@ -313,7 +328,7 @@ The library branches `DSOEnhancedWithoutPortal` and `main` and the DevSecOps Man
 - Separate GoldenFix jobs for the services of one repository raise separate pull requests, and two of them that start in the same minute collide on the branch name. One job for the repository with `pipelineKeys` avoids both.
 - The name of a pub component is taken from the Nexus IQ coordinates `name` or `packageId`; this has not been checked against a real Nexus IQ report of a pub component.
 - On Windows agents, and when the copy of the workspace for SAST cannot be made, the *Static analysis* stage keeps the earlier order: SAST queues its scans, then Nexus IQ and SonarQube run one after another while AppScan scans. A SAST failure before the scans are queued then skips Nexus IQ and GoldenFix for that build.
-- Nothing of sections 22 to 26 was run against the real BBH systems (Oracle, Nexus, SonarQube, AppScan on Cloud, OpenShift, UrbanCode Deploy); the suites simulate them and run the real Liquibase command line only. The pilot is item 1.1 of `TODO.md`.
+- Nothing of sections 22 to 27 was run against the real BBH systems (Oracle, Nexus, SonarQube, AppScan on Cloud, OpenShift, UrbanCode Deploy); the suites simulate them and run the real Liquibase command line only. The pilot is item 1.1 of `TODO.md`.
 - The compile check, the utPLSQL run, the Nexus upload and fetch, and the SonarQube PL/SQL analysis were not run against a real Oracle database, Nexus or SonarQube server when the feature was added; the formats they rely on come from the Liquibase and utPLSQL sources.
 - A SQL and PL/SQL service with a database block runs on Linux and macOS agents only, and connects with EZConnect, TCPS or descriptor URLs, not with TNS aliases or wallets.
 - The fake findFiles of the test harness matches "**/" as zero or one folder (FakeJenkins.groovy:240); the database code does not use findFiles.

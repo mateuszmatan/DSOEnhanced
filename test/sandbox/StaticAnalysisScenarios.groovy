@@ -234,8 +234,9 @@ check('AppScanService.removeStagedSources: one step removes the SAST staging cop
                 && removal(false) == ['powershell Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'],
         removal(true) + removal(false))
 
-Closure sonarRun = { Map cfg, Map files ->
+Closure sonarRun = { Map cfg, Map files, Closure shHandler = null ->
     FakeScript sc = new FakeScript()
+    if (shHandler) sc.shHandler = shHandler
     sc.env.vars.putAll([WORKSPACE: '/ws', PATH: '/usr/bin', CHANGE_BRANCH: 'feature/DSO-2026', GIT_BRANCH: 'origin/master'])
     sc.files.putAll(files)
     Map out = [:]
@@ -255,6 +256,7 @@ Closure sonarRun = { Map cfg, Map files ->
         out.error = SandboxHarness.rejectionOf(t) ?: t.toString()
     }
     out.props = (sc.files['sonar-project.properties'] ?: '') as String
+    out.log = sc.log.join('\n')
     out.calls = sc.calls.join('\n')
     return out
 }
@@ -283,6 +285,49 @@ Map plugin = sonarRun([appName: 'x', buildTool: 'maven', tools: [sonar: [install
 check('SonarQube with tools.sonar.maven.goals: the Maven plugin runs with the branch of the build and keeps its own project key, no properties file is written',
         !plugin.error && !plugin.props && plugin.calls.contains("'sonar:sonar' '-Dsonar.branch.name=feature/DSO-2026'") && !plugin.calls.contains('-Dsonar.projectKey'),
         "error=${plugin.error} calls=${plugin.calls}")
+
+Map npmFlags = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', npm: [sources: 'app', flags: ['-Dsonar.exclusions=**/*.spec.ts']]]]],
+        ['package.json': '{"name":"web"}', 'coverage/lcov.info': ''])
+check('SonarQube of an npm service: the SonarScanner keeps the arguments, the sources and the coverage report of tools.sonar.npm',
+        !npmFlags.error && npmFlags.calls.contains("'sonar-scanner' -Dsonar.host.url=https://tools.bbh.com/sonar -Dsonar.projectKey=com.bbh:web -Dsonar.branch.name=feature/DSO-2026 -Dsonar.exclusions=**/*.spec.ts -Dsonar.sources=app -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info"),
+        "error=${npmFlags.error} calls=${npmFlags.calls}")
+
+Map gradleFlags = sonarRun([appName: 'svc', buildTool: 'gradle', tools: [sonar: [installationName: 'SonarBBH', gradle: [flags: ['--info', '-Dsonar.exclusions=gen/**']]]]], ['build.gradle': ''])
+check('SonarQube of a Gradle service without sonar tasks: the SonarScanner gets only the -Dsonar. arguments of tools.sonar.gradle.flags',
+        !gradleFlags.error && gradleFlags.calls.contains("'sonar-scanner' ") && gradleFlags.calls.contains(' -Dsonar.exclusions=gen/**') && !gradleFlags.calls.contains('--info'),
+        "error=${gradleFlags.error} calls=${gradleFlags.calls}")
+
+Map androidPlugin = sonarRun([appName: 'app', buildTool: 'android', tools: [sonar: [installationName: 'SonarBBH', projectKey: 'team-key', gradle: [tasks: ['sonarqube']]]]], ['build.gradle': '', 'app/src/main/AndroidManifest.xml': ''])
+check('SonarQube of an Android service with tools.sonar.gradle.tasks: the Gradle plugin runs, not the SonarScanner',
+        !androidPlugin.error && androidPlugin.calls.contains('sonarqube') && androidPlugin.calls.contains('-Dsonar.branch.name=feature/DSO-2026') && !androidPlugin.calls.contains("'sonar-scanner'"),
+        "error=${androidPlugin.error} calls=${androidPlugin.calls}")
+
+List refused = []
+Map noBranch = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH']]], ['package.json': '{"name":"web"}'], { Map args ->
+    String text = (args.script ?: '') as String
+    if (text.contains("'sonar-scanner'") && text.contains('-Dsonar.branch.name=')) {
+        refused << text
+        throw new RuntimeException('script returned exit code 2')
+    }
+    return ''
+})
+check('SonarQube that refuses the branch: the analysis runs again without -Dsonar.branch.name and passes',
+        !noBranch.error && refused.size() == 1 && noBranch.calls.readLines().any { it.contains("'sonar-scanner'") && !it.contains('-Dsonar.branch.name=') },
+        "error=${noBranch.error} refused=${refused} calls=${noBranch.calls}")
+
+Map branchOff = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: false]]], ['package.json': '{"name":"web"}'])
+check('SonarQube with tools.sonar.branchAnalysis: false: no branch name is passed',
+        !branchOff.error && branchOff.calls.contains("'sonar-scanner'") && !branchOff.calls.contains('sonar.branch.name'),
+        "error=${branchOff.error} calls=${branchOff.calls}")
+
+Map branchWrong = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: 'sometimes']]], ['package.json': '{"name":"web"}'])
+Map branchDefault = sonarRun([appName: 'web', buildTool: 'npm', tools: [sonar: [installationName: 'SonarBBH', branchAnalysis: true]]], ['package.json': '{"name":"web"}'])
+check('SonarQube with a wrong tools.sonar.branchAnalysis: the default true is used with a warning, and an explicit true is named as a key that can be removed',
+        !branchWrong.error && branchWrong.calls.contains('-Dsonar.branch.name=feature/DSO-2026')
+                && branchWrong.log.contains("[WARN] [SONAR] payments: tools.sonar.branchAnalysis: 'sometimes' is not true or false - using the default true")
+                && branchDefault.calls.contains('-Dsonar.branch.name=feature/DSO-2026')
+                && branchDefault.log.contains('[INFO] [SONAR] payments: tools.sonar.branchAnalysis: true equals the default - the key can be removed'),
+        "wrong=${branchWrong.log} default=${branchDefault.log}")
 
 def autoScript = new FakeScript()
 autoScript.files['pom.xml'] = '<project><properties><java.version>17</java.version></properties><build><plugins><plugin><artifactId>jacoco-maven-plugin</artifactId></plugin></plugins></build></project>'
@@ -396,6 +441,9 @@ try {
         prUnits.sonar = parser.sonarIssuesFromJson([issues: [[component: 'com.bbh:pay:src/main/java/A.java', line: 12, severity: 'CRITICAL', rule: 'java:S2076', message: 'Injection'],
                                                          [component: 'com.bbh:pay:pom.xml', severity: 'MAJOR', rule: 'xml:S1', message: 'no line']]])
         prUnits.kept = svc.atLeast([[severity: 'LOW'], [severity: 'MEDIUM'], [severity: 'CRITICAL']], 'MEDIUM', svc.sastOrder())
+        prUnits.limits = svc.decorationLimits([maxComments: 'many', sastMinSeverity: 'urgent', sonarMinSeverity: 'major'])
+        prUnits.noLimits = svc.decorationLimits([:])
+        prUnits.ownLimits = svc.decorationLimits([maxComments: 5, sastMinSeverity: 'high', sonarMinSeverity: 'BLOCKER'])
         prUnits.posted = svc.alreadyPosted(['**[SonarQube] CRITICAL: java:S2076**\n\nInjection'], '**[SonarQube] CRITICAL: java:S2076**\n\nInjection')
         prUnits.fresh = svc.alreadyPosted(['other'], 'new text')
         prUnits.server = pub.commentTexts([values: [[action: 'COMMENTED', comment: [text: 'a']], [action: 'APPROVED']]], false)
@@ -412,6 +460,14 @@ check('pull request decoration: SonarQube issues with a line become line finding
         !prUnits.error && prUnits.sonar.size() == 1 && prUnits.sonar[0].file == 'src/main/java/A.java' && prUnits.sonar[0].line == 12
                 && prUnits.kept.size() == 2 && prUnits.posted == true && prUnits.fresh == false
                 && prUnits.server == ['a'] && prUnits.cloud == ['b'],
+        prUnits)
+check('pull request decoration: a wrong limit falls back to its default with a warning, a limit equal to the default is named as removable, and a limit that is set wins',
+        !prUnits.error && prUnits.limits.maxComments == 25 && prUnits.limits.sastMinSeverity == 'MEDIUM' && prUnits.limits.sonarMinSeverity == 'MAJOR'
+                && prUnits.limits.warnings == ["pullRequestDecoration.maxComments: 'many' is not a number of comments - using the default 25",
+                                               "pullRequestDecoration.sastMinSeverity: 'urgent' is not one of LOW, MEDIUM, HIGH, CRITICAL - using the default MEDIUM"]
+                && prUnits.limits.notes == ['pullRequestDecoration.sonarMinSeverity: MAJOR equals the default - the key can be removed']
+                && prUnits.noLimits.maxComments == 25 && !prUnits.noLimits.warnings && !prUnits.noLimits.notes
+                && prUnits.ownLimits.maxComments == 5 && prUnits.ownLimits.sastMinSeverity == 'HIGH' && prUnits.ownLimits.sonarMinSeverity == 'BLOCKER' && !prUnits.ownLimits.warnings,
         prUnits)
 check('pull request decoration: an AppScan SAST finding marked Noise is not commented',
         !prUnits.error && prUnits.html.size() == 1 && prUnits.html[0].file == 'src/main/java/A.java' && prUnits.html[0].line == 42 && prUnits.html[0].severity == 'HIGH',

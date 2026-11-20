@@ -28,6 +28,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `ascii.sh` | `src` and `vars` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
 | `docs-md.sh` | `documentation.md` is the Markdown rendering of `documentation.confluence` for Bitbucket (regenerates it when it is not) |
+| `user-guides.sh` | `docs/USER_GUIDE_PORTAL.html` and `docs/USER_GUIDE_WITHOUT_PORTAL.html` are the rendering of their Markdown files (regenerates them when they are not; skipped without the Python module `markdown`) |
 
 The classes of the SQL and PL/SQL services (`DatabaseBuild`, `LiquibaseRunner`, `DatabaseDeployService`, `DatabaseSettings`, `LiquibaseOutput`) pass every check above; they added no check of their own.
 

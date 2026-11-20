@@ -48,14 +48,14 @@ A project chooses how much of this a job runs: only the static security scan, th
 | Java, Kotlin, Groovy with Gradle or Maven | Yes | Yes |
 | C# and .NET (SDK and classic MSBuild) | Yes | Yes |
 | Angular and Node.js as the front end of a Gradle or Maven service | Yes | Yes |
-| Angular and Node.js on their own (npm) | Yes | Planned |
-| Python (pip) | Yes | Planned |
+| Angular and Node.js on their own (npm) | Yes | Yes |
+| Python (pip) | Yes | Yes |
 | Database projects with Liquibase | Yes | Yes |
 | Database projects of SQL and PL/SQL files only | Yes | Yes |
 | Flutter | Yes | Yes |
-| Android and iOS | Yes | Planned |
+| Android and iOS | Yes | Yes |
 
-*Planned* means that the pipeline already builds and scans such a project from the configuration file in its repository; only the portal form for it is still to be built.
+Every technology the pipeline supports can now be configured either with the configuration file in the repository or in the portal form.
 
 ## 5. Where we are on 2026-11-20
 
@@ -68,8 +68,11 @@ Delivered in the last iteration:
 - Gradle and Maven plugins taken from the BBH Nexus when a build cannot find them.
 - Nexus delivery settings for upload and download (`delivery.push`, `delivery.pull`, `delivery.nexusDeliveryEnabled`).
 - The corrections of the BBH pull requests 70 to 76 are present in both versions of the library.
+- Portal forms for Angular and Node.js on their own (npm), Python (pip), Android and iOS, and a repository scan in the portal that recognises a project the same way the pipeline does.
+- The two versions of the library now behave the same in pull request feedback, in the way SonarQube is run and in the sign-in to a shared version catalog repository.
+- One shared set of user guides for the library and the portal.
 
-How it was verified: the three sources were reviewed against each other on 2026-11-20. The library is covered by an automated suite of more than 1,800 checks in the version without portal and more than 1,900 in the version with portal, which run the real pipeline code against simulated Jenkins, Nexus, AppScan, SonarQube, OpenShift and UrbanCode, and the real Liquibase command line. The portal is covered by its backend unit and regression tests and 845 front-end tests. All pass.
+How it was verified: the three sources were reviewed against each other on 2026-11-20. The library is covered by an automated suite of more than 1,800 checks in the version without portal and more than 1,900 in the version with portal, which run the real pipeline code against simulated Jenkins, Nexus, AppScan, SonarQube, OpenShift and UrbanCode, and the real Liquibase command line. The portal is covered by its backend unit and regression tests and more than 850 front-end tests. All pass.
 
 What that does not prove: nothing in this iteration was run against the real BBH systems. A pilot on real infrastructure is the next step and the first item of the to-do list.
 
@@ -79,14 +82,13 @@ What that does not prove: nothing in this iteration was run against the real BBH
 |-------|----------------|----------------|
 | Pilot on real BBH infrastructure | The suite simulates the BBH systems. Real Oracle, Nexus, SonarQube, AppScan, OpenShift and UrbanCode can behave differently. | Two or three pilot projects (one Java, one database, one .NET or Angular) and access to the lower test region. |
 | Portal sign-in | The portal has no sign-in yet and must stay inside the test network. | A decision to connect it to BBH single sign-on, with roles and an audit trail, before production use. |
-| Portal forms for npm, Python, Android and iOS | These projects work today only with the configuration file. | Priority against the other to-do items. |
 | Ownership | The library and the portal will keep growing. | A named owner for the roadmap and for the BBH policy values (thresholds, manual effort assumptions). |
 
 ## 7. Next steps
 
 1. **Now:** pilot on real BBH infrastructure and correction of what it finds.
-2. **Next:** portal sign-in with roles; portal forms for npm and Python; one shared set of user guides.
-3. **Later:** portal forms for Android and iOS; release delivery of the approved artifact for every build tool; a management dashboard of the time recovered across all projects.
+2. **Next:** portal sign-in with roles; continuous integration of the three sources.
+3. **Later:** release delivery of the approved artifact for every build tool; a management dashboard of the time recovered across all projects.
 
 ## 8. Where to read more
 
