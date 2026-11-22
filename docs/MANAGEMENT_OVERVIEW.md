@@ -1,17 +1,17 @@
 # DevSecOps at BBH: overview for senior management
 
-Status of 2026-11-20. Prepared by the DevSecOps team, ITSS COE.
+Status of 2026-11-20, names as of 2026-11-22. Prepared by the DevSecOps team, ITSS COE.
 
 ## 1. What it is, in one paragraph
 
-DevSecOps at BBH is one standard way to build, test, scan, deliver and deploy software. A project adds a short configuration to its repository, or fills in a form in the DevSecOps Management Portal, and every build then runs the same sequence of quality and security steps in Jenkins, without anyone starting them by hand. The result of every build is one report that says whether the release may go on, and why.
+DevSecOps at BBH is one standard way to build, test, scan, deliver and deploy software. A project adds a short configuration to its repository, or fills in a form in ITSS COE OneView, and every build then runs the same sequence of quality and security steps in Jenkins, without anyone starting them by hand. The result of every build is one report that says whether the release may go on, and why.
 
 It consists of two products that are developed together:
 
 | Product | What it is | Who uses it |
 |---------|------------|-------------|
 | **DSOEnhanced** | The Jenkins shared library that runs the pipeline. It exists in two versions that behave the same: one that reads its settings from files in the repository (*without portal*), and one that reads them from the portal (*with portal*). | Every project team, through its Jenkins jobs |
-| **DevSecOps Management Portal** | A web application in which the settings of products and services, and the BBH-wide defaults (Global Settings), are kept, checked and handed to the pipeline. | Project teams and the DevSecOps team |
+| **ITSS COE OneView** | The portal of the ITSS Center of Excellence, formerly the DevSecOps Management Portal. It joins three areas: **DevSecOps**, a web application in which the settings of products and services, and the BBH-wide defaults (Global Settings), are kept, checked and handed to the pipeline; **QA**, the quality assurance metrics of the products; and **Agile**, the agile maturity of teams and business services. DevSecOps is in use; the pages of QA and Agile name what is planned. | Project teams and the DevSecOps team |
 
 ## 2. What a build does
 
@@ -71,6 +71,8 @@ Delivered in the last iteration:
 - Portal forms for Angular and Node.js on their own (npm), Python (pip), Android and iOS, and a repository scan in the portal that recognises a project the same way the pipeline does.
 - The two versions of the library now behave the same in pull request feedback, in the way SonarQube is run and in the sign-in to a shared version catalog repository.
 - One shared set of user guides for the library and the portal.
+
+Since then, on 2026-11-22: the portal is ITSS COE OneView (short: OneView), and both versions of the library name it so in their documents, logs and examples. Jenkins tells the library where OneView is with one variable, `ONEVIEW_URL`; the former variable `DSO_PORTAL_URL` and every existing `Jenkinsfile` and configuration file keep working without a change. A build whose `Jenkinsfile` holds a pipeline key now sends its report to OneView without a further setting, so OneView shows the report of the build on the page of each of its pipelines.
 
 How it was verified: the three sources were reviewed against each other on 2026-11-20. The library is covered by an automated suite of more than 1,800 checks in the version without portal and more than 1,900 in the version with portal, which run the real pipeline code against simulated Jenkins, Nexus, AppScan, SonarQube, OpenShift and UrbanCode, and the real Liquibase command line. The portal is covered by its backend unit and regression tests and more than 850 front-end tests. All pass.
 

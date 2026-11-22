@@ -1,6 +1,6 @@
 # DevSecOps: to-do list
 
-Open work for the DSOEnhanced library (branches `DSOEnhancedWithoutPortal` and `main`) and the DevSecOps Management Portal, after the review of the three sources on 2026-11-20. The same file is kept in all three sources. What was delivered is in `roadmap.md` and the changelogs; the overview for senior management is `docs/MANAGEMENT_OVERVIEW.md`.
+Open work for the DSOEnhanced library (branches `DSOEnhancedWithoutPortal` and `main`) and ITSS COE OneView, after the review of the three sources on 2026-11-20. The same file is kept in all three sources. What was delivered is in `roadmap.md` and the changelogs; the overview for senior management is `docs/MANAGEMENT_OVERVIEW.md`.
 
 Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and the portal, so that the three stay consistent; keep `config.yaml`, `devsecops_config.yaml` and the `Jenkinsfile` backward compatible; a setting that is given wins, a wrong one falls back to the default with a log line, and the build fails only when the default fails as well.
 
@@ -13,6 +13,17 @@ Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and t
 | 1.4 | **Release delivery of the safe artifact (stage 12)** for Gradle, Maven, npm, pip and Liquibase. Today only the NuGet package of a .NET service is pushed; for the other build tools the snapshot of stage 6 stays the delivered artifact. | Library, both branches | The release must hold the artifact that passed the gate. |
 | 1.5 | **Continuous integration of the three sources.** A Jenkins job that runs `test/run-all.sh` of each library branch and the backend and front-end tests of the portal on every push. | All three | The suites are run by hand today. |
 
+## ITSS COE OneView: the three areas
+
+OneView joins the areas DevSecOps, QA and Agile. The area switch, the pages `/qa` and `/agile` and the packages `domain.qa`, `application.qa`, `domain.agile` and `application.agile` exist; the functions below are open and need their scope agreed first.
+
+| # | Item | Where | Why |
+|---|------|-------|-----|
+| O.1 | **QA metrics.** Agree the metrics (test results of the pipelines, coverage and the SonarQube quality gate, defects), their InfluxDB measurements and the Grafana dashboards; then the use cases, the InfluxDB and Grafana adapters, the REST API and the page. | Portal, area QA | The page of the area only names what is planned. |
+| O.2 | **Agile maturity.** Agree the maturity model (dimensions, levels, who assesses and how often); then the tables (`AGL_`), the use cases, the REST API and the page with the trend and the comparison of business services. | Portal, area Agile | The page of the area only names what is planned. |
+| O.3 | **SAMM charts in Grafana and InfluxDB.** Write the SAMM scores to InfluxDB as a time series and link their Grafana dashboard from the SAMM page. | Portal, area DevSecOps | SAMM is calculated at the moment of the request and has no history. |
+| O.5 | **Area of a section under its own address** (`/devsecops/...`), once the QA and Agile areas have more than one section. | Portal | The sections of DevSecOps keep their addresses today. |
+
 ## Priority 2: consistency of the three sources
 
 | # | Item | Where | Why |
@@ -20,6 +31,8 @@ Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and t
 | 2.5 | **Portal build tool MSBuild as a choice of its own.** An import of `msbuild` becomes `dotnet` today and the library detects the mode. | Portal | Completes the list of the library. |
 | 2.7 | **Liquibase step of a Gradle or Maven service in the portal** (`build.liquibase`, `tests.unitTests.liquibase`), and the rendering of `delivery.liquibase` and `tools.sonar.sonarScannerVersion` of a Liquibase project. | Portal | Read by the import, without a field in the form. |
 | 2.8 | **`security_findings` points with `scanner=niq`** carry every count as 0; the counts are only in `vulnerabilities` with `scanner=nexusiq`. The correction changes recorded golden runs. | Library, both branches | Dashboards read the wrong series. |
+| 2.9 | **One name for the Library defaults.** The messages of the version of the library with the portal say "Global Settings of OneView" (for example for `tools.oracleJdbc.path`), while the page of OneView is labelled *Library defaults* (Admin, Library defaults) and no menu entry is called Global Settings. Agree on one name and use it in the messages of the library, in OneView and in the documents. | All three | A reader of a build log looks for a page that has another name. |
+| 2.10 | **Pull request decorations and OneView.** OneView offers `POST /api/dso/bitbucket/pull-requests/decorate`, but the library never calls it: it decorates pull requests through Bitbucket itself, although `roadmap.md` (*Bitbucket PR Decoration and Shift-Left Feedback*) says that the decoration events are synchronized with OneView through it. Decide whether the library reports its pull request decorations to OneView or the endpoint is removed, and correct the roadmap. | All three | An endpoint that no build calls, and a statement in the roadmap of both library branches that does not hold. |
 
 ## Priority 3: improvements
 
@@ -31,6 +44,11 @@ Rules for every item: change `DSOEnhancedWithoutPortal` first, then `main` and t
 | 3.4 | **GoldenFix beyond the repository of the service**: a catalog published as an artifact or kept in another repository, a BOM or parent from Nexus, a constant in `buildSrc`; one pull request for the services of one repository. | Library, both branches | Today such a component is named with the reason and not raised. |
 | 3.5 | **Front-end formatting.** Four files of the portal front end do not pass the Prettier check. | Portal | Keeps the lint run clean. |
 | 3.6 | **Dart rules in SonarQube**, and the name of a pub component in a real Nexus IQ report. | Library, both branches | Known limitations of Flutter projects. |
+
+## Done on 2026-11-22
+
+- O.4: the library names the portal ITSS COE OneView (short: OneView) and its repository `ITSS-COE-OneView` in its documents, logs (`[ONEVIEW]`) and examples, in both branches. The version with the portal reads the Jenkins variables `ONEVIEW_URL` and `ONEVIEW_AGENT` and the settings block `oneview:`; the former names `DSO_PORTAL_URL`, `PORTAL_URL` of the report upload, `DSO_PORTAL_AGENT` and `portal:` are read when the new name is not set or cannot be used, with a log line that says how to rename them, so every `Jenkinsfile`, configuration file and Jenkins installation works unchanged. The guide and the examples of OneView name `ONEVIEW_URL`, the screenshots `examples/screenshots/v19` show OneView under its new name, and the shared files `TODO.md`, `docs/MANAGEMENT_OVERVIEW.md` and the two user guides are the same again in the three sources.
+- A run that read its configuration from OneView with the key or keys of its `Jenkinsfile` uploads its pipeline report to OneView without a further setting (`POST /api/dso/reports`, once for each key), so every pipeline of a shared job shows the report of the run. Until now a job had to set `DSO_PIPELINE_KEY`, which still wins when it is set. An upload waits at most 60 seconds and never changes the result of the build. Version with the portal.
 
 ## Done after the review, on 2026-11-20
 

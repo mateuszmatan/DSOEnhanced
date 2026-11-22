@@ -31,7 +31,7 @@ class ConfigLoader implements Serializable {
         String call = "${entryPoints[variant] ?: 'devSecOpsPipeline'}(projectNames: '<services of this repository>', agentNames: ['<agent label>']${security})"
         List<String> files = BuildUtils.repositoryConfigFiles()
         if (jenkinsfile.containsKey('pipelineKey') || jenkinsfile.containsKey('pipelineKeys')) {
-            script.error "[INIT] pipelineKey and pipelineKeys are settings of the DevSecOps portal, which this release of the library does not read: " +
+            script.error "[INIT] pipelineKey and pipelineKeys are settings of OneView, which this release of the library does not read: " +
                     "write ${call} and commit ${files[0]} at the root of the repository"
         }
         if (!jenkinsfile.agentNames) {

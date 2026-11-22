@@ -449,8 +449,8 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 </ul>
 <hr />
 <h2 id="1-overview-and-standalone-model">1. Overview and Standalone Model</h2>
-<p>In the <code>DSOEnhancedWithoutPortal</code> branch, the library operates independently of the management portal:
-- <strong>No Portal Dependency:</strong> The pipeline never polls external portal APIs for configuration.
+<p>In the <code>DSOEnhancedWithoutPortal</code> branch, the library operates independently of ITSS COE OneView, the portal of the ITSS Center of Excellence with its areas DevSecOps, QA and Agile (formerly the DevSecOps Management Portal):
+- <strong>No Portal Dependency:</strong> The pipeline never polls OneView or any other external portal API for configuration and sends it no report, and Jenkins needs no <code>ONEVIEW_URL</code> (formerly <code>DSO_PORTAL_URL</code>); the variable belongs to the version with the portal, see <code>docs/USER_GUIDE_PORTAL.md</code>.
 - <strong>Configuration as Code:</strong> All pipeline parameters are stored in <code>devsecops_config.yaml</code> (or backward-compatible <code>config.yaml</code>) at the root of your application Git repository.
 - <strong>Smart Auto-Detection &amp; Validation (<code>[WARN]</code> Fallback):</strong> When <code>buildTool</code>, <code>deployTarget</code>, or tool-specific sub-parameters (<code>build.dotnet.mode</code>, <code>tests.unitTests.dotnet.runner</code>, <code>coverageTool</code>) are omitted, <code>RepoStackAutoResolver</code> automatically detects them from repository files (strictly scoped to each service's <code>sourceDir</code> in multi-repository and multi-module setups). If an invalid or unrecognized value is provided, the pipeline logs a <code>[WARN]</code> message and falls back to the auto-detected setting.
 - <strong>Auto-resolved settings are visible:</strong> every value the pipeline fills in or corrects is printed in the build log as <code>[INIT] Auto-resolved for &lt;service&gt;: &lt;setting&gt; = &lt;value&gt; (&lt;why&gt;)</code> and listed in the <em>Auto-resolved settings</em> card of the pipeline report, so you can copy it into <code>devsecops_config.yaml</code> to pin it.
@@ -1140,7 +1140,7 @@ projects:
 </code></pre>
 <hr />
 <h2 id="15-auto-resolved-parameters-reference">15. Auto-Resolved Parameters Reference</h2>
-<p>The build tool is detected in this order, in the library and in <strong>Scan &amp; Auto-fill</strong> of the Portal alike: <code>pubspec.yaml</code> (Flutter), the iOS files, <code>pom.xml</code> (Maven), the Gradle files (Android with an <code>AndroidManifest.xml</code>), the .NET files, a Liquibase changelog, the Python files, <code>package.json</code> or <code>angular.json</code> at the root (npm), and at last a repository of only SQL and PL/SQL files (<code>sql</code>).</p>
+<p>The build tool is detected in this order, in the library and in <strong>Scan &amp; Auto-fill</strong> of OneView alike: <code>pubspec.yaml</code> (Flutter), the iOS files, <code>pom.xml</code> (Maven), the Gradle files (Android with an <code>AndroidManifest.xml</code>), the .NET files, a Liquibase changelog, the Python files, <code>package.json</code> or <code>angular.json</code> at the root (npm), and at last a repository of only SQL and PL/SQL files (<code>sql</code>).</p>
 <div class="table-wrapper"><table>
 <thead>
 <tr>

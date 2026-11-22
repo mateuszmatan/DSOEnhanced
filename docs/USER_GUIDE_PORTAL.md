@@ -1,6 +1,6 @@
-# DevSecOps Management Portal & DSOEnhanced – User Guide
+# ITSS COE OneView & DSOEnhanced – User Guide
 
-> **Comprehensive Guide for the Portal-Integrated Version (`DevSecOpsManagementPortal` + `DSOEnhanced` library on `main` branch).**
+> **Comprehensive Guide for the Portal-Integrated Version (`ITSS-COE-OneView` + `DSOEnhanced` library on `main` branch).**
 > Designed for non-technical users, Product Owners, business analysts, and engineers onboarding applications at Brown Brothers Harriman (BBH).
 
 ---
@@ -30,7 +30,9 @@
 
 ## 1. Overview and Architecture
 
-The DevSecOps Management Portal is the central management interface for BBH delivery pipelines.
+ITSS COE OneView (short: OneView) is the portal of the ITSS Center of Excellence at BBH. It joins three areas, chosen with the switch next to its name in the header: **DevSecOps**, the central management interface for BBH delivery pipelines that this guide describes; **QA**, the quality assurance metrics of the products; and **Agile**, the agile maturity of teams and business services. The pages of QA and Agile name what is planned. Until 2026-11-22 OneView had the working name DevSecOps Management Portal; this guide calls it OneView or the portal.
+
+**Jenkins setup, once:** a Jenkins administrator sets the global environment variable `ONEVIEW_URL` to the address of OneView, for example `https://oneview.apps.bbh.com` (Manage Jenkins, System, Global properties, Environment variables). The address is written as `https://<host>[:<port>][/<path>]`, without a user, password, query or spaces. `DSO_PORTAL_URL`, the former name of the variable, still works: the library reads it while `ONEVIEW_URL` is not set or cannot be used and says in the console of the build how to rename it. No `Jenkinsfile` changes. A job whose `Jenkinsfile` pins a release of the library from before the new name (`@Library('DSOEnhanced@<older tag>')`) reads only `DSO_PORTAL_URL`: keep both variables set, with the same value, until no job uses such a release. Meanwhile each build of the current library says that `DSO_PORTAL_URL` holds the same value and can be removed; that line is expected. The same holds for `ONEVIEW_AGENT` and its former name `DSO_PORTAL_AGENT`, the label of the agents that read OneView.
 
 ### Key Principles:
 - **No secrets in source code:** No API keys, passwords, or tokens are ever committed to Git repositories. Credentials reference secure Jenkins credentials store IDs.
@@ -39,7 +41,8 @@ The DevSecOps Management Portal is the central management interface for BBH deli
   @Library('DSOEnhanced@main') _
   devSecOpsPipeline(pipelineKey: '5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001')
   ```
-- **Automated Configuration Retrieval:** When a Jenkins build starts, the shared library fetches its configuration directly from the Portal via REST API, executes the required stages, and streams telemetry to InfluxDB.
+- **Automated Configuration Retrieval:** When a Jenkins build starts, the shared library fetches its configuration directly from OneView via REST API (`GET $ONEVIEW_URL/api/dso/config/<key>`), executes the required stages, and streams telemetry to InfluxDB.
+- **Automated Report Upload:** After its stages the run posts its pipeline report to OneView (`POST $ONEVIEW_URL/api/dso/reports`) with the key of its `Jenkinsfile`, once for each key of `pipelineKeys`, so the page of every pipeline of the run shows the report. The job needs no setting for it, and the agent that ran the pipeline must reach OneView. The console shows `[ONEVIEW] Uploading pipeline report to <address>/api/dso/reports for job <job> build <number> with pipeline key <hint>`; the hint is the first 8 and the last 4 characters of the key, and the whole key is never printed. An upload that fails is one `[ONEVIEW] Failed to upload pipeline report to OneView for pipeline key <hint>: <reason>` line, after at most 60 seconds, and never changes the result of the build. A `DSO_PIPELINE_KEY` or `PIPELINE_KEY` in the environment of a job wins over the keys of the `Jenkinsfile`: the report is then posted once, with that key, and a job that sets it to its own key is told in the console that it can be removed.
 - **Enterprise-Grade UI:** Designed specifically for BBH investment banking requirements, providing clear visual hierarchy, accessible validation, and immediate feedback.
 
 ### Quick Reference Index
@@ -120,7 +123,7 @@ A Service represents an independently deployable component (e.g., backend API, w
 - **Auto-Discover from Bitbucket:**
   - *Inspect repository* reads the repository and fills the build tool (Gradle, Maven, Flutter, Liquibase or C# / .NET from `*.sln`, `*.csproj`, `global.json`, `Directory.Packages.props` or `packages.config`), the deployment target, the Node.js build and the SonarQube defaults.
   - Below the result the portal lists every auto-resolved setting with its value and why (for example `buildTool` = `DOTNET`, *App.sln found (C# / .NET)*), so you can check what was filled in before you save.
-  - The pipeline report shows the same list for each run in the *Auto-resolved settings* card, and the report upload stores it with the run in the portal.
+  - The pipeline report shows the same list for each run in the *Auto-resolved settings* card, and the report upload of a run with a pipeline key stores it with the run in the portal.
 
 ---
 
@@ -374,7 +377,7 @@ Every pipeline execution streams performance and quality data to InfluxDB:
 
 ## 14. OWASP SAMM Software Assurance Maturity Model
 
-The DevSecOps Management Portal includes a dedicated **OWASP SAMM** section assessing software assurance maturity across all applications and business services.
+ITSS COE OneView includes a dedicated **OWASP SAMM** section assessing software assurance maturity across all applications and business services.
 
 ### Core Capabilities:
 - **Continuous Maturity Assessment:** SAMM v2.0 posture across 5 business functions (Governance, Design, Implementation, Verification, Operations) and 11 automated practices.
@@ -399,7 +402,7 @@ The **Repo Auto-Discovery / Smart Wizard** removes over 80% of onboarding fricti
 ### How it Works:
 1. When creating or updating a service in the Self-service wizard or Admin editor, specify the **Bitbucket Repo URL** and target **Branch**.
 2. Click **Scan & Auto-fill**.
-3. The Portal executes an inspection (`/api/catalog/inspect-repo`) that reads only the root folder of the branch through the Bitbucket REST API, and fills in the build tool, the build and unit test commands, the Node.js build switch, the deployment target and an empty SonarQube project key; every other field keeps its value. A marker in a subfolder, such as `frontend/package.json` or `gradle/wrapper/gradle-wrapper.properties`, is never found through Bitbucket. A Liquibase service with database changes (one whose Changelog file is set; see chapter 7, "SQL and PL/SQL changes with Liquibase", of the Portal guide `docs/documentation.md`) keeps its build tool, its commands and its deployment settings; the scan fills in only an empty SonarQube project key.
+3. The Portal executes an inspection (`/api/catalog/inspect-repo`) that reads only the root folder of the branch through the Bitbucket REST API, and fills in the build tool, the build and unit test commands, the Node.js build switch, the deployment target and an empty SonarQube project key; every other field keeps its value. A marker in a subfolder, such as `frontend/package.json` or `gradle/wrapper/gradle-wrapper.properties`, is never found through Bitbucket. A Liquibase service with database changes (one whose Changelog file is set; see chapter 7, "SQL and PL/SQL changes with Liquibase", of the OneView guide `docs/documentation.md`) keeps its build tool, its commands and its deployment settings; the scan fills in only an empty SonarQube project key.
 4. Developers review the suggestions, make any project-specific adjustments, and click **Save**.
 
 Below the result the form lists every setting the scan filled in, with its value and why (for example `buildTool` = `DOTNET`, *App.sln found (C# / .NET)*). The pipeline report of every run shows the settings the library auto-resolved in its *Auto-resolved settings* card, and the report upload stores the same list (service, setting, value, why) with the run, returned as `autoResolved` by `GET /api/pipelines/{id}/report`.
@@ -491,7 +494,8 @@ Direct feedback in developer pull requests accelerates remediation and prevents 
 ## 18. Deployment Modes and Configuration Guide
 
 ### Mode 1: With Portal (`main` branch)
-* **Configuration Source:** Centrally managed in DevSecOps Management Portal.
+* **Configuration Source:** Centrally managed in ITSS COE OneView, area DevSecOps.
+* **Jenkins Setup:** The global environment variable `ONEVIEW_URL` holds the address of OneView, for example `https://oneview.apps.bbh.com`; the agents of the label in `ONEVIEW_AGENT` (`linux-agent` when it is not set) read the configuration. The former names `DSO_PORTAL_URL` and `DSO_PORTAL_AGENT` still work when the new ones are not set or cannot be used; while a job still uses a release of the library from before the new names, both variables of each pair stay set with the same value. After its stages a run posts its pipeline report to `$ONEVIEW_URL/api/dso/reports` with the key of its `Jenkinsfile`, once for each key, without a further setting.
 * **Onboarding:** Use **Scan & Auto-fill** in the service editor to auto-populate fields from Bitbucket: the build tool, the build and unit test commands, the Node.js build switch, the deployment target and an empty SonarQube project key. A service with database changes keeps all of them except the SonarQube project key.
 * **Pipeline Execution:** Application repository requires only a single-line `Jenkinsfile`:
   ```groovy
@@ -502,6 +506,7 @@ Direct feedback in developer pull requests accelerates remediation and prevents 
 
 ### Mode 2: Standalone Without Portal (`DSOEnhancedWithoutPortal`, or a Jenkinsfile without a pipeline key)
 * **Configuration Source:** `devsecops_config.yaml` in the application Git repository.
+* **Pipeline Report in OneView:** The `DSOEnhancedWithoutPortal` branch never talks to OneView and posts no report. A `Jenkinsfile` without a pipeline key on the `main` branch posts its report only when the job gives it a pipeline key in `DSO_PIPELINE_KEY` (or its `devsecops_config.yaml` names one in `oneview.pipelineKey`) and an address in `ONEVIEW_URL` (or `oneview.url`); without a key nothing is posted.
 * **Auto-Resolve Default:** Enabled by default (`autoresolve parameters: true`).
 * **Minimal Configuration Example:**
   ```yaml

@@ -6,7 +6,7 @@ Jenkins Shared Library engineered and maintained by the **DevSecOps team in ITSS
 
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
-> **Note:** **This is the `DSOEnhancedWithoutPortal` branch, DevSecOps version 0.** A pipeline is configured by its `Jenkinsfile` and the `devsecops_config.yaml` of its repository only, with the global settings that the library bundles. The `main` branch of the repository is the release with the DevSecOps portal. The features of `main` are carried over to this branch.
+> **Note:** **This is the `DSOEnhancedWithoutPortal` branch, DevSecOps version 0.** A pipeline is configured by its `Jenkinsfile` and the `devsecops_config.yaml` of its repository only, with the global settings that the library bundles. The `main` branch of the repository is the release with ITSS COE OneView (OneView), the portal that was called DevSecOps Management Portal before. The features of `main` are carried over to this branch.
 
 ## Contents
 
@@ -4867,9 +4867,9 @@ The cumulative panels in section 7 read from the beginning of the bucket, so the
 
 The messages of a Liquibase service with a database block (`[DB]`, and the database lines of `[NEXUS]`, `[DEPLOY]`, `[SONAR]` and `[SAST]`) are listed with their cause and fix in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase), 14.14.
 
-### "\[INIT\] pipelineKey and pipelineKeys are settings of the DevSecOps portal ..."
+### "\[INIT\] pipelineKey and pipelineKeys are settings of OneView ..."
 
-The Jenkinsfile was written for the `main` release of the library and names a pipeline key. This release reads no key, also no empty one: the build stops before `pipeline {}` and runs nothing. The message names the entry point of the Jenkinsfile, for example "\[INIT\] pipelineKey and pipelineKeys are settings of the DevSecOps portal, which this release of the library does not read: write devSecOpsPipeline(projectNames: '&lt;services of this repository&gt;', agentNames: \['&lt;agent label&gt;'\]) and commit devsecops_config.yaml at the root of the repository"; for an extended pipeline it adds `, securityPipeline: '<security job>'`. Name the services of the repository and the agents in the Jenkinsfile, and commit `devsecops_config.yaml` with the settings of the services at the root of the repository:
+The Jenkinsfile was written for the `main` release of the library, the release with ITSS COE OneView, and names a pipeline key. This release reads no key, also no empty one: the build stops before `pipeline {}` and runs nothing. The message names the entry point of the Jenkinsfile, for example "\[INIT\] pipelineKey and pipelineKeys are settings of OneView, which this release of the library does not read: write devSecOpsPipeline(projectNames: '&lt;services of this repository&gt;', agentNames: \['&lt;agent label&gt;'\]) and commit devsecops_config.yaml at the root of the repository"; for an extended pipeline it adds `, securityPipeline: '<security job>'`. Name the services of the repository and the agents in the Jenkinsfile, and commit `devsecops_config.yaml` with the settings of the services at the root of the repository:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _

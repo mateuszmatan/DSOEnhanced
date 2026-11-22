@@ -116,7 +116,7 @@ Closure noAgents = { String call, String security ->
     "[INIT] No agentNames in the Jenkinsfile: write ${call}${example}${security}) and commit devsecops_config.yaml or config.yaml at the root of the repository".toString()
 }
 Closure keyGiven = { String call, String security ->
-    ("[INIT] pipelineKey and pipelineKeys are settings of the DevSecOps portal, which this release of the library does not read: " +
+    ("[INIT] pipelineKey and pipelineKeys are settings of OneView, which this release of the library does not read: " +
             "write ${call}${example}${security}) and commit devsecops_config.yaml at the root of the repository").toString()
 }
 String extendedJob = ", securityPipeline: '<security job>'"

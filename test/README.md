@@ -1,6 +1,6 @@
 # Library test suite
 
-This is the test suite of the `DSOEnhancedWithoutPortal` branch, the release without the DevSecOps portal, configured by the Jenkinsfile and `devsecops_config.yaml` only; `main` is the release with the portal.
+This is the test suite of the `DSOEnhancedWithoutPortal` branch, the release without ITSS COE OneView (OneView, the portal formerly called DevSecOps Management Portal), configured by the Jenkinsfile and `devsecops_config.yaml` only; `main` is the release with the portal.
 
 Everything runs with one command, without a Jenkins instance:
 
