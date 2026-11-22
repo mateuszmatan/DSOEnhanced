@@ -31,7 +31,7 @@ This document is the complete documentation for the library. Part I states the p
 
 **Part III - Configuration and Behaviour Reference**
 
-- [16. Configuration Reference: the DevSecOps Portal](#16-configuration-reference-the-devsecops-portal)
+- [16. Configuration Reference: ITSS COE OneView](#16-configuration-reference-itss-coe-oneview)
 - [17. Pipeline Stage Reference](#17-pipeline-stage-reference)
 - [18. Security Policy Thresholds](#18-security-policy-thresholds)
 - [19. Supported Build Tools](#19-supported-build-tools)
@@ -165,7 +165,7 @@ When Nexus IQ identifies a vulnerable direct dependency, the library selects a b
 
 **Pipeline engineering is performed once and reused.**
 
-Application teams supply one file, a `Jenkinsfile` of two lines that names the pipeline key of the service, and describe the application once in the DevSecOps portal. The stage definitions, tool integrations, policy engine, report and metrics are maintained centrally. A change to a tool integration is implemented once in the library rather than in each application's pipeline.
+Application teams supply one file, a `Jenkinsfile` of two lines that names the pipeline key of the service, and describe the application once in ITSS COE OneView, the portal of the ITSS Center of Excellence at BBH. The stage definitions, tool integrations, policy engine, report and metrics are maintained centrally. A change to a tool integration is implemented once in the library rather than in each application's pipeline.
 
 ### Delivery acceleration
 
@@ -220,11 +220,11 @@ This chapter is the high level answer to "what can it do". Every item is covered
 
 ### One policy for every application
 
-With a pipeline key, severity thresholds and the required line coverage are global settings of the DevSecOps portal; without a key they come from the copy the library bundles (`resources/com/bbh/devsecops/defaults.yaml`), which the DevSecOps team keeps equal to them. A team cannot set its own thresholds, and every build logs the thresholds it was measured against. Jenkins administrators who want only the portal's thresholds set `DSO_REQUIRE_PIPELINE_KEY`.
+With a pipeline key, severity thresholds and the required line coverage are global settings of ITSS COE OneView; without a key they come from the copy the library bundles (`resources/com/bbh/devsecops/defaults.yaml`), which the DevSecOps team keeps equal to them. A team cannot set its own thresholds, and every build logs the thresholds it was measured against. Jenkins administrators who want only the portal's thresholds set `DSO_REQUIRE_PIPELINE_KEY`.
 
-### Configuration from the DevSecOps portal
+### Configuration from OneView
 
-Every setting of a pipeline lives in the DevSecOps portal. A Jenkinsfile names only the pipeline key the portal issued for the service; at the start of every build the library asks the portal for the configuration of that key over HTTPS, read only. Invalidating a key in the portal stops every pipeline that uses it. The console, the report header and the metrics record which configuration a build used: the key hint, when the portal rendered it and a sha256 hint. A Jenkinsfile without a key still works as before the portal: the library then reads `devsecops_config.yaml`, or `config.yaml` when there is none, from the repository, with the library's own copy of the thresholds (see [How a pipeline reads its configuration](#4-solution-architecture)). Such a build is not stopped by invalidating a key; `DSO_REQUIRE_PIPELINE_KEY` makes a key required.
+Every setting of a pipeline lives in OneView. ITSS COE OneView is the portal of the ITSS Center of Excellence at BBH: it joins the areas DevSecOps, QA and Agile in one place, and the library talks to its DevSecOps area, which holds the products, the pipelines and the pipeline keys and renders the configuration every build reads. A Jenkinsfile names only the pipeline key the portal issued for the service; at the start of every build the library asks the portal for the configuration of that key over HTTPS, read only. Invalidating a key in the portal stops every pipeline that uses it. The console, the report header and the metrics record which configuration a build used: the key hint, when the portal rendered it and a sha256 hint. A Jenkinsfile without a key still works as before the portal: the library then reads `devsecops_config.yaml`, or `config.yaml` when there is none, from the repository, with the library's own copy of the thresholds (see [How a pipeline reads its configuration](#4-solution-architecture)). Such a build is not stopped by invalidating a key; `DSO_REQUIRE_PIPELINE_KEY` makes a key required.
 
 ### Nothing stops silently
 
@@ -291,7 +291,7 @@ To remove over 80% of onboarding friction for application teams, `RepoStackAutoR
 - Multi-language support: C# / .NET, Kotlin, Python (pip), Dart/Flutter.
 - Target environment auto-detection: OpenShift when container files/manifests exist; virtual machines otherwise.
 - Fully backward compatible: explicit parameters in the portal or configuration files always take precedence.
-- Every value the auto-resolve fills in or corrects is listed: the build log prints `[AUTO] <service>: <setting> = <value> (<why>)` and the pipeline report shows the card **Auto-resolved settings** (service, setting, value and why), so a team can pin the values in the DevSecOps portal or in `devsecops_config.yaml`.
+- Every value the auto-resolve fills in or corrects is listed: the build log prints `[AUTO] <service>: <setting> = <value> (<why>)` and the pipeline report shows the card **Auto-resolved settings** (service, setting, value and why), so a team can pin the values in OneView or in `devsecops_config.yaml`.
 
 ### Bitbucket Pull Request Decoration and Shift-Left Feedback
 
@@ -306,7 +306,7 @@ When `sonar-project.properties` is omitted from a repository, `SonarService` syn
 
 ### Continuous Software Assurance Maturity Model (OWASP SAMM v2.0)
 
-The DevSecOps Management Portal continuously measures application and portfolio security maturity against the OWASP SAMM v2.0 framework across 5 business functions (Governance, Design, Implementation, Verification, Operations), calculating objective practice scores (0.0 to 3.0) and visual scorecards from automated pipeline execution evidence.
+OneView continuously measures application and portfolio security maturity against the OWASP SAMM v2.0 framework across 5 business functions (Governance, Design, Implementation, Verification, Operations), calculating objective practice scores (0.0 to 3.0) and visual scorecards from automated pipeline execution evidence.
 
 ### Platform support
 
@@ -346,9 +346,10 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   ├── PipelineState.groovy            <- everything the stages record: results, counts, coverage, links
 │   │   ├── PolicyEngine.groovy             <- library policy, orange stages and the stage result log
 │   │   ├── ReleaseGate.groovy              <- blocks the Nexus release and the QC deployment when a stage is not green
+│   │   ├── OneViewSettings.groovy          <- the address of OneView, the agent label and the pipeline keys of the report upload, under their new and their former names
 │   │   └── OsHelper.groovy
-│   ├── config/ConfigLoader.groovy          <- portal documents, or devsecops_config.yaml without a key -> PipelineState and the run-state file pipeline-config.yaml
-│   ├── config/PortalConfigReader.groovy    <- reads the configuration of the pipeline keys from the portal over HTTPS
+│   ├── config/ConfigLoader.groovy          <- OneView documents, or devsecops_config.yaml without a key -> PipelineState and the run-state file pipeline-config.yaml
+│   ├── config/OneViewConfigReader.groovy   <- reads the configuration of the pipeline keys from OneView over HTTPS
 │   ├── config/RepositoryConfigReader.groovy <- devsecops_config.yaml or config.yaml of the repository, without a key
 │   ├── build/                              <- hexagonal build & test runners, toolchain setup and report parsers
 │   │   ├── BuildService.groovy             <- controller coordinating build, unit tests, coverage and remote test jobs
@@ -395,6 +396,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── report/                             <- MVC pipeline report engine
 │   │   ├── HtmlReportService.groovy        <- MVC controller: report lifecycle, file persistence and stage layout orchestration
 │   │   ├── ReportViewModel.groovy          <- MVC model: stage layouts, policy calculations, test job summaries and GoldenFix state
+│   │   ├── OneViewReportService.groovy     <- sends the pipeline report of a run to OneView, once for each pipeline key
 │   │   └── HtmlReportCardsView.groovy      <- MVC view: HTML cards, tables, banners and badges
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils, RepoStackAutoResolver
 ├── resources/com/bbh/devsecops/defaults.yaml <- the global defaults of a run without a pipeline key
@@ -406,7 +408,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   ├── run-all.sh                 <- one command: static checks, compilation, scenarios, demo reports, documentation
 │   ├── checks/                    <- static checks of the sources and of the generated documentation
 │   ├── coverage/                  <- the coverage scan script, run with python3 on report trees
-│   ├── portal/                    <- the portal query script, run with the real curl against a local HTTP portal
+│   ├── oneview/                   <- the OneView query script, run with the real curl against a local HTTP portal
 │   ├── fixtures/                  <- the configuration files and the loader of the release before the portal
 │   └── sandbox/                   <- the library running under the real Jenkins script sandbox
 └── examples/
@@ -421,9 +423,9 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 
 | Source | Who controls it | Contains |
 |---|---|---|
-| Global Settings of the DevSecOps portal | DevSecOps team | Security thresholds, required coverage, timeouts, tool defaults (`defaults`) and the platform values: AppScan, proxy and Nexus addresses, the iOS build agent (`platform`) |
-| The service in the DevSecOps portal | Project team, in the portal | Service settings (appId, servers, test jobs, deploy targets), the pipeline type, the agent labels and the linked security or extended job |
-| One Jenkins global environment variable | Jenkins administrators | The address of the portal (`DSO_PORTAL_URL`) |
+| Global Settings of ITSS COE OneView | DevSecOps team | Security thresholds, required coverage, timeouts, tool defaults (`defaults`) and the platform values: AppScan, proxy and Nexus addresses, the iOS build agent (`platform`) |
+| The service in OneView | Project team, in OneView | Service settings (appId, servers, test jobs, deploy targets), the pipeline type, the agent labels and the linked security or extended job |
+| One Jenkins global environment variable | Jenkins administrators | The address of OneView (`ONEVIEW_URL`; the former name `DSO_PORTAL_URL` still works) |
 | `devsecops_config.yaml`, else `config.yaml`, in the repository | Project team, per branch | The `projects:` part, only for a Jenkinsfile without a pipeline key; the global defaults then come from `resources/com/bbh/devsecops/defaults.yaml` of the library |
 
 Projects **cannot** override the `defaults`. Thresholds for SAST, SCA, Nexus IQ, DAST and the required line coverage exist in one place only, the Global Settings of the portal, and the next build of every pipeline uses a changed value. Without a key the thresholds are those of `resources/com/bbh/devsecops/defaults.yaml` of the library; a file in the repository cannot change them either. The minutes of the manual steps of the report (`report.manualEffort`) are not a Global Settings value: the library reads them from `resources/com/bbh/devsecops/defaults.yaml` of the library only, with a key and without one.
@@ -431,11 +433,12 @@ Projects **cannot** override the `defaults`. Thresholds for SAST, SCA, Nexus IQ,
 ### How a pipeline reads its configuration
 
 1. The entry point calls `devSecOpsApi.configure('<variant>', [pipelineKey: '<key>'])` before `pipeline {}`. The keys are checked before anything runs; the console and every message show only a hint of a key, its first eight and last four characters.
-2. Outside a node the read runs on an agent of the label `DSO_PORTAL_AGENT` (default `linux-agent`) and must finish within five minutes. A custom Jenkinsfile that calls `configure()` inside a node of a Linux or macOS agent reads on that node.
-3. A short `sh` script sends one `GET <DSO_PORTAL_URL>/api/dso/config/<key>?format=json` per key with `curl`, asking again twice, five seconds apart, when the portal cannot be reached or answers 408, 429 or 5xx. The keys reach the script only through its environment, and the answers go to a new directory below the workspace's `@tmp` folder, deleted afterwards. The portal renders the configuration at that moment from its database and records the key's last use; the library holds no account and changes nothing.
+2. Outside a node the read runs on an agent of the label `ONEVIEW_AGENT` (default `linux-agent`) and must finish within five minutes. A custom Jenkinsfile that calls `configure()` inside a node of a Linux or macOS agent reads on that node.
+3. A short `sh` script sends one `GET <ONEVIEW_URL>/api/dso/config/<key>?format=json` per key with `curl`, asking again twice, five seconds apart, when the portal cannot be reached or answers 408, 429 or 5xx. The keys reach the script only through its environment, and the answers go to a new directory below the workspace's `@tmp` folder, deleted afterwards. The portal renders the configuration at that moment from its database and records the key's last use; the library holds no account and changes nothing. A Jenkins instance that still sets the former names `DSO_PORTAL_URL` and `DSO_PORTAL_AGENT` is read as before ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)).
 4. The library checks every answer: the portal issued the key, the key is active, the answer is a configuration, its pipeline type is the one of the entry point, all keys belong to one product and name each service once. The first key is the primary project, as the first name of `projectNames` was.
 5. In the Monitor stage `ConfigLoader.initialize()` merges every service with the global defaults exactly as `defaults.yaml` was merged under `config.yaml`, and writes the services to `pipeline-config.yaml`, the run-state file in which the snapshot stages record their build tags.
 6. An extended pipeline whose key names a security job copies `pipeline-config.yaml`, `release-gate.json` and, when the security build published a snapshot, `build.tag` from the last successful build of that job and takes from the copy only the run-time tags: `deploy.openshift.rd.buildTag`, `deploy.openshift.rd.internalDockerUrl`, the delivered version in `delivery` of a Liquibase service, `delivery.buildTagAndroid` and `delivery.buildTagIOS`. Each must be a plain tag of letters, digits and `. _ : / @ + -`. A Maven or Gradle VM service gets the snapshot version from `build.tag`, and its `delivery` settings are never replaced by the copy.
+7. At the end of the run, in the `post` block, the library uploads the pipeline report to OneView with one `POST <ONEVIEW_URL>/api/dso/reports` for each key of the Jenkinsfile, in their order. The job needs no further setting, a failed upload is one `[ONEVIEW]` line and the result of the build stays as it is ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)).
 
 ### Without a pipeline key: devsecops_config.yaml in the repository
 
@@ -457,7 +460,7 @@ devSecOpsPipeline(
 5. In the Monitor stage, after the checkout, the library reads `devsecops_config.yaml` at the root of the workspace or, when there is none, `config.yaml`, the name the file had before the portal. When both are there it reads `devsecops_config.yaml` and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds `Config.yaml`, a Linux agent does not.
 6. Only the `projects:` part of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the library (`resources/com/bbh/devsecops/defaults.yaml`), which the DevSecOps team keeps equal to the Global Settings of the portal; a change there reaches a Jenkinsfile without a key with the next library version. A Jenkinsfile without a key therefore runs the stages at the same time, as `staticAnalysis.parallel` and `dynamicAnalysis.parallel` are `true` by default, unless a service of the file sets `false` or `DSO_STATIC_ANALYSIS_PARALLEL` or `DSO_DYNAMIC_ANALYSIS_PARALLEL` is `false` ([the stage reference](#17-pipeline-stage-reference)). A `defaults:`, `platform:` or `pipeline:` part of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses and the iOS build agent are the values of the agent environment or the library's own.
 7. The services of the run are merged with the global defaults exactly as before the portal and written to `pipeline-config.yaml`, as with a key. Every message that says where a setting lives names the file that was read.
-8. The portal is not involved: no `DSO_PORTAL_URL`, no read before `pipeline {}`. The report header says "No pipeline key: settings from devsecops_config.yaml in the repository", and `build_evidence` carries `config_file` instead of the key's `config_rendered_at` and `config_sha256`. The settings follow the branch and the commit.
+8. OneView is not involved: no `ONEVIEW_URL`, no read before `pipeline {}`, and no report upload unless the job names a pipeline key for it in `DSO_PIPELINE_KEY` or the file names one in its `oneview:` block, with an address ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)). The report header says "No pipeline key: settings from devsecops_config.yaml in the repository", and `build_evidence` carries `config_file` instead of the key's `config_rendered_at` and `config_sha256`. The settings follow the branch and the commit.
 9. The product page downloads the file: "Settings sent to Jenkins (devsecops_config.yaml)", then Download. It holds every service of the product with the BBH defaults filled in, in the layout of the former `config.yaml`. A second download in the same browser may be saved as `devsecops_config (1).yaml`: rename it to exactly `devsecops_config.yaml`. A security job that should start its extended job needs `jenkins.pipeline.extendedPipeline` under its service, which the product download leaves out because the portal keeps it with the security pipeline.
 10. The extended pipeline reads the file of its own checkout, so its Jenkinsfile lives in the repository of the service, and takes only the run-time tags of its own services and, when the security build published a snapshot, `build.tag` from the security build. The Nexus IQ GoldenFix pipeline needs `tools.nexusIq.application` and its `scanPatterns` for every service of the run.
 11. A custom Jenkinsfile that calls `devSecOpsApi.initialize()` without `configure()` reads the file too, as before the portal.
@@ -467,15 +470,15 @@ devSecOpsPipeline(
 
 Every setting keeps working as it was written: a key that is set wins over the default, also when it equals the default, so a `devsecops_config.yaml`, a `config.yaml`, a `Jenkinsfile` and the services of the portal of an earlier release load unchanged. The library then goes three steps further, and says so in the Monitor stage, in lines that start with `[INIT]`:
 
-1. **A value of the wrong kind falls back to the default.** When the defaults hold a number, `true` or `false`, or a list for a key and a service sets something else, such as `sast.maxCritical: none`, `sca.enabled: enabled` or a map for `releaseGate.scanners`, the key of the service is left out, the default applies and the console says `[INIT] [WARN] <service>: <key>: <value> in devsecops_config.yaml is not a number - the library default <key>: <default> is used instead` (`is not true or false`, `is not a list`; with a key: `in the DevSecOps portal` and `the Global Settings`). A number in quotes, such as `"45"`, and `yes`, `no`, `on`, `off`, `1` and `0` for `true` and `false` are kept. An invalid `buildTool` or .NET build mode falls back to the auto-detected value, with a `[WARN] Invalid ...` line ([chapter 16](#16-configuration-reference-the-devsecops-portal)). Only when the default does not work either does the stage that uses the value fail, with its own message.
+1. **A value of the wrong kind falls back to the default.** When the defaults hold a number, `true` or `false`, or a list for a key and a service sets something else, such as `sast.maxCritical: none`, `sca.enabled: enabled` or a map for `releaseGate.scanners`, the key of the service is left out, the default applies and the console says `[INIT] [WARN] <service>: <key>: <value> in devsecops_config.yaml is not a number - the library default <key>: <default> is used instead` (`is not true or false`, `is not a list`; with a key: `in OneView` and `the Global Settings`). A number in quotes, such as `"45"`, and `yes`, `no`, `on`, `off`, `1` and `0` for `true` and `false` are kept. An invalid `buildTool` or .NET build mode falls back to the auto-detected value, with a `[WARN] Invalid ...` line ([chapter 16](#16-configuration-reference-itss-coe-oneview)). Only when the default does not work either does the stage that uses the value fail, with its own message.
 2. **Without a key, a name of the Jenkinsfile that the file does not have falls back too.** `projectNames`, `PROJECT_NAMES` or `PROJECT_NAME` that names a service the file does not have leaves it out: `[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have (it has gui, backend-api) - the run goes on with backend-api`. When none of the names is a service of the file, the run builds every service of the file: `[INIT] [WARN] projectNames names web, which devsecops_config.yaml does not have - the run goes on with the default, every service of the file: gui, backend-api`. With a key the services are those of the keys.
-3. **Without a key, a key that the library would take anyway is named, so that it can be removed.** For every key of a service whose value is the value the library uses without it, the console says `[INIT] [INFO] <service>: <key>: <value> equals the library default - the key can be removed from devsecops_config.yaml`, or `equals the auto-detected value` when the auto-resolve of the settings ([chapter 16](#16-configuration-reference-the-devsecops-portal)) would find the same value in the repository, for example `buildTool: maven` next to a `pom.xml` or `tools.sonar.projectKey: com.bbh:<service>`. A `projectNames` that lists every service of the file in the order of the file gives `[INIT] [INFO] projectNames: gui, backend-api equals the default, every service of devsecops_config.yaml in its order - the parameter can be removed from the Jenkinsfile`. Removing such a key changes nothing in the run. With a key the portal fills the services from its own form, so these lines are not written; the switches of the stages at the same time have lines of their own ([the stage reference](#17-pipeline-stage-reference)).
+3. **Without a key, a key that the library would take anyway is named, so that it can be removed.** For every key of a service whose value is the value the library uses without it, the console says `[INIT] [INFO] <service>: <key>: <value> equals the library default - the key can be removed from devsecops_config.yaml`, or `equals the auto-detected value` when the auto-resolve of the settings ([chapter 16](#16-configuration-reference-itss-coe-oneview)) would find the same value in the repository, for example `buildTool: maven` next to a `pom.xml` or `tools.sonar.projectKey: com.bbh:<service>`. A `projectNames` that lists every service of the file in the order of the file gives `[INIT] [INFO] projectNames: gui, backend-api equals the default, every service of devsecops_config.yaml in its order - the parameter can be removed from the Jenkinsfile`. Removing such a key changes nothing in the run. With a key the portal fills the services from its own form, so these lines are not written; the switches of the stages at the same time have lines of their own ([the stage reference](#17-pipeline-stage-reference)).
 
 Compared with the release before the portal, a run without a key: writes its build tags to `pipeline-config.yaml` instead of the repository file; signs in to AppScan on Cloud with the one API key of the functional user from `asoc.keyId` and `asoc.token` of the library defaults, so a service sets only its `appId`; requires `agentNames`; accepts `projectNames` as a list; reads its defaults from `com/bbh/devsecops/defaults.yaml`; marks the report and `build_evidence`; and names a file that is not valid YAML or has no `projects:`.
 
 ### Differences from config.yaml
 
-With a pipeline key, the portal integration keeps every stage, scanner, deployment, report, metric, release gate and GoldenFix pull request as it was with `config.yaml` and `defaults.yaml`, except for these differences, each forced by having no `config.yaml` or by reading the portal only:
+With a pipeline key, the OneView integration keeps every stage, scanner, deployment, report, metric, release gate and GoldenFix pull request as it was with `config.yaml` and `defaults.yaml`, except for these differences, each forced by having no `config.yaml` or by reading the portal only:
 
 1. With a key, the configuration lives in the portal, not in the repository: there is no configuration per branch, pull request or commit, a replayed build uses today's portal values, and the release and develop jobs of one service share one pipeline per type. The console, the report header and `build_evidence` record the key hint, the time the portal rendered the configuration (the time of the read) and the sha256 hint of the answer.
 2. With a key, a failure before `pipeline {}` (no key, a bad, unknown or invalidated key, a type or product mismatch, an unreachable portal) ends the build without a report, `release-gate.json` or InfluxDB point. `build_duration` and the DORA duration include the read.
@@ -483,30 +486,30 @@ With a pipeline key, the portal integration keeps every stage, scanner, deployme
 4. The extended pipeline uses the services of its own key plus the run-time tags of the security build, not the whole `config.yaml` the security build archived.
 5. Keys the portal does not model are gone from `getCFG()`, such as custom keys a team added to `config.yaml`. `tests.<suite>.defaults`, test jobs given as a bare URL and `urls` lists are expanded into jobs when a service is migrated. `jobs[].auth` maps other than credential IDs, OpenShift `appName`, `imageNamespace`, `cluster` and `credentialsId` (read only by the unused `nexusDelivery` method) and the keys no code reads (`asoc.keySecret`, `sca.scanName`, `dast.scanName`, `build.maven.javaPath`) are not modelled. `jenkins.pipeline.extendedPipeline` is in the documents of security pipelines only, so a custom Jenkinsfile that calls `devSecOpsApi.runExtendedPipeline()` configures itself with the key of the security pipeline.
 6. With a key, selecting projects through `PROJECT_NAMES` or `PROJECT_NAME` is gone; without a key it works as before the portal.
-7. Messages that named `config.yaml` or `defaults.yaml` now name the portal, also where they reach the report, `release-gate.json` and InfluxDB. A `securityPipeline` in the Jenkinsfile of a full, security or SAST pipeline with a key is ignored, which shows the Nexus IQ and SonarQube summary rows it used to hide.
+7. Messages that named `config.yaml` or `defaults.yaml` now name OneView, also where they reach the report, `release-gate.json` and InfluxDB. A `securityPipeline` in the Jenkinsfile of a full, security or SAST pipeline with a key is ignored, which shows the Nexus IQ and SonarQube summary rows it used to hide.
 8. Nexus IQ report links appear for every service, because the Nexus IQ server address is a global setting; GoldenFix stays governed by its own switch per service.
-9. Every build with a key depends on the portal at its start: the agents of the `DSO_PORTAL_AGENT` label need HTTPS access to it.
+9. Every build with a key depends on OneView at its start: the agents of the `ONEVIEW_AGENT` label need HTTPS access to it.
 
 ## 5. Application Prerequisites
 
 Before onboarding a project to the DevSecOps pipeline, the application and its repository must meet the following requirements:
 
 - **Git repository accessible from Jenkins.** The project must live in a Git repository that the Jenkins controller can clone. The `Jenkinsfile` must be committed at the repository root and pushed to the branch configured in the Jenkins job. Without a pipeline key, `devsecops_config.yaml` (or the former `config.yaml`) is committed at the root as well.
-- **Supported build tool: Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), or Flutter.** The codebase must use one of the supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository; for C#/.NET on Windows, classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` works out of the box, and the `dotnet` SDK CLI is used with `useDotnetCli: true` or on Linux. The build tool is either set for the service in the DevSecOps portal or auto-detected.
+- **Supported build tool: Gradle, Maven, C# / .NET (`dotnet` / `msbuild`), or Flutter.** The codebase must use one of the supported build systems. Gradle wrapper (`gradlew`) and Maven wrapper (`mvnw`) are preferred and must be executable and committed to the repository; for C#/.NET on Windows, classic `MSBuild.exe` + `NuGet.exe` + `vstest.console.exe` works out of the box, and the `dotnet` SDK CLI is used with `useDotnetCli: true` or on Linux. The build tool is either set for the service in ITSS COE OneView or auto-detected.
 - **SQL and PL/SQL with Liquibase.** A Liquibase service runs the `liquibase` CLI of the agent. With a database block, which delivers and deploys Oracle changes, a master changelog that includes other files is XML, YAML or JSON, the agent is Linux or macOS and the service names a JDK; see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase).
 - **Optional: a frontend that npm builds first.** When the repository holds a frontend, for example an Angular application that the Gradle or Maven build packages into the jar, the Node.js build of stage 0 can build it first (`build.node.enabled: true`). It needs the folder of the `package.json` (`build.node.dir`) and, for the default command `npm ci`, a committed `package-lock.json`. The frontend build must write its output outside `build/` and `target/`, because the `clean` task of Gradle and Maven deletes those folders, and the Gradle or Maven build must copy that output into the artifact, see [Troubleshooting](#24-troubleshooting-guide). Leave it off when the Gradle or Maven build already runs npm itself, for example through a Node plugin of the build.
 - **Code must compile successfully.** The SAST stage (stage 4) compiles the project before it generates the IRX archive, unless `asoc.doCompile: false`. The compile command comes from `asoc.gradle` / `asoc.maven` / `asoc.dotnet`, or from the `build` section when `asoc` has none. A compilation error fails the SAST stage, so make sure every compile-time dependency is resolvable from the configured Nexus or NuGet repositories.
-- **Unit tests with JaCoCo (Gradle/Maven), Cobertura/OpenCover (C#/.NET), or LCOV (Flutter/JS/Python) coverage.** The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. For C#/.NET, `vstest.console.exe` + `OpenCover.Console.exe` (or `dotnet test --collect:"XPlat Code Coverage"`) produces OpenCover/Cobertura XML coverage and `.trx` test results automatically parsed by the pipeline. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the Global Settings of the DevSecOps portal only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs `flutter test --coverage` in the main package and in each tested plugin and module, and reads the `coverage/lcov.info` of each.
+- **Unit tests with JaCoCo (Gradle/Maven), Cobertura/OpenCover (C#/.NET), or LCOV (Flutter/JS/Python) coverage.** The project must have runnable unit tests. For Gradle and Maven, JaCoCo must be configured in the build script to produce a coverage XML report. For C#/.NET, `vstest.console.exe` + `OpenCover.Console.exe` (or `dotnet test --collect:"XPlat Code Coverage"`) produces OpenCover/Cobertura XML coverage and `.trx` test results automatically parsed by the pipeline. An LCOV report, for example of an Angular frontend, counts as well, and a service with several reports is measured by their mean. The library requires a minimum line coverage of 60 %, taken from the Global Settings of OneView only; a project cannot set its own value. Below that level the Unit tests stage turns orange, the pipeline keeps running and reaches RD, and the Nexus release and the QC deployment stay blocked. A failing test run is treated the same way: the stage turns orange with the exit code as the reason, the coverage is still evaluated on the reports that were produced, and every later stage still runs. For Flutter the library itself runs `flutter test --coverage` in the main package and in each tested plugin and module, and reads the `coverage/lcov.info` of each.
 - **A JDK on the agent, named in the configuration (not required for C#/.NET or Liquibase).** Set `javaPath` in the project configuration to the JDK the build and the tests must use, or set `buildToolAutoSetup: true` to let the library detect the required Java version from `pom.xml` or `build.gradle` and pick a matching JDK from the agent. Without either, Java/Gradle/Maven/Flutter Unit tests stop with **JAVA_HOME parameter is not specified**, unless the agent already exports `HAS_BUILD_TOOL_INSTALLED=true`. Services with `buildTool: dotnet` or `msbuild` never require `JAVA_HOME`.
-- **HCL AppScan on Cloud (ASoC) application registered.** The application must be registered in ASoC and have a known application ID (UUID), which is the `appId` of the service in the DevSecOps portal (or in `devsecops_config.yaml` for a Jenkinsfile without a key). Every pipeline signs in with the one API key of the functional ASoC user: its key ID is `asoc.keyId` of the library defaults (`resources/com/bbh/devsecops/defaults.yaml`), and its secret stays in the Jenkins **Secret text** credential named in `asoc.token` of the same file. Neither the portal nor a service can change the key; a `keyId`, `token` or `credentialsId` under `asoc`, `sast` or `dast` of a service is ignored with a warning. Both SAST and DAST scans are uploaded to the application of the service.
+- **HCL AppScan on Cloud (ASoC) application registered.** The application must be registered in ASoC and have a known application ID (UUID), which is the `appId` of the service in OneView (or in `devsecops_config.yaml` for a Jenkinsfile without a key). Every pipeline signs in with the one API key of the functional ASoC user: its key ID is `asoc.keyId` of the library defaults (`resources/com/bbh/devsecops/defaults.yaml`), and its secret stays in the Jenkins **Secret text** credential named in `asoc.token` of the same file. Neither the portal nor a service can change the key; a `keyId`, `token` or `credentialsId` under `asoc`, `sast` or `dast` of a service is ignored with a warning. Both SAST and DAST scans are uploaded to the application of the service.
 - **SonarQube project registered.** A project must exist in SonarQube with a unique `projectKey`. A badge token is required for SonarQube metric badges to appear in the HTML pipeline report: a Jenkins **Secret text** credential named in `badgeCredentialsId`, or the token itself in `badgeToken`. The SonarQube server must be reachable from the Jenkins agent.
-- **Nexus IQ application registered.** The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs, DLLs, `*.nupkg`, `packages.config`, `*.csproj`, `Directory.Packages.props`) must match the `scanPatterns` configured for the service in the DevSecOps portal. The Nexus IQ server must be reachable from the Jenkins agent.
+- **Nexus IQ application registered.** The application must be registered in Nexus IQ with its public application ID. Build artifacts (JARs, WARs, DLLs, `*.nupkg`, `packages.config`, `*.csproj`, `Directory.Packages.props`) must match the `scanPatterns` configured for the service in OneView. The Nexus IQ server must be reachable from the Jenkins agent.
 - **Build artifacts produced in expected locations.** Gradle projects produce artifacts under `build/libs/`, Maven projects under `target/`, and .NET projects under `bin/Release/` (or `build.dotnet.publishDir` / `packages.config` for NuGet dependency scanning). These paths must match the `scanPatterns` configured for Nexus IQ and be valid artifact outputs for publishing. A service with a Node.js build also gets the `package-lock.json` of its frontend folder scanned, see [the stage reference](#17-pipeline-stage-reference).
 - **Several services in one repository.** The services of a multimodule repository share one Jenkins job per pipeline type, whose Jenkinsfile names the pipeline keys of all of them. GoldenFix then raises a shared version catalog of the repository once for all of them, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline).
 - **Deployment script and version file (VM deployment over SSH).** For SSH deployment, the repository must contain a zero-downtime deployment shell script and a `version.properties` file with an `APP_VERSION=<version>` entry. The Jenkins agent must have SSH key-based (passwordless) access to all configured deployment hosts. The extended pipeline and the QC deployment use this path.
 - **UrbanCode Deploy application (VM deployment in `devSecOpsPipeline`).** The lower test region deployment of the full pipeline publishes the artifact as a UrbanCode Deploy component and starts the deployment process, so `deploy.vm.dod` must name the site, the application and at least one component. The UrbanCode Deploy plugin (`UCDeployPublisher`) and the configured site must exist in Jenkins.
 - **OpenShift templates and a Dockerfile (OpenShift deployment).** For OpenShift-based deployment the repository must contain the BuildConfig template, the Dockerfile, the deployment template and the config template referenced by `deploy.openshift.rd.buildConfigPath`, `dockerFilePath`, `deployConfigPath` and `configPathR`. The snapshot stage builds the image in the build namespace and copies it to the Nexus docker registry with `skopeo`, so the agent needs `skopeo`, `oc` and the authfile named in `deploy.openshift.rd.nexus.authfile`.
-- **Test jobs exist in Jenkins.** Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in the DevSecOps portal. All three test types require at least one job entry — placeholder entries with `job: ""` are allowed initially and will show `NOT_CONFIGURED` without failing.
+- **Test jobs exist in Jenkins.** Smoke, regression, and performance test jobs must be created as Jenkins jobs before the pipeline reaches those stages. Their full job paths must be configured for the service in OneView. All three test types require at least one job entry — placeholder entries with `job: ""` are allowed initially and will show `NOT_CONFIGURED` without failing.
 - **DAST target accessible from Jenkins agent (DAST only).** When `dast.enabled: true`, the configured `dast.targetUrl` must be reachable from the Jenkins agent running the pipeline. For internal (non-internet) targets, an AppScan Presence must be deployed and its ID provided in `dast.presenceId`.
 - **InfluxDB endpoint accessible (optional).** If DORA metrics are required, an InfluxDB v2 instance must be reachable from the Jenkins agent and the configured write endpoint must accept the provided auth token with write permissions to the target bucket.
 
@@ -563,7 +566,7 @@ The last row is not a public plugin. Those four steps must exist as global varia
 - `curl`, `python3`, `ssh`, `scp` (Linux agents)
 - For a Liquibase service: the `liquibase` CLI; with a database block Liquibase 4.33 or 5.0, an Oracle driver and utPLSQL-cli on the agent or downloaded from Nexus (`tools.liquibase`, `tools.oracleJdbc`, `tools.utplsql`), Maven for the zip, and Nexus repositories for database zips, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase)
 - PowerShell (Windows agents)
-- On the agents of the `DSO_PORTAL_AGENT` label, and on a Linux or macOS agent where a custom Jenkinsfile calls `configure()` inside a node: `curl`, and `sha256sum` or `shasum`
+- On the agents of the `ONEVIEW_AGENT` label, and on a Linux or macOS agent where a custom Jenkinsfile calls `configure()` inside a node: `curl`, and `sha256sum` or `shasum`
 
 ### Script security
 
@@ -580,57 +583,206 @@ Every class of the library is loaded and every pipeline is executed under the re
 | Credential ID | Type | Used for |
 |---|---|---|
 | `nexusiqP` | Username/Password | Nexus IQ authentication (also used by GoldenFix to read reports and remediation versions) |
-| `asoc.token` of the library defaults, otherwise a credential named like `asoc.keyId` of the library defaults | Secret text | The API key secret of the functional AppScan on Cloud user, for the SAST and DAST sign-in of every service; the portal stores only the application ID (`appId`) of a service |
+| `asoc.token` of the library defaults, otherwise a credential named like `asoc.keyId` of the library defaults | Secret text | The API key secret of the functional AppScan on Cloud user, for the SAST and DAST sign-in of every service; ITSS COE OneView stores only the application ID (`appId`) of a service |
 | `tools.sonar.badgeCredentialsId` of the service (optional) | Secret text | The SonarQube badge token for the badges in the report |
 | `scm.bitbucket.credentialsId` | Username/Password (or Secret text with `authType: bearer`) | GoldenFix: push of branch `GoldenFix-YYYYMMDDHHMM`, pull request creation and comments on the pull request (repository write permission) |
 | `build.node.npmrcCredentialsId` of the service or of the Global Settings (optional) | Secret file | An `.npmrc` for the Node.js build and the npm pre-check of GoldenFix, bound as `NPM_CONFIG_USERCONFIG` |
 | `tests.*.jobs[].credentialsId` (optional) | Username/Password (user + API token) | Triggering remote test jobs referenced by full URL |
 | `openshift-rd-token` | Secret text | OpenShift RD cluster token |
 | `openshift-qc-token` | Secret text | OpenShift QC cluster token |
-| `influx.credentialsId` of the service | Secret text | The InfluxDB token; the portal stores only the credentials ID |
-| `tests.*.jobs[].tokenCredentialsId` (optional) | Secret text | The build token of a remote test job, which the portal never stores |
+| `influx.credentialsId` of the service | Secret text | The InfluxDB token; OneView stores only the credentials ID |
+| `tests.*.jobs[].tokenCredentialsId` (optional) | Secret text | The build token of a remote test job, which OneView never stores |
 
-**Global environment variables** go into **Manage Jenkins → System → Global properties → Environment variables**. They hold the library's own settings outside the portal: where the portal is, whether a key is required, and the order of the static scans.
+**Global environment variables** go into **Manage Jenkins → System → Global properties → Environment variables**. They hold the library's own settings outside OneView: where OneView is, whether a key is required, and the order of the static scans.
 
 | Variable | Required | Value |
 |---|---|---|
-| `DSO_PORTAL_URL` | yes | Address of the DevSecOps portal, the host of its OpenShift route, for example `https://dso-portal.apps.bbh.com`; without a user, password, query or trailing path to the API |
-| `DSO_PORTAL_AGENT` | no | Label of the agents that read the portal before the pipeline starts, default `linux-agent` |
+| `ONEVIEW_URL` | yes | Address of OneView, the host of its OpenShift route, for example `https://oneview.apps.bbh.com`, written as `https://<host>[:<port>][/<path>]`: without a user, password, query or trailing path to the API. The configuration read and the report upload use it. Former name: `DSO_PORTAL_URL`, which still works (see below) |
+| `ONEVIEW_AGENT` | no | Label of the agents that read OneView before the pipeline starts, default `linux-agent`. Former name: `DSO_PORTAL_AGENT`, which still works (see below) |
 | `DSO_REQUIRE_PIPELINE_KEY` | no | `true` makes a pipeline key required: a Jenkinsfile without a key, or a branch with an older Jenkinsfile, then stops before `pipeline {}` as before this release. Unset, such a Jenkinsfile reads `devsecops_config.yaml` of its repository |
-| `DSO_STATIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before the Global Settings, whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time. Unset, blank or another value (which the console names in a `[WARN]` line), `staticAnalysis.parallel` of the services decides, by default `true`. The node properties of an agent can also set it for the runs on that agent ([the configuration reference](#16-configuration-reference-the-devsecops-portal)) |
+| `DSO_STATIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before the Global Settings, whether the full and security pipelines run the unit tests, Nexus IQ, SAST and SonarQube at the same time. Unset, blank or another value (which the console names in a `[WARN]` line), `staticAnalysis.parallel` of the services decides, by default `true`. The node properties of an agent can also set it for the runs on that agent ([the configuration reference](#16-configuration-reference-itss-coe-oneview)) |
 | `DSO_DYNAMIC_ANALYSIS_PARALLEL` | no | `true` or `false` decides, before the Global Settings, whether the full and extended pipelines run the regression, smoke and performance tests and DAST at the same time. Unset, blank or another value, `dynamicAnalysis.parallel` of the services decides, by default `true` |
 
-### The DevSecOps portal
+### The former names of `ONEVIEW_URL` and `ONEVIEW_AGENT`
 
-**Read only, no account.** The library sends `GET /api/dso/config/<key>?format=json` and nothing else. The portal answers 200 with the configuration, 403 with the reason when the key was invalidated and 404 for a key it never issued. Jenkins needs no database account, no credentials and no driver, and the portal's database is reached by the portal alone.
+Until this release the two variables were named `DSO_PORTAL_URL` and `DSO_PORTAL_AGENT`, the report upload also read `PORTAL_URL`, and the settings block of the report upload was named `portal:` instead of `oneview:`. The former names still work: a Jenkins instance that sets only them reads its configuration from the same address and on the same agents, and uploads its reports to the same address as before, and no `Jenkinsfile`, `config.yaml` or `devsecops_config.yaml` has to change. The library reads the names in this order and takes the first value it can use:
 
-**The key is the secret.** Whoever holds a key can read the configuration of that one pipeline, as anyone who could read a product repository could read its `config.yaml` before; it holds Jenkins credential IDs, not passwords. Invalidating the key in the portal stops it at once. A key cannot be guessed (a random UUID) and the portal offers no way to list keys over this request. When the portal moves behind BBH SSO, `/api/dso/config/**` stays outside the sign-in and keeps the key as its only check.
+| For | The library reads, in this order |
+|---|---|
+| The address of the configuration read | `ONEVIEW_URL`, then `DSO_PORTAL_URL` |
+| The label of the agents that read OneView | `ONEVIEW_AGENT`, then `DSO_PORTAL_AGENT`, then the default `linux-agent` |
+| The address of the report upload | `ONEVIEW_URL`, then `DSO_PORTAL_URL`, then `PORTAL_URL`, then `oneview.url` of the settings block, then `portal.url`, the former name of that block |
+| The pipeline key of the report upload | `DSO_PIPELINE_KEY`, then `PIPELINE_KEY`, of the environment of the build, for one upload; otherwise the pipeline keys of the Jenkinsfile (`pipelineKey` or `pipelineKeys`), for one upload each; otherwise `oneview.pipelineKey` of the settings block, then `portal.pipelineKey` |
 
-**Network.** The agents of the `DSO_PORTAL_AGENT` label need HTTPS to the portal's route and must trust its certificate (the BBH certificate authority, as for Nexus and Bitbucket).
+Which value can be used depends on the name:
 
-**Failures.** An unreachable portal, an untrusted certificate or an answer other than 200, 403 or the portal's own 404 stops the build with one message naming `DSO_PORTAL_URL`, the cause (the `curl` error or the HTTP status with the portal's explanation) and the DevSecOps team, and sets the build description to `DevSecOps portal unavailable`. The read is retried twice, five seconds apart, when the connection times out or the portal answers 408, 429 or 5xx, so a restart of the portal, during which its OpenShift route answers 503, does not fail builds.
+- A blank value, which is empty or holds only spaces (an address also when it holds only slashes), is never used: the next name is read.
+- `ONEVIEW_URL` and `oneview.url`, the new names, hold an address written as `https://<host>[:<port>][/<path>]`: `http` or `https` in lower case, a host of letters, digits, dots and hyphens, a port when there is one, and a path of letters, digits and `. _ ~ / -` when there is one. A user, a password, a query, a `%xx` escape, an underscore in the host, an IPv6 literal and a space are refused. The spaces around the value and the slashes at its end are removed first.
+- The configuration read asks the same form of `DSO_PORTAL_URL`, as it did before this release.
+- The report upload takes `DSO_PORTAL_URL`, `PORTAL_URL` and `portal.url` as it took them before this release: every value that is not blank, without the spaces around it and the slashes at its end. An address with an underscore in its host, a scheme in upper case, an IPv6 literal, a `%xx` escape, no scheme, a query, or a user and a password therefore still receives the report of an installation that uploaded to it before. Such a value cannot be moved to `ONEVIEW_URL` or `oneview.url` as it is; the console says how to write it there. One case is new: a former name that is blank is passed over for the next name, where a `DSO_PORTAL_URL` of spaces ended the search without an upload.
+- An agent label and a pipeline key of the settings block can be used when they are not blank. A `DSO_PIPELINE_KEY` or `PIPELINE_KEY` of spaces counts as not set.
 
-### The agents that read the portal (`DSO_PORTAL_AGENT`)
+The console says which name was read in lines that start with `[ONEVIEW]`; the tables below hold every one of them, with the case that prints it. Each of these lines is logged once per build, however often the names are read: the configuration read reads its address twice, a run with several keys uploads several times, and parallel branches share the list of the lines already logged. No line, no error message, no build description and no step label repeats a value that was refused, and none prints an address that is not written in the form above, because an address may hold a password: they name the variable or the setting instead. A pipeline key is never printed either, only its hint, the first eight and the last four characters, such as `5e0f0001...0001`.
 
-Before `pipeline {}` the library takes one executor of an agent with the `DSO_PORTAL_AGENT` label for a few seconds, never the `AGENT_NAME` the build was started with. Those agents need:
+#### The lines about the address of the configuration read
+
+| Jenkins sets | The library uses | The console says |
+|---|---|---|
+| `ONEVIEW_URL` only | `ONEVIEW_URL` | No line |
+| `DSO_PORTAL_URL` only | `DSO_PORTAL_URL` | `[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables` |
+| Both, with the same value (the spaces around it and the slashes at its end aside) | `ONEVIEW_URL` | `[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL and holds the same value: it can be removed in Manage Jenkins > System > Global properties > Environment variables` |
+| Both, with different values, also when the value of `DSO_PORTAL_URL` is not an address | `ONEVIEW_URL` | `[ONEVIEW] ONEVIEW_URL is used: DSO_PORTAL_URL, its former name, holds another value and is ignored` |
+| Both, and `ONEVIEW_URL` is blank | `DSO_PORTAL_URL` | `[ONEVIEW] ONEVIEW_URL is ignored because it is blank: DSO_PORTAL_URL, its former name, is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables` |
+| Both, and `ONEVIEW_URL` is not an address of the form above | `DSO_PORTAL_URL` | `[ONEVIEW] ONEVIEW_URL is ignored because it is not an address of the form https://<host>[:<port>][/<path>], without a user, password, query or spaces: DSO_PORTAL_URL, its former name, is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables` |
+
+When neither name holds an address, a build with a pipeline key stops before `pipeline {}`, without taking an agent, with one of four messages. Each names `ONEVIEW_URL` and none repeats a value:
+
+| Jenkins sets | The build stops with |
+|---|---|
+| Neither variable, or only blank values | `[ONEVIEW] ONEVIEW_URL is not set: a Jenkins administrator sets it once to the address of OneView, for example https://oneview.apps.bbh.com, in Manage Jenkins > System > Global properties > Environment variables` |
+| An `ONEVIEW_URL` that is not an address; `DSO_PORTAL_URL` is not set or blank | `[ONEVIEW] ONEVIEW_URL is not the address of OneView: a Jenkins administrator writes it as https://<host>[:<port>][/<path>], without a user, password, query or spaces` |
+| A `DSO_PORTAL_URL` that is not an address; `ONEVIEW_URL` is not set or blank | `[ONEVIEW] ONEVIEW_URL is not set and DSO_PORTAL_URL, its former name, is not the address of OneView: a Jenkins administrator sets ONEVIEW_URL to https://<host>[:<port>][/<path>], without a user, password, query or spaces, in Manage Jenkins > System > Global properties > Environment variables` |
+| Two values, and neither is an address | `[ONEVIEW] ONEVIEW_URL is not the address of OneView, and neither is DSO_PORTAL_URL, its former name: a Jenkins administrator writes ONEVIEW_URL as https://<host>[:<port>][/<path>], without a user, password, query or spaces` |
+
+The library reads the address a second time inside the node the read runs on, with the same rules and the same lines, so a value that the reading agent sets for `ONEVIEW_URL` or `DSO_PORTAL_URL` is the address of the request (see **The agents that read OneView** below). When that value is the one that is refused, the build stops on the agent, before the request, with the same four messages.
+
+#### The lines about the agents that read OneView
+
+| Jenkins sets | The library uses | The console says |
+|---|---|---|
+| `ONEVIEW_AGENT` only | `ONEVIEW_AGENT` | No line |
+| `DSO_PORTAL_AGENT` only | `DSO_PORTAL_AGENT` | `[ONEVIEW] DSO_PORTAL_AGENT is the former name of ONEVIEW_AGENT: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables` |
+| Both, with the same value | `ONEVIEW_AGENT` | `[ONEVIEW] DSO_PORTAL_AGENT is the former name of ONEVIEW_AGENT and holds the same value: it can be removed in Manage Jenkins > System > Global properties > Environment variables` |
+| Both, with different values | `ONEVIEW_AGENT` | `[ONEVIEW] ONEVIEW_AGENT is used: DSO_PORTAL_AGENT, its former name, holds another value and is ignored` |
+| Both, and `ONEVIEW_AGENT` is blank | `DSO_PORTAL_AGENT` | `[ONEVIEW] ONEVIEW_AGENT is ignored because it is blank: DSO_PORTAL_AGENT, its former name, is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables` |
+| Neither, or only blank values | `linux-agent` | No line |
+| A label whose agent runs Windows | Nothing: the build stops on that agent | `[ONEVIEW] Agent <node> cannot read OneView because it runs Windows: set ONEVIEW_AGENT to a Linux or macOS label` |
+
+A custom Jenkinsfile that calls `configure()` inside a node of a Linux or macOS agent reads on that node: it asks for no label and logs no line about `DSO_PORTAL_AGENT`.
+
+#### The lines about the address of the report upload
+
+The address is looked for only when the run has a pipeline key for the upload. `<place>` in a line about the settings block is where the value was read (see **The settings block** below).
+
+| The run finds | The report goes to | The console says |
+|---|---|---|
+| An `ONEVIEW_URL` in the form above, and nothing under the former variables | `ONEVIEW_URL` | No line |
+| The same, and `DSO_PORTAL_URL` or `PORTAL_URL` holds another value | `ONEVIEW_URL` | `[ONEVIEW] ONEVIEW_URL is used: DSO_PORTAL_URL, its former name, holds another value and is ignored`, and the same line with `PORTAL_URL`: one line for each former variable |
+| The same, and `DSO_PORTAL_URL` or `PORTAL_URL` holds the same value | `ONEVIEW_URL` | `[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL and holds the same value: it can be removed in Manage Jenkins > System > Global properties > Environment variables`, and the same line with `PORTAL_URL` |
+| `ONEVIEW_URL` is not set, and a `DSO_PORTAL_URL`, or without it a `PORTAL_URL`, in the form above | That former variable | `[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables`, or `[ONEVIEW] PORTAL_URL is the former name of ONEVIEW_URL: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables` |
+| `ONEVIEW_URL` is not set, and a `DSO_PORTAL_URL`, or without it a `PORTAL_URL`, that is not in the form above | That former variable, as before this release | `[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL: its value still works for the report upload as before; under the name ONEVIEW_URL it must be written as https://<host>[:<port>][/<path>], without a user, password, query or spaces, in Manage Jenkins > System > Global properties > Environment variables`, and the same line with `PORTAL_URL`. The line does not say to rename the variable, because `ONEVIEW_URL` would refuse the same value |
+| None of the three variables is set, and an `oneview.url` in the form above | `oneview.url` | No line; with a `portal.url` of another value `[ONEVIEW] oneview.url is used: portal.url, its former name, holds another value and is ignored`, and with the same value `[ONEVIEW] portal.url is the former name of oneview.url and holds the same value: it can be removed <place>` |
+| No variable and no `oneview.url` is set, and a `portal.url` in the form above | `portal.url` | `[ONEVIEW] portal.url is the former name of oneview.url: it still works; rename the block portal: to oneview: <place>` |
+| No variable and no `oneview.url` is set, and a `portal.url` that is not in the form above | `portal.url`, as before this release | `[ONEVIEW] portal.url is the former name of oneview.url: its value still works for the report upload as before; under the name oneview.url it must be written as https://<host>[:<port>][/<path>], without a user, password, query or spaces, <place>` |
+| A blank name in front of the one that is used | The first name that can be used | `[ONEVIEW] ONEVIEW_URL is ignored because it is blank: DSO_PORTAL_URL, its former name, is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables`. The words `, its former name,` are there only when the name that is used is the former name of the blank one: `[ONEVIEW] DSO_PORTAL_URL is ignored because it is blank: PORTAL_URL is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables`. For the settings block: `[ONEVIEW] oneview.url is ignored because it is blank: portal.url, its former name, is used instead; correct it <place>`, which stands in the place of the line that says to rename the block |
+| An `ONEVIEW_URL` or an `oneview.url` that is not in the form above, in front of the name that is used | The first name that can be used | `[ONEVIEW] ONEVIEW_URL is ignored because it is not an address of the form https://<host>[:<port>][/<path>], without a user, password, query or spaces: DSO_PORTAL_URL, its former name, is used instead; correct it in Manage Jenkins > System > Global properties > Environment variables` (or `PORTAL_URL`, `oneview.url`, `portal.url`; `, its former name,` as in the row above), and `[ONEVIEW] oneview.url is ignored because it is not an address of the form https://<host>[:<port>][/<path>], without a user, password, query or spaces: portal.url, its former name, is used instead; correct it <place>`. A former name is never refused for its form by the report upload |
+| No name that can be used, and a variable that is blank or a new name that is not in the form above | Nowhere: the build goes on without the upload | `[ONEVIEW] The pipeline report is not uploaded: ONEVIEW_URL holds no address of OneView; a Jenkins administrator writes ONEVIEW_URL as https://<host>[:<port>][/<path>], without a user, password, query or spaces, in Manage Jenkins > System > Global properties > Environment variables`. The line lists every such name, separated by commas, with `hold` for several of them |
+| No name at all, or only a blank `oneview.url` or `portal.url` | Nowhere | No line |
+
+A blank `oneview.url` of a service does not hide an `oneview.url` of the library defaults, and a former variable with another value than the former variable that is used gets no line.
+
+#### The lines about the pipeline key of the report upload
+
+| The run finds | The report is uploaded | The console says |
+|---|---|---|
+| A `DSO_PIPELINE_KEY`, or without it a `PIPELINE_KEY`, that is no key of the Jenkinsfile | Once, with that key, as before this release | No line |
+| That variable holds the one pipeline key of the Jenkinsfile (upper and lower case and the spaces around it aside) | Once, with that key as the run read it, in lower case | `[ONEVIEW] DSO_PIPELINE_KEY holds the pipeline key of the Jenkinsfile (<hint>): the report is uploaded with the key of the Jenkinsfile without it, so it can be removed from the job` |
+| That variable holds one of the several pipeline keys of the Jenkinsfile | Once, for that key only | `[ONEVIEW] DSO_PIPELINE_KEY holds one of the <n> pipeline keys of the Jenkinsfile (<hint>), so the report is uploaded for that key only: it can be removed from the job, and the report is then uploaded once for each key of the Jenkinsfile` |
+| Neither variable, and the keys the run read its configuration with | Once for each key, in their order | No line about the key; each upload line ends with the hint of its key |
+| No variable, no key in the Jenkinsfile, and `oneview.pipelineKey` | Once, with that key | No line; with a `portal.pipelineKey` of another value `[ONEVIEW] oneview.pipelineKey is used: portal.pipelineKey, its former name, holds another value and is ignored`, and with the same value `[ONEVIEW] portal.pipelineKey is the former name of oneview.pipelineKey and holds the same value: it can be removed <place>` |
+| The same, with `portal.pipelineKey` only | Once, with that key | `[ONEVIEW] portal.pipelineKey is the former name of oneview.pipelineKey: it still works; rename the block portal: to oneview: <place>` |
+| The same, with a blank `oneview.pipelineKey` and a `portal.pipelineKey` | Once, with the key of `portal.pipelineKey` | `[ONEVIEW] oneview.pipelineKey is ignored because it is blank: portal.pipelineKey, its former name, is used instead; correct it <place>` |
+| No key in any of these places, also a blank `oneview.pipelineKey` with nothing behind it | Not at all | No line |
+
+The two lines about a variable name the one that is read: `DSO_PIPELINE_KEY` when it is set, otherwise `PIPELINE_KEY`.
+
+#### The settings block `oneview:` and where it is edited
+
+`oneview.url` and `oneview.pipelineKey` are the two keys of the block `oneview:` ([the configuration reference](#16-configuration-reference-itss-coe-oneview)); `portal:` is the former name of the block and is read when `oneview:` does not hold the key. The library reads the block of the first service of the run and then the block under `defaults:`. ITSS COE OneView has no field for the block and renders none into the configuration of a pipeline key, so no line names the Global Settings for it. A line names the place where the value was read and can be edited:
+
+| The value comes from | `<place>` in the line |
+|---|---|
+| The service in the file a run without a key read | `in devsecops_config.yaml` or `in config.yaml` |
+| `defaults:` of the library, also when the service holds the same value | `in resources/com/bbh/devsecops/defaults.yaml of the library` |
+| A configuration OneView sent for a pipeline key, should one ever hold the block | `in the configuration that OneView sent for this run` |
+
+In practice only a run without a pipeline key reads the block: a run with a key has its address in `ONEVIEW_URL` or `DSO_PORTAL_URL`, which the configuration read needed, and its key in the Jenkinsfile.
+
+#### Jobs on an older release of the library
+
+A job that is pinned to an older release of the library, with `@Library('DevSecOpsJenkinsLibrary@<older version>') _`, reads only `DSO_PORTAL_URL` and `DSO_PORTAL_AGENT`, and `PORTAL_URL` for its report upload: that release does not know the new names. The former variables therefore stay set, with the same values as the new ones, until no job uses an older release. During that time the current library logs the line "holds the same value: it can be removed" in its builds; it is true for the current library only and is to be followed when the last job has moved.
+
+To move to the new names, a Jenkins administrator adds `ONEVIEW_URL`, and `ONEVIEW_AGENT` when `DSO_PORTAL_AGENT` is set, with the value of the former variable, written in the form above. The former variables are removed when no job is pinned to an older release and the console of a build says that they can be removed. A `portal:` block of a `devsecops_config.yaml` or of the library defaults is renamed to `oneview:` in the place the line names.
+
+### ITSS COE OneView
+
+**Read only, no account.** To read the configuration the library sends `GET /api/dso/config/<key>?format=json` and nothing else. OneView answers 200 with the configuration, 403 with the reason when the key was invalidated and 404 for a key it never issued. Jenkins needs no database account, no credentials and no driver, and the portal's database is reached by the portal alone.
+
+**The report upload.** At the end of a run that has a pipeline key and an address for the upload, the library sends the pipeline report to OneView with `POST /api/dso/reports`, again without an account. A run that read its configuration from OneView needs no further setting: it uploads its report with the key or the keys of its `Jenkinsfile`, one `POST /api/dso/reports` for each key in their order, so that every pipeline of OneView whose key the run names gets the report of the run. Until this release such a run uploaded nothing unless its job also set `DSO_PIPELINE_KEY`. The tables above give the order of the names for the key and for the address.
+
+- **What is sent.** One JSON document per key: `pipelineKey`, `job`, `build`, `result`, `branch`, `commit`, `durationSeconds`, `stagesTotal`, the counts `passed`, `warned`, `failed`, `blocked` and `skipped`, `reportHtml` with the content of `report/pipeline-report.html`, and `autoResolved` with the values the library resolved for every service of the run. With several keys every document holds the report of the whole run, and only `pipelineKey` differs.
+- **Where it runs.** In the `post` block, on the agent of the pipeline (`finishPipeline()` calls `sendOneViewReport()`), not on the agents of the `ONEVIEW_AGENT` label. That agent therefore needs HTTPS to OneView too. The address, the payload file `oneview_report_<ms>.json` and the answer file `oneview_response_<ms>.json` reach `curl` (`curl.exe` from PowerShell on a Windows agent) through the environment of the step, as `ONEVIEW_URL`, `ONEVIEW_FILE` and `ONEVIEW_RESPONSE`, and both files are removed after each upload.
+- **Time limits.** `curl` runs with `--connect-timeout 10 --max-time 60`, on Linux, macOS and Windows, so a OneView that does not answer holds a build for at most 60 seconds per key. The limits are new in this release: an upload that needs more than 60 seconds now fails with its line instead of holding the build. `curl` runs with `-k`, as before.
+- **A key of the job.** A `DSO_PIPELINE_KEY`, or without it a `PIPELINE_KEY`, in the environment of the build comes before the keys of the Jenkinsfile and gives one upload with that key, as before this release. It belongs to one job: as a global variable of Jenkins it would send the report of every job to one pipeline of OneView, and on a job with several keys it limits the upload to one of them. A job that sets it to a key of its own Jenkinsfile is told that it can be removed.
+- **Failures.** A failed upload, which is a `curl` error, an HTTP status of 300 or more or any other error, is one `[ONEVIEW]` line in the console. The next key is still tried; only an abort of the build ends the uploads. No upload changes the result of the build. Without a key or without an address nothing is sent.
+
+| Case | The console says |
+|---|---|
+| An upload to an address in the form above, with a key of the job or of the settings block | `[ONEVIEW] Uploading pipeline report to <address>/api/dso/reports for job <JOB_NAME> build <BUILD_NUMBER>` |
+| The same with a key of the Jenkinsfile | `[ONEVIEW] Uploading pipeline report to <address>/api/dso/reports for job <JOB_NAME> build <BUILD_NUMBER> with pipeline key <hint>` |
+| An upload to an address that is not in the form above, which only a former name can hold | `[ONEVIEW] Uploading pipeline report to the address in DSO_PORTAL_URL (path /api/dso/reports) for job <JOB_NAME> build <BUILD_NUMBER>`, or with `PORTAL_URL` or `portal.url`, and with `with pipeline key <hint>` at its end for a key of the Jenkinsfile |
+| The answer of OneView, printed by the upload step; the pipeline key that the answer repeats is replaced by `(not shown)` | `[ONEVIEW] HTTP <status> <answer>` |
+| A failed upload | `[ONEVIEW] Failed to upload pipeline report to OneView: <reason>` or, with a key of the Jenkinsfile, `[ONEVIEW] Failed to upload pipeline report to OneView for pipeline key <hint>: <reason>`. An address that is not in the form above reads `the address in DSO_PORTAL_URL` (or `PORTAL_URL`, `portal.url`) in the reason |
+| The report file cannot be read | `[ONEVIEW] Could not read report/pipeline-report.html: <reason>`; a page that says so is uploaded in its place |
+| No address that can be used | `[ONEVIEW] The pipeline report is not uploaded: ...`, see the lines about the address above |
+
+**The key is the secret.** Whoever holds a key can read the configuration of that one pipeline, as anyone who could read a product repository could read its `config.yaml` before; it holds Jenkins credential IDs, not passwords. Invalidating the key in the portal stops it at once. A key cannot be guessed (a random UUID) and the portal offers no way to list keys over this request. When the portal moves behind BBH SSO, `/api/dso/config/**` stays outside the sign-in and keeps the key as its only check. The library keeps the keys of a run for the report upload and writes them nowhere else: they are in the request of the read and in the payload of the upload, and not in the console, the pipeline report, `release-gate.json`, `pipeline-config.yaml` or the InfluxDB lines.
+
+**Network.** The agents of the `ONEVIEW_AGENT` label need HTTPS to the portal's route and must trust its certificate (the BBH certificate authority, as for Nexus and Bitbucket). The agents of the pipelines need HTTPS to the same route for the report upload; an agent that cannot reach it costs each build one `[ONEVIEW] Failed to upload ...` line per key, after at most 60 seconds each, and nothing else.
+
+**Failures.** An unreachable portal, an untrusted certificate or an answer other than 200, 403 or the portal's own 404 stops the build with one message naming the address of OneView, the cause (the `curl` error or the HTTP status with the portal's explanation) and the DevSecOps team, and sets the build description to `OneView unavailable`. The read is retried twice, five seconds apart, when the connection times out or the portal answers 408, 429 or 5xx, so a restart of the portal, during which its OpenShift route answers 503, does not fail builds.
+
+#### The other lines of the configuration read
+
+With the lines about the names above, these are all lines and stop messages of the library that start with `[ONEVIEW]`. A stop message ends the build before `pipeline {}`; [the troubleshooting guide](#24-troubleshooting-guide) says what to do about each.
+
+| Case | The console says |
+|---|---|
+| A key was read: one line per key | `[ONEVIEW] key <hint>: <services> of <product>, rendered <UTC time>, sha256 <16 hex digits>` |
+| The Jenkinsfile of a run with a key also sets `projectNames`, `agentNames` or `securityPipeline` | `[ONEVIEW] The Jenkinsfile sets <names>; the values from OneView are used instead` |
+| Stop: the Jenkinsfile names an empty key, or no key while `DSO_REQUIRE_PIPELINE_KEY` is `true` | `[ONEVIEW] No pipeline key: OneView issues one per service on the product page. Write <entry point>(pipelineKey: '<key from OneView>') in the Jenkinsfile, or call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from OneView>']) in a custom Jenkinsfile` |
+| Stop: the Jenkinsfile names neither a key nor `agentNames` | `[ONEVIEW] No pipeline key and no agentNames: OneView issues one key per service on the product page.`, followed by both ways to write the Jenkinsfile |
+| Stop: a value that is not a key | `[ONEVIEW] Pipeline key <hint> is not a key of OneView: copy the key of the service from its product page in OneView` |
+| Stop: OneView answers 403 | `[ONEVIEW] Key <hint> was invalidated in OneView (<reason>); regenerate it in OneView and put the new key in the Jenkinsfile`, with `no reason given` when OneView gives none |
+| Stop: OneView answers 404 for a key it never issued | `[ONEVIEW] Key <hint> was not issued by OneView at <address>` |
+| Stop: OneView cannot be reached, or answers something else | `[ONEVIEW] The configuration could not be read from OneView at <address>: <cause>; ask the DevSecOps team` |
+| Stop: the key of another pipeline type | `[ONEVIEW] Key <hint> configures a <type> pipeline, <entry point> runs the <variant> pipeline: use the key of the <variant> pipeline of the service` |
+| Stop: the keys of two products | `[ONEVIEW] Key <hint> belongs to product <product>, key <hint> to product <product>: the keys of one run must belong to one product` |
+| Stop: two keys of one service | `[ONEVIEW] Keys <hint> and <hint> both configure service <name>: give each service once` |
+
+### The agents that read OneView (`ONEVIEW_AGENT`)
+
+Before `pipeline {}` the library takes one executor of an agent with the `ONEVIEW_AGENT` label for a few seconds, never the `AGENT_NAME` the build was started with. Those agents need:
 
 - Linux or macOS; a Windows agent is refused with a message asking for another label
-- HTTPS access to `DSO_PORTAL_URL`
+- HTTPS access to the address of `ONEVIEW_URL`
 - `curl`, and `sha256sum` or `shasum`
 
-### Cutover to the DevSecOps portal
+The address is read twice, with the same rules: before the agent is taken, so that a missing or malformed address stops the build without waiting for an executor, and again inside the node of the read. The second value is the address of the request. An agent whose node properties set `ONEVIEW_URL`, or `DSO_PORTAL_URL` as before this release, therefore reads OneView at its own address, for example the route of its network zone. New in this release, that value is checked like the global one, and an `ONEVIEW_URL` of the agent wins over a `DSO_PORTAL_URL` of Jenkins. The messages "was not issued by OneView at" and "could not be read from OneView at" name the address that was asked.
+
+### Cutover to OneView
 
 1. The DevSecOps team enters the Global Settings (the values of the former `defaults.yaml`) and the platform values in the portal, then every product and service.
-2. The Jenkins administrators set `DSO_PORTAL_URL` and check that the agents of the `DSO_PORTAL_AGENT` label reach it.
-3. Pin the portal-integrated library version in `@Library('DevSecOpsJenkinsLibrary@<version>') _` of every migrated Jenkinsfile and in the portal's `platform.jenkinsLibrary`, from which the portal writes the Jenkinsfile it offers, until every job carries a key. A job without a key keeps working on the default version with its `config.yaml`, and on this version and later with `devsecops_config.yaml`, else `config.yaml`, of its repository. The portal-integrated versions before this one stop such a job, so do not move the default version to one of them while jobs without a key remain.
+2. The Jenkins administrators set `ONEVIEW_URL` and check that the agents of the `ONEVIEW_AGENT` label reach it, and the agents of the pipelines too, which upload the report at the end of a run.
+3. Pin the OneView-integrated library version in `@Library('DevSecOpsJenkinsLibrary@<version>') _` of every migrated Jenkinsfile and in the portal's `platform.jenkinsLibrary`, from which the portal writes the Jenkinsfile it offers, until every job carries a key. A job without a key keeps working on the default version with its `config.yaml`, and on this version and later with `devsecops_config.yaml`, else `config.yaml`, of its repository. The OneView-integrated versions before this one stop such a job, so do not move the default version to one of them while jobs without a key remain.
 4. Replace each Jenkinsfile with the one the product page of the portal offers, and delete `devsecops_config.yaml` and `config.yaml` from the repository once the build is green: a job with a key never reads them, and a file left behind only misleads.
 5. Run every security job once with the new library before its extended job: the extended job copies `pipeline-config.yaml`, which only the new library archives.
 6. The DevSecOps team copies the `defaults:` part of "Shared settings sent to Jenkins (devsecops_config.yaml format)" of the portal into `resources/com/bbh/devsecops/defaults.yaml` of the library before each release, so that runs without a key apply the same thresholds and GoldenFix policy. It leaves out `staticAnalysis.parallel` and adds it only when the runs without a key should use the Static analysis stage.
 7. When every job carries a key, move the default version of the library and drop the pins. Then set `DSO_REQUIRE_PIPELINE_KEY` to `true`, so that a branch with an older Jenkinsfile stops again instead of building with its old settings.
 
-### Before the portal is used outside the test network
+### Before OneView is used outside the test network
 
-A change in the portal now steers every build. Until the portal signs users in through BBH SSO with role-based access and records an audit trail of who changed what, it must not be reachable outside the test network, and the portal-integrated library must not be used outside test.
+A change in OneView now steers every build. Until the portal signs users in through BBH SSO with role-based access and records an audit trail of who changed what, it must not be reachable outside the test network, and the OneView-integrated library must not be used outside test.
 
 ---
 
@@ -666,13 +818,13 @@ AppScan is outside the BBH network, so the pipeline goes through the BBH proxy `
 | Proxy account, OIS certificates, agent connectivity | DevSecOps platform team |
 | Nexus repositories and publishing accounts | Nexus administrators |
 | Deployment hosts and accounts | The owners of your test environments |
-| The global environment variable `DSO_PORTAL_URL` | Jenkins administrators, once |
-| Global Settings and platform values in the portal, invalidating keys | DevSecOps team |
-| The service in the DevSecOps portal, the `Jenkinsfile`, the Jenkins job, the test jobs | You |
+| The global environment variable `ONEVIEW_URL` | Jenkins administrators, once |
+| Global Settings and platform values in OneView, invalidating keys | DevSecOps team |
+| The service in OneView, the `Jenkinsfile`, the Jenkins job, the test jobs | You |
 
 ## 7. Third-Party System Registration Procedure
 
-Do this before the first pipeline run. Each tool gives you an identifier that goes into the settings of your service in the DevSecOps portal. Keep a note of the values as you go; the checklist at the end of this chapter lists them.
+Do this before the first pipeline run. Each tool gives you an identifier that goes into the settings of your service in ITSS COE OneView. Keep a note of the values as you go; the checklist at the end of this chapter lists them.
 
 ### Nexus IQ — dependency scanning
 
@@ -681,7 +833,7 @@ Do this before the first pipeline run. Each tool gives you an identifier that go
 1. **Sign in and open Organizations & Policies.** Find the organisation your team belongs to. If you do not know which one, ask your team lead.
 2. **Create a new application.** Use a clear name such as `MyApp-GUI`. Nexus IQ also asks for an **Application ID**, the short public identifier — that is the value you need.
 3. **Confirm a policy is assigned.** The application must inherit your organisation's policy, otherwise the scan reports nothing.
-4. **Write down the Application ID.** It goes into the DevSecOps portal as `tools.nexusIq.application`.
+4. **Write down the Application ID.** It goes into OneView as `tools.nexusIq.application`.
 
 The pipeline fails the dependency stage if the application does not exist in Nexus IQ, so do this before the first run.
 
@@ -692,7 +844,7 @@ The pipeline fails the dependency stage if the application does not exist in Nex
 1. **Create the project.** Choose **Create Project → Manually**, give it a display name such as `MyApp-GUI` and a project key such as `myapp-gui`. The key must be unique across BBH, so prefix it with your application name.
 2. **Generate a token to read results back.** **My Account → Security → Generate token**. Give it to the Jenkins administrators to store as a **Secret text** credential and note the credential ID.
 3. **Optional: generate a badge token.** **Project Settings → Badges**. Give it to the Jenkins administrators to store as a **Secret text** credential and name it in `tools.sonar.badgeCredentialsId`; the quality metrics then appear in the pipeline report.
-4. **Write down the project key and the credential ID.** They go into the DevSecOps portal as `tools.sonar.projectKey` and `tools.sonar.authToken`.
+4. **Write down the project key and the credential ID.** They go into OneView as `tools.sonar.projectKey` and `tools.sonar.authToken`.
 
 **Flutter applications:** SonarQube Community has no Dart analyser and the library does not need one. It converts the coverage report and the `dart analyze` findings into the generic import formats SonarQube accepts for any language. No additional component is required; create the project as described above.
 
@@ -703,11 +855,11 @@ The pipeline fails the dependency stage if the application does not exist in Nex
 **Where:** `bbh.cloud.appscan.com` · **Who:** the DevSecOps team creates the application, you note the identifiers
 
 1. **Request an AppScan application.** Ask the DevSecOps team to create one for your product, giving them the application name and your team.
-2. **Receive the Application ID.** It looks like `109f44ac-cc06-4ca0-884e-d944904f7019` and goes into the DevSecOps portal as `appId`.
+2. **Receive the Application ID.** It looks like `109f44ac-cc06-4ca0-884e-d944904f7019` and goes into OneView as `appId`.
 3. **No API key of your own.** SAST and DAST sign in with the API key of the functional AppScan on Cloud user, which the DevSecOps team keeps in the library defaults (`asoc.keyId` and the Jenkins **Secret text** credential named in `asoc.token`). The portal does not ask for a key, and a key ID or a secret in `devsecops_config.yaml` is ignored with a line in the console. Ask the DevSecOps team to add your application to the functional user.
 4. **Confirm your agent can reach AppScan.** Ask the DevSecOps team to confirm the proxy service account and the OIS certificate are installed on your agent label. This is the most common reason a first SAST run fails.
 
-> **Note:** **Never** put the AppScan key secret, the proxy password or any certificate into the DevSecOps portal or into Bitbucket. Secrets belong in the Jenkins credentials store, and the library reads them from there at run time.
+> **Note:** **Never** put the AppScan key secret, the proxy password or any certificate into OneView or into Bitbucket. Secrets belong in the Jenkins credentials store, and the library reads them from there at run time.
 
 ### HCL AppScan — DAST
 
@@ -715,10 +867,10 @@ The pipeline fails the dependency stage if the application does not exist in Nex
 
 DAST scans a **running** instance, so it only applies if you have one deployed in a test environment. If you do not, set `dast.enabled: false` and the pipeline reports the stage as not required instead of failing.
 
-1. **Have a deployed test instance** and note its URL, for example `http://rdltaapps1.testbbh.com`. It goes into the DevSecOps portal as `dast.targetUrl`.
+1. **Have a deployed test instance** and note its URL, for example `http://rdltaapps1.testbbh.com`. It goes into OneView as `dast.targetUrl`.
 2. **Request an AppScan Presence.** Your application is inside the BBH network and AppScan is outside it, so AppScan needs a Presence — a small agent inside the network that performs the scan. Ask the DevSecOps team for one and for its ID.
 3. **Decide whether the scan needs to log in.** If the interesting parts are behind a login, provide a dedicated test account and give the credentials to the DevSecOps team rather than putting them in the file.
-4. **Write down the target URL and the Presence ID.** They go into the DevSecOps portal as `dast.targetUrl` and `dast.presenceId`.
+4. **Write down the target URL and the Presence ID.** They go into OneView as `dast.targetUrl` and `dast.presenceId`.
 
 ### Nexus repository — where artifacts are published
 
@@ -749,7 +901,7 @@ You should now have written down: the **Nexus IQ application ID**, the **SonarQu
 
 This chapter is the same for all five pipelines. Do it once, then go to the chapter of the pipeline you chose.
 
-**You do not write any pipeline code.** Your application needs one new file, a `Jenkinsfile` of two lines, and its service in the DevSecOps portal. Everything else comes from the library.
+**You do not write any pipeline code.** Your application needs one new file, a `Jenkinsfile` of two lines, and its service in ITSS COE OneView. Everything else comes from the library.
 
 ### Step 1 — Register the library in Jenkins
 
@@ -766,29 +918,29 @@ This chapter is the same for all five pipelines. Do it once, then go to the chap
 | Load implicitly | off — projects declare `@Library(...)` themselves |
 | Allow default version to be overridden | on, so a project can pin a version while testing |
 
-Ask them to confirm this is done before you create your job. They also set up the read of the DevSecOps portal once per instance, see [Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain); during the cutover to the portal the jobs pin the portal-integrated version of the library.
+Ask them to confirm this is done before you create your job. They also set up the read of OneView once per instance, see [Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain); during the cutover to OneView the jobs pin the OneView-integrated version of the library.
 
-### Step 2 — Describe the service in the DevSecOps portal and add the Jenkinsfile
+### Step 2 — Describe the service in OneView and add the Jenkinsfile
 
-**Who:** a developer on your team with access to the DevSecOps portal.
+**Who:** a developer on your team with access to OneView.
 
-1. **Describe the service.** Open your product in the DevSecOps portal, add the service and fill in the values you collected in the previous chapter. To start from an existing service, copy it or import its `devsecops_config.yaml` or former `config.yaml`. A field that starts with a value shows it as the Library default of the Global Settings, and every field has a help text. **There are no thresholds or coverage minimum to set**: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference](#16-configuration-reference-the-devsecops-portal).
+1. **Describe the service.** Open your product in OneView, add the service and fill in the values you collected in the previous chapter. To start from an existing service, copy it or import its `devsecops_config.yaml` or former `config.yaml`. A field that starts with a value shows it as the Library default of the Global Settings, and every field has a help text. **There are no thresholds or coverage minimum to set**: they are global settings and a project cannot change them. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference](#16-configuration-reference-itss-coe-oneview).
 2. **Save it.** The next build reads what you saved.
 3. **Commit the Jenkinsfile.** Copy the Jenkinsfile the product page offers with the pipeline key of the service into the **root** of the repository, on the branch the pipeline will build:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(pipelineKey: '<key from OneView>')
 ```
 
-The entry point comes with the pipeline type of the key: `devSecOpsPipeline`, `devSecOpsSecurityPipeline`, `devSecOpsExtendedPipeline`, `devSecOpsSASTScanningPipeline` or `devSecOpsNexusIqGoldenFixPipeline`. Several services of one product and one pipeline type run in one build with `pipelineKeys: ['<key of gui>', '<key of backend-api>']`; the first key is the primary project. Services that share one repository, such as the modules of a multimodule repository, take one Jenkinsfile with the keys of all of them and one Jenkins job per pipeline type; the product page of the portal offers that Jenkinsfile. One GoldenFix pull request then raises a shared version catalog once, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline). The agent labels offered as the `AGENT_NAME` build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: `projectNames`, `agentNames` and `securityPipeline` in a Jenkinsfile are ignored, with a `[PORTAL]` line in the console saying so. Without a key these come from the Jenkinsfile, see [Without a pipeline key](#4-solution-architecture).
+The entry point comes with the pipeline type of the key: `devSecOpsPipeline`, `devSecOpsSecurityPipeline`, `devSecOpsExtendedPipeline`, `devSecOpsSASTScanningPipeline` or `devSecOpsNexusIqGoldenFixPipeline`. Several services of one product and one pipeline type run in one build with `pipelineKeys: ['<key of gui>', '<key of backend-api>']`; the first key is the primary project. Services that share one repository, such as the modules of a multimodule repository, take one Jenkinsfile with the keys of all of them and one Jenkins job per pipeline type; the product page of the portal offers that Jenkinsfile. One GoldenFix pull request then raises a shared version catalog once, see [Integration Guide: Nexus IQ GoldenFix Pipeline](#13-integration-guide-nexus-iq-goldenfix-pipeline). The agent labels offered as the `AGENT_NAME` build parameter, the services of the run and, for an extended pipeline, its security job come from the portal: `projectNames`, `agentNames` and `securityPipeline` in a Jenkinsfile are ignored, with a `[ONEVIEW]` line in the console saying so. Without a key these come from the Jenkinsfile, see [Without a pipeline key](#4-solution-architecture).
 
 **The life of a pipeline key:**
 
 - The portal issues one key per service and pipeline type. The key selects a configuration and is the only thing a build shows the portal: whoever holds it can read the configuration of that pipeline, as anyone could read `config.yaml` in the repository before. It never unlocks a secret, because the configuration holds credential IDs only.
 - A change of the service in the portal needs no change of the Jenkinsfile: the next build reads the configuration saved last.
-- The DevSecOps team can invalidate a key in the portal with a reason. The next build of every job that uses it stops before the pipeline starts with "Key &lt;hint&gt; was invalidated in the DevSecOps portal (&lt;when and why&gt;)". Regenerate the key in the portal and put the new one in the Jenkinsfile.
+- The DevSecOps team can invalidate a key in the portal with a reason. The next build of every job that uses it stops before the pipeline starts with "Key &lt;hint&gt; was invalidated in OneView (&lt;when and why&gt;)". Regenerate the key in the portal and put the new one in the Jenkinsfile.
 - A key of another pipeline type or of another product, or two keys for one service, stop the build with a message naming both values.
 
 A Jenkinsfile without a key is described in [Without a pipeline key](#4-solution-architecture).
@@ -850,12 +1002,12 @@ A single Jenkins job executing the complete delivery flow: build, unit testing, 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(pipelineKey: '<key from OneView>')
 ```
 
-### Settings in the DevSecOps portal
+### Settings in OneView
 
-Set these for the service in the DevSecOps portal. The listing shows them in the shape in which the portal renders them and the library reads them.
+Set these for the service in ITSS COE OneView. The listing shows them in the shape in which the portal renders them and the library reads them.
 
 ```yaml
 projects:
@@ -931,7 +1083,7 @@ projects:
 
 Use `buildTool: maven` or `flutter` if that is what your project uses and replace the `build` and `tests` blocks accordingly.
 
-The listing leaves out the optional keys of a service: `sast.scanName` names the SAST scan in AppScan, `tools.sonar.badgeCredentialsId` names the Secret text with the SonarQube badge token, and `deploy.<target>.rd.nexusDeliveryEnabled: false` stops the snapshot delivery of the service. The [configuration reference](#16-configuration-reference-the-devsecops-portal) describes them.
+The listing leaves out the optional keys of a service: `sast.scanName` names the SAST scan in AppScan, `tools.sonar.badgeCredentialsId` names the Secret text with the SonarQube badge token, and `deploy.<target>.rd.nexusDeliveryEnabled: false` stops the snapshot delivery of the service. The [configuration reference](#16-configuration-reference-itss-coe-oneview) describes them.
 
 ### Optional: a frontend built with Node.js first
 
@@ -944,7 +1096,7 @@ A service whose repository holds a frontend that npm builds, for example an Angu
         dir: frontend
 ```
 
-The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend` right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without `build.node.installationName` or `build.node.nodePath` the commands use the Library default installation of the Global Settings, and without that the `node` and `npm` on the `PATH` of the agent. The other keys, such as `commands`, `env` and the `.npmrc` credentials, are in [the configuration reference](#16-configuration-reference-the-devsecops-portal). How the output reaches the jar is described under [Troubleshooting](#24-troubleshooting-guide), **The frontend is missing from the jar**.
+The **Node.js build** stage then runs `npm ci` and `npm run build` in `frontend` right after the first stage, and the unit tests and every later stage use its output. The report numbers the stage 0. Nothing else is required. Without `build.node.installationName` or `build.node.nodePath` the commands use the Library default installation of the Global Settings, and without that the `node` and `npm` on the `PATH` of the agent. The other keys, such as `commands`, `env` and the `.npmrc` credentials, are in [the configuration reference](#16-configuration-reference-itss-coe-oneview). How the output reaches the jar is described under [Troubleshooting](#24-troubleshooting-guide), **The frontend is missing from the jar**.
 
 ### Specific to this pipeline
 
@@ -968,14 +1120,14 @@ It also archives `pipeline-config.yaml`, which holds the build tags of its snaps
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsSecurityPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsSecurityPipeline(pipelineKey: '<key from OneView>')
 ```
 
-### Settings in the DevSecOps portal
+### Settings in OneView
 
 Start from the settings in the previous chapter; this pipeline does not use the `dast`, `deploy` and `tests.smoke` / `regression` / `performance` blocks. It needs `appId`, `asoc`, `tools.sonar`, `tools.nexusIq`, `build`, `tests.unitTests` and `scm.bitbucket`.
 
-If you will also run the extended pipeline, name that job as the extended pipeline in the portal so this one can start it. The portal renders it as:
+If you will also run the extended pipeline, name that job as the extended pipeline in ITSS COE OneView so this one can start it. The portal renders it as:
 
 ```yaml
     jenkins:
@@ -1005,21 +1157,21 @@ The second half of the flow, started after the security pipeline. It deploys, ru
 
 ### Jenkinsfile
 
-The full Jenkins path of the security job, for example `MyApp/MyApp-security-pipeline`, is set in the portal as the security pipeline of the extended pipeline, and the key carries it:
+The full Jenkins path of the security job, for example `MyApp/MyApp-security-pipeline`, is set in ITSS COE OneView as the security pipeline of the extended pipeline, and the key carries it:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsExtendedPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsExtendedPipeline(pipelineKey: '<key from OneView>')
 ```
 
 If you keep both pipelines in one repository, give this file a different name such as `Jenkinsfile.extended` and point the job's **Script Path** at it.
 
 Without a key, write `devSecOpsExtendedPipeline(projectNames: 'MyApp', agentNames: ['linux-agent'], securityPipeline: 'MyApp/MyApp-security-pipeline')` and keep this Jenkinsfile in the repository of the service: the job reads `devsecops_config.yaml` (else `config.yaml`) of its own checkout and takes only the run-time tags of its own services from the security build, as with a key. The first extended build after the default library version moves needs one security build made by this library.
 
-### Settings in the DevSecOps portal
+### Settings in OneView
 
-This pipeline needs the `deploy`, `tests.smoke`, `tests.regression`, `tests.performance` and `dast` blocks shown in the full pipeline chapter. It reads them from its own key, so a change in the portal applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference, the delivered version of a Liquibase service and the Flutter build tags, and `build.tag` with the snapshot version of a Maven or Gradle VM service. Run the security job once with the portal-integrated library before the first extended build; an older build has no `pipeline-config.yaml` and the extended build stops with "... predates the DevSecOps portal integration; run &lt;job&gt; once".
+This pipeline needs the `deploy`, `tests.smoke`, `tests.regression`, `tests.performance` and `dast` blocks shown in the full pipeline chapter. It reads them from its own key, so a change in the portal applies at its next build. From the security job it takes only the run-time tags of the snapshot stage: the OpenShift build tag and image reference, the delivered version of a Liquibase service and the Flutter build tags, and `build.tag` with the snapshot version of a Maven or Gradle VM service. Run the security job once with the OneView-integrated library before the first extended build; an older build has no `pipeline-config.yaml` and the extended build stops with "... predates the OneView integration; run &lt;job&gt; once".
 
 Without a security pipeline in the portal the extended pipeline runs on its own: it copies nothing and deploys what its own settings name, including a build tag pinned in the portal.
 
@@ -1048,10 +1200,10 @@ The smallest option: it checks out your code and runs the AppScan static securit
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsSASTScanningPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsSASTScanningPipeline(pipelineKey: '<key from OneView>')
 ```
 
-### Settings in the DevSecOps portal
+### Settings in OneView
 
 This pipeline needs very little — only the AppScan identifiers and, if your source is not at the repository root, where to find it.
 
@@ -1090,12 +1242,12 @@ The dependency check on its own: it builds the artifact, has Nexus IQ evaluate i
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsNexusIqGoldenFixPipeline(pipelineKey: '<key from OneView>')
 ```
 
-The key is the one the portal issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type `nexusiq`. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline `DevSecOps/<CODE>/<service>-nexusiq`; services that share a repository share the job of the first of them, see below.
+The key is the one ITSS COE OneView issued for the Nexus IQ GoldenFix pipeline of the service, pipeline type `nexusiq`. A key of another pipeline type stops the build before it starts, and so does this key in another entry point. The portal names the Jenkins job of this pipeline `DevSecOps/<CODE>/<service>-nexusiq`; services that share a repository share the job of the first of them, see below.
 
-### Settings in the DevSecOps portal
+### Settings in OneView
 
 This pipeline needs the Nexus IQ application and the artifact it scans, the build that produces that artifact, and the repository GoldenFix raises the pull request in.
 
@@ -1133,7 +1285,7 @@ projects:
 - `tools.nexusIq` names the Nexus IQ application and the credential, and `scanPatterns` must match the artifacts the build produces. A service without the application or its scan patterns stops the pipeline at the start with **The Nexus IQ GoldenFix pipeline would scan nothing for &lt;service&gt;**, because a green run that scanned nothing would prove nothing.
 - `buildTool`, `build` and `javaPath` (or `buildToolAutoSetup: true`) build the artifact; without a JDK the Build artifact stage stops with **JAVA_HOME parameter is not specified**.
 - `scm.bitbucket` is where the `GoldenFix-YYYYMMDDHHMM` branch is pushed and the pull request is raised, into `targetBranch` or, when it is empty, into the branch that triggered the build. The credential needs write access to the repository. Without it the upgrades are listed in the report and no pull request is raised.
-- `goldenFix` is on by default; every setting of [the configuration reference](#16-configuration-reference-the-devsecops-portal) applies, such as `minThreatLevel`, `ecosystems` and the pre-check build under `goldenFix.verify`.
+- `goldenFix` is on by default; every setting of [the configuration reference](#16-configuration-reference-itss-coe-oneview) applies, such as `minThreatLevel`, `ecosystems` and the pre-check build under `goldenFix.verify`.
 - `appId` stays required although this pipeline runs no AppScan scan: the portal asks for the AppScan application ID of every service. No AppScan key is needed: the key of the functional user is a setting of the library defaults and only AppScan stages read it.
 - `build.node` builds a frontend with Node.js before the artifact build, as in [the full pipeline](#9-integration-guide-full-pipeline). While `build.node.nexusIqScan` is not `false`, the `package-lock.json` of `build.node.dir` joins the scan patterns of the service, so that Nexus IQ also reports the npm dependencies and GoldenFix can raise them in `package.json`. The npm pre-check of GoldenFix then runs with the Node.js, the registry and the `.npmrc` of that build.
 
@@ -1187,7 +1339,7 @@ The catalog must live in the same repository as the services. A catalog publishe
 
 **Build tool:** `liquibase` or `sql` · **Pipelines:** all five · **Agents:** Linux, macOS or Windows for the Liquibase commands; Linux or macOS for a database block
 
-This chapter is the complete description of services made of SQL and PL/SQL: what each pipeline does with them, the three ways to configure them, four complete repository layouts, the rules for a changelog, every setting, the credentials, the deployments, the report, the metrics and the messages. It assumes no earlier use of the library with a database. The general concepts of the pipelines are in chapters 9 to 13, and the portal steps in the guide of the DevSecOps portal, chapter 7, **SQL and PL/SQL changes with Liquibase**.
+This chapter is the complete description of services made of SQL and PL/SQL: what each pipeline does with them, the three ways to configure them, four complete repository layouts, the rules for a changelog, every setting, the credentials, the deployments, the report, the metrics and the messages. It assumes no earlier use of the library with a database. The general concepts of the pipelines are in chapters 9 to 13, and the steps in the portal in the guide of ITSS COE OneView, chapter 7, **SQL and PL/SQL changes with Liquibase**.
 
 ### 14.1 What the library does with SQL and PL/SQL
 
@@ -1202,13 +1354,13 @@ A service with `buildTool: liquibase` is a folder of Liquibase changelogs and th
 
 Choose the Liquibase commands when the team deploys the changes itself, or for a database other than Oracle. Choose the database block when the pipelines are to test, deliver and deploy Oracle changes that a Liquibase changelog describes. Choose `buildTool: sql` when the repository holds only `.sql` and PL/SQL files and nobody maintains a changelog: every rule of this chapter for a database block then applies, and `buildTool: sql` is always a database block.
 
-The commands of the first way stay in force with a database block: a command of `build.liquibase` runs first in Build artifact, a command of `tests.unitTests.liquibase` runs first in Unit tests, the command of `asoc.liquibase` runs before the SAST scan, and the arguments of `tools.sonar.liquibase` win over those the block adds. With a block, a command of `build.liquibase` or `tests.unitTests.liquibase` runs only when the service sets its commands or its flags. Without a block, the auto-resolve of the settings ([chapter 16](#16-configuration-reference-the-devsecops-portal), on unless the service sets `autoresolve parameters: false`) fills a missing `build.liquibase.commands` with `updateSQL`, a missing `tests.unitTests.liquibase.commands` with `validate`, and their missing flags with `--changelog-file=` and the changelog it finds in the repository (`src/main/resources/changelog.xml` when it finds none); with the auto-resolve off, Build artifact runs `liquibase validate` when `build.liquibase` sets no command, and Unit tests runs `liquibase validate` when `tests.unitTests.liquibase` sets flags but no command, else nothing.
+The commands of the first way stay in force with a database block: a command of `build.liquibase` runs first in Build artifact, a command of `tests.unitTests.liquibase` runs first in Unit tests, the command of `asoc.liquibase` runs before the SAST scan, and the arguments of `tools.sonar.liquibase` win over those the block adds. With a block, a command of `build.liquibase` or `tests.unitTests.liquibase` runs only when the service sets its commands or its flags. Without a block, the auto-resolve of the settings ([chapter 16](#16-configuration-reference-itss-coe-oneview), on unless the service sets `autoresolve parameters: false`) fills a missing `build.liquibase.commands` with `updateSQL`, a missing `tests.unitTests.liquibase.commands` with `validate`, and their missing flags with `--changelog-file=` and the changelog it finds in the repository (`src/main/resources/changelog.xml` when it finds none); with the auto-resolve off, Build artifact runs `liquibase validate` when `build.liquibase` sets no command, and Unit tests runs `liquibase validate` when `tests.unitTests.liquibase` sets flags but no command, else nothing.
 
 The library never deploys to production and never rolls back. A database block deploys only to the databases that the DevSecOps team allows in the Global Settings (`defaults.database.allowedTargets`).
 
 **Detection of the build tool.** When `buildTool` is empty, the library detects it from the files at the root of the workspace, in one of two orders:
 
-- **With the auto-resolve of the settings on** (the default, [chapter 16](#16-configuration-reference-the-devsecops-portal)), it decides at the start of the run, in this order: `pubspec.yaml` → `flutter`; then `Podfile`, `Package.swift`, a `*.xcodeproj` or a `*.xcworkspace` → `ios`; then `pom.xml` → `maven`; then `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` or `gradle/wrapper/gradle-wrapper.properties` → `gradle` (`android` with an `AndroidManifest.xml`); then `global.json`, `packages.config`, `Directory.Packages.props`, `Directory.Build.props`, `build.cake`, `.nuke`, a `*.sln` or a `*.csproj` / `*.fsproj` / `*.vbproj` → `dotnet`; then `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.yml`, `changelog.json`, `db/changelog.xml`, `db/changelog/db.changelog-master.xml`, `src/main/resources/db/changelog/db.changelog-master.xml` or `src/main/resources/changelog.xml` → `liquibase`; then `requirements.txt`, `pyproject.toml`, `setup.py` or `Pipfile` → `pip`; then `package.json` or `angular.json` → `npm`; then, when the folder has none of the Liquibase files of the longer list below, any `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.pck`, `.prc`, `.fnc`, `.trg`, `.tps`, `.tpb`, `.typ`, `.bdy` or `.vw` file in the folder of the service or below it, outside folders whose name starts with a dot → `sql`. The application build files come **before** the Liquibase files, and the SQL files come last: one build file anywhere in the list makes the service that kind of service, whatever SQL it also holds. When none of them is there, `buildTool` stays empty and the order below applies. For a service it finds to be `sql` it also sets `buildToolAutoSetup: true` when the service has no `javaPath`, and `database.searchPath` to the one top folder that holds all of the files when the service sets neither `sourceDir` nor `database.searchPath`; each value it sets is one `[AUTO]` line of the console and one row of the card **Auto-resolved settings** of the report. The auto-resolve fills the Liquibase commands and flags only for a service whose `buildTool` is `liquibase` at the start of the run, set in its settings or found from the list above. A service that the stages find to be Liquibase only from the longer list below, such as one with only `sql/changelog.xml`, runs `liquibase validate` in Build artifact and no Unit tests command, as with the auto-resolve off.
+- **With the auto-resolve of the settings on** (the default, [chapter 16](#16-configuration-reference-itss-coe-oneview)), it decides at the start of the run, in this order: `pubspec.yaml` → `flutter`; then `Podfile`, `Package.swift`, a `*.xcodeproj` or a `*.xcworkspace` → `ios`; then `pom.xml` → `maven`; then `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` or `gradle/wrapper/gradle-wrapper.properties` → `gradle` (`android` with an `AndroidManifest.xml`); then `global.json`, `packages.config`, `Directory.Packages.props`, `Directory.Build.props`, `build.cake`, `.nuke`, a `*.sln` or a `*.csproj` / `*.fsproj` / `*.vbproj` → `dotnet`; then `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.yml`, `changelog.json`, `db/changelog.xml`, `db/changelog/db.changelog-master.xml`, `src/main/resources/db/changelog/db.changelog-master.xml` or `src/main/resources/changelog.xml` → `liquibase`; then `requirements.txt`, `pyproject.toml`, `setup.py` or `Pipfile` → `pip`; then `package.json` or `angular.json` → `npm`; then, when the folder has none of the Liquibase files of the longer list below, any `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.pck`, `.prc`, `.fnc`, `.trg`, `.tps`, `.tpb`, `.typ`, `.bdy` or `.vw` file in the folder of the service or below it, outside folders whose name starts with a dot → `sql`. The application build files come **before** the Liquibase files, and the SQL files come last: one build file anywhere in the list makes the service that kind of service, whatever SQL it also holds. When none of them is there, `buildTool` stays empty and the order below applies. For a service it finds to be `sql` it also sets `buildToolAutoSetup: true` when the service has no `javaPath`, and `database.searchPath` to the one top folder that holds all of the files when the service sets neither `sourceDir` nor `database.searchPath`; each value it sets is one `[AUTO]` line of the console and one row of the card **Auto-resolved settings** of the report. The auto-resolve fills the Liquibase commands and flags only for a service whose `buildTool` is `liquibase` at the start of the run, set in its settings or found from the list above. A service that the stages find to be Liquibase only from the longer list below, such as one with only `sql/changelog.xml`, runs `liquibase validate` in Build artifact and no Unit tests command, as with the auto-resolve off.
 - **With the auto-resolve off** (`autoresolve parameters: false`), `sql` is never detected: set `buildTool: sql`. Each stage detects the other tools in this order: `pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` or `build.gradle.kts` → Gradle; then `liquibase.properties`, `changelog.xml`, `changelog.yaml`, `changelog.yml`, `changelog.json`, `changelog.sql`, `db/changelog.xml`, `db/changelog.yaml`, `db/changelog.sql`, `db/changelog/db.changelog-master.xml`, `db/changelog/db.changelog-master.yaml`, `sql/changelog.xml`, `sql/changelog.sql`, `liquibase/changelog.xml`, `src/main/resources/db/changelog/db.changelog-master.xml`, `src/main/resources/db/changelog/db.changelog-master.yaml` or `src/main/resources/changelog.xml` → Liquibase; otherwise Gradle.
 
 Because the application build files come first, a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service: a Spring Boot application with the standard `src/main/resources/db/changelog/db.changelog-master.xml` next to its `pom.xml` is built with Maven. Set `buildTool: liquibase` for a database service with a changelog. Detection never switches the database block of a changelog on: that block needs `buildTool: liquibase` in the settings of the service, and a service with `database.changelogFile` and no `buildTool` is never detected as `sql`. Only a repository without any build file and without a Liquibase changelog is detected as `sql`, which is a database block by itself. The auto-resolve keeps to this: for a service with `database.changelogFile` and one of its Liquibase files it leaves `buildTool` empty, so that service runs without the block, with the tool that the stages detect in the second order; and it adds no Liquibase command, no Node.js stage 0 and no `deployTarget` to a service with a block.
@@ -1340,7 +1492,7 @@ projects:
 - `database.test.utplsql.paths` is left out, so utPLSQL runs the suites of the login schema, which is the owner with a proxy login (14.8).
 - QC has a changelog parameter of its own; the other targets use `database.parameters`.
 
-Without a pipeline key the Jenkinsfile names the service; with a key it holds the key of the DevSecOps portal instead:
+Without a pipeline key the Jenkinsfile names the service; with a key it holds the key of OneView instead:
 
 File `Jenkinsfile` (`test/fixtures/database/layout-a/Jenkinsfile`):
 
@@ -1349,7 +1501,7 @@ File `Jenkinsfile` (`test/fixtures/database/layout-a/Jenkinsfile`):
 devSecOpsPipeline(projectNames: 'orders-db', agentNames: ['linux-agent'])
 ```
 
-**Without a key** the Global Settings do not come from the portal but from `resources/com/bbh/devsecops/defaults.yaml` of the library release (chapter 4). This release ships it without allowed databases, tools and Nexus repositories for database packages, so the file above stops in Monitor source changes with **defaults.database.allowedTargets is empty**. Use a pipeline key, or, without one, leave out `test`, `rd` and `qc`, put Liquibase on the `PATH` of the agent or set `tools.liquibase` and `tools.oracleJdbc` under the service, and set `database.package.snapshotRepository` and `database.package.releaseRepository` under the service, or `database.package.nexusDelivery: false`, as chapter 7 of the portal guide shows. The pipelines then validate, package and deliver the changes, and deploy them nowhere.
+**Without a key** the Global Settings do not come from the portal but from `resources/com/bbh/devsecops/defaults.yaml` of the library release (chapter 4). This release ships it without allowed databases, tools and Nexus repositories for database packages, so the file above stops in Monitor source changes with **defaults.database.allowedTargets is empty**. Use a pipeline key, or, without one, leave out `test`, `rd` and `qc`, put Liquibase on the `PATH` of the agent or set `tools.liquibase` and `tools.oracleJdbc` under the service, and set `database.package.snapshotRepository` and `database.package.releaseRepository` under the service, or `database.package.nexusDelivery: false`, as chapter 7 of the OneView guide shows. The pipelines then validate, package and deliver the changes, and deploy them nowhere.
 
 The master changelog deploys the tables through `includeAll` and every code object through a `sqlFile` changeset of its own (14.4):
 
@@ -2392,7 +2544,7 @@ Every key of the first two tables is a key of the service, under `projects.<serv
 
 There is no production target: `database.prod`, `database.production`, `database.prd` and `database.live` are refused. With a block, `deployTarget` and `deploy` are not used, and a `database.allowedTargets` of the service is ignored with a line in the console.
 
-**The Global Settings** (`defaults.*`), which the DevSecOps team fills in the DevSecOps portal on the Library defaults page, section **Liquibase database changes**; a run without a key reads them from `defaults.yaml` of the library release instead (chapter 4):
+**The Global Settings** (`defaults.*`), which the DevSecOps team fills in OneView on the Library defaults page, section **Liquibase database changes**; a run without a key reads them from `defaults.yaml` of the library release instead (chapter 4):
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -2423,7 +2575,7 @@ A local folder wins over the download, and the download over the `PATH` of the a
 
 The list is a guard against mistakes, not an access control: a listed name that points to production is not detected. The control is that no Jenkins folder of a product holds production credentials.
 
-**In the DevSecOps portal** (portal guide, chapter 7, **SQL and PL/SQL changes with Liquibase**):
+**In OneView** (OneView guide, chapter 7, **SQL and PL/SQL changes with Liquibase**):
 
 1. The DevSecOps team fills the section **Liquibase database changes** of the Library defaults page: the Liquibase folder or download, the Java version, the Oracle JDBC driver, utPLSQL-cli, the allowed databases and the Nexus repositories of the database packages.
 2. The Jenkins administrator adds one **Username with password** credential per database to the Jenkins folder of the product.
@@ -2570,7 +2722,7 @@ PL/SQL rules need SonarQube Developer Edition, or the ZPA plugin. With a block, 
 
 `sonar-scanner` gets the arguments of `tools.sonar.liquibase`, and the block adds only what they leave out: `-Dsonar.sources` (the package folder), `-Dsonar.<analyzer>.file.suffixes=sql,pks,pkb,pls,plb,pck,prc,fnc,trg,vw,tps,tpb,typ,bdy`, `-Dsonar.tests` (the utPLSQL `testPath`), `-Dsonar.exclusions` of the test folder, the utPLSQL coverage and test execution reports, and `-Dproject.settings` (an empty file in the work folder of the step, see below). When the block sets `-Dsonar.tests`, it also adds the test folder to `-Dsonar.exclusions` of `tools.sonar.liquibase`, so that no file is both a source and a test. With a block every argument is quoted; without a block the arguments are passed to the shell as they are, so a value must not hold a blank. Like every `sonar-scanner` run, the scan also gets `-Dsonar.projectKey` and `-Dsonar.branch.name` of the build branch.
 
-**sonar-project.properties.** For a service without a database block, the library looks for a `sonar-project.properties` at the root of the workspace and in `tools.sonar.dir` before the scan. When one is there, it adds `sonar.branch.name` of the build branch to it when the file has none; when none is there, it writes one with its defaults ([chapter 16](#16-configuration-reference-the-devsecops-portal), among them `sonar.projectKey`, `sonar.language`, `sonar.sources`, `sonar.tests`, and `sonar.modules` with `<module>.sonar.sources` and `<module>.sonar.tests` for every module of `pom.xml` or `settings.gradle`) at the root of the workspace and, with `tools.sonar.dir`, also in that folder. For a service with a database block the library neither writes nor changes such a file, and the scanner of the block reads none: it gets `-Dproject.settings` with an empty file in the work folder of the step, so every setting of the scan is on its command line. This matters where the block scans from the root of a build with modules, as in layout (b) without `tools.sonar.liquibase.dir`: the defaults that the library writes there for `orders-app` name `sonar.modules=app` from `settings.gradle`, and a scanner that read them would analyse the Java sources of the module `app` under the project key of `orders-db`, or fail. Neither these defaults, written for another service of the run in the same folder, nor a `sonar-project.properties` of the repository reach the block. A block that is to read a file of its own names it in `tools.sonar.liquibase.flags` with `-Dproject.settings=<file>`; the block then writes no empty file, and the arguments on the command line still win over that file.
+**sonar-project.properties.** For a service without a database block, the library looks for a `sonar-project.properties` at the root of the workspace and in `tools.sonar.dir` before the scan. When one is there, it adds `sonar.branch.name` of the build branch to it when the file has none; when none is there, it writes one with its defaults ([chapter 16](#16-configuration-reference-itss-coe-oneview), among them `sonar.projectKey`, `sonar.language`, `sonar.sources`, `sonar.tests`, and `sonar.modules` with `<module>.sonar.sources` and `<module>.sonar.tests` for every module of `pom.xml` or `settings.gradle`) at the root of the workspace and, with `tools.sonar.dir`, also in that folder. For a service with a database block the library neither writes nor changes such a file, and the scanner of the block reads none: it gets `-Dproject.settings` with an empty file in the work folder of the step, so every setting of the scan is on its command line. This matters where the block scans from the root of a build with modules, as in layout (b) without `tools.sonar.liquibase.dir`: the defaults that the library writes there for `orders-app` name `sonar.modules=app` from `settings.gradle`, and a scanner that read them would analyse the Java sources of the module `app` under the project key of `orders-db`, or fail. Neither these defaults, written for another service of the run in the same folder, nor a `sonar-project.properties` of the repository reach the block. A block that is to read a file of its own names it in `tools.sonar.liquibase.flags` with `-Dproject.settings=<file>`; the block then writes no empty file, and the arguments on the command line still win over that file.
 
 With `tools.sonar.liquibase.dir` the scanner runs in that folder, and SonarQube analyses only the files under it. The settings check therefore refuses a block whose package folder or utPLSQL test folder lies outside it, and the block gives every path it adds from that folder: in layout (a) with `dir: db`, `-Dsonar.sources=.`, `-Dsonar.tests=test` and `-Dsonar.exclusions=test/**`. utPLSQL names the files of its reports from the workspace (`db/code/pkg_orders.pkb`), so the block checks the reports in `.dso-db/<service>/` before the scanner enters the folder and gives the scanner copies in the work folder of the step, in which the file paths start below that folder (`code/pkg_orders.pkb`). The arguments of `tools.sonar.liquibase`, `sources` among them, are given as they are and are read from that folder too.
 
@@ -2669,7 +2821,7 @@ Liquibase Pro and Secure features (flows, policy checks, `runWith`, `include` in
 
 ### 14.16 What was tested
 
-`test/sandbox/DatabaseScenarios.groovy` runs the four layouts under the sandbox, layout (a) in all five pipelines and layout (d), the SQL and PL/SQL files without a changelog, in the full, security and SAST pipelines, with Liquibase and utPLSQL output taken from real runs, and pins them with the golden files `test/sandbox/golden/database-*.txt`; it also runs a Liquibase service without a database block, whose calls equal those of the same run before the block existed. It compares this chapter with the repository: every file shown with its fixture, every console with its golden file, the file trees of the layouts with `test/fixtures/database`, the settings of the application services with the reference implementation, the keys of 14.5 and the messages of 14.14 with the library, and checks the settings that the DevSecOps portal writes for layouts (a), (b) and (c) (`test/fixtures/database/portal`). `test/database/cli-scenarios.sh` runs the real Liquibase 4.33.0 and 5.0.4 CLIs offline and against H2 when they are in the tools cache; both validate the generated changelog of layout (d) and write its update SQL. The compile check, utPLSQL, the Nexus upload and fetch and the SonarQube PL/SQL analysis were not run against a real Oracle database, Nexus or SonarQube server.
+`test/sandbox/DatabaseScenarios.groovy` runs the four layouts under the sandbox, layout (a) in all five pipelines and layout (d), the SQL and PL/SQL files without a changelog, in the full, security and SAST pipelines, with Liquibase and utPLSQL output taken from real runs, and pins them with the golden files `test/sandbox/golden/database-*.txt`; it also runs a Liquibase service without a database block, whose calls equal those of the same run before the block existed. It compares this chapter with the repository: every file shown with its fixture, every console with its golden file, the file trees of the layouts with `test/fixtures/database`, the settings of the application services with the reference implementation, the keys of 14.5 and the messages of 14.14 with the library, and checks the settings that OneView writes for layouts (a), (b) and (c) (`test/fixtures/database/oneview`). `test/database/cli-scenarios.sh` runs the real Liquibase 4.33.0 and 5.0.4 CLIs offline and against H2 when they are in the tools cache; both validate the generated changelog of layout (d) and write its update SQL. The compile check, utPLSQL, the Nexus upload and fetch and the SonarQube PL/SQL analysis were not run against a real Oracle database, Nexus or SonarQube server.
 
 ## 15. Reference Implementation Examples
 
@@ -2690,7 +2842,7 @@ Both projects configure the JDK (`javaPath`), unit tests with coverage, regressi
 |---|---|
 | `CertScanner/Jenkinsfile` | Loads the library and calls the full pipeline with the keys of both services |
 
-The configuration of both services lives in the DevSecOps portal, whose demo product CertScanner reproduces it. The former `config.yaml` of the example is kept as a test fixture, `test/fixtures/CertScanner/config.yaml`, and the test suite proves that the portal documents load the same configuration. Committed as `devsecops_config.yaml` or `config.yaml` next to a Jenkinsfile without a key, it runs the example without the portal.
+The configuration of both services lives in ITSS COE OneView, whose demo product CertScanner reproduces it. The former `config.yaml` of the example is kept as a test fixture, `test/fixtures/CertScanner/config.yaml`, and the test suite proves that the portal documents load the same configuration. Committed as `devsecops_config.yaml` or `config.yaml` next to a Jenkinsfile without a key, it runs the example without the portal.
 
 ### Choosing the entry point
 
@@ -2732,7 +2884,7 @@ devSecOpsNexusIqGoldenFixPipeline(pipelineKeys: ['<nexusiq key of gui>', '<nexus
 
 ### What the thresholds are
 
-Nothing in these files or in the settings of a service sets a security threshold or a coverage minimum. Both come from the Global Settings of the DevSecOps portal and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
+Nothing in these files or in the settings of a service sets a security threshold or a coverage minimum. Both come from the Global Settings of OneView and cannot be changed by a project. A violation colours the stage orange, the pipeline keeps running, and the Nexus release plus the QC deployment stay blocked.
 
 Step by step onboarding instructions are in [Detailed Description Guide for Application Integration](#8-detailed-description-guide-for-application-integration) and in the five integration guide chapters that follow it.
 
@@ -2751,14 +2903,14 @@ Step by step onboarding instructions are in [Detailed Description Guide for Appl
 | `full-pipeline-pass.html` | all thirteen stages | released to Nexus and deployed to QC |
 | `full-pipeline-fail.html` | all thirteen stages | orange stages, GoldenFix pull request, release and QC blocked |
 
-## 16. Configuration Reference: the DevSecOps Portal
+## 16. Configuration Reference: ITSS COE OneView
 
-The DevSecOps portal publishes one document per pipeline key with four parts: `pipeline` (type, product, agent labels, the linked security job), `platform` (AppScan, proxy and Nexus addresses, the iOS build agent), `defaults` (the Global Settings) and `projects`, the settings of the service. You edit the settings in the portal; with a key there is no file in the repository. Without a key the `projects` part below is the content of `devsecops_config.yaml` (else `config.yaml`) at the root of the repository. Below is the `projects` part with every key the library reads and its default. A key the portal does not model is not available (see [Differences from config.yaml](#4-solution-architecture)).
+ITSS COE OneView publishes one document per pipeline key with four parts: `pipeline` (type, product, agent labels, the linked security job), `platform` (AppScan, proxy and Nexus addresses, the iOS build agent), `defaults` (the Global Settings) and `projects`, the settings of the service. You edit the settings in the portal; with a key there is no file in the repository. Without a key the `projects` part below is the content of `devsecops_config.yaml` (else `config.yaml`) at the root of the repository. Below is the `projects` part with every key the library reads and its default. A key the portal does not model is not available (see [Differences from config.yaml](#4-solution-architecture)).
 
 ```yaml
 projects:
 
-  <project-name>:                    # the service name in the DevSecOps portal
+  <project-name>:                    # the service name in OneView
 
     appId:        ""                 # HCL AppScan application ID (UUID)
     buildTool:    gradle             # gradle | maven | flutter | liquibase | sql (plsql)  [default: gradle]
@@ -2771,7 +2923,7 @@ projects:
 
     jenkins:
       pipeline:
-        extendedPipeline: ""         # security pipeline only: the extended job named in the portal, started when RUN_EXTENDED_PIPELINE is selected
+        extendedPipeline: ""         # security pipeline only: the extended job named in OneView, started when RUN_EXTENDED_PIPELINE is selected
 
     asoc:                            # HCL AppScan on Cloud (required)
       url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
@@ -2803,7 +2955,7 @@ projects:
       project:   ""                  # measurement tag [default: tools.sonar.projectName]
       env:       "dev"               # measurement tag
       url:       ""                  # InfluxDB v2 write endpoint
-      credentialsId: ""              # Jenkins Secret text credential with the token (the portal never stores a token)
+      credentialsId: ""              # Jenkins Secret text credential with the token (OneView never stores a token)
 
     coverage:
       reportPath: ""                 # usually empty: every JaCoCo XML and LCOV report of the service is searched; else the reports that count, as a list, lines or commas; *, ? and ** allowed
@@ -2984,7 +3136,7 @@ projects:
         allowEmptyResults: false     # Maven: accept a module without test results
       smoke:
         maxParallel: 20              # optional per-stage override
-        jobs:                        # the portal stores every job with its own settings
+        jobs:                        # OneView stores every job with its own settings
           - name:       ""           # display name (derived from the URL when empty)
             type:       local        # local | remote  [default: remote when job/url is a full URL]
             job:        ""           # Jenkins job path ("folder/job-name") or full job URL
@@ -3090,7 +3242,33 @@ projects:
 
     flutter:                         # Flutter-specific settings (only when buildTool: flutter)
       platform: apk                  # apk | appbundle | ios | macos | linux | windows | web
+
+    oneview:                         # the report upload of a run without a pipeline key, see below; portal: is the former name of the block
+      url:         ""                # address of OneView; read after ONEVIEW_URL, DSO_PORTAL_URL and PORTAL_URL
+      pipelineKey: ""                # pipeline key of the upload; read after DSO_PIPELINE_KEY, PIPELINE_KEY and the keys of the Jenkinsfile
 ```
+
+### The settings block of the report upload: oneview (formerly portal)
+
+The block `oneview:` gives the report upload an address and a pipeline key when the environment of the build and the Jenkinsfile give none ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)). Only the report upload reads it (`sendOneViewReport()`, which `finishPipeline()` calls); the configuration read never does.
+
+```yaml
+projects:
+  <project-name>:                    # the first service of the run
+    oneview:
+      url:         "https://oneview.apps.bbh.com"
+      pipelineKey: "<key from OneView>"
+```
+
+| Key | Default | What reads it and when |
+|---|---|---|
+| `oneview.url` | none | The address of the report upload, after `ONEVIEW_URL`, `DSO_PORTAL_URL` and `PORTAL_URL`: read only when none of the three variables holds a value that can be used. Written as `https://<host>[:<port>][/<path>]`, without a user, password, query or spaces; another value is passed over with a line that says so |
+| `oneview.pipelineKey` | none | The pipeline key of the report upload, after `DSO_PIPELINE_KEY`, `PIPELINE_KEY` and the keys of the Jenkinsfile: read only in a run without a pipeline key whose job sets neither variable. It gives one upload, to the pipeline of OneView the key belongs to |
+| `portal.url`, `portal.pipelineKey` | none | The former names of the two keys, in the block `portal:`. Each is read when `oneview:` does not hold its key or holds it blank, and the console says so once per build: with the advice to rename the block in the first case, with the blank key to correct in the second. `portal.url` is taken as before the rename: every value that is not blank |
+
+- **Where it is written.** Under the first service of the run in `devsecops_config.yaml`, else `config.yaml`, of a run without a key, or under `defaults:` of `resources/com/bbh/devsecops/defaults.yaml` of the library, which then holds for every run without a key. The service is read first; a blank value of the service does not hide a value of the defaults.
+- **Not in OneView.** OneView has no field for the block and renders none into the configuration of a pipeline key, so the Global Settings cannot hold it. A run with a key does not need it: its address is `ONEVIEW_URL` and its keys are those of its Jenkinsfile.
+- **A key in a file.** A pipeline key in `devsecops_config.yaml` can be read by everyone who can read the repository. `DSO_PIPELINE_KEY` in the configuration of the job keeps it out of the repository and comes first.
 
 ### Library defaults of the Node.js build
 
@@ -3161,18 +3339,18 @@ The rows of the build tool are tried in this order: `pubspec.yaml`, the Liquibas
 
 | Build Tool | `buildTool` | `pubspec.yaml` | `flutter` | | Build Tool | `buildTool` | `pom.xml` | `maven` | | Build Tool | `buildTool` | `build.gradle`, `build.gradle.kts`, or `gradle/wrapper/gradle-wrapper.properties` | `gradle` | | Build Tool | `buildTool` | `*.sln`, `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `Directory.Build.props`, `packages.config`, or `global.json` | `dotnet` | | Build Tool | `buildTool` | `changelog.xml`, `changelog.yaml`, or `liquibase.properties` | `liquibase` | | Build Tool | `buildTool` | `requirements.txt`, `pyproject.toml`, `setup.py`, or `Pipfile` | `pip` | | Build Tool | `buildTool` | only SQL and PL/SQL files (`.sql`, `.pks`, `.pkb` and the other extensions of [chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)), no build file and no Liquibase changelog | `sql` | | Search Path | `database.searchPath` | `buildTool: sql`, no `sourceDir`, every SQL and PL/SQL file under one top folder | that folder | | JDK Auto Setup | `buildToolAutoSetup` | `buildTool: sql` without `javaPath` | `true` | | Build Tool Auto Setup | `buildToolAutoSetup` | Maven or Gradle build tool detected | `true` | | Java Compiler Version | `build.maven.javaVersion` / `build.gradle.javaVersion` | `<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, `<release>` in `pom.xml`; `jvmToolchain`, `sourceCompatibility` in `build.gradle` | Matched JDK version (`17`, `21`, `11`, `8`) | | Gradle Wrapper Version | `build.gradle.version` | `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` | Exact Gradle wrapper version (e.g. `8.7`, `7.6`) | | Node.js Stage 0 Pre-Build | `build.node.enabled` | `package.json` present in root or frontend subfolder | `true` | | Node.js Directory | `build.node.dir` | Detected directory containing `package.json` | `.`, `frontend`, `web`, `client`, or `ui` | | Node.js Version | `build.node.version` | `engines.node` in `package.json` (e.g. `>=20.0.0`) | Major version (e.g. `20`) | | Cypress Unit Testing | `tests.unitTests.node.cypress` | `cypress` in `devDependencies` or `dependencies` | `true` | | Jest Unit Testing | `tests.unitTests.node.jest` | `jest` in `devDependencies` or `dependencies` | `true` | | Liquibase Build Command | `build.liquibase.commands` | Liquibase changelog detected | `['updateSQL']`; none for a service with a database block ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) | | Liquibase Validate Command | `tests.unitTests.liquibase.commands` | Liquibase build tool | `['validate']`; none for a service with a database block ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) | | Deployment Target | `deployTarget` | `Dockerfile`, `Containerfile`, `openshift/`, `k8s/`, or `helm/` | `openshift` (otherwise defaults to `vm`) | | SonarQube Project Key | `tools.sonar.projectKey` | Omitted or empty in configuration | `com.bbh:<projectName>` or `com.bbh:<appName>` | | SonarQube Language | `sonar.language` | Source code tree inspection (`pubspec.yaml` -&gt; `dart`, `requirements.txt` -&gt; `py`, C#/.NET -&gt; `cs`, Kotlin -&gt; `kotlin`, Liquibase -&gt; `sql`, else `java`) | Language identifier | | SonarQube Source Paths | `sonar.sources` | Missing `sonar-project.properties` | `src/main/java` (Java), `src/main/kotlin` (Kotlin), `lib` (Dart), `db` (SQL), `src` or `.` (Python / .NET generic) | | SonarQube Test Paths | `sonar.tests` | Missing `sonar-project.properties` | `src/test/java` (Java), `src/test/kotlin` (Kotlin), `test` (Dart), `tests` (Python) | | SonarQube Java Binaries | `sonar.java.binaries` | Build tool classes folder | Maven: `target/classes`; Gradle: `target/classes,build/classes/java/main` | | SonarQube Modules | `sonar.modules` | Multi-module Maven (`<module>`) or Gradle (`settings.gradle` `include`) | Comma-separated module names | | SonarQube Active Branch | `sonar.branch.name` | Active pipeline execution branch (`CHANGE_BRANCH`, `BRANCH_NAME`, `GIT_BRANCH`) | Evaluated branch name (never defaults to master) |
 
-#### How to use in the version with DevSecOps Management Portal (main branch)
+#### How to use in the version with OneView (main branch)
 
-In the portal-integrated release:
+In the OneView-integrated release:
 
-1. **One-Click Inspect (Smart Wizard)**: In the DevSecOps Management Portal, enter the Bitbucket repository URL and branch, then click **Scan & Auto-fill**. The portal queries the Bitbucket REST API, inspects the repository file tree, and automatically pre-populates all service fields.
+1. **One-Click Inspect (Smart Wizard)**: In OneView, enter the Bitbucket repository URL and branch, then click **Scan & Auto-fill**. The portal queries the Bitbucket REST API, inspects the repository file tree, and automatically pre-populates all service fields.
 2. **Runtime Pipeline Resolution**: Even if an engineer leaves fields blank or undefined in the portal form, `RepoStackAutoResolver` executes dynamically inside the Jenkins pipeline workspace. Unspecified parameters are resolved and applied before any build or scan stage begins.
 3. **Precedence Rule**: Any value explicitly configured in the portal form always takes precedence. Auto-resolve fills only missing or empty keys and will never overwrite explicit team choices.
-4. **Jenkinsfile**: Requires only the portal-issued pipeline key:
+4. **Jenkinsfile**: Requires only the pipeline key issued by OneView:
 
 ```groovy
 @Library('DSOEnhanced@main') _
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(pipelineKey: '<key from OneView>')
 ```
 
 #### How to use without the portal (a Jenkinsfile without a pipeline key, and the DSOEnhancedWithoutPortal branch)
@@ -3227,7 +3405,7 @@ What each stage does for a Liquibase service with a database block, and why a st
 
 Performs:
 
-- Merges every service of the pipeline keys, read before the pipeline started (see [How a pipeline reads its configuration](#4-solution-architecture)), with the global defaults of the portal and writes the services to `pipeline-config.yaml`; an extended pipeline first lays the run-time tags of its security job over them
+- Merges every service of the pipeline keys, read before the pipeline started (see [How a pipeline reads its configuration](#4-solution-architecture)), with the global defaults of ITSS COE OneView and writes the services to `pipeline-config.yaml`; an extended pipeline first lays the run-time tags of its security job over them
 - Applies the library policy to the state, so every later stage compares against the same thresholds
 - Detects the agent operating system and makes `gradlew` executable
 - Sets the tool environment: ASoC URLs, proxy host, port and user (a value in the agent's environment first, then the platform value of the portal), and the AppScan working directories
@@ -3240,7 +3418,7 @@ Performs:
 Fails if:
 
 - there is no key and neither `devsecops_config.yaml` nor `config.yaml` is at the workspace root, or the file read is not valid YAML or has no `projects:` section
-- with a key, the portal sent no global defaults
+- with a key, OneView sent no global defaults
 - with a key, a name in `PROJECT_NAMES` is not a service of the pipeline keys
 - an extended pipeline finds no `pipeline-config.yaml` in the last successful build of its security job, a service of the run is missing from it, or a tag in it is not a plain tag
 
@@ -3275,7 +3453,7 @@ Its effect on the later stages:
 Performs, once per project:
 
 - Runs the unit tests with the command of `tests.unitTests` on the artifact that the Jenkins stage **Build artifact** built before with the command of the `build` section, with Visual Studio `.trx` / JUnit XML results for C#/.NET, then reads every JaCoCo, OpenCover, Cobertura and LCOV coverage report of the project (see **Coverage reports** below)
-- Compares the line coverage of that project, the mean of its reports, with `coverage.minLine` of the Global Settings in the DevSecOps portal (60 %)
+- Compares the line coverage of that project, the mean of its reports, with `coverage.minLine` of the Global Settings in OneView (60 %)
 
 The stage never fails the pipeline. Below the required value the stage turns **orange**, the report box of that project shows the measured value next to the required one, and the reason states that the step failed and that the Nexus release and the QC deployment are blocked until the coverage is raised. A missing coverage report is treated the same way, because the required level cannot be proven. A failing test run is also caught: the stage turns orange with the exit code as the reason, the coverage of the reports that were produced is still evaluated, and Nexus IQ, SAST, SonarQube, the snapshot delivery and the RD deployment still run. The required value shown in the report is always the one from the Global Settings, so changing it there changes both the check and the report.
 
@@ -3317,7 +3495,7 @@ In every pipeline the artifact is built after the Node.js build, in the same wor
 
 ### Stages 2 to 5 at the same time: Static analysis
 
-By default ([the configuration reference](#16-configuration-reference-the-devsecops-portal)) the full and security pipelines run stages 2, 3, 4 and 5 in the Jenkins stage **Static analysis**, as four parallel branches, and show the four stages as skipped; with the Global Settings checkbox **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** unticked, or `staticAnalysis.parallel: false` in a run without a key, they run the four stages one after another and show **Static analysis** as skipped. The console starts the stage with "\[STATIC\] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)".
+By default ([the configuration reference](#16-configuration-reference-itss-coe-oneview)) the full and security pipelines run stages 2, 3, 4 and 5 in the Jenkins stage **Static analysis**, as four parallel branches, and show the four stages as skipped; with the Global Settings checkbox **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** unticked, or `staticAnalysis.parallel: false` in a run without a key, they run the four stages one after another and show **Static analysis** as skipped. The console starts the stage with "\[STATIC\] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)".
 
 1. The workspace is copied to `<WORKSPACE_TMP>/dso-sast-workspace` with `tar`, without the AppScan client and its logs (step "Copy the workspace for the SAST compile and scan").
 2. Four branches start at the same time:
@@ -3344,7 +3522,7 @@ Restart from Stage at **Static analysis** fails as a restart at stage 2, 3, 4 or
 
 ### Stage 3: Dependencies scan (Nexus IQ)
 
-Runs `nexusPolicyEvaluation` with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds (`tools.nexusIq.max*` of the Global Settings in the DevSecOps portal, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.
+Runs `nexusPolicyEvaluation` with your configured scan patterns and compares the critical, severe and moderate counts with the library thresholds (`tools.nexusIq.max*` of the Global Settings in OneView, all 0). A violation turns the stage orange with the counts in the reason, starts the GoldenFix remediation described below and blocks the release and QC, while the pipeline keeps running.
 
 For a service with `build.node.enabled: true`, and `build.node.nexusIqScan` not `false`, the library adds `<dir>/package-lock.json` (`package-lock.json` without a `dir`) to the scan patterns of every Nexus IQ application of the service that has scan patterns, also when they are a single pattern instead of a list. A `./`, a doubled `/` and a trailing `/` of `build.node.dir` are left out of the pattern, because the Ant patterns of Nexus IQ would not match them. Nexus IQ then also evaluates the npm dependencies of the frontend, and GoldenFix can raise them. An application without scan patterns gets no scan, and the settings in the portal stay as they are. New npm findings count like any other finding and can turn the stage orange.
 
@@ -3461,7 +3639,7 @@ GoldenFix never changes the result of the Nexus IQ stage: the stage stays orange
 
 ### Stage 4: SAST – HCL AppScan
 
-Downloads and unpacks SAClientUtil, which compiles every project and generates its IRX archive. Everything else goes through the AppScan on Cloud REST API v4 with `curl` (`curl.exe` from a batch step on Windows agents): the IRX of each project is uploaded (`FileUpload`), all projects are queued for the scan (`Scans/Sast`), and the results are then read one by one: the scan status is polled until it is `Ready`, and the HTML and the PDF report are generated and downloaded. The pipeline signs in once with the API key of the functional user from the library defaults (`asoc.keyId` and the secret of `asoc.token`), keeps the bearer token for the next calls and signs in again only after 90 minutes; the request body with the secret is written to the temporary folder of the build and removed after the call, so the secret never appears on a command line or in the console, and the proxy password and the token are not echoed. The scan is named `sast.scanName` when it is set, otherwise `<scan name>-sast`, where the scan name comes from `tools.sonar.projectName` or the service name; the file names keep the scan name. The reports leave out the issues with the `Noise` status, the HTML report of each project is parsed without them, and the counts are compared with `sast.maxCritical`, `sast.maxHigh` and `sast.maxMedium` of the Global Settings in the DevSecOps portal (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
+Downloads and unpacks SAClientUtil, which compiles every project and generates its IRX archive. Everything else goes through the AppScan on Cloud REST API v4 with `curl` (`curl.exe` from a batch step on Windows agents): the IRX of each project is uploaded (`FileUpload`), all projects are queued for the scan (`Scans/Sast`), and the results are then read one by one: the scan status is polled until it is `Ready`, and the HTML and the PDF report are generated and downloaded. The pipeline signs in once with the API key of the functional user from the library defaults (`asoc.keyId` and the secret of `asoc.token`), keeps the bearer token for the next calls and signs in again only after 90 minutes; the request body with the secret is written to the temporary folder of the build and removed after the call, so the secret never appears on a command line or in the console, and the proxy password and the token are not echoed. The scan is named `sast.scanName` when it is set, otherwise `<scan name>-sast`, where the scan name comes from `tools.sonar.projectName` or the service name; the file names keep the scan name. The reports leave out the issues with the `Noise` status, the HTML report of each project is parsed without them, and the counts are compared with `sast.maxCritical`, `sast.maxHigh` and `sast.maxMedium` of the Global Settings in OneView (all 0). Above the limits the stage turns orange with the counts, and the release and QC stay blocked.
 
 After a Node.js build in the same run, the folders that an IRX archive leaves out also hold `node_modules`, so the installed npm packages are not scanned as source code. This applies to every IRX archive of the run, unless included folders (`includedDirs`) are set or `node_modules` is already among the excluded folders (`excludedDirs`). Without a Node.js build nothing changes. The rule has limits:
 
@@ -3474,7 +3652,7 @@ In the **Static analysis** stage the staging copy `appscan-source-staged` (Windo
 
 ### Stage 5: SCA (SonarQube)
 
-Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the Global Settings in the DevSecOps portal (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
+Runs the SonarQube analysis and waits for the quality gate. It then queries the SonarQube API for the open **vulnerabilities** of the project and maps them to the report counts: Blocker and Critical become critical, Major becomes high, Minor becomes medium and Info becomes low. Both results are enforced: a failed quality gate and vulnerability counts above `sca.maxCritical`, `sca.maxHigh` and `sca.maxMedium` of the Global Settings in OneView (all 0) turn the stage orange with the reason and block the release and QC, without stopping the pipeline.
 
 #### How the analysis runs
 
@@ -3550,13 +3728,13 @@ Every test stage runs **all** configured jobs, even when some of them fail, and 
 
 ### Stages 8 to 11 at the same time: Dynamic analysis
 
-By default ([the configuration reference](#16-configuration-reference-the-devsecops-portal)) the full and extended pipelines run stages 8, 9, 10 and 11 in the Jenkins stage **Dynamic analysis**, as four parallel branches: the regression tests, the smoke tests, the performance tests and DAST. Jenkins shows the four stages as skipped; with the Global Settings checkbox **Run the regression, smoke and performance tests and DAST at the same time** unticked, or `dynamicAnalysis.parallel: false` in a run without a key, it runs them one after another and shows **Dynamic analysis** as skipped. The console starts the stage with "\[DYNAMIC\] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)" and ends it with "\[PARALLEL\] Dynamic analysis: one after another …, in parallel …". Each test stage keeps `tests.maxParallel` for its own jobs. A branch that fails is red, the other branches run to their end, and **Dynamic analysis** is red.
+By default ([the configuration reference](#16-configuration-reference-itss-coe-oneview)) the full and extended pipelines run stages 8, 9, 10 and 11 in the Jenkins stage **Dynamic analysis**, as four parallel branches: the regression tests, the smoke tests, the performance tests and DAST. Jenkins shows the four stages as skipped; with the Global Settings checkbox **Run the regression, smoke and performance tests and DAST at the same time** unticked, or `dynamicAnalysis.parallel: false` in a run without a key, it runs them one after another and shows **Dynamic analysis** as skipped. The console starts the stage with "\[DYNAMIC\] Regression, Smoke and Performance tests and DAST run at the same time (dynamicAnalysis.parallel: true, the default)" and ends it with "\[PARALLEL\] Dynamic analysis: one after another …, in parallel …". Each test stage keeps `tests.maxParallel` for its own jobs. A branch that fails is red, the other branches run to their end, and **Dynamic analysis** is red.
 
 ### Stage 11: DAST – HCL AppScan
 
 Runs only for projects with `dast.enabled: true`. Signs in to the AppScan REST API with the API key of the functional user from the library defaults (`asoc.keyId` and the secret of `asoc.token`), reusing the token of SAST when the run already holds one, and queues a DAST scan against `dast.targetUrl`. Uses optional `dast.presenceId` for scanning internal (non-internet-accessible) environments.
 
-The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as **PDF**. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the **HCL AppScan** console page of the scan (under `asoc.url`, otherwise `APPSCAN_SERVER_URL`) and the PDF report. Above the DAST thresholds of the Global Settings in the DevSecOps portal the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
+The report is downloaded twice: as HTML (parsed for the vulnerability counts) and as **PDF**. Both are archived as build artifacts and linked from the pipeline report: in the DAST stage box and in the Security Gates table, which offers three entries, the HTML report, the **HCL AppScan** console page of the scan (under `asoc.url`, otherwise `APPSCAN_SERVER_URL`) and the PDF report. Above the DAST thresholds of the Global Settings in OneView the stage turns orange with the critical, high and medium counts, and the release and QC stay blocked.
 
 ### Stage 12: Nexus delivery (safe artifact)
 
@@ -3622,7 +3800,7 @@ The minutes are `report.manualEffort` of the bundled defaults, which only the De
 
 ## 18. Security Policy Thresholds
 
-All thresholds are Global Settings of the DevSecOps portal, which only the DevSecOps team edits. A project **cannot** change any of them: the library takes them from the global defaults only. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
+All thresholds are Global Settings of ITSS COE OneView, which only the DevSecOps team edits. A project **cannot** change any of them: the library takes them from the global defaults only. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
 | Scanner | Metric | Library policy | Overridable by a project |
 |---|---|---|---|
@@ -3653,7 +3831,7 @@ The required coverage is shown in the report exactly as configured in the Global
 | SQL and PL/SQL files (`sql`) | the library writes `dso-changelog.xml`, then the offline validation, the static checks, the review SQL and the zip of a database block | the deployment to the test database and utPLSQL | the utPLSQL Cobertura report | the zip to Nexus and the RD and QC deployment ([chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase)) |
 | Node.js (stage 0, optional) | `build.node.commands`, by default `npm ci` and `npm run build` | – | – | – (the Gradle or Maven build packages the output) |
 
-Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in the DevSecOps portal; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` / `Directory.Packages.props` / `packages.config` → C#/.NET `dotnet`, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, `requirements.txt` / `pyproject.toml` / `setup.py` / `Pipfile` → Python, and only SQL and PL/SQL files → `sql`). The full lists and the order with the auto-resolve of the settings on and off are in [chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase), 14.1: the application build files come before the Liquibase files, so a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service.
+Every command comes from the settings of the service; the table shows where the library reads it. The build tool is `buildTool` of the service in ITSS COE OneView; when it is empty, the library detects it by file existence (`pubspec.yaml` → Flutter, `pom.xml` → Maven, `build.gradle` → Gradle, `*.sln` / `*.csproj` / `*.fsproj` / `*.vbproj` / `Directory.Packages.props` / `packages.config` → C#/.NET `dotnet`, `liquibase.properties` / `changelog.xml` / `changelog.yaml` / `changelog.json` / `changelog.sql` → Liquibase, `requirements.txt` / `pyproject.toml` / `setup.py` / `Pipfile` → Python, and only SQL and PL/SQL files → `sql`). The full lists and the order with the auto-resolve of the settings on and off are in [chapter 14](#14-integration-guide-sql-and-plsql-with-liquibase), 14.1: the application build files come before the Liquibase files, so a Maven or Gradle application that ships a Liquibase changelog stays a Maven or Gradle service.
 
 Gradle always runs through the `./gradlew` wrapper, which the library makes executable. Maven uses the installation of `build.maven.mvnPath` when it is set, otherwise `./mvnw` when the wrapper is committed, otherwise the `mvn` on the agent `PATH`.
 
@@ -3671,7 +3849,7 @@ The agents reach only the BBH network, so a Gradle plugin that the build takes f
 4. When the second run succeeds, the console says `[WARN] [BUILD] The plugin(s) <plugins> came from <url> of the BBH Nexus: add the repository to pluginManagement { repositories { ... } } of settings.gradle so that the first attempt does not fail` (`<pluginRepositories> of pom.xml` for Maven), and every later Gradle or Maven step of the same folder in the build uses the repository at once. When it fails too, the step fails with the error of the second run.
 5. A Maven step whose flags name its own settings file (`-s`, `--settings`) is not run again: the console names the missing plugins and the repository to add to that file.
 
-The repositories are `pluginRepositories` of the Global Settings, else of the bundled defaults ([Plugin repositories of the BBH Nexus](#16-configuration-reference-the-devsecops-portal)). The Nexus delivery and the database package run Gradle or Maven projects of the library and do not retry.
+The repositories are `pluginRepositories` of the Global Settings, else of the bundled defaults ([Plugin repositories of the BBH Nexus](#16-configuration-reference-itss-coe-oneview)). The Nexus delivery and the database package run Gradle or Maven projects of the library and do not retry.
 
 ### C# and .NET (Auto-Detection, Classic MSBuild + NuGet, .NET SDK CLI, Hybrid, Cake & NUKE)
 
@@ -3990,7 +4168,7 @@ If the standard pipeline does not fit your project structure, you can call indiv
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>'])
+devSecOpsApi.configure('full', [pipelineKey: '<key from OneView>'])
 
 pipeline {
     agent any
@@ -4052,18 +4230,18 @@ pipeline {
 
 Without a key, `initialize()` alone reads `devsecops_config.yaml`, else `config.yaml`, as before the portal; `devSecOpsApi.configure('full', [agentNames: ['linux-agent']])` (optionally `projectNames` and `securityPipeline`) does the same with the agents of the `AGENT_NAME` parameter.
 
-`configure()` reads the documents of the key before `pipeline {}`, on an agent of the `DSO_PORTAL_AGENT` label; called inside a node of a Linux or macOS agent, it reads on that node. `initialize()` without it reads the file of the repository; with `DSO_REQUIRE_PIPELINE_KEY` it stops with a message naming `configure()`. The tool environment variables such as `APPSCAN_SERVER_URL` or the proxy settings are set by `initialize()`: a value already in the environment wins, then the platform value of the portal, then the library's own default, so the `environment` block above is needed only when you want different values.
+`configure()` reads the documents of the key before `pipeline {}`, on an agent of the `ONEVIEW_AGENT` label; called inside a node of a Linux or macOS agent, it reads on that node. `initialize()` without it reads the file of the repository; with `DSO_REQUIRE_PIPELINE_KEY` it stops with a message naming `configure()`. The tool environment variables such as `APPSCAN_SERVER_URL` or the proxy settings are set by `initialize()`: a value already in the environment wins, then the platform value of the portal, then the library's own default, so the `environment` block above is needed only when you want different values.
 
 ### Complete method reference
 
 | Method | Description |
 |---|---|
 | `initialize()` | Set the tool environment variables, merge the configuration of the pipeline keys, or without a key of `devsecops_config.yaml` (else `config.yaml`) with the bundled defaults, write `pipeline-config.yaml`, check that the Nexus IQ GoldenFix pipeline has an application and scan patterns for every service, apply the library policy, detect OS |
-| `configure(String variant, Map config)` | Read the documents of `config.pipelineKey` or `config.pipelineKeys` from the DevSecOps portal, or without a key keep `projectNames`, `agentNames` and `securityPipeline` of the Jenkinsfile (`agentNames` is required), check them against the variant (`full`, `security`, `extended`, `sast`, `nexusiq`), select the report variant and keep the entry point configuration; call it before `initialize()` |
-| `settingsPlace()` | Where the settings of the run live, for messages: the DevSecOps portal, or the file read without a key |
+| `configure(String variant, Map config)` | Read the documents of `config.pipelineKey` or `config.pipelineKeys` from ITSS COE OneView, or without a key keep `projectNames`, `agentNames` and `securityPipeline` of the Jenkinsfile (`agentNames` is required), check them against the variant (`full`, `security`, `extended`, `sast`, `nexusiq`), select the report variant and keep the entry point configuration; call it before `initialize()` |
+| `settingsPlace()` | Where the settings of the run live, for messages: OneView, or the file read without a key |
 | `runStage(String name, Closure body)` | Run a stage body with the bookkeeping: start, result, duration, and a red stage on an exception |
 | `eachProject(Closure body)` | Run the body once per configured project, switching the project context first |
-| `finishPipeline(Map options)` | Report, release gate verdict, metrics, artifact archiving and workspace cleanup in one call |
+| `finishPipeline(Map options)` | Report, release gate verdict, metrics, the report upload to OneView (`sendOneViewReport()`), artifact archiving and workspace cleanup in one call |
 | `deployTarget()` | `vm` or `openshift` for the current project |
 | `nexusDeliveryEnabled()` | `false` when `delivery.nexusDeliveryEnabled`, or without it `deploy.<target>.rd.nexusDeliveryEnabled`, is false for the current project |
 | `nexusDeliverySetting()` | The name of the setting `nexusDeliveryEnabled()` read, for a log line |
@@ -4112,6 +4290,7 @@ Without a key, `initialize()` alone reads `devsecops_config.yaml`, else `config.
 | `bumpVersion(String file, String version)` | Update `APP_VERSION` in version.properties |
 | `generateHtmlReport()` | Generate the HTML pipeline report |
 | `feedInfluxDB(String pipelineType)` | Send DORA metrics to InfluxDB |
+| `sendOneViewReport(String pipelineType)` | Send the pipeline report of the run to OneView with one `POST /api/dso/reports` per pipeline key: with `DSO_PIPELINE_KEY` or `PIPELINE_KEY` of the build environment, otherwise once for each key `configure()` read the configuration with, otherwise with `oneview.pipelineKey` of the settings block; nothing is sent without a key or without an address ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)). A failed upload is logged, the next key is still tried, and the build keeps its result. `sendPortalReport(String pipelineType)`, the former name, still works as an alias |
 | `getProjects()`, `getCFG()` | Project names and the current project config |
 | `switchProject(String name)` | Switch the project context |
 | `stageStart/stageDone/stagePass/stageFail/stageWarn/stageError` | Stage bookkeeping for the report |
@@ -4142,7 +4321,7 @@ Every run writes one batch of InfluxDB line protocol from `post { always }`, so 
 | `goldenfix` | project, env, module, status | Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request |
 | `test_execution` with `suite=unit` | project, env, module, suite | Unit test totals of each module: total, passed, failed, skipped, success rate and duration |
 | `database_deployment` | project, env, module, target, status | One point per database target a Liquibase service with a database block deployed: changesets applied, tagged, the version and the Liquibase version, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) |
-| `build_evidence` | project, env, module | The change evidence the DevSecOps portal shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used (`config_rendered_at`, `config_sha256`) or, without a key, the settings file of the build (`config_file`). Empty values are left out |
+| `build_evidence` | project, env, module | The change evidence ITSS COE OneView shows: the artifact version, the SonarQube quality gate, the links to the SAST, DAST, Nexus IQ and SonarQube reports, and which portal configuration the build used (`config_rendered_at`, `config_sha256`) or, without a key, the settings file of the build (`config_file`). Empty values are left out |
 
 The measurements written before this revision - `deployments`, `change_failure`, `build_duration`, `stage_metric`, `vulnerabilities` and `test_coverage` - are still written unchanged, so dashboards built against them keep working. The `line_pct` of `test_coverage` and `code_coverage` is the mean of the reports of the run and of the module, which is the value written before when there is one report; their `covered`, `missed` and `total` are the sums over the same reports.
 
@@ -4168,7 +4347,7 @@ influx:
   credentialsId: "influxdb-token"    # Jenkins Secret text credential with the token
 ```
 
-These are settings of the service in the DevSecOps portal; the write URL and the credentials fall back to the global values of the portal. A run with several pipeline keys writes its metrics with the settings of the service of the first key, the primary service.
+These are settings of the service in ITSS COE OneView; the write URL and the credentials fall back to the global values of the portal. A run with several pipeline keys writes its metrics with the settings of the service of the first key, the primary service.
 
 The `variant` tag names the pipeline that wrote the run: `full`, `security`, `extended`, `sast` or `nexusiq`. Every pipeline except the full one also appends its variant to the `project` tag, so the Nexus IQ GoldenFix pipeline of `influx.project: MyApp` writes `project=MyAppnexusiq`.
 
@@ -4212,7 +4391,7 @@ For the "since the beginning" panels set the panel time range to `From: now-5y` 
 | `coverage_report` | project, env, module, report, tool, counted | line_pct (left out for a report without lines), covered, missed, total | Coverage per report; `counted=no` marks a copy, an aggregate, a report without lines or one that cannot be read |
 | `test_execution` | project, env, module, suite | total, passed, failed, not_configured, duration_ms, success_rate; skipped for `suite=unit` | Smoke, regression and performance suites, and the unit tests of each module (`suite=unit`) |
 | `database_deployment` | project, env, module, target, status | pending_before, applied, previously_run, filtered_out, pending_after, invalid_objects, invalid_before, compile_errors, changesets, tagged, ok, duration_ms, version, liquibase | The changesets each database target received, see [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) |
-| `build_evidence` | project, env, module | artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_rendered_at, config_sha256, config_file | The change evidence of a build and the portal configuration it used, or the settings file of a build without a key |
+| `build_evidence` | project, env, module | artifact_version, sonar_quality_gate, sast_report_url, dast_report_url, nexusiq_report_url, sonar_report_url, config_rendered_at, config_sha256, config_file | The change evidence of a build and the configuration of ITSS COE OneView it used, or the settings file of a build without a key |
 | `test_job` | project, env, module, suite, status, type | duration_ms, name, ok | Individual test jobs |
 | `release_gate` | project, env, allowed | allowed, blocked, violations, reason | Whether the release was permitted |
 | `goldenfix` | project, env, module, status | offered, applied, unresolved, pr_raised, build_check, build_failed; pr_url and pr_title only when a pull request was raised | Automated dependency remediation |
@@ -4704,14 +4883,14 @@ The cumulative panels in section 7 read from the beginning of the bucket, so the
 
 The messages of a Liquibase service with a database block (`[DB]`, and the database lines of `[NEXUS]`, `[DEPLOY]`, `[SONAR]` and `[SAST]`) are listed with their cause and fix in [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase), 14.14.
 
-### "\[PORTAL\] No pipeline key" or "No pipeline key and no agentNames" or "is not a key of the DevSecOps portal"
+### "\[ONEVIEW\] No pipeline key" or "No pipeline key and no agentNames" or "is not a key of OneView"
 
-The Jenkinsfile names no key, or something that is not a key the portal issues. Copy the Jenkinsfile with the key of the service from its product page in the portal:
+The Jenkinsfile names no key, or something that is not a key ITSS COE OneView issues. Copy the Jenkinsfile with the key of the service from its product page in the portal:
 
 ```groovy
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(pipelineKey: '<key from OneView>')
 ```
 
 Or, without a key, name the services of the repository and the agents, and commit `devsecops_config.yaml` at the root of the repository:
@@ -4722,7 +4901,7 @@ Or, without a key, name the services of the repository and the agents, and commi
 devSecOpsPipeline(projectNames: 'gateway', agentNames: ['linux-agent'])
 ```
 
-A Jenkinsfile that names `pipelineKey` or `pipelineKeys` with an empty value, and every Jenkinsfile without a key while `DSO_REQUIRE_PIPELINE_KEY` is set, keeps the first message, "\[PORTAL\] No pipeline key".
+A Jenkinsfile that names `pipelineKey` or `pipelineKeys` with an empty value, and every Jenkinsfile without a key while `DSO_REQUIRE_PIPELINE_KEY` is set, keeps the first message, "\[ONEVIEW\] No pipeline key".
 
 ### "\[INIT\] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml"
 
@@ -4738,7 +4917,7 @@ Without a key, a name of `projectNames`, `PROJECT_NAMES` or `PROJECT_NAME` is no
 
 ### "\[INIT\] \[WARN\] &lt;service&gt;: &lt;key&gt;: &lt;value&gt; in devsecops_config.yaml is not a number"
 
-The key holds a value of another kind than its default (`is not a number`, `is not true or false`, `is not a list`), so the run uses the default the line names: the library default without a key, the value of the Global Settings with a key (`in the DevSecOps portal`). Correct the value or remove the key.
+The key holds a value of another kind than its default (`is not a number`, `is not true or false`, `is not a list`), so the run uses the default the line names: the library default without a key, the value of the Global Settings with a key (`in OneView`). Correct the value or remove the key.
 
 ### "\[INIT\] \[INFO\] &lt;service&gt;: &lt;key&gt;: &lt;value&gt; equals the library default - the key can be removed"
 
@@ -4752,26 +4931,55 @@ A Gradle or Maven step failed because a plugin is not in the repositories of the
 
 A run without a key takes its global settings from this file of the library. The library version the job loads lacks the file, or another library loaded in the same build shadows it. Ask the DevSecOps team.
 
-### "it predates the DevSecOps portal integration" in a job without a key
+### "it predates the OneView integration" in a job without a key
 
-The last successful security build was made by a library before it wrote `pipeline-config.yaml`, that is before the portal integration. Run the security job once with this library, then the extended job.
+The last successful security build was made by a library before it wrote `pipeline-config.yaml`, that is before the OneView integration. Run the security job once with this library, then the extended job.
 
-### "\[PORTAL\] Key ... was not issued" or "was invalidated"
+### "\[ONEVIEW\] Key ... was not issued" or "was invalidated"
 
-- **Not issued:** the key is mistyped or belongs to another portal (the message names the portal it asked). Copy it again from the product page.
+- **Not issued:** the key is mistyped or belongs to another installation of OneView (the message names the address it asked). Copy it again from the product page.
 - **Invalidated:** the DevSecOps team invalidated the key; the message gives their reason. Regenerate the key in the portal and put the new one in the Jenkinsfile.
 
-### "\[PORTAL\] Key ... configures a security pipeline, devSecOpsPipeline runs the full pipeline"
+### "\[ONEVIEW\] Key ... configures a security pipeline, devSecOpsPipeline runs the full pipeline"
 
 Each key belongs to one pipeline type; use the key of that type, or the entry point the product page offers for the key. The same applies to keys of two products in one run, and to two keys that configure the same service.
 
-### "\[PORTAL\] The configuration could not be read from the DevSecOps portal at ..."
+### "\[ONEVIEW\] The configuration could not be read from OneView at ..."
 
-The agent could not reach the portal, did not trust its certificate, or the portal answered with an error; the build description says `DevSecOps portal unavailable` and the message names the portal address, the cause and the DevSecOps team. A missing or malformed `DSO_PORTAL_URL` and a Windows agent of the `DSO_PORTAL_AGENT` label each have their own message. None of them can be fixed in the Jenkinsfile; [Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain) lists what the administrators set up.
+The agent could not reach the portal, did not trust its certificate, or the portal answered with an error; the build description says `OneView unavailable` and the message names the portal address, the cause and the DevSecOps team. A missing or malformed `ONEVIEW_URL` and a Windows agent of the `ONEVIEW_AGENT` label each have their own message. None of them can be fixed in the Jenkinsfile; [Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain) lists what the administrators set up.
+
+### "\[ONEVIEW\] DSO_PORTAL_URL is the former name of ONEVIEW_URL" and the other lines about a former name
+
+Not an error: the build ran. `DSO_PORTAL_URL`, `PORTAL_URL`, `DSO_PORTAL_AGENT` and the settings block `portal:` are the names of before `ONEVIEW_URL`, `ONEVIEW_AGENT` and `oneview:`, and the library still reads them. Each line is logged once per build, and what to do depends on its words:
+
+- **"it still works; rename it in Manage Jenkins"** names a former variable that was read, because the new one is not set. A Jenkins administrator adds the new variable with the same value in the global environment variables of Jenkins, and keeps the former one while a job is pinned to an older release of the library, which reads only the former names.
+- **"it still works; rename the block portal: to oneview:"** names `portal.url` or `portal.pipelineKey`. Rename the block in the place the line names: `devsecops_config.yaml` or `config.yaml` of the repository, or `resources/com/bbh/devsecops/defaults.yaml` of the library. No line asks for a change of a Jenkinsfile; the lines about the block name the settings file to change at their end.
+- **"its value still works for the report upload as before; under the name ... it must be written as"** names a former name whose address is not written as `https://<host>[:<port>][/<path>]`. The report is uploaded to that address as before. Do not copy the value to the new name as it is, which would refuse it: write it there in that form.
+- **"is ignored because it is blank"** or **"because it is not an address of the form"** names the variable or the setting that was passed over, new or former, and after the colon the one that was used instead. Correct or remove the one that was passed over, in the place at the end of the line.
+- **"holds the same value: it can be removed"** names a former variable or setting that the current library no longer needs. Remove it once no job is pinned to an older release of the library.
+- **"is used: ..., its former name, holds another value and is ignored"**: the build used the new name, and the former one holds something else. Remove the former one or, while an older release still reads it, give it the same value.
+
+No line repeats a value that was refused. [Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain) lists every one of these lines with the case that prints it.
+
+### "\[ONEVIEW\] ONEVIEW_URL is not set" or "ONEVIEW_URL is not the address of OneView"
+
+A build with a pipeline key stopped because no variable holds the address of OneView. The message is one of four: "ONEVIEW_URL is not set" when neither `ONEVIEW_URL` nor `DSO_PORTAL_URL` holds a value; "ONEVIEW_URL is not the address of OneView" when its value is not written as `https://<host>[:<port>][/<path>]`; "ONEVIEW_URL is not set and DSO_PORTAL_URL, its former name, is not the address of OneView" when only the former variable is set and its value is not written so; and "ONEVIEW_URL is not the address of OneView, and neither is DSO_PORTAL_URL, its former name" for two such values. The value itself is never shown, because it may hold a password. A Jenkins administrator writes the address in that form, without a user, password, query or spaces, into `ONEVIEW_URL`. A build that stops with one of these messages on the agent that reads OneView, after it took the agent, gets the value from that agent: check the environment variables in the node properties of the agents of the `ONEVIEW_AGENT` label.
+
+### "\[ONEVIEW\] Uploading pipeline report to ..." and the other lines of the report upload
+
+At the end of a run the library uploads the pipeline report to OneView, once for each pipeline key of the Jenkinsfile ([Platform Prerequisites](#6-platform-prerequisites-and-the-bbh-toolchain)). No line of the upload changes the result of the build.
+
+- **"Uploading pipeline report to &lt;address&gt;/api/dso/reports for job ... build ..."**, with "with pipeline key &lt;hint&gt;" for a key of the Jenkinsfile, is logged for every upload, and the line `[ONEVIEW] HTTP <status> <answer>` after it shows what OneView answered, with `"pipelineKey":"(not shown)"` in place of the pipeline key that the answer of OneView repeats. "to the address in DSO_PORTAL_URL (path /api/dso/reports)" stands for an address that is not written as `https://<host>[:<port>][/<path>]`, which is used as before and not printed by the library; when the connection to such an address fails, the error line of `curl` may name its host and its port, and never its user, password, path or query.
+- **"Failed to upload pipeline report to OneView: &lt;reason&gt;"**, with "for pipeline key &lt;hint&gt;" for a key of the Jenkinsfile: the upload of that key failed and the next key was still tried. The reason is the error of the step, in Jenkins `script returned exit code <n>`: the exit code of `curl` (6 for a host name that is not known, 7 for no connection, 28 when the 10 seconds for the connection or the 60 seconds for the upload ran out), or 1 when OneView answered with an HTTP status of 300 or more, which the `[ONEVIEW] HTTP` line above it shows with the answer, for example 400 for a payload OneView cannot read or a status of 500 or more when OneView or a proxy in front of it fails. OneView does not refuse a report for its key: a key that is not the active key of a pipeline (a `DSO_PIPELINE_KEY` or `PIPELINE_KEY` of the job that was replaced or invalidated in OneView) is answered with 201, and the report is then stored with the one pipeline that has the Jenkins job of the build, or with no pipeline, which the answer shows as `"pipelineId":null`. When the console shows 201 and the page of the pipeline shows no report, compare the hint of the key, and remove the variable from the job so that the keys of the Jenkinsfile are used. The upload runs on the agent of the pipeline, not on the agents of the `ONEVIEW_AGENT` label: check that this agent reaches OneView on HTTPS.
+- **"The pipeline report is not uploaded: ... hold no address of OneView"**: the run has a pipeline key for the upload, and every name that is set for the address is blank or, for `ONEVIEW_URL` and `oneview.url`, not written in the form the line shows. A Jenkins administrator corrects `ONEVIEW_URL`.
+- **"DSO_PIPELINE_KEY holds the pipeline key of the Jenkinsfile"** or **"holds one of the &lt;n&gt; pipeline keys of the Jenkinsfile"** (also with `PIPELINE_KEY`): not an error. The job sets a variable that the library no longer needs, because the report is uploaded with the keys of the Jenkinsfile. Remove it from the job; with several keys the report then reaches every pipeline of the run instead of one.
+- **"Could not read report/pipeline-report.html"**: the report file could not be read, and a page that says so was uploaded in its place.
+- **"\[WARN\] Could not upload report to OneView"**: an error outside the upload step itself. The build goes on; send the line to the DevSecOps team.
+- **No line, and OneView shows no report for the run:** the run has no pipeline key for the upload (a Jenkinsfile without a key, in a job that sets no `DSO_PIPELINE_KEY`) or no name holds an address. A job that is pinned to an older release of the library uploads only with `DSO_PIPELINE_KEY` or `PIPELINE_KEY` in its environment.
 
 ### "The last successful build of ... has no pipeline-config.yaml"
 
-The extended pipeline copies `pipeline-config.yaml` from the security job the portal names, and the last successful build of that job was made by a library before the portal integration. Run the security job once.
+The extended pipeline copies `pipeline-config.yaml` from the security job the portal names, and the last successful build of that job was made by a library before the OneView integration. Run the security job once.
 
 ### "\[SAST\] asoc.keyId is not set in resources/com/bbh/devsecops/defaults.yaml of the library ..."
 
@@ -4848,7 +5056,7 @@ With Maven, in the `pom.xml` of the service:
 
 ### "The required parameter (buildTag) is not defined"
 
-An OpenShift deployment ran without the image built by the snapshot stage. In the split setup the build tag travels in `pipeline-config.yaml`, so the extended job must copy it from the static job: name the static job as the security pipeline of the extended pipeline in the portal, and run the static job once with the portal-integrated library.
+An OpenShift deployment ran without the image built by the snapshot stage. In the split setup the build tag travels in `pipeline-config.yaml`, so the extended job must copy it from the static job: name the static job as the security pipeline of the extended pipeline in the portal, and run the static job once with the OneView-integrated library.
 
 ### "Scripts not permitted to use ..."
 
@@ -4874,7 +5082,7 @@ The workspace could not be copied, and in the fallback order SAST failed before 
 
 ### How to switch the order off for all jobs, one agent or one job
 
-Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` (or `DSO_DYNAMIC_ANALYSIS_PARALLEL=false` for the tests and DAST) in **Manage Jenkins → System → Global properties → Environment variables** for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the pipelines then run those stages one after another, whatever the Global Settings say. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference](#16-configuration-reference-the-devsecops-portal)). For every job with a key, untick **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** or **Run the regression, smoke and performance tests and DAST at the same time** in the Global Settings. For one job without a key, set `staticAnalysis.parallel: false` or `dynamicAnalysis.parallel: false` on one of its services in `devsecops_config.yaml` or `config.yaml`: one such service keeps the whole run one after another. The portal has no such setting for one service or job: for one job with a key, set the variable in the node properties of the agents the job uses, or run the job with a custom Jenkinsfile built on `devSecOpsApi` ([the API reference](#21-programmatic-api-reference)) whose top-level `environment` block sets `DSO_STATIC_ANALYSIS_PARALLEL = 'false'`.
+Set the environment variable `DSO_STATIC_ANALYSIS_PARALLEL=false` (or `DSO_DYNAMIC_ANALYSIS_PARALLEL=false` for the tests and DAST) in **Manage Jenkins → System → Global properties → Environment variables** for all jobs, or in the environment variables of the node properties of an agent for the runs on that agent: the pipelines then run those stages one after another, whatever the Global Settings say. A value set on a Jenkins folder or job counts only when a plugin puts it into the environment of the build ([the configuration reference](#16-configuration-reference-itss-coe-oneview)). For every job with a key, untick **Run unit tests, Nexus IQ, SAST and SonarQube at the same time** or **Run the regression, smoke and performance tests and DAST at the same time** in the Global Settings. For one job without a key, set `staticAnalysis.parallel: false` or `dynamicAnalysis.parallel: false` on one of its services in `devsecops_config.yaml` or `config.yaml`: one such service keeps the whole run one after another. The portal has no such setting for one service or job: for one job with a key, set the variable in the node properties of the agents the job uses, or run the job with a custom Jenkinsfile built on `devSecOpsApi` ([the API reference](#21-programmatic-api-reference)) whose top-level `environment` block sets `DSO_STATIC_ANALYSIS_PARALLEL = 'false'`.
 
 ### "IRX not found after prepare"
 
@@ -5010,14 +5218,15 @@ All jobs are executed even when some fail, and at most `tests.maxParallel` run a
 
 | What you see | What it means and what to do |
 |---|---|
-| `[PORTAL] No pipeline key` | The `Jenkinsfile` names an empty pipeline key, or names none while `DSO_REQUIRE_PIPELINE_KEY` is set, or the job builds a branch with an older `Jenkinsfile` while it is set. Check the branch in the job configuration. |
+| `[ONEVIEW] No pipeline key` | The `Jenkinsfile` names an empty pipeline key, or names none while `DSO_REQUIRE_PIPELINE_KEY` is set, or the job builds a branch with an older `Jenkinsfile` while it is set. Check the branch in the job configuration. |
 | `No pipeline key and no agentNames` | The Jenkinsfile names neither a key nor agentNames. |
+| `[ONEVIEW] Failed to upload pipeline report to OneView` | The agent of the pipeline did not reach OneView at the end of the run, or OneView refused the report; the build keeps its result. See the lines of the report upload above. |
 | `neither devsecops_config.yaml nor config.yaml` | A Jenkinsfile without a key needs one of the two files, spelled exactly so, at the root of the repository. |
 | `asoc.keyId is not set in resources/com/bbh/devsecops/defaults.yaml` | The library defaults hold no key ID of the functional AppScan on Cloud user. The DevSecOps team sets `asoc.keyId` and `asoc.token` there; a service sets only its `appId`. |
 | `[WARN] <service>: asoc.keyId ... ignored` | The service configuration names an AppScan key, token or credential. Remove it: SAST and DAST always sign in with the key of the functional user from the library defaults. |
 | `[SONAR] Badge token credentials ... could not be read` | The credential named in `tools.sonar.badgeCredentialsId` does not exist or is not Secret text. The stage result does not change; the report uses `badgeToken` or shows no badges. |
 | `[OPENSHIFT] <service>: RD deployment not required`, `QC deployment not required` | Nexus delivery is off for the service and the region has no build tag, so there is no image to deploy: RD needs `deploy.openshift.rd.buildTag`, QC its own `deploy.openshift.qc.buildTag` or the RD tag. Pin a tag or turn the delivery on. |
-| `The Nexus IQ GoldenFix pipeline would scan nothing` | The service has no Nexus IQ application or no scan patterns in the place the message names: the DevSecOps portal, or for a Jenkinsfile without a key `devsecops_config.yaml` or `config.yaml`. Set both under `tools.nexusIq`. |
+| `The Nexus IQ GoldenFix pipeline would scan nothing` | The service has no Nexus IQ application or no scan patterns in the place the message names: OneView, or for a Jenkinsfile without a key `devsecops_config.yaml` or `config.yaml`. Set both under `tools.nexusIq`. |
 | SAST fails while connecting, or times out | The agent cannot reach AppScan through the proxy. Raise it with the DevSecOps team quoting the agent label — the proxy account, the OIS certificate or the network route needs attention. Nothing in your configuration fixes this. |
 | Nexus IQ reports the application does not exist | `tools.nexusIq.application` does not match an application in Nexus IQ. |
 | Coverage shows `not measured` | No JaCoCo, Cobertura, OpenCover or LCOV report with measured lines was found. The log of the Unit tests stage names the folders searched and every report read. Confirm your test task generates a supported coverage report, or point `coverage.reportPath` at it. |
@@ -5040,7 +5249,7 @@ All jobs are executed even when some fail, and at most `tests.maxParallel` run a
 | Question about | Ask |
 |---|---|
 | The library, the report, a stage that behaves unexpectedly | The DevSecOps team |
-| A pipeline key, the settings of a service, the portal | The DevSecOps team |
+| A pipeline key, the settings of a service, OneView | The DevSecOps team |
 | AppScan connectivity, the proxy account, OIS certificates, a DAST Presence | The DevSecOps team |
 | Agents, credentials, registering the shared library, Copy Artifact permissions | The Jenkins administrators |
 | Nexus IQ applications and policies | The Nexus IQ administrators |
@@ -5072,19 +5281,20 @@ The script downloads the tools it needs once (JDK 21, Groovy 2.4.21, the Jenkins
 | `test/checks/noncps-calls.groovy` | No `@NonCPS` method calls a library method that is CPS-transformed (Jenkins would run it with the wrong result) |
 | `test/checks/jdk-whitelist.groovy` | Every JDK constructor, static method and static field is on the script-security whitelist |
 | `test/checks/architecture.sh` | Adapters depend on the core and the ports, never the other way round |
-| `test/checks/vars-api.sh` | The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), and every manifest updater is wired into the GoldenFix service |
+| `test/checks/vars-api.sh` | The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), a method that a custom Jenkinsfile may call keeps its former name as an alias of the new one (`sendPortalReport()` calls `sendOneViewReport()`), and every manifest updater is wired into the GoldenFix service |
 | `test/checks/no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
 | `test/checks/ascii.sh` | `src` and `vars` hold printable ASCII only |
 | `test/checks/docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence`; the check regenerates it when it is not |
 | `test/checks/docs-md.sh` | `documentation.md` is the Markdown rendering of `documentation.confluence`; the check regenerates it when it is not |
 | compilation | `src` and `vars` compile with the sandbox compiler configuration |
-| `test/portal/query-scenarios.sh` | The query script of `PortalConfigReader`, run with the real `curl` against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key |
+| `test/oneview/query-scenarios.sh` | The query script of `OneViewConfigReader`, run with the real `curl` against a local HTTP portal: one answer per key in key order, private files, the sha256 hint of the body, the 403 and 404 problems of the portal, a 503 asked again until the portal answers, an unreachable portal reported after three attempts without the key |
+| `test/oneview/upload-scenarios.sh` | The upload script of `OneViewReportService`, run with the real `curl` against a local HTTP portal that answers as OneView does: the report arrives with its pipeline key, the console shows the status and the answer without the key, also for an answer written with spaces, a status of 500 ends the step with 1, an unreachable portal ends it with the status of `curl` and without the key, and both scripts carry the two time limits |
 | `test/coverage/scan-scenarios.sh` | The scan script of `CoverageReports`, run with `python3 -I` on report trees: services that share a folder, modules with release folders, copies, aggregates and their rest, patterns, Android, Kover, Cobertura, OpenCover, Flutter and LCOV variants, non-ASCII names, the SHA-1 of each report, a report of another service skipped before it is read, the time limit, the class listing of the earlier reader and 400 module reports |
 | `test/sandbox/SandboxScenarios.groovy` | Every class initialises under the whitelist used while the CPS program is saved; the AppScan commands match the recorded baseline; the AppScan severity totals come from the report summary; a Nexus IQ report with JSON nulls still yields components; the GoldenFix version choice only changes the patch version and takes the newest clean one; all remediation lookups of a project are one shell step; GoldenFix patches a real `pom.xml`, `build.gradle`, `gradle.properties`, `package.json`, `requirements.txt` and `pubspec.yaml`; GoldenFix raises shared version catalogs in every supported form, aligns the other declarations with them, names the reason for what it cannot raise, verifies each shared file in the builds that use it and shares one pull request between the services of a repository; it raises a catalog of 300 libraries and a `resolutions` block of 300 entries on a 1 MB thread stack, reads TOML headers with comments, indentation or spaces, keys in quotes and literal strings, leaves a `strictly` or `require` range that excludes the target alone (bounds in the version order of Gradle), changes only the catalog block of a settings file, ignores `./` in listed paths, reads a listed pom with another name and builds it with `mvn -f`, also with a Maven command of `goldenFix.verify.commands`, resolves `from files(..)` and `$rootDir` imports, shows a property raised in both rounds as one row with the components of both, builds the Nexus IQ version when the catalog version breaks the build without using up an attempt, labels a declaration or a property aligned with a catalog, counts only what the shared branch changed in a shared catalog as already raised, looks in `buildSrc` only for a holder it can declare and records an escaping `Error` as `ERROR`; it refreshes a `package-lock.json` (not in front of an npm command of `goldenFix.verify.commands`), raises npm `overrides` and `resolutions`, tells a branch that exists from a push a hook declines and names pub components; the `package-lock.json` pattern of a Node.js build names its folder without `./`; the Node.js build runner sets up Node.js on Linux and Windows, and the npm pre-check of GoldenFix runs inside it; 200 smoke jobs run with the configured parallelism; the `goldenfix` point carries `pr_url` and `pr_title` only when a pull request was raised; eight service level pipelines produce the demo reports |
 | `test/sandbox/CoverageScenarios.groovy` | `checkCoverage`, the coverage card, the metrics and the release gate with a fake scan: one row per report, the mean of a service and of the run, the reports of shared folders and of `coverage.reportPath`, a copy of the report of another service, the fallbacks without `python3` or after a failed scan, Windows, and one real `sh` run of the scan step |
 | `test/sandbox/StaticAnalysisScenarios.groovy` | The switches of the stages at the same time (the environment variable first, then `staticAnalysis.parallel` of every service, by default true), the `[WARN]` lines of wrong values and the `[INFO]` lines of values equal to the default, the durations and the saved time of the report, the services that share a source folder, the branch state `PipelineState.fork`/`absorb` and `recordParallelGroup`, the Manual Actions vs DevSecOps table (`ReportViewModel.manualComparison`, `BuildUtils.manualEffort`), the services whose SAST compile differs from their build command (`asoc.gradle`, `asoc.maven`, `asoc.dotnet`), C#/.NET auto-resolve, SonarQube (`SonarScanner.MSBuild.exe` / `dotnet sonarscanner`) and Windows SAST IRX staging, the order `PipelineState.settle` restores, and the removal of the SAST staging copy on Linux and Windows |
-| `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the portal integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over `devsecops_config.yaml` or `config.yaml` against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. The base runs set `staticAnalysis.parallel` and `dynamicAnalysis.parallel` to false in the defaults of the run, so they keep the order of the golden runs. Twins of the green and orange full, security and extended runs run their stages at the same time and give the release gate, the metrics and the report of their golden file and its steps in another order, which the orange full twin also pins in `full-pipeline-orange-parallel-stages.txt`; focused runs cover the failed copy of the workspace, the compile fallback, the environment override, a service that opts out, a wrong value, a SAST failure before and after its scans are queued, SonarQube waiting for the unit tests, GoldenFix and the AppScan settings per service. Every run checks the Manual Actions vs DevSecOps table against the stage results of its log |
-| `test/sandbox/PortalScenarios.groovy` | Every failure of the portal read (keys, answers, an unreachable or failing portal, the portal address, agents), the read in place, the query script holding no key, and the extended handoff; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key; and the runs without a key, with how the library chooses a value: a name of `projectNames` that the file does not have, a value of the wrong kind that falls back to the default, and the keys that equal the library default or the auto-detected value |
+| `test/sandbox/PipelineScenarios.groovy` | The five entry points run end to end under the real sandbox, green and orange, the Nexus IQ GoldenFix pipeline also with a failing build, including the report, the release gate, the metrics, the deployments and the GoldenFix pull request of the Nexus IQ GoldenFix pipeline, and match their golden runs: those of the first four entry points recorded before the OneView integration, those of the Nexus IQ GoldenFix pipeline when it was added, and the shared catalog run of two services when shared version catalogs were added; and, without a key, the full, security, extended, SAST and Nexus IQ GoldenFix pipelines over `devsecops_config.yaml` or `config.yaml` against the same golden files. Runs without a golden file check single features, among them the Node.js build in the full, SAST, Nexus IQ GoldenFix and extended pipelines. The base runs set `staticAnalysis.parallel` and `dynamicAnalysis.parallel` to false in the defaults of the run, so they keep the order of the golden runs. Twins of the green and orange full, security and extended runs run their stages at the same time and give the release gate, the metrics and the report of their golden file and its steps in another order, which the orange full twin also pins in `full-pipeline-orange-parallel-stages.txt`; focused runs cover the failed copy of the workspace, the compile fallback, the environment override, a service that opts out, a wrong value, a SAST failure before and after its scans are queued, SonarQube waiting for the unit tests, GoldenFix and the AppScan settings per service. Every run checks the Manual Actions vs DevSecOps table against the stage results of its log, and that its report is uploaded to OneView once for each pipeline key of its Jenkinsfile, with the keys in the payloads only; a run without a key uploads nothing |
+| `test/sandbox/OneViewScenarios.groovy` | Every failure of the read of ITSS COE OneView (keys, answers, an unreachable or failing portal, the address, agents), the read in place, the query script holding no key, and the extended handoff; the new and the former names of the Jenkins variables and of the settings block (`ONEVIEW_URL` before `DSO_PORTAL_URL` and, for the report upload, `PORTAL_URL`, `oneview.url` and `portal.url`; `ONEVIEW_AGENT` before `DSO_PORTAL_AGENT`): the new name wins, the former name alone still works and is named with the way to rename it, a new name that is blank or not an address is passed over for a usable former one, two equal values name the former variable as removable, and no refused value is repeated; the address read again on the agent of the read; the report upload, which takes a former name as before the rename, also with a value that the new name refuses, and never prints such an address; the pipeline key of the upload (`DSO_PIPELINE_KEY`, `PIPELINE_KEY`, the keys of the Jenkinsfile with one upload each, the settings block), the line for a variable that holds a key of the Jenkinsfile, a failed upload of one key and the time limits of `curl`; the place a line names for the settings block; every kind of line logged once per build; the Nexus IQ GoldenFix entry point names its own call when the key is missing, refuses a key of another pipeline type and stops at the start for a service it would not scan, and another entry point refuses its key; and the runs without a key, with how the library chooses a value: a name of `projectNames` that the file does not have, a value of the wrong kind that falls back to the default, and the keys that equal the library default or the auto-detected value |
 | `test/sandbox/DatabaseUnitScenarios.groovy`, `test/sandbox/DatabaseScenarios.groovy` | The settings, parsers, static checks and scripts of the database block, and the three repository layouts of [Integration Guide: SQL and PL/SQL with Liquibase](#14-integration-guide-sql-and-plsql-with-liquibase) in the five pipelines with fake Liquibase and utPLSQL output, pinned by `test/sandbox/golden/database-*.txt`; a Liquibase service without a database block, and the examples of the chapter compared with `test/fixtures/database` |
 | `test/database/cli-scenarios.sh` | Optional: the real Liquibase and utPLSQL CLIs from `~/.cache/devsecops-library-tools/database`, offline and against H2; skipped with a line when they are not there |
 | `test/sandbox/PluginRepositoryScenarios.groovy` | The Gradle and Maven plugins from the BBH Nexus: a step that finds its plugins runs once and unchanged; a missing plugin (the Plugin Portal message, a missing `classpath` module, the Maven plugin, descriptor and prefix messages) runs the step again with the init script or the settings copy, which the tests read; later steps of the folder use the repository at once; another failure, a second failure, a switched-off or empty repository and a Maven step with its own settings file fail as before; an empty repository of a service takes the one of the bundled defaults, and an address that is not a plain http or https address is named and replaced by it; the bundled defaults, the Global Settings that win over them, and the callers that give the repositories to every Gradle and Maven step |

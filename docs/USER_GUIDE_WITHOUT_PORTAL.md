@@ -31,8 +31,8 @@
 
 ## 1. Overview and Standalone Model
 
-In the `DSOEnhancedWithoutPortal` branch, the library operates independently of the management portal:
-- **No Portal Dependency:** The pipeline never polls external portal APIs for configuration.
+In the `DSOEnhancedWithoutPortal` branch, the library operates independently of ITSS COE OneView, the portal of the ITSS Center of Excellence with its areas DevSecOps, QA and Agile (formerly the DevSecOps Management Portal):
+- **No Portal Dependency:** The pipeline never polls OneView or any other external portal API for configuration and sends it no report, and Jenkins needs no `ONEVIEW_URL` (formerly `DSO_PORTAL_URL`); the variable belongs to the version with the portal, see `docs/USER_GUIDE_PORTAL.md`.
 - **Configuration as Code:** All pipeline parameters are stored in `devsecops_config.yaml` (or backward-compatible `config.yaml`) at the root of your application Git repository.
 - **Smart Auto-Detection & Validation (`[WARN]` Fallback):** When `buildTool`, `deployTarget`, or tool-specific sub-parameters (`build.dotnet.mode`, `tests.unitTests.dotnet.runner`, `coverageTool`) are omitted, `RepoStackAutoResolver` automatically detects them from repository files (strictly scoped to each service's `sourceDir` in multi-repository and multi-module setups). If an invalid or unrecognized value is provided, the pipeline logs a `[WARN]` message and falls back to the auto-detected setting.
 - **Auto-resolved settings are visible:** every value the pipeline fills in or corrects is printed in the build log as `[INIT] Auto-resolved for <service>: <setting> = <value> (<why>)` and listed in the *Auto-resolved settings* card of the pipeline report, so you can copy it into `devsecops_config.yaml` to pin it.
@@ -504,7 +504,7 @@ projects:
 
 ## 15. Auto-Resolved Parameters Reference
 
-The build tool is detected in this order, in the library and in **Scan & Auto-fill** of the Portal alike: `pubspec.yaml` (Flutter), the iOS files, `pom.xml` (Maven), the Gradle files (Android with an `AndroidManifest.xml`), the .NET files, a Liquibase changelog, the Python files, `package.json` or `angular.json` at the root (npm), and at last a repository of only SQL and PL/SQL files (`sql`).
+The build tool is detected in this order, in the library and in **Scan & Auto-fill** of OneView alike: `pubspec.yaml` (Flutter), the iOS files, `pom.xml` (Maven), the Gradle files (Android with an `AndroidManifest.xml`), the .NET files, a Liquibase changelog, the Python files, `package.json` or `angular.json` at the root (npm), and at last a repository of only SQL and PL/SQL files (`sql`).
 
 | Setting / Field | Target Key / Form Field | Workspace Indicator / Manifest | Resolved Default Value |
 |---|---|---|---|

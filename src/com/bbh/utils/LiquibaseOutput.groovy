@@ -62,7 +62,7 @@ class LiquibaseOutput implements Serializable {
         List rows = [
                 [['check sum'], 'an applied changeset was edited: undo the edit and add a new changeset, or mark the changeset runOnChange="true" when it holds a CREATE OR REPLACE object'],
                 [['Could not acquire change log lock'], 'another deployment holds the Liquibase lock of this schema: wait for it to end; if none runs, ask the DBA to check DATABASECHANGELOGLOCK before anyone runs liquibase release-locks'],
-                [['Cannot find database driver'], 'set tools.oracleJdbc in the Global Settings of the DevSecOps portal'],
+                [['Cannot find database driver'], 'set tools.oracleJdbc in the Global Settings of OneView'],
                 [['Connection could not be created'], 'check the JDBC URL of the target, the network route from the agent to the database and the Jenkins credentials of the target'],
                 [['was not found in the configured search path'], 'the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog'],
                 [['requires a valid Liquibase'], 'the changelog uses a Liquibase Pro feature, which the library does not support (for example include inside formatted SQL): remove it'],

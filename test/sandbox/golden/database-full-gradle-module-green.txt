@@ -1,21 +1,21 @@
 == calls
 node linux-agent
-withEnv [DSO_PORTAL_DIR=/ws@tmp/dso-portal-341, DSO_PORTAL_URL=https://dso-portal.apps.bbh.com, DSO_PORTAL_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
-sh [Read the configuration from the DevSecOps portal] #!/bin/sh
+withEnv [ONEVIEW_DIR=/ws@tmp/oneview-341, ONEVIEW_URL=https://oneview.apps.bbh.com, ONEVIEW_KEYS=5e0f0001-8c2b-4f6a-9d3e-1a7b2c4d0001 5e0f0002-8c2b-4f6a-9d3e-1a7b2c4d0002]
+sh [Read the configuration from OneView] #!/bin/sh
 set +x
 umask 077
-mkdir -p "$DSO_PORTAL_DIR" && cd "$DSO_PORTAL_DIR" || exit 1
+mkdir -p "$ONEVIEW_DIR" && cd "$ONEVIEW_DIR" || exit 1
 i=0
-for key in $DSO_PORTAL_KEYS; do
+for key in $ONEVIEW_KEYS; do
   : > "body-$i"
   status=$(curl -sS --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 5 \
-    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$DSO_PORTAL_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
+    -H 'Accept: application/json' -o "body-$i" -w '%{http_code}' "$ONEVIEW_URL/api/dso/config/$key?format=json" 2>"error-$i") || status=000
   if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "body-$i"); else sum=$(shasum -a 256 "body-$i"); fi
   printf '%s %.16s\n' "${status:-000}" "$sum" > "status-$i"
   i=$((i + 1))
 done
 
-deleteDir /ws@tmp/dso-portal-341
+deleteDir /ws@tmp/oneview-341
 agent linux-agent
 sh uname -s 2>/dev/null || echo Linux
 sh chmod +x 'gradlew' 2>/dev/null || true
@@ -1277,25 +1277,25 @@ sh scp ./scripts/deployment/zero-downtime-deployment.sh taadmin@qcltaapps1.testb
 sh scp ./scripts/deployment/version.properties taadmin@qcltaapps1.testbbh.com:/opt/ta/CertScanner/gui/deployment/
 sh ssh -o StrictHostKeyChecking=no taadmin@qcltaapps1.testbbh.com "/opt/ta/CertScanner/gui/deployment/zero-downtime-deployment.sh"
 sh mkdir -p /ws/report
-withEnv [PORTAL_URL=https://dso-portal.apps.bbh.com, PORTAL_FILE=portal_report_<ms>.json, PORTAL_RESPONSE=portal_response_<ms>.json]
+withEnv [ONEVIEW_URL=https://oneview.apps.bbh.com, ONEVIEW_FILE=oneview_report_<ms>.json, ONEVIEW_RESPONSE=oneview_response_<ms>.json]
 sh set +x
-code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+code=$(curl -sS -k --connect-timeout 10 --max-time 60 -o "$ONEVIEW_RESPONSE" -w '%{http_code}' -X POST "$ONEVIEW_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$ONEVIEW_FILE")
 rc=$?
 if [ $rc -ne 0 ]; then
   exit $rc
 fi
-echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+echo "[ONEVIEW] HTTP $code $(sed 's/"pipelineKey" *: *"[^"]*"/"pipelineKey":"(not shown)"/g' "$ONEVIEW_RESPONSE" 2>/dev/null)"
 if [ "$code" -ge 300 ]; then
   exit 1
 fi
 
-sh rm -f 'portal_report_<ms>.json' 'portal_response_<ms>.json'
+sh rm -f 'oneview_report_<ms>.json' 'oneview_response_<ms>.json'
 archiveArtifacts report/pipeline-report.html,appscan-report*.html,appscan-dast-report*.html,appscan-dast-report*.pdf
 publishHTML pipeline-report.html
 cleanWs
 == log
-[PORTAL] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
-[PORTAL] key 5e0f0002...0002: orders-app of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
+[ONEVIEW] key 5e0f0001...0001: orders-db of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6901
+[ONEVIEW] key 5e0f0002...0002: orders-app of CERTSCANNER, rendered <time>, sha256 0f1e2d3c4b5a6902
 [DB] orders-db: Liquibase service with a database block - changelog db/changelog/db.changelog-master.xml in orders-db/src/main/resources, package folder db, test database yes, RD yes, QC yes
 ------------------------------------------------------------
 [STAGE]  Monitor source changes (download sources)
@@ -1414,7 +1414,7 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-snapsho
 Detected tool from config file is gradle
 [REPORT] No artifact found for gradle/apk
 Detected tool from config file is gradle
-[NEXUS] orders-app: delivery.push.gradle.artifacts is not set in the DevSecOps portal - the Gradle artifact is not published
+[NEXUS] orders-app: delivery.push.gradle.artifacts is not set in OneView - the Gradle artifact is not published
 ------------------------------------------------------------
 [STAGE]  Nexus delivery (Static analysis passed)
 [RESULT] PASS
@@ -1528,7 +1528,8 @@ Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-release
 [REPORT] Pipeline report written to pipeline-report.html
 [RELEASE-GATE] State written to release-gate.json (allowed=true)
 [INFLUX] InfluxDB disabled or not configured.
-[PORTAL] Uploading pipeline report to https://dso-portal.apps.bbh.com/api/dso/reports for job DevSecOps/orders-db-devsecops-pipeline build 341
+[ONEVIEW] DSO_PIPELINE_KEY holds one of the 2 pipeline keys of the Jenkinsfile (5e0f0001...0001), so the report is uploaded for that key only: it can be removed from the job, and the report is then uploaded once for each key of the Jenkinsfile
+[ONEVIEW] Uploading pipeline report to https://oneview.apps.bbh.com/api/dso/reports for job DevSecOps/orders-db-devsecops-pipeline build 341
 Vulnerabilities above the policy severity: SAST=0, DAST=0
 -----------------------------------------------------------------
 --- Pipeline finished ---
@@ -1564,7 +1565,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:linear-gradient(135deg,#15803d,#22c55e);border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>SUCCESS</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>DevSecOps/orders-db-devsecops-pipeline &nbsp;&bull;&nbsp; Build #341</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'><time></div><div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>OneView: key 5e0f0001...0001, rendered <time>, sha256 0f1e2d3c4b5a6901 &nbsp;&bull;&nbsp; key 5e0f0002...0002, rendered <time>, sha256 0f1e2d3c4b5a6902</div>
 
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

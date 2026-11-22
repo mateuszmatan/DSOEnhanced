@@ -60,6 +60,15 @@ for f, want in expected.items():
     if got != want:
         problems.append("%s declares stages %s but should declare %s" % (f, got, want))
 
+# A method that a custom Jenkinsfile may call keeps its former name as an alias of the new one.
+former_names = {'sendPortalReport': 'sendOneViewReport'}
+api_src = open('vars/devSecOpsApi.groovy').read()
+for old, new in sorted(former_names.items()):
+    if new not in api:
+        problems.append("vars/devSecOpsApi.groovy does not declare %s()" % new)
+    if not re.search(r'^def %s\([^)]*\)\s*\{\s*(?:return\s+)?%s\(' % (old, new), api_src, re.M):
+        problems.append("vars/devSecOpsApi.groovy must keep %s() as an alias that calls %s(), a custom Jenkinsfile may still call it" % (old, new))
+
 wiring = open('vars/devSecOpsApi.groovy').read()
 for f in sorted(glob.glob('src/com/bbh/remediation/updater/*Updater.groovy')):
     name = os.path.basename(f)[:-7]
@@ -71,5 +80,5 @@ if problems:
     for p in problems:
         print("  " + p)
     sys.exit(1)
-print("VARS API CHECK PASSED - shared methods resolve and the full pipeline equals security plus extended, without the Nexus download")
+print("VARS API CHECK PASSED - shared methods resolve, former method names stay as aliases and the full pipeline equals security plus extended, without the Nexus download")
 PY

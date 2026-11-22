@@ -548,7 +548,7 @@ Liquibase command 'validate' was executed successfully.
     List hintCases = [
             ['H1', 'Validation Failed: 1 changesets check sum', 'an applied changeset was edited: undo the edit and add a new changeset, or mark the changeset runOnChange="true" when it holds a CREATE OR REPLACE object'],
             ['H2', lock, 'another deployment holds the Liquibase lock of this schema: wait for it to end; if none runs, ask the DBA to check DATABASECHANGELOGLOCK before anyone runs liquibase release-locks'],
-            ['H3', 'Cannot find database driver: oracle.jdbc.OracleDriver', 'set tools.oracleJdbc in the Global Settings of the DevSecOps portal'],
+            ['H3', 'Cannot find database driver: oracle.jdbc.OracleDriver', 'set tools.oracleJdbc in the Global Settings of OneView'],
             ['H4', connect, 'check the JDBC URL of the target, the network route from the agent to the database and the Jenkins credentials of the target'],
             ['H5', 'The file code/pkg_orderz.pkb was not found in the configured search path:', 'the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog'],
             ['H6', pro, 'the changelog uses a Liquibase Pro feature, which the library does not support (for example include inside formatted SQL): remove it'],
@@ -1101,7 +1101,7 @@ Closure services = {
              [log: ['[error] [DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME'], calls: [],
               failure: '[DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME']],
             ['allowedTargets of the service', ['orders-db': ownTargets], allowAll, 'full', false, present,
-             [log: ['[DB] orders-db: database.allowedTargets is a Global Setting (defaults.database.allowedTargets in the DevSecOps portal); the value set for the service is ignored', summary],
+             [log: ['[DB] orders-db: database.allowedTargets is a Global Setting (defaults.database.allowedTargets in OneView); the value set for the service is ignored', summary],
               calls: [filesStep], failure: null]],
             ['allowedTargets merged from the Global Settings', ['orders-db': sameTargets], allowAll, 'full', false, present, [log: [summary], calls: [filesStep], failure: null]]
     ]

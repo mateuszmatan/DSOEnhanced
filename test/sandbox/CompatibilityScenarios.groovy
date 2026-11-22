@@ -1,5 +1,5 @@
 import devsecops.test.FakeScript
-import devsecops.test.PortalFixtures
+import devsecops.test.OneViewFixtures
 import devsecops.test.SandboxHarness
 import groovy.json.JsonSlurperClassic
 import org.yaml.snakeyaml.Yaml
@@ -32,7 +32,7 @@ File root = new File(args.length > 0 ? args[0] : '.').canonicalFile
 File srcDir = new File(root, 'src')
 File stubDir = new File(root, 'test/sandbox/stub')
 File oldDir = new File(root, 'test/fixtures/b815d55')
-File renderedDir = new File(root, 'test/fixtures/portal/rendered')
+File renderedDir = new File(root, 'test/fixtures/oneview/rendered')
 
 int failures = 0
 Closure check = { String name, boolean ok, Object detail ->
@@ -50,17 +50,17 @@ String defaultsText = new File(root, 'test/fixtures/defaults.yaml').getText('UTF
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').getText('UTF-8')
 Map defaults = (yaml.load(defaultsText) as Map).defaults as Map
 Map projects = (yaml.load(configText) as Map).projects as Map
-Map platform = (new JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').getText('UTF-8')) as Map).platform as Map
+Map platform = (new JsonSlurperClassic().parseText(new File(root, 'test/fixtures/oneview/certscanner-gui-full.json').getText('UTF-8')) as Map).platform as Map
 
 Closure jenkins = {
     FakeScript j = new FakeScript()
     j.resourcesDir = new File(root, 'resources')
-    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', DSO_PORTAL_URL: PortalFixtures.PORTAL_URL])
+    j.env.vars.putAll([BUILD_NUMBER: '42', JOB_NAME: 'DevSecOps/CertScanner', ONEVIEW_URL: OneViewFixtures.ONEVIEW_URL])
     return j
 }
 
 Closure observed = { FakeScript j, def state, Map runState ->
-    PortalFixtures.copy([order         : (state.projectsAllCfg as Map).keySet().toList(),
+    OneViewFixtures.copy([order         : (state.projectsAllCfg as Map).keySet().toList(),
                          projectsAllCfg: state.projectsAllCfg, cfgDefaults: state.cfgDefaults, cfg: state.cfg,
                          policyLimits  : state.policyLimits, minRequired: state.coverage.minRequired,
                          primary       : state.currentProjectName, runState: runState,
@@ -88,7 +88,7 @@ Closure runOld = { List names ->
 Closure runNew = { String variant, List<Map> documents, Map files = [:] ->
     FakeScript j = jenkins()
     j.files.putAll(files)
-    List<String> keys = documents.collect { PortalFixtures.publish(j, it) }
+    List<String> keys = documents.collect { OneViewFixtures.publish(j, it) }
     SandboxHarness harness = new SandboxHarness(srcDir, stubDir)
     def state = null
     harness.run {
@@ -103,7 +103,7 @@ Closure runNew = { String variant, List<Map> documents, Map files = [:] ->
 String bundledName = 'com/bbh/devsecops/defaults.yaml'
 Closure runRepo = { String variant, Map jenkinsfile, Map files, boolean bundled = false, File resourcesDir = new File(root, 'resources') ->
     FakeScript j = jenkins()
-    j.env.vars.remove('DSO_PORTAL_URL')
+    j.env.vars.remove('ONEVIEW_URL')
     j.resourcesDir = resourcesDir
     j.files.putAll(files)
     if (!bundled) j.resources[bundledName] = defaultsText
@@ -123,9 +123,9 @@ Closure runRepo = { String variant, Map jenkinsfile, Map files, boolean bundled 
 }
 
 Map logRules = [
-        'the reader logs one [PORTAL] line per key (L2)'                       : { List log -> log.findAll { !(it as String).startsWith('[PORTAL]') } },
-        'the [POLICY] header names the DevSecOps portal (L9, ConfigLoader.logPolicy)': { List log ->
-            log.collect { (it as String).replace('Library security policy (resources/defaults.yaml), projects cannot change it:', 'Global settings from the DevSecOps portal, projects cannot change them:') }
+        'the reader logs one [ONEVIEW] line per key (L2)'                       : { List log -> log.findAll { !(it as String).startsWith('[ONEVIEW]') } },
+        'the [POLICY] header names OneView (L9, ConfigLoader.logPolicy)': { List log ->
+            log.collect { (it as String).replace('Library security policy (resources/defaults.yaml), projects cannot change it:', 'Global settings from OneView, projects cannot change them:') }
         }
 ]
 Closure normaliseLog = { Map run -> logRules.values().inject(run.log as List) { List log, Closure rule -> rule(log) } }
@@ -156,7 +156,7 @@ List<Map> configRules = [
          }],
         [id    : 'R3',
          reason: 'tests.<suite> compared as BuildService.normalizeTestJobs (BuildService.groovy:428, called at :288 for the suites ' +
-                 'devSecOpsApi.groovy:215-217 run) expands it: the portal stores the expanded jobs (accepted difference 5)',
+                 'devSecOpsApi.groovy:215-217 run) expands it: OneView stores the expanded jobs (accepted difference 5)',
          apply : { Map cfg, String variant ->
              Map tests = (cfg.tests ?: [:]) as Map
              List suites = tests.keySet().findAll { it != 'unitTests' && tests[it] instanceof Map }.toList()
@@ -168,7 +168,7 @@ List<Map> configRules = [
          }],
         [id    : 'R4',
          reason: 'jenkins.pipeline.extendedPipeline is read only by OpenshiftService.groovy:324-327, which only devSecOpsSecurityPipeline.groovy:65 and :74 run; ' +
-                 'the portal renders it into security documents only; a custom Jenkinsfile that calls devSecOpsApi.runExtendedPipeline() uses the security key (accepted difference 5)',
+                 'OneView renders it into security documents only; a custom Jenkinsfile that calls devSecOpsApi.runExtendedPipeline() uses the security key (accepted difference 5)',
          apply : { Map cfg, String variant -> variant == 'security' ? 0 : dropPath(cfg, ['jenkins', 'pipeline', 'extendedPipeline'], always) }],
         [id    : 'R5',
          reason: 'SAME+: incrementalVersion true equals the code default of VmDeployService.groovy:254 and :327 (BuildUtils.booleanValue(..., true))',
@@ -177,7 +177,7 @@ List<Map> configRules = [
              applications.sum(0) { application -> ((application as Map).components ?: []).sum(0) { dropPath(it as Map, ['incrementalVersion'], { it == true }) } }
          }],
         [id    : 'R6',
-         reason: 'a literal influx.token counts as influx.credentialsId influxdb-token, the Secret text credentials the portal names instead ' +
+         reason: 'a literal influx.token counts as influx.credentialsId influxdb-token, the Secret text credentials OneView names instead ' +
                  '(InfluxDbService.groovy:26-27 accepts either, :40-45 binds the credentials)',
          apply : { Map cfg, String variant ->
              Map influx = cfg.influx as Map
@@ -198,7 +198,7 @@ List<Map> configRules = [
          reason: 'NEW: staticAnalysis.parallel is absent at b815d55; only devSecOpsApi.parallelScans() reads it (parallel-scans)',
          apply : { Map cfg, String variant -> dropPath(cfg, ['staticAnalysis', 'parallel'], { it == true }) }],
         [id    : 'R9',
-         reason: 'the AppScan on Cloud API key asoc.keyId and asoc.token is the one of the functional user in the library defaults: the portal renders none, ' +
+         reason: 'the AppScan on Cloud API key asoc.keyId and asoc.token is the one of the functional user in the library defaults: OneView renders none, ' +
                  'ConfigLoader.initialize reads it from the bundled resource into state.libraryDefaults, and AppScanService.apiLogin reads only that',
          apply : { Map cfg, String variant -> [['asoc', 'keyId'], ['asoc', 'token']].sum { dropPath(cfg, it, always) } }],
         [id    : 'R10',
@@ -209,7 +209,7 @@ List<Map> configRules = [
 ]
 Map hits = configRules.collectEntries { [(it.id): 0] }
 Closure normalise = { Map run, String variant ->
-    Map copy = PortalFixtures.copy(run)
+    Map copy = OneViewFixtures.copy(run)
     List<Map> configs = [copy.cfgDefaults as Map, copy.cfg as Map] + ((copy.projectsAllCfg as Map).values() as List) + ((copy.runState as Map).values() as List)
     configRules.each { Map rule ->
         configs.each { Map cfg ->
@@ -226,9 +226,9 @@ Closure normalise = { Map run, String variant ->
     String variant = spec.variant
     List names = spec.names as List
     Map before = runOld(names)
-    Map after = runNew(variant, names.collect { PortalFixtures.document(variant, defaults, platform, it as String, projects[it] as Map) })
+    Map after = runNew(variant, names.collect { OneViewFixtures.document(variant, defaults, platform, it as String, projects[it] as Map) })
     List diff = differences(loaded(before), loaded(after), '')
-    check("A ${variant} ${names.join(',')}: the b815d55 loader over config.yaml + defaults.yaml and the portal loader over documents of the same values load the same configuration",
+    check("A ${variant} ${names.join(',')}: the b815d55 loader over config.yaml + defaults.yaml and the OneView loader over documents of the same values load the same configuration",
             !diff && (before.log as List).any { (it as String).contains('resources/defaults.yaml') }, diff.take(10))
     List logDiff = differences(normaliseLog(before), normaliseLog(after), 'log')
     check("A ${variant} ${names.join(',')}: the [INIT] and [POLICY] lines match after the rules: ${logRules.keySet().join('; ')}", !logDiff, logDiff.take(10))
@@ -239,7 +239,7 @@ List names = ['gui', 'backend-api']
 Map before = normalise(runOld(names), 'full')
 Map after = normalise(runNew('full', names.collect { rendered(it as String) }), 'full')
 List diff = differences(before, after, '')
-check('B full gui,backend-api: the b815d55 loader and the portal loader over the documents the portal renders from that config.yaml match after the declared rules',
+check('B full gui,backend-api: the b815d55 loader and the OneView loader over the documents OneView renders from that config.yaml match after the declared rules',
         !diff, diff.take(20))
 configRules.each { Map rule -> println "      ${rule.id}: ${rule.reason}" }
 check('B: every declared rule changes something in these fixtures, so none is dead', hits.every { it.value > 0 }, hits)
@@ -248,7 +248,7 @@ Map mutated = rendered('gui')
 ((((mutated.projects as Map).gui as Map).scm as Map).bitbucket as Map).remove('authType')
 (((mutated.projects as Map).gui as Map).asoc as Map).insecureTls = true
 List caught = differences(before, normalise(runNew('full', [mutated, rendered('backend-api')]), 'full'), '')
-check('B: the rules hide neither a key the portal dropped nor a non-empty value of a listed key',
+check('B: the rules hide neither a key OneView dropped nor a non-empty value of a listed key',
         caught.any { (it as String).contains('authType') } && caught.any { (it as String).contains('insecureTls') }, caught)
 
 Map keylessLogRules = [
@@ -355,8 +355,8 @@ check("the example examples/DotNetApp/devsecops_config.yaml loads with the servi
 Map neither = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], [:])
 check('A\' neither file: the Monitor stage stops with a message that names both files and both ways to configure the run',
         neither.error == "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
-                "commit devsecops_config.yaml, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
-                "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())",
+                "commit devsecops_config.yaml, which the product page of OneView downloads, or give the Jenkinsfile the pipeline key of the service " +
+                "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from OneView>']) before devSecOpsApi.initialize())",
         neither.error)
 
 String otherParts = configText + 'defaults: {sast: {maxCritical: 99}, coverage: {minLine: 1}}\nplatform: {oisHost: x}\npipeline: {type: sast}\n'
@@ -367,14 +367,14 @@ check('A\' other parts of the file: defaults, platform and pipeline are ignored 
                 && (ignoring.policyLimits as Map)?.sast == [maxCritical: 0, maxHigh: 0, maxMedium: 0] && ignoring.minRequired == 60,
         ignoringDiff.take(10) + [ignoring.log])
 
-List<Map> keyedDocuments = ['gui', 'backend-api'].collect { PortalFixtures.document('full', defaults, platform, it as String, projects[it] as Map) }
+List<Map> keyedDocuments = ['gui', 'backend-api'].collect { OneViewFixtures.document('full', defaults, platform, it as String, projects[it] as Map) }
 Map keyed = runNew('full', keyedDocuments)
 Map keyedWithFiles = runNew('full', keyedDocuments, ['devsecops_config.yaml': mistaken, 'config.yaml': mistaken])
 List keyedDiff = differences(keyed.findAll { it.key != 'trace' }, keyedWithFiles.findAll { it.key != 'trace' }, '')
 List keyedProbes = ((keyedWithFiles.trace as Map).probes ?: []) as List
-check('A\' a key wins over a file: with both files in the workspace the portal run loads the same configuration, reads the portal and never looks at either file',
+check('A\' a key wins over a file: with both files in the workspace the run with a key loads the same configuration, reads OneView and never looks at either file',
         !keyedDiff && !(keyedWithFiles.log as List).any { (it as String).startsWith('[INIT] No pipeline key in the Jenkinsfile') }
-                && ((keyedWithFiles.trace as Map).calls as List).any { (it as String).startsWith('sh [Read the configuration from the DevSecOps portal] ') }
+                && ((keyedWithFiles.trace as Map).calls as List).any { (it as String).startsWith('sh [Read the configuration from OneView] ') }
                 && !keyedProbes.any { (it as String).tokenize(' ').last() in fileNames },
         keyedDiff.take(10) + [keyedProbes])
 

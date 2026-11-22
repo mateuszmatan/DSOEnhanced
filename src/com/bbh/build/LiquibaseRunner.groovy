@@ -44,7 +44,7 @@ class LiquibaseRunner implements Serializable {
             String name = tool == 'liquibase' ? 'liquibase' : 'utplsql'
             int status = script.sh(returnStatus: true, label: "DB: find ${name} on the PATH", script: "command -v ${name} >/dev/null 2>&1") as int
             if (status != 0 && tool == 'liquibase') {
-                script.error "[DB] No Liquibase CLI on agent ${agent}: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of the DevSecOps portal, or put liquibase on the PATH of the agent"
+                script.error "[DB] No Liquibase CLI on agent ${agent}: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of OneView, or put liquibase on the PATH of the agent"
             }
             if (status != 0) {
                 script.error "[DB] No utPLSQL-cli on agent ${agent}, and ${state.currentProjectName} runs utPLSQL (database.test.utplsql.enabled): set tools.utplsql.home, or tools.utplsql.url with its sha256, or put utplsql on the PATH of the agent"

@@ -134,7 +134,7 @@ class HtmlReportService implements Serializable {
                 new HashMap(state.projectsGoldenFix ?: [:]),
                 new HashMap(state.projectsCoverage ?: [:]),
                 new HashMap(state.projectsUnitTests ?: [:]),
-                (state.portalDocuments ?: []) as List,
+                (state.oneViewDocuments ?: []) as List,
                 new HashMap(state.projectsDatabase ?: [:])
         )
         if (os.isWindows()) {
@@ -848,13 +848,13 @@ class HtmlReportService implements Serializable {
         }
         return "<div style='margin-top:6px;background:rgba(0,0,0,0.25);border-radius:3px;padding:5px 10px;font-size:0.8rem;font-weight:600;letter-spacing:0.1px;'>Failed at stage: ${esc(firstFailed)}</div>"
     }
-    @NonCPS protected String portalHtml(List documents) {
+    @NonCPS protected String oneViewHtml(List documents) {
         List parts = []
         for (def item : (documents ?: [])) {
             Map document = (item ?: [:]) as Map
             parts << "key ${esc(document.hint as String)}, rendered ${esc(document.renderedAt as String)}, sha256 ${esc(document.sha256 as String)}".toString()
         }
-        if (parts) return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>DevSecOps portal: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>"
+        if (parts) return "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>OneView: ${parts.join(' &nbsp;&bull;&nbsp; ')}</div>"
         return state.configFile ? "<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: settings from ${esc(state.configFile)} in the repository</div>" : ''
     }
     @NonCPS protected String autoResolvedCardHtml() {
@@ -869,7 +869,7 @@ class HtmlReportService implements Serializable {
                      String sonarProjectKey = '', String sonarBadgeToken = '',
                      Map projectsVulnCounts = [:], Map projectsNexusIQ = [:], Map projectsScanResults = [:],
                      Map projectsSonarResults = [:], List projectKeys = [], Map projectsAllCfg = [:], Map releaseGate = [:],
-                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], Map projectsUnitTests = [:], List portalDocuments = [], Map projectsDatabase = [:]) {
+                     Map projectsRemoteTestResults = [:], Map projectsGoldenFix = [:], Map projectsCoverage = [:], Map projectsUnitTests = [:], List oneViewDocuments = [], Map projectsDatabase = [:]) {
 
         String firstFailed = ''
         int firstFailedIdx = -1
@@ -930,7 +930,7 @@ tr:last-child td { border-bottom: none; }
 <div style='background:${headerBackground(buildResult)};border-radius:4px;padding:12px 16px;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-bottom:16px;overflow:hidden;'>
 <div style='font-size:1.4rem;font-weight:800;letter-spacing:-0.5px;'>${buildResult ?: 'IN_PROGRESS'}</div>
 <div style='margin-top:4px;opacity:0.9;font-size:0.85rem;'>${esc(jobName)} &nbsp;&bull;&nbsp; Build #${esc(buildNumber)}</div>
-<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>${now}</div>${portalHtml(portalDocuments)}
+<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>${now}</div>${oneViewHtml(oneViewDocuments)}
 ${failureReasonHtml(firstFailed)}
 </div>
 <div style='display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;'>

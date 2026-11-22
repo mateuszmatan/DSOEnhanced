@@ -1,3 +1,3 @@
 @Library('DevSecOpsJenkinsLibrary') _
 
-devSecOpsPipeline(pipelineKey: '<key from the DevSecOps portal>')
+devSecOpsPipeline(pipelineKey: '<key from OneView>')

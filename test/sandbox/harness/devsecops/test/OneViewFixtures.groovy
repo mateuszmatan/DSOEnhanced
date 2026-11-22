@@ -3,10 +3,10 @@ package devsecops.test
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurperClassic
 
-class PortalFixtures {
+class OneViewFixtures {
 
     static final String RENDERED_AT = '2026-10-06T08:14:19.475Z'
-    static final String PORTAL_URL = 'https://dso-portal.apps.bbh.com'
+    static final String ONEVIEW_URL = 'https://oneview.apps.bbh.com'
 
     static String key(int n) {
         return String.format('5e0f%04d-8c2b-4f6a-9d3e-1a7b2c4d%04d', n, n)
@@ -30,9 +30,9 @@ class PortalFixtures {
     }
 
     static String publish(FakeScript j, Map config) {
-        int n = j.portal.size() + 1
+        int n = j.oneView.size() + 1
         String key = key(n)
-        j.portal[key] = [keyStatus: 'ACTIVE', renderedAt: RENDERED_AT, config: copy(config), sha256: sha256(n)]
+        j.oneView[key] = [keyStatus: 'ACTIVE', renderedAt: RENDERED_AT, config: copy(config), sha256: sha256(n)]
         return key
     }
 

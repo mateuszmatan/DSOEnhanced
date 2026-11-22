@@ -7,7 +7,7 @@ import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
 import devsecops.test.GoldenFixResponder
-import devsecops.test.PortalFixtures
+import devsecops.test.OneViewFixtures
 import devsecops.test.SandboxHarness
 import devsecops.test.ScenarioRunner
 import org.yaml.snakeyaml.Yaml
@@ -18,7 +18,7 @@ File stubDir = new File(root, 'test/sandbox/stub')
 File varsDir = new File(root, 'vars')
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
-Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
+Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/oneview/certscanner-gui-full.json').text) as Map).platform as Map
 Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast',
                 devSecOpsNexusIqGoldenFixPipeline: 'nexusiq']
 String securityJob = 'DevSecOps/CertScanner-security-pipeline'
@@ -133,14 +133,14 @@ Closure boxOf = { String html, String name ->
 }
 Closure rule = { String reason, String pattern, String replacement -> ScenarioRunner.rule(reason, pattern, replacement) }
 List<Map> baseRules = ScenarioRunner.baseRules()
-Map bootstrapRule = rule('configure() reads the portal on a bootstrap agent before the pipeline starts its own agent (L4)',
+Map bootstrapRule = rule('configure() reads OneView on a bootstrap agent before the pipeline starts its own agent (L4)',
         /(?ms)\A== calls\n.*?^(?=agent )/, '== calls\n')
-Map portalLogRule = rule('the portal read logs one [PORTAL] line per key (L2)', /(?m)^\[PORTAL\].*\n/, '')
-Map headerRule = rule('the report header names the portal keys or keyless marker (accepted difference 1)',
-        /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>(DevSecOps portal|No pipeline key): [^\n]*?<\/div>/, '')
-List<Map> portalRules = [
+Map oneViewLogRule = rule('the OneView read logs one [ONEVIEW] line per key (L2)', /(?m)^\[ONEVIEW\].*\n/, '')
+Map headerRule = rule('the report header names the OneView keys or keyless marker (accepted difference 1)',
+        /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>(OneView|No pipeline key): [^\n]*?<\/div>/, '')
+List<Map> oneViewRules = [
         bootstrapRule,
-        portalLogRule,
+        oneViewLogRule,
         rule('the run names the order of its static analysis and of its tests and DAST, which were not switchable then',
                 /(?m)^\[(STATIC|DYNAMIC)\] [^\n]*\n/, ''),
         rule('ConfigLoader.initialize() writes the run-state file right after reading the commit (L6)',
@@ -156,14 +156,14 @@ List<Map> keylessMarks = [
         rule('a run without a key names its settings file in the report header (M25)',
                 /<div style='margin-top:2px;opacity:0.7;font-size:0.75rem;'>No pipeline key: [^\n]*?<\/div>/, ''),
         rule('build_evidence names the settings file of a run without a key', /,config_file="[^"]*"/, ''),
-        rule('a run without a key has no portal to send the report to', /(?ms)^withEnv \[PORTAL_URL=[^\n]*\n.*?^sh rm -f 'portal_report_[^\n]*\n/, ''),
+        rule('a run without a key has no OneView to send the report to', /(?ms)^withEnv \[ONEVIEW_URL=[^\n]*\n.*?^sh rm -f 'oneview_report_[^\n]*\n/, ''),
         rule('a run without a key names its settings file in the warning about an AppScan key of a service',
-                /(?m)^(\[WARN\] [^:\n]+: [^\n]*?) in [\w-]*config\.yaml ignored - /, '$1 in the DevSecOps portal ignored - '),
+                /(?m)^(\[WARN\] [^:\n]+: [^\n]*?) in [\w-]*config\.yaml ignored - /, '$1 in OneView ignored - '),
         rule('a run without a key names its settings file where a Gradle service lacks the artifacts of its Nexus delivery',
-                /(?m)^(\[NEXUS\] [^:\n]+: delivery\.push\.gradle\.artifacts is not set) in [\w-]*config\.yaml - /, '$1 in the DevSecOps portal - ')
+                /(?m)^(\[NEXUS\] [^:\n]+: delivery\.push\.gradle\.artifacts is not set) in [\w-]*config\.yaml - /, '$1 in OneView - ')
 ]
-List<Map> keylessRules = [bootstrapRule, portalLogRule,
-                          rule('build_evidence has no config_rendered_at and config_sha256 without portal documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
+List<Map> keylessRules = [bootstrapRule, oneViewLogRule,
+                          rule('build_evidence has no config_rendered_at and config_sha256 without OneView documents (L10)', /,config_rendered_at="[^"]*",config_sha256="[^"]*"/, ''),
                           headerRule] + keylessMarks
 
 List<Map> stackRules = [
@@ -187,7 +187,7 @@ List<Map> stackRules = [
 Closure normalise = { String text, List<Map> rules -> ScenarioRunner.normalise(text, stackRules + rules) }
 
 Map baselines = [
-        b815d55: [recorded: 'on the library before the portal integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: portalRules],
+        b815d55: [recorded: 'on the library before the OneView integration', record: 'record it on b815d55 with RECORD_GOLDEN=1', rules: oneViewRules],
         nexusiq: [recorded: 'when the Nexus IQ GoldenFix pipeline was added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
         catalog: [recorded: 'when shared version catalogs were added', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []],
         parallel: [recorded: 'when the static analysis and the tests with DAST became parallel branches', record: 'record it with RECORD_GOLDEN=1 and review it', rules: []]
@@ -287,12 +287,12 @@ Closure verify = { Map spec ->
                 j.calls.findAll { it.contains('Coverage: ') })
     }
     if (spec.coverageMinLine) {
-        check("${name}: the report shows and checks the coverage required by the portal's global settings (${spec.coverageMinLine}%)",
+        check("${name}: the report shows and checks the coverage required by the global settings of OneView (${spec.coverageMinLine}%)",
                 html.contains("required&nbsp;<b>${spec.coverageMinLine}%</b>".toString()) && !html.contains('required&nbsp;<b>60%</b>'),
-                'the report does not use the required coverage from the portal defaults')
+                'the report does not use the required coverage from the OneView defaults')
     }
     if (spec.var == 'devSecOpsSecurityPipeline') {
-        String description = "Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in ${spec.keyless ? 'devsecops_config.yaml or config.yaml' : 'the DevSecOps portal'}"
+        String description = "Trigger the extended pipeline named in jenkins.pipeline.extendedPipeline of the service in ${spec.keyless ? 'devsecops_config.yaml or config.yaml' : 'OneView'}"
         check("${name}: the RUN_EXTENDED_PIPELINE parameter says where jenkins.pipeline.extendedPipeline is set",
                 var.parameterDescriptions.RUN_EXTENDED_PIPELINE == description, var.parameterDescriptions.RUN_EXTENDED_PIPELINE)
         boolean triggered = j.calls.contains('build DevSecOps/CertScanner-extended-pipeline (no wait)')
@@ -465,8 +465,8 @@ Closure verify = { Map spec ->
     if (spec.keyless) {
         String file = files.containsKey(repositoryFiles[0]) ? repositoryFiles[0] : repositoryFiles[1]
         List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
-        check("${name}: the portal is not read and the console says which file was read${files.size() > 1 ? ' and which was not' : ''}",
-                !j.calls.any { it.contains('/api/dso/config/') || it.contains('DSO_PORTAL_KEYS') }
+        check("${name}: OneView is not read and the console says which file was read${files.size() > 1 ? ' and which was not' : ''}",
+                !j.calls.any { it.contains('/api/dso/config/') || it.contains('ONEVIEW_KEYS') }
                         && log.contains("[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
                         && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
                         && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()]),
@@ -476,18 +476,28 @@ Closure verify = { Map spec ->
                         && evidence && evidence.every { it.contains(",config_file=\"${file}\"".toString()) },
                 evidence)
     }
+    List<String> ownKeys = spec.keyless ? [] : j.oneView.keySet().toList()
+    List<Map> posts = r.reportPosts as List<Map>
+    List<String> uploadLines = log.findAll { it.startsWith('[ONEVIEW] Uploading pipeline report ') }
+    check(spec.keyless ? "${name}: a run without a pipeline key and without ONEVIEW_URL uploads no report"
+            : "${name}: the report is uploaded once for each pipeline key of the Jenkinsfile, in their order, with nothing set but the address of OneView, and the keys are in the payloads only - " +
+            "not in the log, the report, the release gate, the InfluxDB lines or the run-state file",
+            posts*.key == ownKeys && posts.every { it.address == OneViewFixtures.ONEVIEW_URL && it.html == html } && (spec.keyless || ownKeys.size() == 2)
+                    && uploadLines == ownKeys.collect { "[ONEVIEW] Uploading pipeline report to ${OneViewFixtures.ONEVIEW_URL}/api/dso/reports for job DevSecOps/${spec.job} build ${spec.buildNumber} with pipeline key ${OneViewFixtures.hint(it)}".toString() }
+                    && ![log.join('\n'), html, influxOf(j), (j.files['release-gate.json'] ?: '') as String, (j.files['pipeline-config.yaml'] ?: '') as String].any { String text -> ownKeys.any { text.contains(it) } },
+            "${posts*.key} | ${uploadLines}")
     List unhandled = j.unhandled.unique()
     if (unhandled) println "      note: steps not emulated by the fake Jenkins: ${unhandled}"
     Closure slugOf = { String text -> text.toLowerCase().replaceAll(/[^a-z0-9]+/, '-') }
     Map baseline = baselines[spec.baseline ?: 'b815d55'] as Map
-    List<Map> rules = (spec.keyless ? (spec.baseline ? keylessRules : portalRules + keylessMarks) : baseline.rules) as List<Map>
+    List<Map> rules = (spec.keyless ? (spec.baseline ? keylessRules : oneViewRules + keylessMarks) : baseline.rules) as List<Map>
     String actual = normalise(goldenView(r), baseRules)
     File diffFile = new File(goldenDir, "${slugOf(name)}.actual.txt")
     boolean sectionsDiffer = false
     if (spec.compare == 'sections') {
         File sequential = new File(goldenDir, "${slugOf(spec.golden as String)}.txt")
-        Map expected = sectionsOf(normalise(sequential.text, portalRules + keylessMarks))
-        Map got = sectionsOf(normalise(sequentialView(actual), portalRules + keylessMarks))
+        Map expected = sectionsOf(normalise(sequential.text, oneViewRules + keylessMarks))
+        Map got = sectionsOf(normalise(sequentialView(actual), oneViewRules + keylessMarks))
         boolean sameOutputs = ['release-gate.json', 'influx', 'report'].every { expected[it] == got[it] }
         boolean sameSteps = ['calls', 'log'].every { reordered(expected[it] as List<String>) == reordered(got[it] as List<String>) }
         sectionsDiffer = !(sameOutputs && sameSteps)
@@ -543,15 +553,25 @@ verify((specs.find { it.name == 'full pipeline, green' } as Map) + [name: 'full 
                                                                      golden: 'full pipeline, green', parallel: true,
                                                                      env: [DSO_STATIC_ANALYSIS_PARALLEL: 'false', DSO_DYNAMIC_ANALYSIS_PARALLEL: 'false']])
 
+Map formerNames = (specs.find { it.name == 'full pipeline, green' } as Map) + [name: 'full pipeline, green, on a Jenkins that sets only DSO_PORTAL_URL and DSO_PORTAL_AGENT',
+                                                                               golden: 'full pipeline, green',
+                                                                               env: [ONEVIEW_URL: null, DSO_PORTAL_URL: OneViewFixtures.ONEVIEW_URL, DSO_PORTAL_AGENT: 'linux-agent']]
+verify(formerNames)
+List<String> formerLines = ((runPipeline(formerNames).j as FakeScript).log.findAll { it.contains(' former name') }) as List<String>
+check("${formerNames.name}: the console names each former variable once, with the way to rename it",
+        formerLines == ['[ONEVIEW] DSO_PORTAL_URL is the former name of ONEVIEW_URL: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables',
+                        '[ONEVIEW] DSO_PORTAL_AGENT is the former name of ONEVIEW_AGENT: it still works; rename it in Manage Jenkins > System > Global properties > Environment variables'],
+        formerLines)
+
 Map noFile = runPipeline([name: 'full pipeline without a key and without a file', var: 'devSecOpsPipeline', keyless: true, fail: false,
                           job: 'CertScanner-devsecops-pipeline', buildNumber: 345, params: [DEPLOY_HIGHER_ENV: true]])
 FakeCpsScript noFileVar = noFile.var as FakeCpsScript
 FakeScript noFileJenkins = noFile.j as FakeScript
 String noFileHtml = noFile.html as String
 String neitherFile = "[INIT] No pipeline key in the Jenkinsfile, and neither devsecops_config.yaml nor config.yaml is at the root of the repository: " +
-        "commit devsecops_config.yaml, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
-        "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())"
-check('full pipeline without a key and without a file: the Monitor stage fails with the message that names both files, the report and the release gate are still written, and the portal is not read',
+        "commit devsecops_config.yaml, which the product page of OneView downloads, or give the Jenkinsfile the pipeline key of the service " +
+        "(a custom Jenkinsfile calls devSecOpsApi.configure('full', [pipelineKey: '<key from OneView>']) before devSecOpsApi.initialize())"
+check('full pipeline without a key and without a file: the Monitor stage fails with the message that names both files, the report and the release gate are still written, and OneView is not read',
         !noFile.crash && noFileVar.stageFailures.size() == 1 && noFileVar.stageFailures[0].startsWith("${MONITOR}: ".toString()) && noFileVar.stageFailures[0].contains(neitherFile)
                 && noFileJenkins.currentBuild.currentResult == 'FAILURE' && noFileVar.postConditions.contains('always')
                 && noFileHtml.contains('<h2>Pipeline Stages</h2>') && noFileHtml.contains('No pipeline key: settings from devsecops_config.yaml or config.yaml in the repository</div>')
@@ -594,8 +614,8 @@ check('full pipeline, AppScan settings per service: SAST and DAST sign in once w
         apiLogins == ['withCredentials [asoc-functional-user-secret]']
                 && loginBody == "{\"KeyId\":\"${functionalKey}\",\"KeySecret\":\"fake-APPSCAN_KEY_SECRET\"}".toString()
                 && !perServiceJenkins.calls.any { it.contains(guiKey) || it.contains(backendKey) || it.contains('gui-appscan-key-secret') || it.contains('hcl-app-scan-acount') }
-                && keyWarnings.size() == 2 && keyWarnings[0].startsWith('[WARN] gui: asoc.keyId, asoc.token in the DevSecOps portal ignored')
-                && keyWarnings[1].startsWith('[WARN] backend-api: asoc.keyId in the DevSecOps portal ignored'),
+                && keyWarnings.size() == 2 && keyWarnings[0].startsWith('[WARN] gui: asoc.keyId, asoc.token in OneView ignored')
+                && keyWarnings[1].startsWith('[WARN] backend-api: asoc.keyId in OneView ignored'),
         apiLogins + [loginBody] + keyWarnings)
 List queued = perService.sastQueued as List
 String dastPayload = perServiceJenkins.files.find { it.key.endsWith('dast_payload.json') }?.value ?: ''
@@ -700,7 +720,7 @@ Map gradleEvidence = focused([name: 'full pipeline, Gradle Nexus delivery withou
 }])
 check('full pipeline, Gradle Nexus delivery without artifacts: the service is not required in stage 6, nothing is published and the UrbanCode versions use the build number',
         resultOf(gradleEvidence, SNAPSHOT) == 'NOT_REQUIRED' && !(gradleEvidence.j as FakeScript).files.containsKey('build.tag')
-                && (gradleEvidence.j as FakeScript).log.contains('[NEXUS] gui: delivery.push.gradle.artifacts is not set in the DevSecOps portal - the Gradle artifact is not published')
+                && (gradleEvidence.j as FakeScript).log.contains('[NEXUS] gui: delivery.push.gradle.artifacts is not set in OneView - the Gradle artifact is not published')
                 && (gradleEvidence.j as FakeScript).log.any { it == '[DOD] No build.tag from a Nexus delivery: the versions use the build number 358' },
         [resultOf(gradleEvidence, SNAPSHOT)] + (gradleEvidence.j as FakeScript).log.findAll { it.startsWith('[NEXUS]') || it.startsWith('[DOD] No') })
 
@@ -881,7 +901,7 @@ check('full pipeline, parallel stages, no SAST copy and a SAST compile with othe
         staticLog(noCopyOther))
 String defaultLine = '[STATIC] Unit tests, Nexus IQ, SAST and SonarQube run at the same time (staticAnalysis.parallel: true, the default)'
 Map equalCompile = focused([name: 'full pipeline, parallel stages, SAST compile equal to the build command', buildNumber: 362, parallel: true,
-                            configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = PortalFixtures.copy((((p.gui as Map).build as Map).gradle) as Map) }])
+                            configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = OneViewFixtures.copy((((p.gui as Map).build as Map).gradle) as Map) }])
 Map envOn = focused([name: 'full pipeline, parallel stages switched on by the environment', buildNumber: 363, env: [DSO_STATIC_ANALYSIS_PARALLEL: 'true']])
 Map optOut = focused([name: 'full pipeline, parallel stages, one service opts out', buildNumber: 364, parallel: true,
                       configure: { Map p -> (p['backend-api'] as Map).staticAnalysis = [parallel: false] }])
@@ -902,7 +922,7 @@ check('full pipeline, parallel stages, a value that is not a boolean: each wrong
         wrongLines)
 
 Closure parallelRun = { Map spec -> runPipeline([var: 'devSecOpsPipeline', fail: false, parallel: true, job: 'CertScanner-devsecops-pipeline', params: [DEPLOY_HIGHER_ENV: true]] + spec) }
-Closure viewOf = { Map r -> sectionsOf(normalise(sequentialView(normalise(goldenView(r), baseRules)), portalRules)) }
+Closure viewOf = { Map r -> sectionsOf(normalise(sequentialView(normalise(goldenView(r), baseRules)), oneViewRules)) }
 Map stopped = parallelRun([name: 'full pipeline, stage failure, parallel stages', breakSast: true, buildNumber: 344])
 FakeScript stoppedJenkins = stopped.j as FakeScript
 List<String> stoppedFailures = (stopped.var as FakeCpsScript).stageFailures

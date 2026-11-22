@@ -26,7 +26,7 @@ import com.bbh.scanner.NexusIqGoldenFixSource
 import com.bbh.scm.BitbucketPullRequestPublisher
 import com.bbh.scm.GitSourceRepository
 import com.bbh.report.HtmlReportService
-import com.bbh.report.PortalReportService
+import com.bbh.report.OneViewReportService
 import com.bbh.scanner.AppScanService
 import com.bbh.scanner.NexusIqService
 import com.bbh.scanner.SonarService
@@ -44,7 +44,7 @@ import com.bbh.utils.BuildUtils
 @Field NexusDeliveryService _delivery
 @Field OpenshiftService    _openshift
 @Field InfluxDbService     _influx
-@Field PortalReportService _portalReport
+@Field OneViewReportService _oneViewReport
 @Field DatabaseBuild       _database
 @Field DatabaseDeployService _databaseDeploy
 @Field SecurityPullRequestService _securityPr
@@ -75,7 +75,7 @@ private void _setup() {
     _delivery  = new NexusDeliveryService(this, _state, _os)
     _openshift = new OpenshiftService(this, _state)
     _influx    = new InfluxDbService(this, _state, _os)
-    _portalReport = new PortalReportService(this, _state, _os)
+    _oneViewReport = new OneViewReportService(this, _state, _os)
     _database       = _main.database as DatabaseBuild
     _databaseDeploy = _main.databaseDeploy as DatabaseDeployService
 }
@@ -128,14 +128,14 @@ private HtmlReportService reportService() {
 }
 
 private void applyToolEnvironment() {
-    Map portal = (_state.platform?.environment ?: [:]) as Map
-    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: (portal.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip') as String
-    env.SA_WIN_URL         = env.SA_WIN_URL         ?: (portal.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip') as String
-    env.PROXY_HOST         = env.PROXY_HOST         ?: (portal.PROXY_HOST         ?: 'tstproxy.bbh.com') as String
-    env.PROXY_PORT         = env.PROXY_PORT         ?: (portal.PROXY_PORT         ?: '9090') as String
-    env.PROXY_USER         = env.PROXY_USER         ?: (portal.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
-    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (portal.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
-    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (portal.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
+    Map oneView = (_state.platform?.environment ?: [:]) as Map
+    env.SA_LINUX_URL       = env.SA_LINUX_URL       ?: (oneView.SA_LINUX_URL       ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Linux/SAClientUtil-8.0.1646_Linux-SAClientUtil_8.0.1646_Linux.zip') as String
+    env.SA_WIN_URL         = env.SA_WIN_URL         ?: (oneView.SA_WIN_URL         ?: 'https://tools.bbh.com/nexus/repository/releases/com/bbh/appscan/SAClientUtil/8.0.1646_Win/SAClientUtil-8.0.1646_Win-SAClientUtil_8.0.1646_Win.zip') as String
+    env.PROXY_HOST         = env.PROXY_HOST         ?: (oneView.PROXY_HOST         ?: 'tstproxy.bbh.com') as String
+    env.PROXY_PORT         = env.PROXY_PORT         ?: (oneView.PROXY_PORT         ?: '9090') as String
+    env.PROXY_USER         = env.PROXY_USER         ?: (oneView.PROXY_USER         ?: 'PROXY_ASOCJenk') as String
+    env.APPSCAN_HOST       = env.APPSCAN_HOST       ?: (oneView.APPSCAN_HOST       ?: 'bbh.cloud.appscan.com') as String
+    env.APPSCAN_SERVER_URL = env.APPSCAN_SERVER_URL ?: (oneView.APPSCAN_SERVER_URL ?: 'https://bbh.cloud.appscan.com') as String
     env.APPSCAN_TOOLS_DIR  = env.APPSCAN_TOOLS_DIR  ?: "${env.WORKSPACE}/.appscan-tools"
     env.APPSCAN_LOG_DIR    = env.APPSCAN_LOG_DIR    ?: "${env.WORKSPACE}/.appscan-logs"
     env.APPSCAN_HOME_DIR   = env.APPSCAN_HOME_DIR   ?: "${env.WORKSPACE}/.appscan-home"
@@ -477,8 +477,8 @@ def finishPipeline(Map options = [:]) {
         writeFile file: 'report/pipeline-report.html',
                   text: "<html><head><meta charset='UTF-8'><title>Pipeline Report</title></head><body style='font-family:sans-serif;padding:24px'><h2>Pipeline Report</h2><p>Report could not be generated - check build logs.</p></body></html>"
     }
-    try { sendPortalReport(type) }
-    catch (Throwable t) { echo "[WARN] Could not upload report to portal: ${t.message}" }
+    try { sendOneViewReport(type) }
+    catch (Throwable t) { echo "[WARN] Could not upload report to OneView: ${t.message}" }
     try { echo vulnerabilitySummary() }
     catch (Throwable t) { echo "[WARN] Could not summarise the vulnerabilities: ${t.message}" }
     section('Pipeline finished')
@@ -576,11 +576,12 @@ def deployOpenshift(String envName)      { _setup(); _openshift.deploy(envName) 
 def nexusDelivery(String envName)        { _setup(); _openshift.deliverToNexus(envName) }
 def runExtendedPipeline()                { _setup(); _openshift.runExtendedPipeline() }
 
-def generateHtmlReport()                       { _setup(); reportService().generate() }
-def feedInfluxDB(String pipelineType)          { _setup(); _influx.send(pipelineType) }
-def sendPortalReport(String pipelineType = '') { _setup(); _portalReport.send(pipelineType) }
-def publishStaticSecurityPullRequest()         { _setup(); _securityPr.publishStaticSecurityPullRequest() }
-def publishDastPullRequest()                   { _setup(); (_kit().securityPr as SecurityPullRequestService).publishDastPullRequest() }
+def generateHtmlReport()                        { _setup(); reportService().generate() }
+def feedInfluxDB(String pipelineType)           { _setup(); _influx.send(pipelineType) }
+def sendOneViewReport(String pipelineType = '') { _setup(); _oneViewReport.send(pipelineType) }
+def sendPortalReport(String pipelineType = '')  { sendOneViewReport(pipelineType) }
+def publishStaticSecurityPullRequest()          { _setup(); _securityPr.publishStaticSecurityPullRequest() }
+def publishDastPullRequest()                    { _setup(); (_kit().securityPr as SecurityPullRequestService).publishDastPullRequest() }
 
 def releaseAllowed(String stageName) { _setup(); return new ReleaseGate(this, _state).allowed(stageName) }
 def publishReleaseGate()             { _setup(); new ReleaseGate(this, _state).publish() }

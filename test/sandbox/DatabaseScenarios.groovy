@@ -2,7 +2,7 @@ import devsecops.test.DatabaseResponder
 import devsecops.test.FakeCpsScript
 import devsecops.test.FakeScript
 import devsecops.test.FakeTestSummary
-import devsecops.test.PortalFixtures
+import devsecops.test.OneViewFixtures
 import devsecops.test.SandboxHarness
 import devsecops.test.ScenarioRunner
 import org.yaml.snakeyaml.Yaml
@@ -25,7 +25,7 @@ File root = new File(args.length > 0 ? args[0] : '.').canonicalFile
 File fixtures = new File(root, 'test/fixtures/database')
 File goldenDir = new File(root, 'test/sandbox/golden')
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
-Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
+Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/oneview/certscanner-gui-full.json').text) as Map).platform as Map
 Map variants = [devSecOpsPipeline: 'full', devSecOpsSecurityPipeline: 'security', devSecOpsExtendedPipeline: 'extended', devSecOpsSASTScanningPipeline: 'sast',
                 devSecOpsNexusIqGoldenFixPipeline: 'nexusiq']
 String securityJob = 'DevSecOps/orders-db-security-pipeline'
@@ -110,7 +110,7 @@ Closure runDatabase = { Map spec ->
     List<Map> shells = []
     full.defaults = { Map d -> toolDefaults(d); if (spec.defaults) (spec.defaults as Closure).call(d) }
     full.files = (layoutFiles(spec.layout as String) as Map) + (buildOutputs[spec.layout] ?: [:]) + ((spec.files ?: [:]) as Map)
-    full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString(), DSO_PIPELINE_KEY: PortalFixtures.key(1)] + ((spec.env ?: [:]) as Map)
+    full.env = [BUILD_TAG: "jenkins-DevSecOps-${spec.job}-${spec.buildNumber}".toString(), DSO_PIPELINE_KEY: OneViewFixtures.key(1)] + ((spec.env ?: [:]) as Map)
     full.respond = { FakeScript j, Map a ->
         shells << [label: (a.label ?: '') as String, script: (a.script ?: '') as String, cwd: j.cwd, javaHome: j.env.JAVA_HOME, owner: j.env.CURRENT_PROJECT_NAME,
                    sql: j.files[DatabaseResponder.quoted((a.script ?: '') as String, /'--sql-file=([^']+)'/)], timeout: j.timeouts ? j.timeouts[-1] : null,
@@ -179,9 +179,9 @@ Closure basics = { Map spec, Map r ->
     List<String> carriers = j.calls + j.log + (j.files.values() as List<String>) + [ScenarioRunner.influxOf(j)]
     List<String> scripts = j.calls.findAll { it.startsWith('sh [DB: ') }
     List<String> named = scripts.findAll { s -> ['--password', '--username', '--url=jdbc', 'LIQUIBASE_COMMAND_USERNAME', 'LIQUIBASE_COMMAND_PASSWORD'].any { s.contains(it) } }
-    boolean portal = j.files.keySet().any { it.startsWith('portal_report_') }
-    check("${name}: D-SEC no call, withEnv, log line, file (the report sent to the portal too) or InfluxDB line holds a bound credential, and no DB script names a user, a password or a JDBC URL",
-            !carriers.any { it.contains('fake-DSO_DB_') } && !named && (portal || !spec.golden), carriers.findAll { it.contains('fake-DSO_DB_') }.take(3) + named.take(3) + [portal])
+    boolean uploaded = j.files.keySet().any { it.startsWith('oneview_report_') }
+    check("${name}: D-SEC no call, withEnv, log line, file (the report sent to OneView too) or InfluxDB line holds a bound credential, and no DB script names a user, a password or a JDBC URL",
+            !carriers.any { it.contains('fake-DSO_DB_') } && !named && (uploaded || !spec.golden), carriers.findAll { it.contains('fake-DSO_DB_') }.take(3) + named.take(3) + [uploaded])
     List<String> online = scripts.findAll { it.contains('"--defaults-file=$DSO_STEP"') }
     List<String> tests = scripts.findAll { it.startsWith('sh [DB: utPLSQL ') }
     check("${name}: D-SEC every online Liquibase script starts with the online prelude, and every utPLSQL script with its prefix",
@@ -330,7 +330,7 @@ List<Map> goldenSpecs = [
             List<String> block = []
             logOf(r).each { String line ->
                 if (!line.startsWith('[STAGE]  ')) {
-                    if (!line.startsWith('[PORTAL] ')) block << line
+                    if (!line.startsWith('[ONEVIEW] ')) block << line
                     return
                 }
                 int db = block.findLastIndexOf { it.contains('orders-db') && !it.contains('orders-app') }
@@ -338,17 +338,17 @@ List<Map> goldenSpecs = [
                 if (db >= 0 && app >= 0 && app < db) late << line
                 block = []
             }
-            check('D3: in every stage the orders-db lines come before the orders-app lines (the portal lines aside), and orders-db prints no [NODE] line',
+            check('D3: in every stage the orders-db lines come before the orders-app lines (the [ONEVIEW] lines aside), and orders-db prints no [NODE] line',
                     !late && !logOf(r).any { it.startsWith('[NODE] orders-db') }, late)
             Map alone = runDatabase(full + [name: 'D3 without the database service', layout: 'b', configure: { Map p -> p.remove('orders-db') }])
             Closure appCalls = { Map run ->
                 List<String> calls = ((run.j as FakeScript).calls as OwnedList).ownedBy('orders-app')
                 Closure login = { String call -> call.contains('asoc-api-key-login.json') || call.contains('Account/ApiKeyLogin') || call == 'withCredentials [asoc-functional-user-secret]' }
-                (0..<calls.size()).findAll { !login(calls[it]) && !calls[it].contains('portal_re') }.collect { calls[it].replace(',.dso-db', '').replaceAll(/(?<!\d)\d{13}(?!\d)/, '<ms>') }
+                (0..<calls.size()).findAll { !login(calls[it]) && !calls[it].contains('oneview_re') }.collect { calls[it].replace(',.dso-db', '').replaceAll(/(?<!\d)\d{13}(?!\d)/, '<ms>') }
             }
             List<String> mixed = appCalls(r)
             List<String> single = appCalls(alone)
-            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS, the AppScan sign-in, which orders-db makes for both services with the one key of the functional user, and the report sent to the portal, which names every service',
+            check('D3: every orders-app call equals its call in a run without the database service, except .dso-db in APPSCAN_EXCLUDED_FOLDERS, the AppScan sign-in, which orders-db makes for both services with the one key of the functional user, and the report sent to OneView, which names every service',
                     mixed == single && ((r.j as FakeScript).calls as OwnedList).ownedBy('orders-app').any { it.contains('APPSCAN_EXCLUDED_FOLDERS=orders-db,node_modules,.dso-db') },
                     [mixed.size(), single.size()] + (0..<Math.min(mixed.size(), single.size())).findAll { mixed[it] != single[it] }.take(1).collect { [mixed[it], single[it]]*.take(300) })
             List gradle = (r.shells as List<Map>).findAll { (it.label as String).startsWith('Gradle: ') }
@@ -451,7 +451,7 @@ Closure focused = { String name, Map spec, String expected ->
 
 focused('D10 Nexus IQ GoldenFix with only a database service', nexusiq + [layout: 'a', failedStage: MONITOR],
         '[INIT] The Nexus IQ GoldenFix pipeline would scan nothing: orders-db is SQL and PL/SQL service(s), which have no dependency components; run it for a service with a Nexus IQ application')
-focused('D11 a Windows agent', plsql + [failedStage: MONITOR, env: [DSO_PORTAL_AGENT: 'portal-agent'], prepare: { FakeScript j -> j.steps['isUnix'] = { a -> j.env.NODE_NAME == 'portal-agent' } }],
+focused('D11 a Windows agent', plsql + [failedStage: MONITOR, env: [ONEVIEW_AGENT: 'oneview-agent'], prepare: { FakeScript j -> j.steps['isUnix'] = { a -> j.env.NODE_NAME == 'oneview-agent' } }],
         '[DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME')
 focused('D13 the database service after the Java service', security + [layout: 'b', configure: { Map p -> p.put('orders-db', p.remove('orders-db')) }],
         '[DB] orders-db comes after orders-app in the list of services: the database changes are then deployed after that application in RD and QC; list the SQL and PL/SQL service first')
@@ -459,7 +459,7 @@ focused('D13 the database service after the Java service', security + [layout: '
 focused('D14 a Liquibase home that is not on the agent', plsql + [failedStage: BUILD, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.30.0'] }],
         '[DB] defaults.tools.liquibase.home is /opt/liquibase/4.30.0, which does not exist on agent linux-agent: install it there or correct the setting')
 focused('D14 no Liquibase CLI', plsql + [failedStage: BUILD, missingTool: 'liquibase', defaults: { Map d -> (d.tools as Map).liquibase = [:] }],
-        '[DB] No Liquibase CLI on agent linux-agent: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of the DevSecOps portal, or put liquibase on the PATH of the agent')
+        '[DB] No Liquibase CLI on agent linux-agent: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of OneView, or put liquibase on the PATH of the agent')
 focused('D14 no utPLSQL-cli', security + [layout: 'a', failedStage: UNIT, missingTool: 'utplsql', defaults: { Map d -> (d.tools as Map).utplsql = [:] }],
         '[DB] No utPLSQL-cli on agent linux-agent, and orders-db runs utPLSQL (database.test.utplsql.enabled): set tools.utplsql.home, or tools.utplsql.url with its sha256, or put utplsql on the PATH of the agent')
 String sha = 'a' * 64
@@ -485,7 +485,7 @@ focused('D15 Liquibase 4.32.0', plsql + [failedStage: BUILD, prepare: { FakeScri
 focused('D15 Liquibase 4.34.0', plsql + [result: 'SUCCESS', prepare: { FakeScript j -> j.files['/opt/liquibase/4.34.0'] = '' }, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.34.0'] }],
         '[DB] orders-db: Liquibase 4.34.0 has not been tested with the library (tested: 4.33.0 and 5.0.4)')
 focused('D16 Liquibase 5.0.4 without a driver', security + [layout: 'a', failedStage: UNIT, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4']; (d.tools as Map).oracleJdbc = [:] }],
-        '[DB] orders-db test: Liquibase 5.0.4 has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in the Global Settings of the DevSecOps portal')
+        '[DB] orders-db test: Liquibase 5.0.4 has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in the Global Settings of OneView')
 [E1: "Unexpected formatting in formatted changelog 'db/tables/002-create-order-items.sql' at line 3.",
  E2: 'Validation Failed: 1 changesets had duplicate identifiers db/tables/002-create-order-items.sql::002-create-order-items::orders-team',
  E3: 'Validation Failed: 1 changes have validation failures The file code/pkg_orderz.pkb was not found in the configured search path: - /ws - /opt/liquibase/4.33.0/lib - the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog',
@@ -543,7 +543,7 @@ Map local = focused('D23 no RD and no QC database', full + [layout: 'a', result:
 check('D23: no QC database is not required (M-DB-65)', has(local, '[DEPLOY] orders-db: no QC database (database.qc.url) - not required') && stageOf(local, QC) == 'NOT_REQUIRED', stageOf(local, QC))
 
 Map wanted = focused('D24 regression tests required without jobs', extended + [layout: 'a', result: 'UNSTABLE', configure: { Map p -> (p['orders-db'] as Map).tests = [regression: [required: true]] }],
-        'Regression Tests: no test jobs configured, at least one job is required in the DevSecOps portal.')
+        'Regression Tests: no test jobs configured, at least one job is required in OneView.')
 check('D24: required regression tests without jobs are WARN', stageOf(wanted, REGRESSION) == 'WARN', stageOf(wanted, REGRESSION))
 Map jobs = verify(extended + [name: 'D24 regression jobs of a database service', layout: 'a', result: 'SUCCESS', configure: { Map p ->
     (p['orders-db'] as Map).tests = [regression: [jobs: [[name: 'orders-db - regression', type: 'local', job: 'orders/db-regression-tests']]]]
@@ -667,14 +667,14 @@ check('D34: plsql is the build tool sql: the service is listed with buildTool sq
         logOf(sqlNamed).findAll { it.startsWith('[INIT]') })
 Map sqlWithChangelog = verify(plsql + [name: 'D35 buildTool sql with database.changelogFile', result: 'SUCCESS', configure: { Map p -> dropTargets(['test', 'rd', 'qc'])(p); (p['orders-db'] as Map).buildTool = 'sql' }])
 check('D35: buildTool sql with a changelog of its own runs as buildTool liquibase, with a warning, and generates nothing',
-        has(sqlWithChangelog, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but database.changelogFile is set: the service runs as buildTool liquibase - set buildTool: liquibase in the DevSecOps portal')
+        has(sqlWithChangelog, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but database.changelogFile is set: the service runs as buildTool liquibase - set buildTool: liquibase in OneView')
                 && !labels(sqlWithChangelog).contains(sqlStep) && !(sqlWithChangelog.j as FakeScript).files.containsKey('db/dso-changelog.xml')
                 && callsOf(sqlWithChangelog).any { it.contains("'--changelog-file=db/changelog-master.xml'") },
         logOf(sqlWithChangelog).findAll { it.startsWith('[INIT]') })
 Map sqlWithMarker = verify(security + sqlOnly + [name: 'D35 buildTool sql in a repository with a Liquibase changelog', configure: sqlTool('sql', 'db'),
                                                  files: ['db/changelog.xml': masterXml.replace('path="tables/"', 'path="migrations/"')]])
 check('D35: buildTool sql in a search root with a Liquibase changelog runs as buildTool liquibase with that changelog, and says which keys to set',
-        has(sqlWithMarker, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but the repository has the Liquibase changelog db/changelog.xml: the service runs as buildTool liquibase with database.changelogFile changelog.xml - set buildTool: liquibase and database.changelogFile: changelog.xml in the DevSecOps portal')
+        has(sqlWithMarker, '[INIT] [WARN] orders-db: buildTool sql is for SQL and PL/SQL files without a Liquibase changelog, but the repository has the Liquibase changelog db/changelog.xml: the service runs as buildTool liquibase with database.changelogFile changelog.xml - set buildTool: liquibase and database.changelogFile: changelog.xml in OneView')
                 && !labels(sqlWithMarker).contains(sqlStep) && callsOf(sqlWithMarker).any { it.contains("'--changelog-file=changelog.xml'") },
         logOf(sqlWithMarker).findAll { it.startsWith('[INIT]') })
 focused('D36 a dso-changelog.xml of the repository', security + sqlOnly + [failedStage: MONITOR, files: ['db/dso-changelog.xml': '<databaseChangeLog/>\n']],
@@ -877,21 +877,21 @@ merged = { Map base, Map over ->
     result
 }
 ['database-product-config.yaml': 'a', 'database-gradle-product-config.yaml': 'b', 'database-maven-product-config.yaml': 'c'].each { String file, String layout ->
-    Map written = projectsOf(new File(fixtures, "portal/${file}"))
+    Map written = projectsOf(new File(fixtures, "oneview/${file}"))
     Map documented = layoutProjects[layout] as Map
-    check("Chapter 14: the DevSecOps portal writes the services of layout (${layout}) in their order (portal/${file})", (written.keySet() as List) == (documented.keySet() as List), written.keySet())
+    check("Chapter 14: OneView writes the services of layout (${layout}) in their order (oneview/${file})", (written.keySet() as List) == (documented.keySet() as List), written.keySet())
     written.each { String name, Map cfg ->
         Map layoutService = documented[name] as Map
         if (!layoutService?.database) return
         List keys = ['appId', 'buildTool', 'sourceDir', 'javaPath', 'buildToolAutoSetup', 'asoc', 'database']
         Map expected = copyOf(layoutService).subMap(keys)
         ['snapshotRepository', 'releaseRepository'].each { expected.database.package.remove(it) }
-        check("Chapter 14: the DevSecOps portal writes the database settings of ${name} of layout (${layout}), without the Nexus repositories of the Global Settings",
+        check("Chapter 14: OneView writes the database settings of ${name} of layout (${layout}), without the Nexus repositories of the Global Settings",
                 cfg.subMap(keys) == expected, keys.findAll { cfg[it] != expected[it] })
         List problems = ['full', 'security'].collectMany { String variant ->
             harness.run { harness.type('com.bbh.utils.DatabaseSettings').problems(name, merged(globalDefaults, cfg), globalDefaults, variant) } as List
         }
-        check("Chapter 14: the settings that the DevSecOps portal writes for ${name} of layout (${layout}) pass the settings check of the full and security pipelines", !problems, problems)
+        check("Chapter 14: the settings that OneView writes for ${name} of layout (${layout}) pass the settings check of the full and security pipelines", !problems, problems)
     }
 }
 Map detectedKeys = [buildTool: 'sql', buildToolAutoSetup: true, database: [searchPath: 'db']]
@@ -917,7 +917,7 @@ List<String> settingKeys = ['buildTool', 'sourceDir', 'javaPath', 'buildToolAuto
         ['tools.liquibase.home', 'tools.liquibase.url', 'tools.liquibase.sha256', 'tools.liquibase.javaVersion', 'tools.oracleJdbc.path', 'tools.oracleJdbc.url',
          'tools.oracleJdbc.sha256', 'tools.utplsql.home', 'tools.utplsql.url', 'tools.utplsql.sha256', 'database.allowedTargets', 'database.package.snapshotRepository.id',
          'database.package.snapshotRepository.url', 'database.package.releaseRepository.id', 'database.package.releaseRepository.url'].collect { "defaults.${it}".toString() } +
-        (layoutProjects.values() + ['database-product-config.yaml', 'database-gradle-product-config.yaml', 'database-maven-product-config.yaml'].collect { projectsOf(new File(fixtures, "portal/${it}")) })
+        (layoutProjects.values() + ['database-product-config.yaml', 'database-gradle-product-config.yaml', 'database-maven-product-config.yaml'].collect { projectsOf(new File(fixtures, "oneview/${it}")) })
                 .collectMany { Map projects -> projects.values().findAll { (it as Map).database }.collectMany { flatKeys((it as Map).database as Map, 'database.') } }.unique()
 List<String> undocumented = settingKeys.findAll { String key ->
     !chapter.contains("{{${key}}}") && !chapter.contains("{{${key.replaceFirst(/^database\.(test|rd|qc)\./, 'database.<target>.')}}}")

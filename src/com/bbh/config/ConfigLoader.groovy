@@ -1,5 +1,6 @@
 package com.bbh.config
 
+import com.bbh.core.OneViewSettings
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
 import com.bbh.utils.DatabaseSettings
@@ -10,7 +11,7 @@ class ConfigLoader implements Serializable {
 
     private final def                    script
     private final PipelineState          state
-    private final PortalConfigReader     reader
+    private final OneViewConfigReader    reader
     private final RepositoryConfigReader repositoryReader
     private final RepoStackAutoResolver  autoResolver
     private String                       variant = ''
@@ -19,7 +20,7 @@ class ConfigLoader implements Serializable {
     ConfigLoader(def script, PipelineState state) {
         this.script           = script
         this.state            = state
-        this.reader           = new PortalConfigReader(script)
+        this.reader           = new OneViewConfigReader(script, new OneViewSettings(script, state))
         this.repositoryReader = new RepositoryConfigReader(script)
         this.autoResolver     = new RepoStackAutoResolver(script)
     }
@@ -28,7 +29,8 @@ class ConfigLoader implements Serializable {
         this.variant = variant
         repository = [:]
         state.configFile = ''
-        state.portalDocuments = []
+        state.oneViewDocuments = []
+        state.oneViewKeys = []
         state.platform = [:]
         Map entryPoints = [full: 'devSecOpsPipeline', security: 'devSecOpsSecurityPipeline', extended: 'devSecOpsExtendedPipeline',
                            sast: 'devSecOpsSASTScanningPipeline', nexusiq: 'devSecOpsNexusIqGoldenFixPipeline']
@@ -38,15 +40,15 @@ class ConfigLoader implements Serializable {
             return loadRepository(jenkinsfile, (entryPoints[variant] ?: 'devSecOpsPipeline') as String)
         }
         if (!keys) {
-            script.error "[PORTAL] No pipeline key: the DevSecOps portal issues one per service on the product page. " +
-                    "Write ${entryPoints[variant] ?: 'devSecOpsPipeline'}(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
-                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile"
+            script.error "[ONEVIEW] No pipeline key: OneView issues one per service on the product page. " +
+                    "Write ${entryPoints[variant] ?: 'devSecOpsPipeline'}(pipelineKey: '<key from OneView>') in the Jenkinsfile, " +
+                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from OneView>']) in a custom Jenkinsfile"
         }
         List ignored = []
         for (String name : ['projectNames', 'agentNames', 'securityPipeline']) {
             if (jenkinsfile.containsKey(name)) ignored << name
         }
-        if (ignored) script.echo "[PORTAL] The Jenkinsfile sets ${ignored.join(', ')}; the values from the DevSecOps portal are used instead"
+        if (ignored) script.echo "[ONEVIEW] The Jenkinsfile sets ${ignored.join(', ')}; the values from OneView are used instead"
 
         List<Map> documents = reader.read(keys)
         Map first    = documents[0]
@@ -56,18 +58,19 @@ class ConfigLoader implements Serializable {
             Map config = document.config as Map
             Map own    = (config.pipeline ?: [:]) as Map
             if (own.type != variant) {
-                script.error "[PORTAL] Key ${document.hint} configures a ${own.type} pipeline, ${entryPoints[variant] ?: variant} runs the ${variant} pipeline: use the key of the ${variant} pipeline of the service"
+                script.error "[ONEVIEW] Key ${document.hint} configures a ${own.type} pipeline, ${entryPoints[variant] ?: variant} runs the ${variant} pipeline: use the key of the ${variant} pipeline of the service"
             }
             if (own.product != pipeline.product) {
-                script.error "[PORTAL] Key ${document.hint} belongs to product ${own.product}, key ${first.hint} to product ${pipeline.product}: the keys of one run must belong to one product"
+                script.error "[ONEVIEW] Key ${document.hint} belongs to product ${own.product}, key ${first.hint} to product ${pipeline.product}: the keys of one run must belong to one product"
             }
             List names = ((config.projects ?: [:]) as Map).keySet().toList()
             for (def name : names) {
-                if (services.containsKey(name)) script.error "[PORTAL] Keys ${services[name]} and ${document.hint} both configure service ${name}: give each service once"
+                if (services.containsKey(name)) script.error "[ONEVIEW] Keys ${services[name]} and ${document.hint} both configure service ${name}: give each service once"
                 services[name] = document.hint
             }
         }
-        state.portalDocuments = documents
+        state.oneViewDocuments = documents
+        state.oneViewKeys = reader.normalised(keys)
         state.platform = (((first.config as Map).platform) ?: [:]) as Map
         script.env.PROJECT_NAMES = services.keySet().join(',')
         if (pipeline.securityPipeline) script.env.Security_Pipeline = pipeline.securityPipeline as String
@@ -81,9 +84,9 @@ class ConfigLoader implements Serializable {
     private Map loadRepository(Map jenkinsfile, String call) {
         if (!jenkinsfile.agentNames) {
             String security = variant == 'extended' ? ", securityPipeline: '<security job>'" : ''
-            script.error "[PORTAL] No pipeline key and no agentNames: the DevSecOps portal issues one key per service on the product page. " +
-                    "Write ${call}(pipelineKey: '<key from the DevSecOps portal>') in the Jenkinsfile, " +
-                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from the DevSecOps portal>']) in a custom Jenkinsfile. " +
+            script.error "[ONEVIEW] No pipeline key and no agentNames: OneView issues one key per service on the product page. " +
+                    "Write ${call}(pipelineKey: '<key from OneView>') in the Jenkinsfile, " +
+                    "or call devSecOpsApi.configure('${variant}', [pipelineKey: '<key from OneView>']) in a custom Jenkinsfile. " +
                     "Without a key, write ${call}(projectNames: '<services of this repository>', agentNames: ['<agent label>']${security}) " +
                     "and commit ${repositoryReader.names()} at the root of the repository"
         }
@@ -108,17 +111,17 @@ class ConfigLoader implements Serializable {
     }
 
     void initialize() {
-        if (!state.portalDocuments && !state.configFile) {
-            if (keyRequired()) script.error "[INIT] No configuration from the DevSecOps portal is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize()"
+        if (!state.oneViewDocuments && !state.configFile) {
+            if (keyRequired()) script.error "[INIT] No configuration from OneView is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from OneView>']) before devSecOpsApi.initialize()"
             state.configFile = repositoryReader.names()
         }
         readCommitMetadata()
 
-        Map primary = state.configFile ? repositoryConfig() : (state.portalDocuments[0] as Map).config as Map
+        Map primary = state.configFile ? repositoryConfig() : (state.oneViewDocuments[0] as Map).config as Map
         state.cfgDefaults = (primary.defaults ?: [:]) as Map
         state.libraryDefaults = state.configFile ? state.cfgDefaults : repositoryReader.libraryOnlyDefaults()
         if (!state.cfgDefaults && !state.configFile) {
-            script.error "[INIT] The DevSecOps portal sent no global defaults for key ${(state.portalDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in the portal"
+            script.error "[INIT] OneView sent no global defaults for key ${(state.oneViewDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in OneView"
         }
         Map projects = loadedProjects()
         if (state.configFile) checkRequestedNames(projects)
@@ -260,7 +263,7 @@ class ConfigLoader implements Serializable {
     private void overlayRunState(Map projects, String job) {
         String file = BuildUtils.runStateFile()
         if (!script.fileExists(file)) {
-            script.error "[INIT] The last successful build of ${job} has no ${file}: it predates the DevSecOps portal integration; run ${job} once"
+            script.error "[INIT] The last successful build of ${job} has no ${file}: it predates the OneView integration; run ${job} once"
         }
         def copied = script.readYaml(file: file)
         String problem = overlay(projects, ((copied instanceof Map ? copied.projects : null) ?: [:]) as Map, job)
@@ -315,7 +318,7 @@ class ConfigLoader implements Serializable {
     private Map loadedProjects() {
         Map projects = [:]
         projects.putAll((repository.projects ?: [:]) as Map)
-        for (def document : state.portalDocuments) {
+        for (def document : state.oneViewDocuments) {
             projects.putAll((((document as Map).config as Map).projects ?: [:]) as Map)
         }
         return projects
@@ -451,7 +454,7 @@ class ConfigLoader implements Serializable {
     }
 
     private void logPolicy() {
-        script.echo(state.configFile ? "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:" : '[POLICY] Global settings from the DevSecOps portal, projects cannot change them:')
+        script.echo(state.configFile ? "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:" : '[POLICY] Global settings from OneView, projects cannot change them:')
         ['sast', 'sca', 'niq', 'dast'].each { key ->
             def limit = state.policyLimits[key] ?: [:]
             script.echo "[POLICY]   ${key.toUpperCase()}: critical<=${limit.maxCritical} high<=${limit.maxHigh} medium<=${limit.maxMedium}"

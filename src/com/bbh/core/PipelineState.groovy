@@ -10,7 +10,9 @@ class PipelineState implements Serializable {
     String commitSha        = ''
     String commitAuthor     = ''
     String currentProjectName = 'unknown'
-    List portalDocuments    = []
+    List oneViewDocuments   = []
+    List oneViewKeys        = []
+    List oneViewNotices     = []
     Map  platform           = [:]
     String configFile       = ''
     String buildTag         = ''
@@ -78,7 +80,9 @@ class PipelineState implements Serializable {
         branch.commitSha = commitSha
         branch.commitAuthor = commitAuthor
         branch.currentProjectName = currentProjectName
-        branch.portalDocuments = portalDocuments
+        branch.oneViewDocuments = oneViewDocuments
+        branch.oneViewKeys = oneViewKeys
+        branch.oneViewNotices = oneViewNotices
         branch.platform = platform
         branch.configFile = configFile
         branch.buildTag = buildTag
@@ -123,7 +127,8 @@ class PipelineState implements Serializable {
     void absorb(PipelineState branch) {
         if (branch.cfgDefaults != cfgDefaults) cfgDefaults = branch.cfgDefaults
         if (branch.libraryDefaults != libraryDefaults) libraryDefaults = branch.libraryDefaults
-        if (branch.portalDocuments != portalDocuments) portalDocuments = branch.portalDocuments
+        if (branch.oneViewDocuments != oneViewDocuments) oneViewDocuments = branch.oneViewDocuments
+        if (branch.oneViewKeys != oneViewKeys) oneViewKeys = branch.oneViewKeys
         if (branch.commitTime != commitTime) commitTime = branch.commitTime
         if (branch.commitSha != commitSha) commitSha = branch.commitSha
         if (branch.commitAuthor != commitAuthor) commitAuthor = branch.commitAuthor
@@ -167,7 +172,7 @@ class PipelineState implements Serializable {
 
     @NonCPS
     String settingsPlace() {
-        return configFile ?: 'the DevSecOps portal'
+        return configFile ?: 'OneView'
     }
 
     @NonCPS

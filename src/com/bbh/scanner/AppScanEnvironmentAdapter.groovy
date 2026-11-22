@@ -17,7 +17,7 @@ class AppScanEnvironmentAdapter implements Serializable {
 
     void fetchProxyPassword() {
         String oisHost = (state.platform?.oisHost ?: 'oisapi.bbh.com') as String
-        if (!(oisHost ==~ /[A-Za-z0-9.-]+/)) script.error "[APPSCAN] platform.oisHost '${oisHost}' of the DevSecOps portal is not a host name"
+        if (!(oisHost ==~ /[A-Za-z0-9.-]+/)) script.error "[APPSCAN] platform.oisHost '${oisHost}' of OneView is not a host name"
         if (os.isWindows()) {
             script.powershell('''
                 $ErrorActionPreference = "Stop"

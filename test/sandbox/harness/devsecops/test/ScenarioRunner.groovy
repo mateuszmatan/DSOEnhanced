@@ -48,7 +48,7 @@ class ScenarioRunner {
         Map upstreamJob = spec.var == 'devSecOpsExtendedPipeline' ? [securityPipeline: securityJob] : [:]
         Map jenkinsfile = spec.keyless ?
                 [agentNames: ['linux-agent', 'windows-agent']] + (spec.autoDetect ? [:] : [projectNames: (projects.projects as Map).keySet().join(',')]) + upstreamJob :
-                [pipelineKeys: PortalFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map, upstreamJob)]
+                [pipelineKeys: OneViewFixtures.publishAll(j, variants[spec.var] as String, defaults.defaults as Map, platform, projects.projects as Map, upstreamJob)]
         j.resources['com/bbh/devsecops/defaults.yaml'] = yaml.dump(defaults)
         Map<String, Map> data = dataFor(spec.fail as boolean) as Map<String, Map>
 
@@ -59,7 +59,7 @@ class ScenarioRunner {
                 BUILD_ID    : String.valueOf(spec.buildNumber),
                 GIT_BRANCH  : 'origin/develop',
                 PATH        : '/usr/bin'
-        ] + (spec.keyless ? [:] : [DSO_PORTAL_URL: PortalFixtures.PORTAL_URL]))
+        ] + (spec.keyless ? [:] : [ONEVIEW_URL: OneViewFixtures.ONEVIEW_URL]))
         j.env.vars.putAll((spec.env ?: [:]) as Map)
         j.params.putAll((spec.params ?: [:]) as Map)
         j.missingCredentials.addAll((spec.missingCredentials ?: []) as List)
@@ -84,7 +84,12 @@ class ScenarioRunner {
 
         Closure project = { -> (j.env.CURRENT_PROJECT_NAME ?: 'gui') as String }
         Closure relative = { String path -> path.startsWith('/ws/') ? path.substring(4) : path }
+        List<Map> reportPosts = []
         j.shHandler = { Map a ->
+            if (String.valueOf(a.script ?: '').contains('/api/dso/reports')) {
+                Map posted = new groovy.json.JsonSlurperClassic().parseText(j.files[j.env.vars.get('ONEVIEW_FILE')] ?: '{}') as Map
+                reportPosts << [address: j.env.vars.get('ONEVIEW_URL'), key: posted.pipelineKey, html: posted.reportHtml]
+            }
             List answer = spec.respond ? (spec.respond as Closure).call(j, a) as List : null
             if (answer != null) return answer[0]
             String text = String.valueOf(a.script ?: '')
@@ -177,7 +182,7 @@ class ScenarioRunner {
             crash = SandboxHarness.rejectionOf(t) ?: t.toString()
         }
         return [j: j, var: pipelineVar, openshift: openshift, crash: crash, html: (j.files['report/pipeline-report.html'] ?: '') as String,
-                goldenFixCalls: goldenFixCalls, sastQueued: sastQueued, evaluatedAt: evaluatedAt, evaluations: evaluations]
+                goldenFixCalls: goldenFixCalls, sastQueued: sastQueued, evaluatedAt: evaluatedAt, evaluations: evaluations, reportPosts: reportPosts]
     }
 
     static String influxOf(FakeScript j) {
@@ -209,7 +214,7 @@ class ScenarioRunner {
                 rule('the Manual Actions vs DevSecOps table at the bottom of the report is newer than every golden and is checked on its own',
                         /\n<section id='manual-vs-automated'.*?<\/section>/, ''),
                 rule('durations in the report are measured on the wall clock', /(>|&nbsp;)(-|\d+s|\d+m(?: \d+s)?)</, '$1<d><'),
-                rule('the portal documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
+                rule('the OneView documents are stamped with the UTC time they were read', /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, '<time>'),
                 rule('the coverage scan script is pinned by test/coverage/scan-scenarios.sh, so a golden names it only',
                         /(?ms)(^sh \[Coverage: find and read the reports\] [^\n]*\npython3 -I - [^\n]*<<'PYEOF'\n).*?^PYEOF$/, '$1<scan script>\nPYEOF'),
                 rule('the auto-resolve logs what it filled in for each service (autoresolveParameters)', /(?m)^\[AUTO\] .*\n/, ''),

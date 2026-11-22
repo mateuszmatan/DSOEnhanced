@@ -10,6 +10,10 @@ class FakeAbort extends RuntimeException {
     FakeAbort(String message) { super(message) }
 }
 
+class FakeFlowInterruptedException extends RuntimeException {
+    FakeFlowInterruptedException(String message) { super(message) }
+}
+
 class FakeEnv extends GroovyObjectSupport implements Serializable {
     Map<String, String> vars = [:]
 
@@ -130,8 +134,9 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     Map<String, Map<String, String>> upstream = [:]
     boolean unix = true
     boolean jsonLib = true
-    Map<String, Map> portal = [:]
-    Map portalAnswer = null
+    Map<String, Map> oneView = [:]
+    Map oneViewAnswer = null
+    Map<String, String> nodeEnv = [:]
     boolean deepGlob = false
     String cwd = ''
     Closure shHandler = { Map args -> '' }
@@ -174,21 +179,21 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     private Object shell(String kind, Object arg) {
         Map args = arg instanceof Map ? (Map) arg : [script: String.valueOf(arg)]
         calls << "${kind}${args.label ? ' [' + args.label + ']' : ''} ${args.script}".toString()
-        if (String.valueOf(args.script).contains('/api/dso/config/')) return answerPortal()
+        if (String.valueOf(args.script).contains('/api/dso/config/')) return answerOneView()
         return shHandler.call(args)
     }
-    private Object answerPortal() {
-        String dir = env.vars.get('DSO_PORTAL_DIR')
-        List<String> keys = (env.vars.get('DSO_PORTAL_KEYS') ?: '').tokenize(' ')
+    private Object answerOneView() {
+        String dir = env.vars.get('ONEVIEW_DIR')
+        List<String> keys = (env.vars.get('ONEVIEW_KEYS') ?: '').tokenize(' ')
         keys.eachWithIndex { String key, int i ->
-            Map answer = portalAnswer ?: portalAnswerOf(key, portal.get(key))
+            Map answer = oneViewAnswer ?: oneViewAnswerOf(key, oneView.get(key))
             files.put(norm("${dir}/status-${i}"), "${answer.status} ${answer.sha256 ?: ''}\n".toString())
             files.put(norm("${dir}/body-${i}"), (answer.body ?: '') as String)
             files.put(norm("${dir}/error-${i}"), (answer.error ?: '') as String)
         }
         return null
     }
-    static Map portalAnswerOf(String key, Map entry) {
+    static Map oneViewAnswerOf(String key, Map entry) {
         if (entry == null) return [status: '404', body: problem(key, 404, 'Not found', 'Unknown DevSecOps pipeline key')]
         if (entry.keyStatus != 'ACTIVE') {
             return [status: '403', body: problem(key, 403, 'Pipeline key invalidated',
@@ -337,7 +342,9 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     def onAgent(Object label, Closure body) {
         Map<String, String> saved = [NODE_NAME: env.vars.get('NODE_NAME'), WORKSPACE: env.vars.get('WORKSPACE'), WORKSPACE_TMP: env.vars.get('WORKSPACE_TMP')]
+        nodeEnv.each { k, v -> saved.put(k, env.vars.get(k)) }
         env.vars.putAll([NODE_NAME: String.valueOf(label), WORKSPACE: '/ws', WORKSPACE_TMP: '/ws@tmp'])
+        nodeEnv.each { k, v -> if (v == null) env.vars.remove(k) else env.vars.put(k, v) }
         String savedAgentWorkspace = agentWorkspace
         agentWorkspace = '/ws'
         try {

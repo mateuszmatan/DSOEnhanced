@@ -387,7 +387,7 @@ class ReportViewModel implements Serializable {
         String status = (gf?.get('status') ?: '') as String
         int available = ((gf?.get('fixes') ?: []) as List).size()
         if (status == 'NOT_CONFIGURED') {
-            String who = settingsPlace ? "Someone who can change ${settingsPlace} in the repository" : 'Someone with access to the DevSecOps portal'
+            String who = settingsPlace ? "Someone who can change ${settingsPlace} in the repository" : 'Someone with access to OneView'
             return [headline   : 'No upgrade request was opened - the repository address is missing.',
                     explanation: "The pipeline prepared ${available} dependency upgrade(s) but does not know where this project's " +
                             "Bitbucket repository is, so it had nowhere to propose them. ${who} has to fill in " +

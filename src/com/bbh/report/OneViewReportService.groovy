@@ -1,24 +1,30 @@
 package com.bbh.report
 
+import com.bbh.core.OneViewSettings
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.cloudbees.groovy.cps.NonCPS
 
-class PortalReportService implements Serializable {
+class OneViewReportService implements Serializable {
     private final def script
     private final PipelineState state
     private final OsHelper os
+    private final OneViewSettings settings
 
-    PortalReportService(def script, PipelineState state, OsHelper os) {
+    OneViewReportService(def script, PipelineState state, OsHelper os) {
         this.script = script
         this.state = state
         this.os = os
+        this.settings = new OneViewSettings(script, state)
     }
 
     void send(String pipelineType = '') {
-        String portalUrl = resolvePortalUrl()
-        String pipelineKey = resolvePipelineKey()
-        if (!portalUrl || !pipelineKey) return
+        List<Map> keys = settings.reportKeys()
+        if (!keys) return
+        Map target = settings.reportTarget()
+        String address = (target.address ?: '') as String
+        if (!address) return
+        String shown = target.strict ? "${address}/api/dso/reports".toString() : "the address in ${target.name} (path /api/dso/reports)".toString()
 
         String reportPath = 'report/pipeline-report.html'
         String reportHtml = ''
@@ -26,57 +32,44 @@ class PortalReportService implements Serializable {
             try {
                 reportHtml = script.readFile(file: reportPath)
             } catch (Throwable t) {
-                script.echo "[PORTAL] Could not read ${reportPath}: ${t.message}"
+                script.echo "[ONEVIEW] Could not read ${reportPath}: ${t.message}"
             }
         }
         if (!reportHtml) {
             reportHtml = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Pipeline Report</title></head><body style='font-family:sans-serif;padding:24px'><h2>Pipeline Report</h2><p>Report file was empty or missing.</p></body></html>"
         }
 
-        Map payload = buildPayload(reportHtml)
-        long stamp = System.currentTimeMillis()
-        String tmpFile = "portal_report_${stamp}.json"
-        String responseFile = "portal_response_${stamp}.json"
-        script.writeJSON(file: tmpFile, json: payload)
-        script.echo "[PORTAL] Uploading pipeline report to ${portalUrl}/api/dso/reports for job ${payload.job} build ${payload.build}"
-        try {
-            List vars = ["PORTAL_URL=${portalUrl}", "PORTAL_FILE=${tmpFile}", "PORTAL_RESPONSE=${responseFile}"]
-            sendPayload(vars)
-        } catch (Throwable e) {
-            script.echo "[PORTAL] Failed to upload pipeline report to portal: ${e.message}"
-        } finally {
-            cleanup(tmpFile, responseFile)
+        for (Map entry : keys) {
+            if (!upload(entry, target, shown, reportHtml)) break
         }
     }
 
-    @NonCPS
-    private String resolvePortalUrl() {
-        def url = script.env.DSO_PORTAL_URL ?: script.env.PORTAL_URL
-        if (url) return ((url as String).trim().replaceAll('/+$', ''))
-        Map cfg = primaryCfg()
-        def configured = cfg?.portal?.url ?: state.cfgDefaults?.portal?.url
-        if (configured) return ((configured as String).trim().replaceAll('/+$', ''))
-        return ''
+    private boolean upload(Map entry, Map target, String shown, String reportHtml) {
+        String address = target.address as String
+        String keyHint = (entry.hint ?: '') as String
+        long stamp = System.currentTimeMillis()
+        String tmpFile = "oneview_report_${stamp}.json"
+        String responseFile = "oneview_response_${stamp}.json"
+        boolean goOn = true
+        try {
+            Map payload = buildPayload(reportHtml, entry.key as String)
+            script.writeJSON(file: tmpFile, json: payload)
+            script.echo "[ONEVIEW] Uploading pipeline report to ${shown} for job ${payload.job} build ${payload.build}${keyHint ? ' with pipeline key ' + keyHint : ''}"
+            List vars = ["ONEVIEW_URL=${address}", "ONEVIEW_FILE=${tmpFile}", "ONEVIEW_RESPONSE=${responseFile}"]
+            sendPayload(vars)
+        } catch (Throwable e) {
+            goOn = !e.getClass().getName().endsWith('FlowInterruptedException')
+            String reason = (e.message ?: e.getClass().getName()) as String
+            if (!target.strict) reason = reason.replace(address, "the address in ${target.name}".toString())
+            script.echo "[ONEVIEW] Failed to upload pipeline report to OneView${keyHint ? ' for pipeline key ' + keyHint : ''}: ${reason}"
+        } finally {
+            cleanup(tmpFile, responseFile)
+        }
+        return goOn
     }
 
     @NonCPS
-    private String resolvePipelineKey() {
-        def key = script.env.DSO_PIPELINE_KEY ?: script.env.PIPELINE_KEY
-        if (key) return (key as String).trim()
-        Map cfg = primaryCfg()
-        def configured = cfg?.portal?.pipelineKey ?: state.cfgDefaults?.portal?.pipelineKey
-        if (configured) return (configured as String).trim()
-        return ''
-    }
-
-    @NonCPS
-    private Map primaryCfg() {
-        Map all = (state.projectsAllCfg ?: [:]) as Map
-        return (all ? all.values().iterator().next() : state.cfg) as Map
-    }
-
-    @NonCPS
-    private Map buildPayload(String reportHtml) {
+    private Map buildPayload(String reportHtml, String pipelineKey) {
         String result = (script.currentBuild.result ?: (script.currentBuild.currentResult ?: 'SUCCESS')) as String
         Map tally = [passed: 0, warned: 0, failed: 0, blocked: 0, skipped: 0, notRequired: 0]
         for (def entry : (state.stageResults ?: [:]).entrySet()) {
@@ -97,7 +90,7 @@ class PortalReportService implements Serializable {
         }
 
         return [
-                pipelineKey    : resolvePipelineKey(),
+                pipelineKey    : pipelineKey,
                 job            : (script.env.JOB_NAME ?: '') as String,
                 build          : buildNumber,
                 result         : result,
@@ -131,19 +124,20 @@ class PortalReportService implements Serializable {
     private void sendPayload(List vars) {
         script.withEnv(vars) {
             if (os.isWindows()) {
-                script.powershell '''$code = curl.exe -sS -k -o "$env:PORTAL_RESPONSE" -w '%{http_code}' -X POST "$env:PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$env:PORTAL_FILE"
+                script.powershell '''$code = curl.exe -sS -k --connect-timeout 10 --max-time 60 -o "$env:ONEVIEW_RESPONSE" -w '%{http_code}' -X POST "$env:ONEVIEW_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$env:ONEVIEW_FILE"
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
-Write-Host "[PORTAL] HTTP $code $(Get-Content -Raw $env:PORTAL_RESPONSE -ErrorAction SilentlyContinue)"
+$answer = (Get-Content -Raw $env:ONEVIEW_RESPONSE -ErrorAction SilentlyContinue) -replace '"pipelineKey" *: *"[^"]*"', '"pipelineKey":"(not shown)"'
+Write-Host "[ONEVIEW] HTTP $code $answer"
 if ([int]$code -ge 300) { exit 1 }
 '''
             } else {
                 script.sh '''set +x
-code=$(curl -sS -k -o "$PORTAL_RESPONSE" -w '%{http_code}' -X POST "$PORTAL_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$PORTAL_FILE")
+code=$(curl -sS -k --connect-timeout 10 --max-time 60 -o "$ONEVIEW_RESPONSE" -w '%{http_code}' -X POST "$ONEVIEW_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$ONEVIEW_FILE")
 rc=$?
 if [ $rc -ne 0 ]; then
   exit $rc
 fi
-echo "[PORTAL] HTTP $code $(cat "$PORTAL_RESPONSE" 2>/dev/null)"
+echo "[ONEVIEW] HTTP $code $(sed 's/"pipelineKey" *: *"[^"]*"/"pipelineKey":"(not shown)"/g' "$ONEVIEW_RESPONSE" 2>/dev/null)"
 if [ "$code" -ge 300 ]; then
   exit 1
 fi

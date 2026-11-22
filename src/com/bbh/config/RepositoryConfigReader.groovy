@@ -24,8 +24,8 @@ class RepositoryConfigReader implements Serializable {
         }
         if (!found) {
             script.error "[INIT] No pipeline key in the Jenkinsfile, and neither ${candidates.join(' nor ')} is at the root of the repository: " +
-                    "commit ${candidates[0]}, which the product page of the DevSecOps portal downloads, or give the Jenkinsfile the pipeline key of the service " +
-                    "(a custom Jenkinsfile calls devSecOpsApi.configure('${variant ?: '<variant>'}', [pipelineKey: '<key from the DevSecOps portal>']) before devSecOpsApi.initialize())"
+                    "commit ${candidates[0]}, which the product page of OneView downloads, or give the Jenkinsfile the pipeline key of the service " +
+                    "(a custom Jenkinsfile calls devSecOpsApi.configure('${variant ?: '<variant>'}', [pipelineKey: '<key from OneView>']) before devSecOpsApi.initialize())"
         }
         String file = found[0]
         script.echo "[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/${BuildUtils.defaultsResource()})"

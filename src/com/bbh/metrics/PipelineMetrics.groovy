@@ -279,7 +279,7 @@ class PipelineMetrics implements Serializable {
         List<String> out = []
         String artifactBase = context.buildUrl ? "${context.buildUrl}artifact/".toString() : ''
         Map documents = [:]
-        for (def item : (state.portalDocuments ?: [])) {
+        for (def item : (state.oneViewDocuments ?: [])) {
             Map document = (item ?: [:]) as Map
             for (def name : ((((document.config ?: [:]) as Map).projects ?: [:]) as Map).keySet()) documents[name] = document
         }

@@ -5,7 +5,7 @@ import devsecops.test.FakeRemoteHandle
 import devsecops.test.FakeRun
 import devsecops.test.FakeScript
 import devsecops.test.GoldenFixResponder
-import devsecops.test.PortalFixtures
+import devsecops.test.OneViewFixtures
 import devsecops.test.SandboxHarness
 import org.yaml.snakeyaml.Yaml
 
@@ -43,7 +43,7 @@ Closure check = { String name, boolean ok, Object detail ->
 
 String defaultsText = new File(root, 'test/fixtures/defaults.yaml').text
 String configText = new File(root, 'test/fixtures/CertScanner/config.yaml').text
-Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/portal/certscanner-gui-full.json').text) as Map).platform as Map
+Map platform = (new groovy.json.JsonSlurperClassic().parseText(new File(root, 'test/fixtures/oneview/certscanner-gui-full.json').text) as Map).platform as Map
 
 List<String> classNames = []
 srcDir.eachFileRecurse { File f ->
@@ -384,7 +384,7 @@ List metricLines = metricsHarness.run {
     st.commitTime = System.currentTimeMillis() - 7200000L
     st.commitSha = 'ab12cd34ef567890'
     st.projectsAllCfg = [gui: [deploy: [openshift: [rd: [buildTag: '212-20261006-081500']]]], 'backend-api': [:]]
-    st.portalDocuments = [[hint: '5e0f0001...0001', renderedAt: '2026-10-06T08:14:19.475Z', sha256: '0f1e2d3c4b5a6901', config: [projects: [gui: [:]]]]]
+    st.oneViewDocuments = [[hint: '5e0f0001...0001', renderedAt: '2026-10-06T08:14:19.475Z', sha256: '0f1e2d3c4b5a6901', config: [projects: [gui: [:]]]]]
     st.projectsUnitTests = [gui: [total: 214, failed: 2, skipped: 3, durationMs: 42000L]]
     st.projectsSonarResults = [gui: [status: 'PASS', qualityGate: 'OK', url: 'https://tools.bbh.com/sonar/dashboard?id=cert-scanner-gui']]
     st.projectsNexusIqResults = [gui: [url: 'https://tools.bbh.com/IQ/ui/links/application/cert-scanner-gui/report/0f1e2d3c']]
@@ -422,7 +422,7 @@ boolean wellFormed = metricLines.every { String l ->
     List sections = l.split(' ') as List
     sections.size() >= 3 && (sections[-1] ==~ /\d+/) && l.contains('=')
 }
-check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate, remediation and the change evidence (build_evidence, added for the portal Change Evidence tab)',
+check('InfluxDB: the whole pipeline is covered - run, DORA, stages, findings, coverage, tests, gate, remediation and the change evidence (build_evidence, added for the Change Evidence tab of OneView)',
         measurements == ['build_duration', 'build_evidence', 'change_failure', 'code_coverage', 'deployments', 'dora', 'goldenfix',
                          'pipeline_run', 'policy_status', 'release_gate', 'security_findings', 'stage_event',
                          'stage_metric', 'test_execution', 'test_job', 'vulnerabilities'],
@@ -449,7 +449,7 @@ check('InfluxDB: the unit test counts of a module are a test_execution point wit
 List<String> evidenceLines = metricLines.findAll { (it as String).startsWith('build_evidence,') } as List<String>
 String guiEvidence = evidenceLines.find { it.contains('module=gui ') }
 String apiEvidence = evidenceLines.find { it.contains('module=backend-api ') }
-check('InfluxDB: build_evidence records the artifact version, the quality gate, the report links and the portal document of each module',
+check('InfluxDB: build_evidence records the artifact version, the quality gate, the report links and the OneView document of each module',
         evidenceLines.size() == 2 && guiEvidence && guiEvidence.contains('artifact_version="212-20261006-081500"')
                 && guiEvidence.contains('sonar_quality_gate="OK"')
                 && guiEvidence.contains('sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner/212/artifact/appscan-report-gui.html"')
@@ -1749,11 +1749,11 @@ Closure runScenario = { Map spec ->
             PATH                    : '/usr/bin',
             GIT_BRANCH              : 'origin/develop',
             APPSCAN_SERVER_URL      : 'https://bbh.cloud.appscan.com',
-            DSO_PORTAL_URL          : PortalFixtures.PORTAL_URL
+            ONEVIEW_URL             : OneViewFixtures.ONEVIEW_URL
     ])
     script.params.DEPLOY_HIGHER_ENV = spec.deployHigherEnv ?: false
     script.resourcesDir = new File(root, 'resources')
-    List<String> keys = PortalFixtures.publishAll(script, spec.variant as String, defaults.defaults as Map, platform, projects.projects as Map)
+    List<String> keys = OneViewFixtures.publishAll(script, spec.variant as String, defaults.defaults as Map, platform, projects.projects as Map)
     script.shHandler = { Map a ->
         if (!a.returnStdout && String.valueOf(a.label ?: '').startsWith('GoldenFix:')) goldenFixCalls << String.valueOf(a.label)
         if (a.returnStatus) return 0
