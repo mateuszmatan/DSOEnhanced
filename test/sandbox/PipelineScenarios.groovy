@@ -280,6 +280,16 @@ Closure verify = { Map spec ->
     check("${name}: release gate verdict written for the downstream pipeline", j.jsonFiles.containsKey('release-gate.json')
             && ((j.jsonFiles['release-gate.json'] as Map).allowed as boolean) == (spec.result == 'SUCCESS' && !spec.failedStage),
             j.jsonFiles['release-gate.json'])
+    List<String> metricLines = influxOf(j).readLines()
+    String nexusIqTotal = metricLines.find { it.startsWith('vulnerabilities,') && it.contains(',scanner=nexusiq ') }
+    if (nexusIqTotal) {
+        Closure countOf = { String line, String key -> java.util.regex.Matcher m = (line =~ /[ ,]${key}=(\d+)i/); m.find() ? (m.group(1) as int) : -1 }
+        List<String> nexusIqFindings = metricLines.findAll { it.startsWith('security_findings,') && it.contains(',scanner=niq,') }
+        Map total = ['critical', 'high', 'medium'].collectEntries { String k -> [(k): countOf(nexusIqTotal, k)] }
+        Map summed = ['critical', 'high', 'medium'].collectEntries { String k -> [(k): nexusIqFindings.sum(0) { String line -> countOf(line, k) }] }
+        check("${name}: the security_findings points of Nexus IQ add up to the vulnerabilities point of Nexus IQ", total == summed,
+                "vulnerabilities ${total}, security_findings ${summed}")
+    }
     if (spec.executed.contains(UNIT)) {
         check("${name}: each service reads its coverage reports with one scan and the report lists them",
                 j.calls.count { it.startsWith('sh [Coverage: find and read the reports] ') } == 2

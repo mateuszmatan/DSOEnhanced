@@ -264,6 +264,46 @@ check('PipelineState.settle: each service map gets the keys of no scanner first,
                 && settled.sastFile == 'appscan-report-gui.html' && settled.note == 'not a map',
         settled.subMap(['vulns', 'high', 'scans', 'sastFile', 'note']))
 
+Map niqCounts = harness.run {
+    def state = harness.type('com.bbh.core.PipelineState').newInstance()
+    state.currentProjectName = 'gui'
+    state.nexusIqResults = [critical: 2, high: 5, medium: 9]
+    state.recordNexusIq('WARN')
+    state.recordScan('niq', 'WARN')
+    state.currentProjectName = 'orders-db'
+    state.recordScan('niq', 'NOT_REQUIRED')
+    state.currentProjectName = 'backend-api'
+    state.vulnCounts.sast = [critical: 0, high: 1, medium: 2, low: 3]
+    state.recordScan('sast', 'WARN', 'appscan-report-api.html')
+    state.recordScan('sonar', 'PASS', 'sonar-report.html')
+    Map decision = harness.type('com.bbh.core.ReleaseGate').decide(state.projectsVulnCounts, state.policyLimits, ['sast', 'sca', 'niq', 'dast'], [:], []) as Map
+    List lines = harness.type('com.bbh.metrics.PipelineMetrics').findings(state, [project: 'demo'], 1000L) as List
+    [counts: state.projectsVulnCounts, violations: decision.violations, line: lines.find { it.toString().contains('module=gui,scanner=niq,') }?.toString()]
+} as Map
+check('PipelineState.recordScan keeps the counts recordNexusIq wrote for the service, a service whose Nexus IQ is not required gets zeros, SAST copies its counts, and the release gate and the security_findings point list the Nexus IQ counts above the policy',
+        niqCounts.counts == [gui: [niq: [critical: 2, high: 5, medium: 9, low: 0]], 'orders-db': [niq: [critical: 0, high: 0, medium: 0, low: 0]],
+                             'backend-api': [sast: [critical: 0, high: 1, medium: 2, low: 3], sonar: [critical: 0, high: 0, medium: 0, low: 0]]]
+                && niqCounts.violations == ['gui Dependencies (Nexus IQ) critical 2 > 0', 'gui Dependencies (Nexus IQ) high 5 > 0', 'gui Dependencies (Nexus IQ) medium 9 > 0',
+                                            'backend-api SAST (AppScan) high 1 > 0', 'backend-api SAST (AppScan) medium 2 > 0']
+                && (niqCounts.line ?: '').contains('module=gui,scanner=niq,status=WARN critical=2i,high=5i,medium=9i,low=0i,total=16i,above_policy=16i,')
+                && (niqCounts.line ?: '').contains('exceeded=1i'),
+        niqCounts)
+
+Map gateRead = harness.run {
+    FakeScript sc = new FakeScript()
+    sc.files['release-gate.json'] = '{"allowed":false,"violations":["gui SAST (AppScan) high 3 > 0"]}'
+    def state = harness.type('com.bbh.core.PipelineState').newInstance()
+    state.stageResults[SAST] = 'WARN'
+    def gate = harness.type('com.bbh.core.ReleaseGate')
+    List first = gate.newInstance(sc, state).evaluate().violations as List
+    gate.newInstance(sc, state).publish()
+    List second = gate.newInstance(sc, state).evaluate().violations as List
+    [first: first.collect { it.toString() }, second: second.collect { it.toString() }, written: (sc.jsonFiles['release-gate.json'] as Map).violations.collect { it.toString() }]
+} as Map
+List gateExpected = ['gui SAST (AppScan) high 3 > 0 (previous pipeline)', "stage '${SAST}' is WARN".toString()]
+check('ReleaseGate reads the release-gate.json of the previous pipeline once: after the run wrote its own file, a later evaluation (InfluxDB, report) does not count the violations of the run a second time',
+        gateRead.first == gateExpected && gateRead.second == gateExpected && gateRead.written == gateExpected, gateRead)
+
 Closure removal = { boolean unix ->
     FakeScript sc = new FakeScript(unix: unix)
     sc.env.vars.putAll([WORKSPACE: '/ws'])

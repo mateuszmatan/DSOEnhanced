@@ -1372,7 +1372,7 @@ h3. Specific to this pipeline
 * *Put it on a schedule* if the dependencies should be checked independently of commits, for example {{H 3 * * *}} under *Build periodically* for a nightly run: Nexus IQ learns about new vulnerabilities in components that did not change.
 * *The report* shows the source checkout, the Node.js build when it ran, the Build artifact stage and the Nexus IQ stage, one Nexus IQ row per project in the Security Gates table with a link to the Nexus IQ report, and on a violation the *Nexus IQ GoldenFix* card with the pull request, the applied upgrades, the fixes that could not be applied automatically and the notes of the run. There is no release policy card, because this pipeline releases nothing, and no SAST, SonarQube or test rows.
 * *Release gate.* The pipeline writes {{release-gate.json}} like every pipeline and does not archive it, because no pipeline takes it over. Its verdict follows the stages: allowed when every stage is green, blocked when the Nexus IQ stage is orange, including a scan that could not be completed.
-* *Metrics.* Every run writes the measurements of [Monitoring and Metrics|#ch22] with {{variant=nexusiq}} and the project tag {{influx.project}} followed by {{nexusiq}}, for example {{MyAppnexusiq}}. The {{goldenfix}} point of a project also carries the address and the title of the pull request ({{pr_url}}, {{pr_title}}) when one was raised. The Nexus IQ counts of the run are in {{vulnerabilities}} with {{scanner=nexusiq}}; the {{security_findings}} points with {{scanner=niq}} carry the status of the stage with every count at 0, as in every pipeline, so panels built on {{security_findings}} show no Nexus IQ findings.
+* *Metrics.* Every run writes the measurements of [Monitoring and Metrics|#ch22] with {{variant=nexusiq}} and the project tag {{influx.project}} followed by {{nexusiq}}, for example {{MyAppnexusiq}}. The {{goldenfix}} point of a project also carries the address and the title of the pull request ({{pr_url}}, {{pr_title}}) when one was raised. The Nexus IQ counts of the run are in {{vulnerabilities}} with {{scanner=nexusiq}}, and the {{security_findings}} point of each service with {{scanner=niq}} carries the counts of that service against the Nexus IQ limits of the library policy, as in every pipeline.
 
 ----
 
@@ -3750,7 +3750,7 @@ No security or test finding stops the pipeline. Every stage from the unit tests 
 
 The *release gate* collects the verdict. It blocks the second Nexus delivery and the QC deployment when any stage is not green, when a scanner count exceeds the library policy, or when the line coverage of a service is below the required 60 %. The HTML report shows a *Release policy* card listing every violation, for example {{gui Dependencies (Nexus IQ) critical 1 > 0}} or {{line coverage 41.0% below the required 60%}}.
 
-Each pipeline evaluates the results it owns and hands its verdict to the next one through the archived {{release-gate.json}}, so a security pipeline with an orange stage also blocks the release in the extended pipeline.
+Each pipeline evaluates the results it owns and hands its verdict to the next one through the archived {{release-gate.json}}, so a security pipeline with an orange stage also blocks the release in the extended pipeline. A pipeline reads that file once, before it writes its own, so every violation of the previous pipeline is listed once with {{(previous pipeline)}} and the violations of the run itself are never counted twice.
 
 h3. The time of the parallel stages and of the manual steps
 
@@ -4314,12 +4314,12 @@ h3. What is written
 |{{pipeline_run}}|project, env, variant, result, branch|One row per run: outcome, duration, and how many stages passed, warned, failed, were blocked or skipped|
 |{{dora}}|project, env, variant|Deployment, lead time from the commit under test, change failure and whether a release was published|
 |{{stage_event}}|project, env, stage, status|Per stage: duration, whether it was executed, its order and the reason when it was not green. *Stamped at the end of that stage*, so the timeline is accurate|
-|{{security_findings}}|project, env, module, scanner, status|Severity counts per scanner per module, the policy limits, and how many findings are above them; for {{scanner=niq}} only the status, the Nexus IQ counts are in {{vulnerabilities}} with {{scanner=nexusiq}}|
+|{{security_findings}}|project, env, module, scanner, status|Severity counts per scanner per module, the policy limits, and how many findings are above them; for {{scanner=niq}} the Nexus IQ counts of the service, which add up to {{vulnerabilities}} with {{scanner=nexusiq}} (points written before 2026-11-23 carry 0 for {{scanner=niq}})|
 |{{policy_status}}|project, env, scanner, status|Which gates were evaluated and which held|
 |{{code_coverage}}|project, env, module, measured|Line coverage of each module, the mean of its reports, against the required minimum, and the shortfall|
 |{{coverage_report}}|project, env, module, report, tool, counted|One point per coverage report: its line coverage and whether it counts in the mean of its module|
 |{{test_execution}} / {{test_job}}|project, env, module, suite, status, type|Suite totals and success rate, and each individual job|
-|{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it|
+|{{release_gate}}|project, env, allowed|Whether the release was permitted, and how many violations blocked it, each counted once (points written before 2026-11-23 count the violations of the run twice)|
 |{{goldenfix}}|project, env, module, status|Upgrades offered, applied and left to a developer, whether a pull request was raised or updated and whether the pre-check build withheld one, and the address and title of the pull request|
 |{{test_execution}} with {{suite=unit}}|project, env, module, suite|Unit test totals of each module: total, passed, failed, skipped, success rate and duration|
 |{{database_deployment}}|project, env, module, target, status|One point per database target a Liquibase service with a database block deployed: changesets applied, tagged, the version and the Liquibase version, see [Integration Guide: SQL and PL/SQL with Liquibase|#ch14]|
@@ -4391,7 +4391,7 @@ h3. What the pipeline writes
 |{{pipeline_run}}|project, env, variant, result, branch|build, duration_s, success, unstable, stages_total, passed, warned, failed, blocked, skipped, not_required, modules, commit, job|One row per run: outcome and shape|
 |{{dora}}|project, env, variant|deployment, lead_time_s, change_failure, duration_s, released|The four DORA metrics|
 |{{stage_event}}|project, env, stage, status|duration_ms, duration_s, ok, executed, order, reason|Per stage, stamped at the end of that stage|
-|{{security_findings}}|project, env, module, scanner, status|critical, high, medium, low, total, above_policy, max_*, exceeded; every count is 0 for {{scanner=niq}}|Findings per scanner per module against policy|
+|{{security_findings}}|project, env, module, scanner, status|critical, high, medium, low, total, above_policy, max_*, exceeded; for {{scanner=niq}} the Nexus IQ counts of the service (0 in points written before 2026-11-23)|Findings per scanner per module against policy|
 |{{policy_status}}|project, env, scanner, status|ok, measured|Which gates were evaluated and which held|
 |{{code_coverage}}|project, env, module, measured|line_pct, covered, missed, total, required, met, gap|Coverage per module against the required minimum|
 |{{coverage_report}}|project, env, module, report, tool, counted|line_pct (left out for a report without lines), covered, missed, total|Coverage per report; {{counted=no}} marks a copy, an aggregate, a report without lines or one that cannot be read|

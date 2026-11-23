@@ -118,7 +118,7 @@ policy_status,project=CertScannernexusiq,env=test,scanner=coverage,status=SKIP o
 policy_status,project=CertScannernexusiq,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
 build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="63",sonar_quality_gate="NONE",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6901" <s>
 build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="63",sonar_quality_gate="NONE",config_rendered_at="<time>",config_sha256="0f1e2d3c4b5a6902" <s>
-release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=2i,reason="Nexus release and QC deployment blocked: stage 'Build artifact' is FAIL (previous pipeline) | stage 'Build artifact' is FAIL" <s>
+release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=1i,reason="Nexus release and QC deployment blocked: stage 'Build artifact' is FAIL" <s>
 == report
 <!DOCTYPE html>
 <html lang='en'>
