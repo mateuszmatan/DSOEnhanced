@@ -1,0 +1,112 @@
+String given(String name) {
+    return ((params[name] ?: '') as String).trim()
+}
+
+List toolVariables() {
+    List names = [['CI_TOOLS', 'DEVSECOPS_TOOLS'], ['CI_MAVEN_REPO', 'DEVSECOPS_MAVEN_REPO'], ['CI_JENKINS_REPO', 'DEVSECOPS_JENKINS_REPO'],
+                  ['CI_JDK_HOME', 'DEVSECOPS_JDK_HOME'], ['CI_JDK_URL', 'DEVSECOPS_JDK_URL'], ['CI_PIP_INDEX_URL', 'PIP_INDEX_URL']]
+    List out = []
+    for (int i = 0; i < names.size(); i++) {
+        String value = given(names[i][0] as String)
+        if (value) out << "${names[i][1]}=${value}".toString()
+    }
+    return out
+}
+
+Map origin() {
+    return [url: scm.userRemoteConfigs[0].url, credentialsId: scm.userRemoteConfigs[0].credentialsId]
+}
+
+Map oneViewRemote() {
+    String url = given('CI_ONEVIEW_REPOSITORY')
+    if (!url) {
+        url = (origin().url as String).replaceFirst('[^/]+$', 'itss-coe-oneview.git')
+        echo "[CI] CI_ONEVIEW_REPOSITORY is empty: ITSS COE OneView is read from ${url}"
+    }
+    return [url: url, credentialsId: origin().credentialsId]
+}
+
+String siblingBranch() {
+    String branch = given('CI_SIBLING_BRANCH')
+    if (branch) return branch
+    return fileExists('test/oneview/query-scenarios.sh') ? 'DSOEnhancedWithoutPortal' : 'main'
+}
+
+void checkoutBranch(String folder, Map remote, String branch) {
+    dir(folder) {
+        checkout([$class: 'GitSCM', branches: [[name: "refs/heads/${branch}"]], userRemoteConfigs: [remote],
+                  extensions: [[$class: 'CloneOption', shallow: true, depth: 1, noTags: true]]])
+    }
+}
+
+pipeline {
+    agent { label "${params.CI_AGENT ?: (env.DEVSECOPS_CI_AGENT ?: 'linux-agent')}" }
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+    }
+    triggers {
+        cron(['DSOEnhancedWithoutPortal', 'main'].contains(env.BRANCH_NAME) ? 'H 2 * * *' : '')
+    }
+    parameters {
+        string(name: 'CI_AGENT', defaultValue: '', description: 'Agent label; empty: DEVSECOPS_CI_AGENT, then linux-agent')
+        string(name: 'CI_TOOLS', defaultValue: '', description: 'Tool folder of the test suite (DEVSECOPS_TOOLS); empty: the default folder')
+        string(name: 'CI_MAVEN_REPO', defaultValue: '', description: 'Maven repository with the content of Maven Central (DEVSECOPS_MAVEN_REPO)')
+        string(name: 'CI_JENKINS_REPO', defaultValue: '', description: 'Maven repository with the content of repo.jenkins-ci.org/releases (DEVSECOPS_JENKINS_REPO)')
+        string(name: 'CI_JDK_HOME', defaultValue: '', description: 'A JDK 21 on the agent (DEVSECOPS_JDK_HOME)')
+        string(name: 'CI_JDK_URL', defaultValue: '', description: 'A JDK 21 .tar.gz to download (DEVSECOPS_JDK_URL)')
+        string(name: 'CI_PIP_INDEX_URL', defaultValue: '', description: 'Python package index for the markdown module (PIP_INDEX_URL)')
+        choice(name: 'CI_SHARED_FILES', choices: ['warn', 'fail', 'skip'], description: 'Shared files that differ: the build is UNSTABLE (warn), FAILURE (fail) or they are not compared (skip)')
+        string(name: 'CI_SIBLING_BRANCH', defaultValue: '', description: 'The other branch of the library; empty: detected')
+        string(name: 'CI_ONEVIEW_REPOSITORY', defaultValue: '', description: 'Clone address of ITSS COE OneView; empty: itss-coe-oneview.git next to this repository')
+    }
+    stages {
+        stage('Workspace') {
+            steps {
+                sh 'git clean -ffdx -q && mkdir -p build/ci/junit'
+            }
+        }
+        stage('Tools') {
+            steps {
+                withEnv(toolVariables()) {
+                    sh 'bash ci/prepare.sh'
+                }
+            }
+        }
+        stage('Library suite') {
+            steps {
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    withEnv(toolVariables()) {
+                        sh 'bash ci/suite.sh'
+                    }
+                }
+            }
+        }
+        stage('Shared files') {
+            when {
+                expression { (params.CI_SHARED_FILES ?: 'warn') != 'skip' }
+            }
+            steps {
+                script {
+                    String result = params.CI_SHARED_FILES == 'fail' ? 'FAILURE' : 'UNSTABLE'
+                    catchError(buildResult: result, stageResult: result) {
+                        checkoutBranch('build/ci/sources/library', origin(), siblingBranch())
+                        checkoutBranch('build/ci/sources/oneview', oneViewRemote(), 'main')
+                        sh 'bash ci/shared-files.sh build/ci/sources/library build/ci/sources/oneview'
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            junit(testResults: 'build/ci/junit/*.xml', allowEmptyResults: true)
+            archiveArtifacts(artifacts: 'build/ci/*.log, build/ci/*.diff, build/ci/junit/*.xml, examples/reports/**, test/sandbox/golden/*.actual.txt, test/sandbox/baseline/*.actual.txt',
+                             excludes: 'build/ci/sources/**', allowEmptyArchive: true)
+            publishHTML([reportDir: 'examples/reports', reportFiles: 'index.html', reportName: 'Example reports',
+                         allowMissing: true, alwaysLinkToLastBuild: true, keepAll: true])
+        }
+    }
+}

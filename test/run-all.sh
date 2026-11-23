@@ -2,40 +2,9 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TOOLS="${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}"
-JENKINS_VERSION="2.479.3"
-SCRIPT_SECURITY_VERSION="1429.v0810f1b_530f5"
-mkdir -p "$TOOLS"
+source "$ROOT/test/setup-tools.sh" || exit 1
 
-fetch() {
-  [ -s "$2" ] && return 0
-  echo "downloading $(basename "$2")"
-  curl -fsSL -o "$2" "$1"
-}
-
-if [ ! -x "$TOOLS/jdk-21/bin/java" ]; then
-  fetch "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse" "$TOOLS/jdk21.tgz" || exit 1
-  mkdir -p "$TOOLS/jdk-21" && tar xzf "$TOOLS/jdk21.tgz" -C "$TOOLS/jdk-21" --strip-components=1 && rm -f "$TOOLS/jdk21.tgz"
-fi
-if [ ! -x "$TOOLS/groovy-2.4.21/bin/groovy" ]; then
-  fetch "https://archive.apache.org/dist/groovy/2.4.21/distribution/apache-groovy-binary-2.4.21.zip" "$TOOLS/groovy.zip" || exit 1
-  (cd "$TOOLS" && unzip -q -o groovy.zip && rm -f groovy.zip)
-fi
-LIBS="$TOOLS/jenkins-$JENKINS_VERSION-libs"
-if [ ! -f "$LIBS/.complete" ]; then
-  mkdir -p "$LIBS"
-  fetch "https://get.jenkins.io/war-stable/$JENKINS_VERSION/jenkins.war" "$TOOLS/jenkins.war" || exit 1
-  (cd "$LIBS" && unzip -q -o -j "$TOOLS/jenkins.war" 'WEB-INF/lib/*.jar' && rm -f groovy-all-*.jar)
-  fetch "https://updates.jenkins.io/download/plugins/script-security/$SCRIPT_SECURITY_VERSION/script-security.hpi" "$TOOLS/script-security.hpi" || exit 1
-  (cd "$LIBS" && unzip -q -o -j "$TOOLS/script-security.hpi" 'WEB-INF/lib/*.jar')
-  fetch "https://repo1.maven.org/maven2/com/github/ben-manes/caffeine/caffeine/3.1.8/caffeine-3.1.8.jar" "$LIBS/caffeine-3.1.8.jar" || exit 1
-  fetch "https://repo1.maven.org/maven2/org/yaml/snakeyaml/2.2/snakeyaml-2.2.jar" "$LIBS/snakeyaml-2.2.jar" || exit 1
-  fetch "https://repo1.maven.org/maven2/jakarta/servlet/jakarta.servlet-api/5.0.0/jakarta.servlet-api-5.0.0.jar" "$LIBS/jakarta.servlet-api-5.0.0.jar" || exit 1
-  rm -f "$TOOLS/jenkins.war" "$TOOLS/script-security.hpi"
-  touch "$LIBS/.complete"
-fi
-
-export JAVA_HOME="$TOOLS/jdk-21"
+export JAVA_HOME="$DEVSECOPS_JDK"
 export PATH="$JAVA_HOME/bin:$TOOLS/groovy-2.4.21/bin:$PATH"
 export JAVA_OPTS="${JAVA_OPTS:-} -Xss4m"
 CP="$(ls "$LIBS"/*.jar | tr '\n' ':')"
@@ -52,7 +21,7 @@ for check in "$ROOT"/test/checks/*.groovy; do
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
 done
 
-echo "=== compile src and vars ==="
+echo "=== compile src, vars and ci/Jenkinsfile ==="
 cat > "$BUILD/compiler-config.groovy" <<'CFG'
 import org.codehaus.groovy.control.customizers.ImportCustomizer
 def imports = new ImportCustomizer()
@@ -71,6 +40,11 @@ if groovyc -cp "$ROOT/test/sandbox/stub:$BUILD/src:$ROOT/src" --configscript "$B
 else
   grep -v WARNING "$BUILD/vars.log"; status=1
 fi
+if groovyc -d "$BUILD/ci" "$ROOT/ci/Jenkinsfile" > "$BUILD/ci.log" 2>&1; then
+  echo "ci/Jenkinsfile compiled"
+else
+  grep -v WARNING "$BUILD/ci.log"; status=1
+fi
 
 echo "=== the OneView query script with curl against a local HTTP server ==="
 bash "$ROOT/test/oneview/query-scenarios.sh" || status=1
@@ -80,6 +54,9 @@ bash "$ROOT/test/oneview/upload-scenarios.sh" || status=1
 
 echo "=== the coverage scan script on report trees ==="
 bash "$ROOT/test/coverage/scan-scenarios.sh" || status=1
+
+echo "=== the continuous integration scripts ==="
+bash "$ROOT/test/ci/ci-scenarios.sh" || status=1
 
 echo "=== sandbox scenarios and example reports ==="
 if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/test/*.groovy > "$BUILD/harness.log" 2>&1; then

@@ -7,14 +7,14 @@ FORBIDDEN="$FORBIDDEN|JsonOutput\.|JsonSlurper"
 FORBIDDEN="$FORBIDDEN|(^|[^A-Za-z0-9_.])Pattern\.(compile|quote|matches)"
 FORBIDDEN="$FORBIDDEN|java\.util\.regex\.(Pattern|Matcher)"
 FORBIDDEN="$FORBIDDEN|(^|[^A-Za-z0-9_.])(URLEncoder|URLDecoder)\."
-HITS=$(grep -rnE "$FORBIDDEN" src vars --include='*.groovy' || true)
+HITS=$(grep -rnE "$FORBIDDEN" src vars ci --include='*.groovy' --include='Jenkinsfile' || true)
 if [ -n "$HITS" ]; then
   echo "SANDBOX LINT FAILED - these constructs need an administrator approval in Jenkins:"
   echo "$HITS"
   exit 1
 fi
 
-HITS=$(grep -rnE '\."\$\{' src vars --include='*.groovy' || true)
+HITS=$(grep -rnE '\."\$\{' src vars ci --include='*.groovy' --include='Jenkinsfile' || true)
 if [ -n "$HITS" ]; then
   echo "SANDBOX LINT FAILED - under the sandbox map.\"\${key}\" looks the GString up and returns null, use map[key]:"
   echo "$HITS"
@@ -50,4 +50,4 @@ if problems:
     sys.exit(1)
 PY
 
-echo "SANDBOX LINT PASSED - no construct requiring script approval, no static fields"
+echo "SANDBOX LINT PASSED - no construct requiring script approval in src, vars and ci/Jenkinsfile, no static fields"

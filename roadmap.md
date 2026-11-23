@@ -357,6 +357,20 @@ Changed first in `DSOEnhancedWithoutPortal`, then in `main`. No setting changed:
 
 Verified with `test/run-all.sh` of both branches. The points were not written to the BBH InfluxDB.
 
+## 31. Continuous integration of the library (2026-11-23)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`; the CI files are the same files on both branches. Nothing a project reads changed.
+
+| Topic | Result |
+|---|---|
+| **CI build** | `ci/Jenkinsfile`, run by a multibranch job of the BBH Jenkins on every push and pull request and every night on both branches: the tools, `test/run-all.sh` with its results as JUnit, and the shared files. `test/README.md` describes the job and its parameters. |
+| **Tool set inside BBH** | `test/setup-tools.sh` fills the tool folder of the suite and is sourced by `test/run-all.sh`. `DEVSECOPS_MAVEN_REPO`, `DEVSECOPS_JENKINS_REPO` and `DEVSECOPS_JDK_URL` are tried before the built-in addresses, `DEVSECOPS_JDK_HOME` names a JDK 21 of the agent, a download is kept only when it is complete, two builds on one agent take turns with a lock, and a complete folder is only read. |
+| **What fails the build** | A failing check, and a run that changed a committed file: a page rendered again, a recreated AppScan baseline or a golden file, which `test/run-all.sh` repairs and passes when it runs by hand. Shared files that differ between the three sources make the build UNSTABLE by default (`CI_SHARED_FILES`). |
+| **Shared files** | `tools/check-shared-files.sh` compares the files the three sources share, the CI files of the two branches and the database configurations of `main` and OneView, and never changes a file. It and `tools/requirements-docs.txt` (the `markdown` version of the pages) are shared files themselves. |
+| **Tests** | `test/ci/ci-scenarios.sh` runs the scripts against fakes, and `ci/Jenkinsfile` is compiled with the library and passes the ASCII, comment and sandbox checks. The user guides check runs only with the `markdown` version of `tools/requirements-docs.txt`. |
+
+Verified with `test/run-all.sh` of both branches. Not verified on the BBH Jenkins, its agents and the BBH Nexus mirrors; the job and the global variables are set up by the BBH Jenkins administrators.
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
