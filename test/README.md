@@ -8,7 +8,7 @@ Everything runs with one command, without a Jenkins instance:
 bash test/run-all.sh
 ```
 
-The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}`: JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the `script-security` plugin (the same versions the customer runs). Later runs reuse them. The script prints `ALL CHECKS PASSED` when the library is releasable, and it regenerates `examples/reports`, `documentation.html` and `documentation.md` on the way.
+The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecops-library-tools}`: JDK 21, Groovy 2.4.21, the Jenkins 2.479.3 libraries and the `script-security` plugin (the same versions the customer runs). Later runs reuse them. `test/setup-tools.sh` fills that folder; inside the BBH network `DEVSECOPS_MAVEN_REPO` (a Maven repository with the content of Maven Central), `DEVSECOPS_JENKINS_REPO` (one with the content of `repo.jenkins-ci.org/releases`) and `DEVSECOPS_JDK_URL` (a JDK 21 `.tar.gz`) are tried before the built-in addresses, and `DEVSECOPS_JDK_HOME` names a JDK 21 of the agent. A value that is not an address is named in a `[TOOLS] [WARN]` line and the built-in address is used, a value equal to it in a `[TOOLS] [INFO]` line, and the setup fails only when the built-in address fails too. A complete folder is only read, so a read-only tool set in an agent image works. The script prints `ALL CHECKS PASSED` when the library is releasable, and it regenerates `examples/reports`, `documentation.html` and `documentation.md` on the way.
 
 ## What runs
 
@@ -16,7 +16,7 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 
 | Check | What it proves |
 |-------|----------------|
-| `sandbox-lint.sh` | No construct that needs an administrator approval, no static field, no `map."${key}"` |
+| `sandbox-lint.sh` | No construct that needs an administrator approval and no `map."${key}"` in `src`, `vars` and `ci/Jenkinsfile`, no static field |
 | `undefined-calls.sh` | Every implicit call resolves to a declared method |
 | `undefined-variables.groovy` | Every name in a library class is a local, a parameter or a field (catches `steps.error` in a class that has `script`) |
 | `api-consistency.sh` | Every call on a library type matches a method with that argument count |
@@ -26,21 +26,25 @@ The first run downloads the tools into `${DEVSECOPS_TOOLS:-$HOME/.cache/devsecop
 | `jdk-whitelist.groovy` | Every JDK constructor, static method and static field used by the library is on the real script-security whitelist |
 | `architecture.sh` | Adapters depend on the core and the ports, never the other way round |
 | `vars-api.sh` | The shared methods resolve, every entry point declares its stages in order (the full pipeline equals security plus extended), and every manifest updater is wired into the GoldenFix service |
-| `no-comments.sh` | No comments and no commented-out code in `src` and `vars` |
-| `ascii.sh` | `src` and `vars` hold printable ASCII, tabs and newlines only |
+| `no-comments.sh` | No comments and no commented-out code in `src`, `vars` and `ci/Jenkinsfile` |
+| `ascii.sh` | `src`, `vars` and `ci` hold printable ASCII, tabs and newlines only |
 | `docs-html.sh` | `documentation.html` is the rendering of `documentation.confluence` (regenerates it when it is not) |
 | `docs-md.sh` | `documentation.md` is the Markdown rendering of `documentation.confluence` for Bitbucket (regenerates it when it is not) |
-| `user-guides.sh` | `docs/USER_GUIDE_PORTAL.html` and `docs/USER_GUIDE_WITHOUT_PORTAL.html` are the rendering of their Markdown files (regenerates them when they are not; skipped without the Python module `markdown`) |
+| `user-guides.sh` | `docs/USER_GUIDE_PORTAL.html` and `docs/USER_GUIDE_WITHOUT_PORTAL.html` are the rendering of their Markdown files (regenerates them when they are not; skipped without the Python module `markdown` and with another version than `tools/requirements-docs.txt` pins) |
 
 The classes of the SQL and PL/SQL services (`DatabaseBuild`, `LiquibaseRunner`, `DatabaseDeployService`, `DatabaseSettings`, `LiquibaseOutput`) pass every check above; they added no check of their own.
 
 ### Compilation
 
-`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here.
+`src` and `vars` are compiled with the compiler configuration of the sandbox (`GroovySandbox.createSecureCompilerConfiguration`), so a syntax error or an unsupported construct fails here. `ci/Jenkinsfile` is compiled too, so a syntax error in the CI build fails here and not on the first push.
 
 ### The coverage scan script (`test/coverage/scan-scenarios.sh`)
 
 Takes the Python script out of `CoverageReports.scanScript()` and runs it with `python3 -I` on report trees it builds: two services in one folder and a report that counts for both, a multi-module Gradle build with release folders, tool folders, byte and equal copies of JaCoCo and LCOV reports, the SHA-1 of each row, an aggregate and the rest of an aggregate, older release reports with fewer classes, a report without lines and a broken one, the folders of other services and of one service, a search root, the steps and the `S` line, `coverage.reportPath` patterns, Android and Kover reports (the debug and release reports with the same numbers but other bytes), Flutter packages next to the merged files of the library, with the highest hit count of a line, and `total_lcov.info` against `awk`, LCOV with CRLF line ends, totals only, absolute paths and a byte order mark, source paths taken from the package or the workspace, a report of another build tool of the folder skipped before it is read (a named pipe that would block the read), the time limit (set to one second, on that pipe) ending the scan with only the `E` line, unit and integration test reports of the same classes, non-ASCII names under an ASCII locale, the class listing against `readJaCoCoPerClass` for 300 classes, an unexpected error, and 400 module reports among 19 000 files. It also checks that the script has no backslash, is ASCII and parses with the Python 3.6 grammar.
+
+### The CI scripts (`test/ci/ci-scenarios.sh`)
+
+Runs the scripts of `ci/` and `test/setup-tools.sh` against fakes, with every http and https address refused: the setup fills an empty tool folder from `file://` mirrors (without `groovy-all` and without a part file), only reads a complete one, uses `DEVSECOPS_JDK_HOME` with a JDK 21 and names another version in a `[WARN]`, uses the built-in address after a mirror that is not an address or does not answer and names both when both fail, and names a mirror equal to the built-in address in an `[INFO]`. `ci/junit.py` turns a log into one JUnit suite per section, `ci/generated-files.sh` refuses any change after the run except the example reports and the `.actual.txt` files of a failing scenario, and `tools/check-shared-files.sh` names every shared file that differs between three source folders.
 
 ### Sandbox scenarios (`test/sandbox/SandboxScenarios.groovy`)
 
@@ -221,6 +225,21 @@ The fake behaves like Jenkins where the library depends on it:
 `test/sandbox/fixtures` holds in-memory port adapters for the GoldenFix end to end scenario. `InMemorySourceRepository` matches a pattern with a `/` against the whole path, skips the `excludeDirs` folders like `find` and records the pattern list of every search (`searches`); `RecordingPullRequestPublisher` records the pull request comments (`comments`) and fails them when `commentFailure` is set.
 
 `test/fixtures` holds the configuration files of the library at commit b815d55: `defaults.yaml` (then `resources/defaults.yaml`), `CertScanner/config.yaml` (then `examples/CertScanner/config.yaml`) and `b815d55/com/bbh/config/ConfigLoader.groovy`, the loader that read them. The pipeline, sandbox and configuration scenarios plant `CertScanner/config.yaml` as `devsecops_config.yaml` or `config.yaml` and feed `defaults.yaml` as `com/bbh/devsecops/defaults.yaml`, so every run reads the same values as before. `resources/com/bbh/devsecops/defaults.yaml` is the production copy the DevSecOps team owns, and only the compatibility scenarios read it: its structure, a run that applies its limits and the load of the example.
+
+## Continuous integration (`ci/`)
+
+`ci/Jenkinsfile` is the CI build of the library, the same file on both branches. A multibranch job of the BBH Jenkins (Bitbucket Server branch source, Script Path `ci/Jenkinsfile`) runs it on every push and every pull request, and every night on `DSOEnhancedWithoutPortal` and `main`. `Jenkinsfile.template` stays the starter Jenkinsfile of a project that uses the library.
+
+| Stage | What it does | When it fails |
+|-------|--------------|---------------|
+| Workspace | `git clean -ffdx` | never |
+| Tools | `ci/prepare.sh`: checks the commands of the suite, creates `build/ci/venv` with a Python 3.8 or later and the `markdown` version of `tools/requirements-docs.txt`, and fills or checks the tool folder with `test/setup-tools.sh` | a missing command or tool stops the build |
+| Library suite | `ci/suite.sh`: `test/run-all.sh` without `RECORD_GOLDEN`, `build/ci/junit/run-all.xml` from its log (`ci/junit.py`) and `ci/generated-files.sh` | FAILURE when a check fails or the run changed a committed file: a page rendered again, a recreated AppScan baseline or a golden file |
+| Shared files | checks out the other branch of the library and the `main` branch of OneView and runs `tools/check-shared-files.sh` | UNSTABLE by default (`CI_SHARED_FILES=warn`), FAILURE with `fail`, not run with `skip` |
+
+The build publishes the JUnit files, archives the logs, the diff of changed files, the example reports and the `.actual.txt` files, and publishes `examples/reports` as *Example reports*. Its parameters only apply to a run started with *Build with Parameters*: `CI_AGENT` (empty: the global variable `DEVSECOPS_CI_AGENT`, then `linux-agent`), `CI_TOOLS`, `CI_MAVEN_REPO`, `CI_JENKINS_REPO`, `CI_JDK_HOME`, `CI_JDK_URL` and `CI_PIP_INDEX_URL`, which become `DEVSECOPS_TOOLS`, `DEVSECOPS_MAVEN_REPO`, `DEVSECOPS_JENKINS_REPO`, `DEVSECOPS_JDK_HOME`, `DEVSECOPS_JDK_URL` and `PIP_INDEX_URL` only when they are not empty, `CI_SHARED_FILES`, `CI_SIBLING_BRANCH` (empty: the other branch) and `CI_ONEVIEW_REPOSITORY` (empty: `itss-coe-oneview.git` next to this repository). The values every build needs are global variables of the BBH Jenkins or of the agent, under the names the scripts read.
+
+Not verified on the BBH systems: the plugins (Bitbucket Branch Source, Pipeline, JUnit, HTML Publisher, Timestamper), the agent label and its tools, the BBH Nexus paths of the mirrors and whether `scm.userRemoteConfigs` needs a script approval.
 
 ## Adding a scenario
 
