@@ -65,6 +65,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== release of the artifact that passed the gate ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/ReleaseScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== devsecops_config.yaml read, Jenkinsfile checks, platform values and extended handoff ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/ConfigScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1

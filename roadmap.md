@@ -391,6 +391,21 @@ Changed first in `DSOEnhancedWithoutPortal`, then in `main`; the CI files are th
 
 Verified with `test/run-all.sh` of both branches. Not verified on the BBH Jenkins, its agents and the BBH Nexus mirrors; the job and the global variables are set up by the BBH Jenkins administrators.
 
+## 32. Release of the safe artifact (2026-11-23)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`. The design was chosen on 2026-11-23: the build tag as the release version, npm and pip through Maven, a new `delivery.release` block. Every `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` works as before; without a release repository, which the bundled defaults do not set, stage 12 is `NOT_REQUIRED` as before.
+
+| Topic | Result |
+|---|---|
+| **What is released** | The files that stage 6 uploaded as `<tag>-SNAPSHOT`, published once more as `<tag>` after the release gate, without building again. `nexus-delivery.json` of stage 6 records their coordinates and SHA-256; the security pipeline archives it and the extended pipeline copies it with `build.tag`. |
+| **Proof** | A file is released only when its SHA-256 is the recorded one: from the workspace, from `delivery.pull.outputDirectory` or downloaded again from the snapshot repository. A file whose SHA-256 cannot be computed is not released. |
+| **Running again** | The release is looked up first: with the same file the stage passes without an upload, with another file it fails and the release is not replaced. |
+| **Settings** | `delivery.release` (`enabled`, `repositoryUrl`, `repositoryId`, `credentialsId`) in the library defaults, overridable per service, with `[WARN]` and the library default for a wrong value. `delivery.nuget.releaseSource` and `releaseCredentialsId` for .NET. |
+| **Build tools** | Maven and Gradle as in stage 6; npm and pip upload their package file with `delivery.push.maven`; .NET pushes to the release feed with `--skip-duplicate`; OpenShift and Flutter keep the artifacts of stage 6 and say so. |
+| **Tests** | `test/sandbox/ReleaseScenarios.groovy`: 8 pipeline runs and 23 runs of `NexusDeliveryService`; twelve golden files recorded again (`test/README.md`). |
+
+Verified with `test/run-all.sh` of both branches. Not verified against the BBH Nexus: the release repository and its id are not known yet, and the version of the Pipeline Utility Steps plugin at BBH (the `sha256` step) was not checked, so the shell fallback is in place.
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.

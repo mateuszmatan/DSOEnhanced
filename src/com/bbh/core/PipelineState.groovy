@@ -168,6 +168,16 @@ class PipelineState implements Serializable {
         return configFile ?: BuildUtils.repositoryConfigFiles().join(' or ')
     }
 
+    @NonCPS
+    String defaultsPlace() {
+        return 'the library defaults'
+    }
+
+    @NonCPS
+    Map bundledDefaults() {
+        return cfgDefaults
+    }
+
     void stagePass(String name) {
         List kept = ['NOT_REQUIRED', 'BLOCKED', 'WARN', 'FAIL']
         if (!kept.contains(stageResults[name] as String)) {

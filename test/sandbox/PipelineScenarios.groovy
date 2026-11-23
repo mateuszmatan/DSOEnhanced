@@ -531,7 +531,8 @@ Closure verify = { Map spec ->
                 log.findAll { it.startsWith('[DAST]') }.join(' | '))
     }
     if (spec.var == 'devSecOpsExtendedPipeline') {
-        check("${name}: the run-state file, the release gate and the build tag are taken from the security pipeline", j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json,build.tag'),
+        check("${name}: the run-state file, the release gate, the build tag and the record of the snapshot upload are taken from the security pipeline",
+                j.calls.contains('copyArtifacts DevSecOps/CertScanner-security-pipeline filter=pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json'),
                 j.calls.findAll { it.startsWith('copyArtifacts') })
     }
     if (spec.mavenVmDelivery) {
@@ -995,10 +996,11 @@ check('Nexus IQ GoldenFix pipeline, Node.js build: the Node.js build runs before
 Map extendedNode = runPipeline([name: 'extended pipeline, Node.js build', var: 'devSecOpsExtendedPipeline', fail: false, job: 'CertScanner-extended-pipeline', buildNumber: 120,
                                 params: [DEPLOY_HIGHER_ENV: true], dastDisabledFor: 'backend-api', configure: { Map p -> nodeOf(p, 'gui').node = [enabled: true] }])
 FakeScript extendedNodeJenkins = extendedNode.j as FakeScript
-check('extended pipeline, Node.js build: while no release delivery is implemented for Gradle, the release stage builds no Node.js frontend and runs no publish, and says so for every service',
+check('extended pipeline, Node.js build: the release stage builds no Node.js frontend, publishes nothing without a snapshot record of the security pipeline, and says why for every service',
         !extendedNode.crash && (extendedNode.var as FakeCpsScript).executedStages == extendedStages && resultOf(extendedNode, RELEASE) == 'NOT_REQUIRED'
-                && !extendedNodeJenkins.calls.any { it.startsWith('sh [Node.js: ') || it.contains('gradlew publish') || it.contains('mvn deploy') }
-                && extendedNodeJenkins.log.count { it.contains('the release delivery of the safe artifact is not implemented yet for the build tool') } == 2,
+                && !extendedNodeJenkins.calls.any { it.startsWith('sh [Node.js: ') || it.contains('gradlew publish') || it.contains('mvn deploy') || it.startsWith('sh [Nexus release') }
+                && extendedNodeJenkins.log.contains("[NEXUS] gui: '${SNAPSHOT}' published no artifact of the service (nexus-delivery.json) - nothing is released".toString())
+                && extendedNodeJenkins.log.contains("[NEXUS] backend-api: an OpenShift service delivers the image that '${SNAPSHOT}' copied to Nexus - no artifact is released".toString()),
         [extendedNode.crash, resultOf(extendedNode, RELEASE)] + extendedNodeJenkins.log.findAll { it.startsWith('[NODE]') || it.startsWith('[NEXUS]') })
 
 Closure staticLog = { Map r -> (r.j as FakeScript).log.findAll { it.startsWith('[STATIC] ') } }

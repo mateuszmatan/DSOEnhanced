@@ -694,7 +694,7 @@ sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshif
 sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:212
 sh set +x; skopeo copy -q --src-cert-dir /etc/pki/openshift --src-creds openshift:$(oc whoami -t) --authfile /home/jenkins/.docker/nexus-auth.json docker://image-registry.openshift-image-registry.svc:5000/ta-certscanner-build/certscanner-api@sha256:5f1c0ffee2d4a6b8c0e1f3a5b7d9e0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2f4 docker://docker-qc.tools.bbh.com/ta/certscanner-api:latest
 sh mkdir -p /ws/report
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json
 publishHTML pipeline-report.html
 cleanWs
 == log

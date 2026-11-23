@@ -1478,7 +1478,7 @@ CertScanner-GUI-app:*.jar_341
 [NEXUS] orders-db: publishing orders-db-341-<stamp>.zip as com.bbh.orders:orders-db:341-<stamp> to bbh-db-releases
 Maven is installed on this agent
 Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-db-releases' '-Durl=https://tools.bbh.com/nexus/repository/db-releases' '-DgroupId=com.bbh.orders' '-DartifactId=orders-db' '-Dversion=341-<stamp>' '-Dpackaging=zip' '-Dfile=/ws/.dso-db/orders-db/orders-db-341-<stamp>.zip' '-DgeneratePom=true'
-[NEXUS] orders-app: the release delivery of the safe artifact is not implemented yet for the build tool gradle - the snapshot published by the security pipeline stays the delivered artifact
+[NEXUS] orders-app: 'Nexus delivery (Static analysis passed)' published no artifact of the service (nexus-delivery.json) - nothing is released
 ------------------------------------------------------------
 [STAGE]  Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities
 [RESULT] PASS

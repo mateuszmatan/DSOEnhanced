@@ -656,7 +656,7 @@ echo "[INFLUX] HTTP $code $(cat "$INFLUX_RESPONSE" 2>/dev/null)"
 [ "$code" -lt 300 ]
 
 sh rm -f 'influx_payload_<ms>.txt' 'influx_response_<ms>.txt'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json
 publishHTML pipeline-report.html
 cleanWs
 build DevSecOps/CertScanner-extended-pipeline (no wait)

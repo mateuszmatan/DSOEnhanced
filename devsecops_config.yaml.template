@@ -155,7 +155,7 @@ projects:
         timeoutMin:       30         # minutes for all commands of the service together
         nexusIqScan:      true       # false: <dir>/package-lock.json is not added to the Nexus IQ scan patterns
 
-    delivery:                        # Nexus snapshot delivery of stage 6 and the download of the extended pipeline (deployTarget: vm)
+    delivery:                        # Nexus snapshot delivery of stage 6, the download of the extended pipeline and the release of stage 12 (deployTarget: vm)
       nexusDeliveryEnabled: true     # false: stage 6 publishes nothing and the extended pipeline downloads nothing [default: deploy.<target>.rd.nexusDeliveryEnabled, then true]
       push:
         gradle:                      # buildTool: gradle - maven-publish run with the Gradle wrapper of the service
@@ -165,7 +165,7 @@ projects:
           artifacts:
             - path: "build/libs/*.jar"   # glob; the classifier is the file name without its extension
               # classifier: "app"       # optional; the path must then match one file
-        # maven:                     # buildTool: maven - one deploy-file upload, every file with its own classifier
+        # maven:                     # buildTool: maven, npm or pip - one deploy-file upload, every file with its own classifier
         #   goals: ['deploy:deploy-file']
         #   flags: ['-DrepositoryId=bbh-snapshots', '-Durl=https://tools.bbh.com/nexus/repository/snapshots',
         #           '-DgroupId=com.bbh.myapp', '-DartifactId=myapp', '-DgeneratePom=true']
@@ -184,11 +184,18 @@ projects:
         #   goals: ['org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get']
         #   flags: ['-DremoteRepositories=bbh-snapshots::default::https://tools.bbh.com/nexus/repository/snapshots']
         #   artifacts: [{path: "myapp.jar"}]
+      # release:                     # stage 12: the files of stage 6 once more as the release <tag> [default: delivery.release of the library defaults]
+      #   enabled:       true        # false: no release, the snapshot of stage 6 stays the delivered artifact
+      #   repositoryUrl: ""          # Nexus release repository; empty: no release [default: the library default]
+      #   repositoryId:  ""          # Maven: server id of settings.xml for the login [default: the library default, then the -DrepositoryId of the snapshot upload]
+      #   credentialsId: ""          # Gradle: Jenkins Username with password for the release repository; empty: no login is sent
       # maven: {goals: ['deploy:deploy-file'], flags: [...]}   # without push.maven: one upload of build.buildPath without a classifier
       # nuget:                       # C#/.NET NuGet package push (nuget.exe push / dotnet nuget push)
       #   source:         ""         # Nexus NuGet hosted repository URL
       #   credentialsId:  ""         # Jenkins Secret text credential holding NuGet API key
       #   packagePattern: "**/*.nupkg"
+      #   releaseSource:        ""   # NuGet release feed of stage 12, pushed with --skip-duplicate; empty: the package of stage 6 is the delivered package
+      #   releaseCredentialsId: ""   # Secret text with the API key of the release feed [default: credentialsId]
       # group:    ""                 # Flutter only: groupId of the APK and IPA upload
       # artifact: ""                 # Flutter only: artifactId, -android or -ios is appended
       # plugin:   "deploy:deploy-file"   # Flutter only: the Maven goal of the upload

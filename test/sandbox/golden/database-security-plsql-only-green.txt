@@ -357,7 +357,7 @@ sh [DB: publish orders-db-212-<stamp>.zip to Nexus]
 writeYaml pipeline-config.yaml
 deleteDir <tmp>/dso-db/orders-db
 sh mkdir -p /ws/report
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json
 publishHTML pipeline-report.html
 cleanWs
 == log

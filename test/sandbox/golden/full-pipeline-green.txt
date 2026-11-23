@@ -997,8 +997,8 @@ Rollout deployment and wait
 [DAST]   Limits: Critical<=0  High<=0  Medium<=0
 ------------------------------------------------------------
 [RELEASE-GATE] Every stage is green - Nexus release and QC deployment allowed
-[NEXUS] gui: the release delivery of the safe artifact is not implemented yet for the build tool gradle - the snapshot published by the security pipeline stays the delivered artifact
-[NEXUS] backend-api: the release delivery of the safe artifact is not implemented yet for the build tool maven - the snapshot published by the security pipeline stays the delivered artifact
+[NEXUS] gui: 'Nexus delivery (Static analysis passed)' published no artifact of the service (nexus-delivery.json) - nothing is released
+[NEXUS] backend-api: an OpenShift service delivers the image that 'Nexus delivery (Static analysis passed)' copied to Nexus - no artifact is released
 ------------------------------------------------------------
 [STAGE]  Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities
 [RESULT] NOT_REQUIRED

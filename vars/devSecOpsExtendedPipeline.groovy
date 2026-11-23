@@ -65,7 +65,7 @@ def call(Map config = [:]) {
 
             stage('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') {
                 when { expression { return devSecOpsApi.releaseAllowed('Nexus delivery - Safe Artifact - 0 known Security Vulnerabilities') } }
-                steps { script { devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi, [nodeBuild: true]) } }
+                steps { script { devSecOpsSteps.nexusReleaseDelivery(devSecOpsApi) } }
             }
 
             stage('Higher test environment deployment') {
