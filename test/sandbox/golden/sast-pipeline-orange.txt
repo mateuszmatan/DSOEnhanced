@@ -640,7 +640,7 @@ policy_status,project=CertScannersast,env=test,scanner=coverage,status=SKIP ok=0
 policy_status,project=CertScannersast,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
 build_evidence,project=CertScannersast,env=test,module=gui artifact_version="88",sonar_quality_gate="NONE",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-sast-pipeline/88/artifact/appscan-report-certscanner-gui.html",config_file="devsecops_config.yaml" <s>
 build_evidence,project=CertScannersast,env=test,module=backend-api artifact_version="88",sonar_quality_gate="NONE",sast_report_url="https://jenkins.bbh.com/job/DevSecOps/job/CertScanner-sast-pipeline/88/artifact/appscan-report-certscanner-backend.html",config_file="devsecops_config.yaml" <s>
-release_gate,project=CertScannersast,env=test,allowed=no allowed=0i,blocked=1i,violations=10i,reason="Nexus release and QC deployment blocked: stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN (previous pipeline) | gui SAST (AppScan) high 3 > 0 (previous pipeline) | gui SAST (AppScan) medium 4 > 0 (previous pipeline) | " <s>
+release_gate,project=CertScannersast,env=test,allowed=no allowed=0i,blocked=1i,violations=5i,reason="Nexus release and QC deployment blocked: stage 'SAST - Static Application Security Tests - HCL AppScan' is WARN | gui SAST (AppScan) high 3 > 0 | gui SAST (AppScan) medium 4 > 0 | backend-api SAST (AppScan) high 1 > 0 | backend-api SAST (Ap" <s>
 == report
 <!DOCTYPE html>
 <html lang='en'>

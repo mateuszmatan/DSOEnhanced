@@ -362,6 +362,21 @@ The portal has a new name: ITSS COE OneView (OneView), the portal of the ITSS Ce
 | **This branch** | No code for OneView was added, and no setting, file name, step or metric changed: every `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` works as before. The branch name `DSOEnhancedWithoutPortal` and the files `docs/USER_GUIDE_PORTAL` and `docs/USER_GUIDE_WITHOUT_PORTAL` keep their names. |
 | **Tests** | `ConfigScenarios.groovy` expects the new message. No golden file changed. |
 
+## 30. Nexus IQ counts in the metrics and the release gate (2026-11-23)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`. No setting changed: every `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` works as before.
+
+| Topic | Result |
+|---|---|
+| **Nexus IQ in `security_findings`** | The point of each service with `scanner=niq` carries the critical, high and medium counts of that service against the Nexus IQ limits of the library policy, so the points add up to `vulnerabilities` with `scanner=nexusiq`. Before, every count was 0: recording the stage result replaced the counts Nexus IQ had just written. |
+| **Release gate** | The *Release policy* card, `release-gate.json` and the `[RELEASE-GATE]` line list the Nexus IQ counts above the policy, for example `gui Dependencies (Nexus IQ) critical 2 > 0`, as the documentation described. The verdict does not change: an orange Nexus IQ stage blocked the release before too. |
+| **The `release_gate` point** | Every violation is counted once. Before, the run read its own `release-gate.json` again after writing it, so the point counted each violation twice and repeated it with `(previous pipeline)`. A pipeline now reads that file once, before it writes its own. |
+| **SAST counts** | A service whose SAST HTML report is missing records 0, as its log line says, instead of the counts of the service before it. |
+| **History** | Points written before this change keep 0 for `scanner=niq` and the doubled `violations`, so the panels show a step on the day of the upgrade. |
+| **Tests** | `StaticAnalysisScenarios.groovy` checks the counts, the release gate and the point, and the single read of `release-gate.json`. Every run of `PipelineScenarios.groovy` with a `vulnerabilities` point of Nexus IQ checks that the `security_findings` points add up to it. Nine golden files were recorded again (`test/README.md`). |
+
+Verified with `test/run-all.sh` of both branches. The points were not written to the BBH InfluxDB.
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
@@ -370,7 +385,7 @@ The portal has a new name: ITSS COE OneView (OneView), the portal of the ITSS Ce
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
 - Every build with a key depends on OneView at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the OneView-integrated library is used outside test.
 - A build without a key applies the library's copy of the Global Settings, which follows them with each library release.
-- The `security_findings` points with `scanner=niq` carry the Nexus IQ stage status with every count at 0, in every pipeline; the Nexus IQ counts are only in `vulnerabilities` with `scanner=nexusiq`. Correcting it changes the recorded golden runs of the security and full pipelines.
+- The `vulnerabilities` points with `scanner=sast` and `scanner=dast` hold the counts of the last service of the run, while those with `scanner=nexusiq` and `scanner=sonar` add up all services. The `policy_status` points keep the result of the last service and tag Nexus IQ as `iast`. SonarQube writes its counts as `security_findings` with `scanner=sca` and its status with `scanner=sonar`, so each of the two points misses half. Item 2.11 of `TODO.md`.
 - SonarQube indexes Dart as an unknown language, so a Flutter project's quality gate rests on imported coverage and imported findings rather than on rules SonarQube executes itself.
 - GoldenFix changes only the repository of the service. A catalog published as an artifact, a catalog in another repository, a BOM or parent resolved from Nexus and a version constant in `buildSrc` are named as the reason, not raised.
 - Separate GoldenFix jobs for the services of one repository raise separate pull requests, and two of them that start in the same minute collide on the branch name. One job for the repository with `pipelineKeys` avoids both.

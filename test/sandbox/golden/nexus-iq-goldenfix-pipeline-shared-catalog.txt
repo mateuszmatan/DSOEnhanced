@@ -292,7 +292,7 @@ Vulnerabilities above the policy severity: Nexus IQ critical=2, high=7, medium=1
 --- Pipeline completed with warnings (unstable). ---
 -----------------------------------------------------------------
 == release-gate.json
-{"job":"DevSecOps/CertScanner-nexusiq-pipeline","build":"64","allowed":false,"violations":["stage 'Dependencies scan (Nexus IQ)' is WARN"]}
+{"job":"DevSecOps/CertScanner-nexusiq-pipeline","build":"64","allowed":false,"violations":["stage 'Dependencies scan (Nexus IQ)' is WARN","gui Dependencies (Nexus IQ) critical 2 > 0","gui Dependencies (Nexus IQ) high 5 > 0","gui Dependencies (Nexus IQ) medium 9 > 0","backend-api Dependencies (Nexus IQ) high 2 > 0","backend-api Dependencies (Nexus IQ) medium 1 > 0"]}
 == influx
 deployments,project=CertScannernexusiq,env=test count=1 <s>
 change_failure,project=CertScannernexusiq,env=test value=1i <s>
@@ -308,8 +308,8 @@ dora,project=CertScannernexusiq,env=test,variant=nexusiq deployment=0i,change_fa
 stage_event,project=CertScannernexusiq,env=test,stage=Monitor\ source\ changes\ (download\ sources),status=PASS duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=1i,reason="" <s>
 stage_event,project=CertScannernexusiq,env=test,stage=Build\ artifact,status=NOT_REQUIRED duration_ms=<n>i,duration_s=<n>i,ok=1i,executed=1i,order=2i,reason="" <s>
 stage_event,project=CertScannernexusiq,env=test,stage=Dependencies\ scan\ (Nexus\ IQ),status=WARN duration_ms=<n>i,duration_s=<n>i,ok=0i,executed=1i,order=3i,reason="gui: Dependencies (Nexus IQ) policy not met: critical 2 of max 0, high 5 of max 0, medium 9 of max 0 | GoldenFix pull request GoldenFix-202609191405 raised: https://bitbucket.bbh.com/projects/TA/repos/cert-scanner/pull-requests/318. || back" <s>
-security_findings,project=CertScannernexusiq,env=test,module=gui,scanner=niq,status=WARN critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
-security_findings,project=CertScannernexusiq,env=test,module=backend-api,scanner=niq,status=WARN critical=0i,high=0i,medium=0i,low=0i,total=0i,above_policy=0i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=0i <s>
+security_findings,project=CertScannernexusiq,env=test,module=gui,scanner=niq,status=WARN critical=2i,high=5i,medium=9i,low=0i,total=16i,above_policy=16i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
+security_findings,project=CertScannernexusiq,env=test,module=backend-api,scanner=niq,status=WARN critical=0i,high=2i,medium=1i,low=0i,total=3i,above_policy=3i,max_critical=0i,max_high=0i,max_medium=0i,exceeded=1i <s>
 policy_status,project=CertScannernexusiq,env=test,scanner=sast,status=SKIP ok=0i,measured=0i <s>
 policy_status,project=CertScannernexusiq,env=test,scanner=sca,status=SKIP ok=0i,measured=0i <s>
 policy_status,project=CertScannernexusiq,env=test,scanner=dast,status=SKIP ok=0i,measured=0i <s>
@@ -318,7 +318,7 @@ policy_status,project=CertScannernexusiq,env=test,scanner=coverage,status=SKIP o
 policy_status,project=CertScannernexusiq,env=test,scanner=sonar,status=SKIP ok=0i,measured=0i <s>
 build_evidence,project=CertScannernexusiq,env=test,module=gui artifact_version="64",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
 build_evidence,project=CertScannernexusiq,env=test,module=backend-api artifact_version="64",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
-release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=2i,reason="Nexus release and QC deployment blocked: stage 'Dependencies scan (Nexus IQ)' is WARN (previous pipeline) | stage 'Dependencies scan (Nexus IQ)' is WARN" <s>
+release_gate,project=CertScannernexusiq,env=test,allowed=no allowed=0i,blocked=1i,violations=6i,reason="Nexus release and QC deployment blocked: stage 'Dependencies scan (Nexus IQ)' is WARN | gui Dependencies (Nexus IQ) critical 2 > 0 | gui Dependencies (Nexus IQ) high 5 > 0 | gui Dependencies (Nexus IQ) medium 9 > 0 | backend-api Dependencie" <s>
 goldenfix,project=CertScannernexusiq,env=test,module=gui,status=PR_CREATED offered=3i,applied=2i,unresolved=2i,pr_raised=1i,build_check=1i,build_failed=0i,pr_url="https://bitbucket.bbh.com/projects/TA/repos/cert-scanner/pull-requests/318",pr_title="GoldenFix-202609191405" <s>
 goldenfix,project=CertScannernexusiq,env=test,module=backend-api,status=PR_UPDATED offered=2i,applied=1i,unresolved=0i,pr_raised=1i,build_check=1i,build_failed=0i,pr_url="https://bitbucket.bbh.com/projects/TA/repos/cert-scanner/pull-requests/318",pr_title="GoldenFix-202609191405" <s>
 == report

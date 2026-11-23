@@ -209,7 +209,7 @@ coverage_report,project=CertScanner,env=test,module=gui,report=build/reports/jac
 coverage_report,project=CertScanner,env=test,module=backend-api,report=target/site/jacoco/jacoco.xml,tool=jacoco,counted=yes line_pct=84.0,covered=840i,missed=160i,total=1000i <s>
 build_evidence,project=CertScanner,env=test,module=gui artifact_version="344",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-GUI/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
 build_evidence,project=CertScanner,env=test,module=backend-api artifact_version="344",sonar_quality_gate="NONE",nexusiq_report_url="https://tools.bbh.com/IQ/ui/links/application/CertValidityMonitoring-Backend/report/0f1e2d3c4b5a69788796a5b4c3d2e1f0",config_file="devsecops_config.yaml" <s>
-release_gate,project=CertScanner,env=test,allowed=no allowed=0i,blocked=1i,violations=2i,reason="Nexus release and QC deployment blocked: stage 'SAST - Static Application Security Tests - HCL AppScan' is FAIL (previous pipeline) | stage 'SAST - Static Application Security Tests - HCL AppScan' is FAIL" <s>
+release_gate,project=CertScanner,env=test,allowed=no allowed=0i,blocked=1i,violations=1i,reason="Nexus release and QC deployment blocked: stage 'SAST - Static Application Security Tests - HCL AppScan' is FAIL" <s>
 == report
 <!DOCTYPE html>
 <html lang='en'>

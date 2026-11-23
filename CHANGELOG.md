@@ -4,6 +4,13 @@ All notable changes to the DSOEnhanced Jenkins Shared Library are documented in 
 
 ## [Unreleased]
 
+### Fixed
+- **Nexus IQ counts in the metrics and the release gate** (2026-11-23, item 2.8 of `TODO.md`). The `security_findings` point of each service with `scanner=niq` carries the critical, high and medium counts of Nexus IQ for that service against the Nexus IQ limits of the library policy; before, every count was 0, because recording the stage result replaced the counts Nexus IQ had just written. The release gate lists them too: the *Release policy* card, `release-gate.json` and the `[RELEASE-GATE]` line name for example `gui Dependencies (Nexus IQ) critical 2 > 0`. The verdict does not change, as an orange Nexus IQ stage blocked the release before too. No setting changed.
+  - *The `release_gate` point* counts every violation once. Before, the run read its own `release-gate.json` again after writing it, so the point counted each violation twice and repeated it with `(previous pipeline)`. A pipeline now reads that file once, before it writes its own.
+  - *SAST counts.* A service whose SAST HTML report is missing records 0, as its log line says, instead of the counts of the service before it.
+  - *History.* Points written before this release keep 0 for `scanner=niq` and the doubled `violations`, so panels built on `security_findings` and `release_gate` show a step on the day of the upgrade.
+  - *Tests.* New checks in `StaticAnalysisScenarios.groovy` and `PipelineScenarios.groovy`; nine golden files were recorded again, listed in `test/README.md`.
+
 ### Changed
 - **The portal is now ITSS COE OneView** (2026-11-22). The DevSecOps Management Portal is now ITSS COE OneView (OneView), the portal of the ITSS Center of Excellence that joins the areas DevSecOps, QA and Agile; its repository is `ITSS-COE-OneView`. This branch stays the release without the portal and reads nothing from it, so only the name changes and every existing `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` keeps working without a change:
   - *Message.* A Jenkinsfile that names `pipelineKey` or `pipelineKeys` stops as before, with `[INIT] pipelineKey and pipelineKeys are settings of OneView, which this release of the library does not read: ...`; `ConfigScenarios.groovy` expects the new text.

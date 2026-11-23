@@ -532,7 +532,7 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
                 state.sastScansByAppId[appId].counts = counts
             }
         } else {
-            if (BuildUtils.databaseBlock(state.cfg)) state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
+            state.vulnCounts.sast = [critical: 0, high: 0, medium: 0, low: 0]
             script.echo "[SAST] HTML report not found - vulnerability counts remain 0"
         }
     }

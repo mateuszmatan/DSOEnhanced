@@ -47,6 +47,13 @@ class ReleaseGate implements Serializable {
     }
 
     List upstreamViolations() {
+        if (state.upstreamGateViolations == null) state.upstreamGateViolations = readUpstreamViolations()
+        List out = []
+        out.addAll(state.upstreamGateViolations)
+        return out
+    }
+
+    private List readUpstreamViolations() {
         String file = stateFileName()
         if (!script.fileExists(file)) return []
         try {

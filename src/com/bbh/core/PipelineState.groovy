@@ -66,6 +66,7 @@ class PipelineState implements Serializable {
     List parallelGroups             = []
     Map projectsSastFindings        = [:]
     Map projectStageTimes           = [:]
+    List upstreamGateViolations     = null
 
     @NonCPS
     PipelineState fork() {
@@ -113,6 +114,7 @@ class PipelineState implements Serializable {
         branch.parallelGroups = parallelGroups
         branch.projectsSastFindings = projectsSastFindings
         branch.projectStageTimes = projectStageTimes
+        branch.upstreamGateViolations = upstreamGateViolations
         return branch
     }
 
@@ -137,6 +139,7 @@ class PipelineState implements Serializable {
         if (branch.goldenFixPullRequest != goldenFixPullRequest) goldenFixPullRequest = branch.goldenFixPullRequest
         if (branch.goldenFixPullRequestsByRepo != goldenFixPullRequestsByRepo) goldenFixPullRequestsByRepo = branch.goldenFixPullRequestsByRepo
         if (branch.databaseTools != databaseTools) databaseTools = branch.databaseTools
+        if (branch.upstreamGateViolations != upstreamGateViolations) upstreamGateViolations = branch.upstreamGateViolations
     }
 
     @NonCPS
@@ -206,7 +209,9 @@ class PipelineState implements Serializable {
         projectsScanResults[currentProjectName][scanner] = result
         if (reportFile) projectsScanResults[currentProjectName]["${scanner}_file".toString()] = reportFile
         if (!projectsVulnCounts[currentProjectName]) projectsVulnCounts[currentProjectName] = [:]
-        projectsVulnCounts[currentProjectName][scanner] = new HashMap(vulnCounts[scanner] ?: [critical: 0, high: 0, medium: 0, low: 0])
+        Map recorded = projectsVulnCounts[currentProjectName] as Map
+        if (!vulnCounts.containsKey(scanner) && recorded.containsKey(scanner)) return
+        recorded[scanner] = new HashMap(vulnCounts[scanner] ?: [critical: 0, high: 0, medium: 0, low: 0])
     }
 
     @NonCPS
