@@ -231,6 +231,13 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
         jsonFiles.put(norm(args.file), args.json)
         files.put(norm(args.file), groovy.json.JsonOutput.toJson(args.json))
     }
+    String sha256(Map args) {
+        String path = norm(args.file)
+        calls << "sha256 ${path}".toString()
+        if (steps.containsKey('sha256')) return step('sha256', args) as String
+        if (!files.containsKey(path)) throw new FakeAbort("${path} does not exist")
+        return java.security.MessageDigest.getInstance('SHA-256').digest(files.get(path).getBytes('UTF-8')).encodeHex().toString()
+    }
     Object readYaml(Map args) {
         if (args.text != null) return new org.yaml.snakeyaml.Yaml().load(String.valueOf(args.text))
         probes << "readYaml ${args.file}".toString()

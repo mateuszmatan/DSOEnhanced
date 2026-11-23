@@ -710,7 +710,7 @@ if [ "$code" -ge 300 ]; then
 fi
 
 sh rm -f 'oneview_report_<ms>.json' 'oneview_response_<ms>.json'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json
 publishHTML pipeline-report.html
 cleanWs
 build DevSecOps/CertScanner-extended-pipeline (no wait)

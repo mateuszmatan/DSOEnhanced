@@ -557,7 +557,7 @@ def performanceTests() { _setup(); (_kit().build as BuildService).runTestJobs('P
 def deployRD()                         { _setup(); _vmDeploy.deployRd() }
 def deployDvWithDodPlugin()            { _setup(); _vmDeploy.deployDvWithDodPlugin() }
 def deployQC()                         { _setup(); _vmDeploy.deployQc() }
-def publishArtifactQC()                { _setup(); _delivery.publishRelease(_state.currentProjectName) }
+def publishArtifactQC()                { _setup(); _delivery.publishRelease(_state.currentProjectName, _variant) }
 def pushToNexus(String projectName)    { _setup(); _delivery.pushToNexus(projectName) }
 def pullFromNexus(String projectName)  { _setup(); _delivery.pullFromNexus(projectName) }
 def releaseDeliveryAvailable()         { _setup(); return _delivery.releaseAvailable() }

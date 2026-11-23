@@ -5,11 +5,13 @@ import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
 import com.bbh.utils.BuildUtils
 import com.bbh.utils.FlutterUtils
+import com.bbh.utils.RestClient
 
 class NexusDeliveryService implements Serializable {
     private final def           script
     private final PipelineState state
     private final OsHelper      os
+    private boolean             sha256Step = true
 
     NexusDeliveryService(def script, PipelineState state, OsHelper os) {
         this.script = script
@@ -18,9 +20,9 @@ class NexusDeliveryService implements Serializable {
     }
 
     void pushToNexus(String projectName) {
-        String tool = ((state.cfg.buildTool ?: '') as String).trim()
+        String tool = buildTool()
         if (BuildUtils.isDotnetTool(tool)) {
-            deliverDotnetNuget()
+            deliverDotnetNuget(nugetSource(), nugetCredentialsId(), false)
             return
         }
         if (tool == 'maven') {
@@ -31,26 +33,86 @@ class NexusDeliveryService implements Serializable {
             pushGradle(projectName)
             return
         }
+        if (tool in ['npm', 'pip'] && mapOf(mapOf(deliveryCfg().push).maven)) {
+            pushMaven(projectName)
+            return
+        }
         if (tool == 'flutter') {
             String buildNumber = script.env.BUILD_NUMBER as String
             FlutterUtils.deliverToNexusAndroid(buildNumber, script, state.cfg, projectName, state.platform)
             FlutterUtils.deliverToNexusIOS(buildNumber, script, state.cfg, projectName, state.platform)
             return
         }
+        if (tool in ['npm', 'pip']) {
+            notRequired("[NEXUS] ${projectName}: set delivery.push.maven in ${state.settingsPlace()} to publish the ${tool} package with Maven - the artifact is not published")
+            return
+        }
         notRequired("[NEXUS] ${projectName}: the build tool ${tool ?: 'of the service'} has no Nexus snapshot delivery - the artifact is not published")
     }
 
     boolean releaseAvailable() {
-        return BuildUtils.isDotnetTool(((state.cfg.buildTool ?: '') as String).trim()) && nugetSource()
+        if (BuildUtils.isDotnetTool(buildTool())) return (nugetSource() || nugetReleaseSource()) as boolean
+        String given = trimmed(mapOf(deliveryCfg().release).repositoryUrl)
+        String url = given && validUrl(given) ? given : (releaseFallback('repositoryUrl', given, true, '').value as String)
+        return (releaseEnabled(state.currentProjectName) && recordedUpload(state.buildTag ?: deliveredBuildTag(), state.currentProjectName) && url) as boolean
     }
 
-    void publishRelease(String projectName) {
-        String tool = ((state.cfg.buildTool ?: '') as String).trim()
-        if (releaseAvailable()) {
-            deliverDotnetNuget()
+    void publishRelease(String projectName, String variant = 'full') {
+        String tool = buildTool()
+        if (BuildUtils.isDotnetTool(tool)) {
+            releaseDotnet(projectName, variant)
             return
         }
-        notRequired("[NEXUS] ${projectName}: the release delivery of the safe artifact is not implemented yet for the build tool ${tool ?: 'of the service'} - the snapshot published by the security pipeline stays the delivered artifact")
+        if (!BuildUtils.nexusDeliveryEnabled(state.cfg)) {
+            notRequired("[NEXUS] ${projectName}: Nexus delivery is disabled by ${BuildUtils.nexusDeliverySetting(state.cfg)} - no release is published")
+            return
+        }
+        if (!releaseEnabled(projectName)) {
+            notRequired("[NEXUS] ${projectName}: delivery.release.enabled is false - the snapshot of '${snapshotStage()}' stays the delivered artifact")
+            return
+        }
+        if ((state.cfg.deployTarget ?: 'vm') == 'openshift') {
+            notRequired("[NEXUS] ${projectName}: an OpenShift service delivers the image that '${snapshotStage()}' copied to Nexus - no artifact is released")
+            return
+        }
+        if (tool == 'flutter') {
+            notRequired("[NEXUS] ${projectName}: the Flutter APK and IPA of '${snapshotStage()}' stay the delivered artifacts - no release is published")
+            return
+        }
+        String tag = variant == 'extended' ? deliveredBuildTag() : state.buildTag
+        Map record = recordedUpload(tag, projectName)
+        if (!record) {
+            notRequired("[NEXUS] ${projectName}: '${snapshotStage()}' published no artifact of the service${tag ? ' as ' + tag + '-SNAPSHOT' : ''} (${recordFile()}) - nothing is released")
+            return
+        }
+        if (!record.group || !record.artifact) {
+            notRequired("[NEXUS] ${projectName}: the Maven flags of '${snapshotStage()}' name no -DgroupId and -DartifactId, so the release cannot name ${record.version} - the snapshot stays the delivered artifact")
+            return
+        }
+        String coordinates = "${record.group}:${record.artifact}:${tag}".toString()
+        Map release = releaseRepository(projectName, record)
+        if (!release.url) {
+            notRequired("[NEXUS] ${projectName}: set delivery.release.repositoryUrl in ${state.settingsPlace()} or in ${state.defaultsPlace()} to release ${coordinates} - the snapshot ${record.version} stays the delivered artifact")
+            return
+        }
+        String localRepository = record.upload == 'gradle' ? '' : mavenLocalRepository(fetchMavenConfig(record))
+        List files = releaseFiles(projectName, record, variant, localRepository)
+        Map first = files[0] as Map
+        String released = releasedChecksum(projectName, record, release, tag, first, localRepository)
+        if (released) {
+            if (released == first.sha256) {
+                script.echo "[NEXUS] ${projectName}: ${coordinates} is already in ${release.url} with the files that passed the gate - nothing is uploaded"
+                return
+            }
+            script.error "[NEXUS] ${projectName}: ${coordinates} is already in ${release.url} with other files than those that passed the gate - the release is not replaced"
+        }
+        script.echo "[NEXUS] ${projectName}: releasing ${files.size()} artifact(s) of ${record.version} as ${coordinates} to ${release.url}"
+        if (record.upload == 'gradle') {
+            uploadGradle(record, release, tag, files, "Nexus release: publish ${coordinates}".toString())
+        } else {
+            uploadMaven(projectName, record, release, tag, files)
+        }
+        script.echo "[NEXUS] ${projectName}: released ${coordinates}, the files that passed the gate"
     }
 
     void pullFromNexus(String projectName) {
@@ -129,6 +191,7 @@ class NexusDeliveryService implements Serializable {
         script.echo "[NEXUS] ${projectName}: uploading ${artifacts.size()} artifact(s) as ${version}"
         runMaven(mavenCfg, flags)
         writeBuildTag(projectName, state.buildTag)
+        recordUpload(projectName, 'maven', mavenCoordinates(mavenCfg), version, artifacts)
     }
 
     private void pushMavenFromBuildPath(String projectName) {
@@ -153,6 +216,8 @@ class NexusDeliveryService implements Serializable {
         String version = "${runBuildTag()}-SNAPSHOT".toString()
         runMaven(mavenCfg, [mavenProperty('version', version), mavenProperty('packaging', extension), mavenProperty('file', file)])
         writeBuildTag(projectName, state.buildTag)
+        recordUpload(projectName, 'maven-legacy', mavenCoordinates(mavenCfg), version,
+                [[path: file, fileName: BuildUtils.fileNameOf(file), extension: extension, classifier: '']])
     }
 
     private void pushGradle(String projectName) {
@@ -168,6 +233,7 @@ class NexusDeliveryService implements Serializable {
         runGradle(cfg, coordinates + [version: version, artifacts: artifacts], 'push')
         writeBuildTag(projectName, state.buildTag)
         script.echo "[NEXUS] ${projectName}: uploaded ${artifacts.size()} artifact(s) as ${version}"
+        recordUpload(projectName, 'gradle', coordinates, version, artifacts)
     }
 
     private void pullMaven(String projectName, Map pullCfg) {
@@ -311,7 +377,7 @@ class NexusDeliveryService implements Serializable {
         return [group: group, artifact: artifact, repositoryUrl: url, allowInsecureProtocol: cfg.allowInsecureProtocol == true]
     }
 
-    private void runGradle(Map cfg, Map manifest, String action) {
+    private void runGradle(Map cfg, Map manifest, String action, String credentialsId = '', String label = '') {
         String task = action == 'push' ? 'publishNexusDeliveryPublicationToNexusRepository' : 'pullNexusArtifacts'
         List tasks = cfg.tasks ? BuildUtils.normalizeTokens(cfg.tasks) : [task]
         if (tasks != [task]) {
@@ -340,14 +406,21 @@ class NexusDeliveryService implements Serializable {
             gradleCfg.tasks = tasks
             gradleCfg.flags = flags + ['--no-daemon', '--no-configuration-cache', '--project-dir', deliveryDir, "-PnexusManifest=${deliveryDir}/manifest.json".toString()]
             gradleCfg.env = [:] + mapOf(cfg.env)
-            gradleCfg.label = "Nexus Gradle ${action}".toString()
+            gradleCfg.label = label ?: "Nexus Gradle ${action}".toString()
             gradleCfg.returnStdout = false
             gradleCfg.remove('dir')
             BuildRunner runner = new BuildRunner(script, [gradle: gradleCfg], 'gradle')
             if (!runner.ifExist()) {
                 script.error "[NEXUS] The Gradle wrapper of ${applicationDir} cannot be run"
             }
-            runner.run()
+            if (credentialsId) {
+                script.withCredentials([script.usernamePassword(credentialsId: credentialsId, usernameVariable: 'ORG_GRADLE_PROJECT_nexusUsername',
+                        passwordVariable: 'ORG_GRADLE_PROJECT_nexusPassword')]) {
+                    runner.run()
+                }
+            } else {
+                runner.run()
+            }
         } finally {
             script.sh(script: "rm -rf -- '${BuildUtils.escapeForSingleQuotes(deliveryDir)}'", label: "Nexus Gradle ${action}: remove the project folder")
         }
@@ -384,14 +457,53 @@ class NexusDeliveryService implements Serializable {
         runner.run()
     }
 
+    private Map nugetConfig() {
+        return mapOf(deliveryCfg().nuget ?: deliveryCfg().dotnet)
+    }
+
     private String nugetSource() {
-        Map nugetCfg = (deliveryCfg().nuget ?: deliveryCfg().dotnet ?: [:]) as Map
+        Map nugetCfg = nugetConfig()
         return (nugetCfg.source ?: nugetCfg.repositoryUrl ?: '') as String
     }
 
-    private void deliverDotnetNuget() {
-        Map nugetCfg = (deliveryCfg().nuget ?: deliveryCfg().dotnet ?: [:]) as Map
+    private String nugetReleaseSource() {
+        return trimmed(nugetConfig().releaseSource)
+    }
+
+    private String nugetCredentialsId() {
+        Map nugetCfg = nugetConfig()
+        return (nugetCfg.credentialsId ?: nugetCfg.apiKeyCredentialsId ?: '') as String
+    }
+
+    private void releaseDotnet(String projectName, String variant) {
         String source = nugetSource()
+        String releaseSource = nugetReleaseSource()
+        String releaseCredentialsId = trimmed(nugetConfig().releaseCredentialsId) ?: nugetCredentialsId()
+        if (!source && !releaseSource) {
+            notRequired("[NEXUS] ${projectName}: delivery.nuget.source is not set in ${state.settingsPlace()} - no NuGet package is released")
+            return
+        }
+        if (variant == 'extended') {
+            notRequired("[NEXUS] ${projectName}: the extended pipeline builds no NuGet package - the package that the security pipeline pushed to ${releaseSource ?: source} stays the delivered package")
+            return
+        }
+        if (!BuildUtils.nexusDeliveryEnabled(state.cfg) || (state.cfg.deployTarget ?: 'vm') == 'openshift') {
+            if (releaseSource) {
+                deliverDotnetNuget(releaseSource, releaseCredentialsId, true)
+            } else {
+                deliverDotnetNuget(source, nugetCredentialsId(), false)
+            }
+            return
+        }
+        if (!releaseSource) {
+            notRequired("[NEXUS] ${projectName}: the NuGet package that '${snapshotStage()}' pushed to ${source} is the delivered package - set delivery.nuget.releaseSource to push it to a release feed as well")
+            return
+        }
+        deliverDotnetNuget(releaseSource, releaseCredentialsId, true)
+    }
+
+    private void deliverDotnetNuget(String source, String credId, boolean skipDuplicate) {
+        Map nugetCfg = nugetConfig()
         if (!source) {
             script.echo '[NEXUS] .NET NuGet publish not configured (set delivery.nuget.source)'
             return
@@ -407,27 +519,358 @@ class NexusDeliveryService implements Serializable {
         if (!nupkgs) {
             script.error "[NEXUS] No .nupkg package matching '${pattern}' found for delivery.nuget"
         }
-        String credId = (nugetCfg.credentialsId ?: nugetCfg.apiKeyCredentialsId ?: '') as String
         boolean useCli = !os.isWindows() || BuildUtils.booleanValue(state.cfg.build?.dotnet?.useDotnetCli, false)
         if (credId) {
             script.withCredentials([script.string(credentialsId: credId, variable: 'NUGET_API_KEY')]) {
-                pushNugetPackages(nupkgs, source, useCli, os.isWindows() ? '$env:NUGET_API_KEY' : '$NUGET_API_KEY')
+                pushNugetPackages(nupkgs, source, useCli, os.isWindows() ? '$env:NUGET_API_KEY' : '$NUGET_API_KEY', skipDuplicate)
             }
         } else {
-            pushNugetPackages(nupkgs, source, useCli, '')
+            pushNugetPackages(nupkgs, source, useCli, '', skipDuplicate)
         }
     }
 
-    private void pushNugetPackages(List<String> nupkgs, String source, boolean useCli, String keyExpr) {
+    private void pushNugetPackages(List<String> nupkgs, String source, boolean useCli, String keyExpr, boolean skipDuplicate) {
         for (String pkg : nupkgs) {
             if (useCli) {
-                String args = keyExpr ? " --api-key ${keyExpr}" : ''
+                String args = (keyExpr ? " --api-key ${keyExpr}" : '') + (skipDuplicate ? ' --skip-duplicate' : '')
                 os.run("dotnet nuget push '${pkg}' --source '${source}'${args}")
             } else {
-                String args = keyExpr ? " -ApiKey ${keyExpr}" : ''
+                String args = (keyExpr ? " -ApiKey ${keyExpr}" : '') + (skipDuplicate ? ' -SkipDuplicate' : '')
                 os.run("nuget.exe push '${pkg}' -Source '${source}'${args} -NonInteractive")
             }
         }
+    }
+
+    private void recordUpload(String projectName, String upload, Map coordinates, String version, List artifacts) {
+        List files = []
+        for (int i = 0; i < artifacts.size(); i++) {
+            Map artifact = artifacts[i] as Map
+            String path = relativePath(artifact.path as String)
+            files << [path: path, fileName: artifact.fileName, classifier: trimmed(artifact.classifier), extension: artifact.extension, sha256: checksum(path)]
+        }
+        Map record = readRecord()
+        Map services = trimmed(record.buildTag) == state.buildTag ? ([:] + mapOf(record.services)) : [:]
+        services[projectName] = [upload: upload, group: trimmed(coordinates.group), artifact: trimmed(coordinates.artifact), version: version,
+                                 repositoryId: trimmed(coordinates.repositoryId), repositoryUrl: trimmed(coordinates.repositoryUrl),
+                                 allowInsecureProtocol: coordinates.allowInsecureProtocol == true, files: files]
+        script.writeJSON(file: recordFile(), json: [buildTag: state.buildTag, services: services], pretty: 2)
+        script.echo "[NEXUS] ${projectName}: ${recordFile()} records the SHA-256 of the ${files.size()} uploaded file(s) for the release"
+    }
+
+    private Map readRecord() {
+        String file = recordFile()
+        if (!script.fileExists(file)) return [:]
+        try {
+            return mapOf(RestClient.withoutJsonNulls(script.readJSON(file: file)))
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            script.echo "[NEXUS] [WARN] ${file} cannot be read: ${e.message}"
+            return [:]
+        }
+    }
+
+    private Map recordedUpload(String tag, String projectName) {
+        if (!tag) return [:]
+        Map record = readRecord()
+        if (trimmed(record.buildTag) != tag) return [:]
+        Map entry = mapOf(mapOf(record.services)[projectName])
+        return listOf(entry.files) ? entry : [:]
+    }
+
+    private boolean releaseEnabled(String projectName) {
+        def value = mapOf(deliveryCfg().release).enabled
+        Boolean given = switchOf(value)
+        if (given != null) return given
+        boolean fallback = true
+        String place = ''
+        List<Map> places = releaseDefaultPlaces()
+        for (int i = 0; i < places.size() && !place; i++) {
+            Boolean builtIn = switchOf(mapOf((places[i] as Map).values).enabled)
+            if (builtIn != null) {
+                fallback = builtIn
+                place = (places[i] as Map).place as String
+            }
+        }
+        if (value != null) {
+            script.echo "[NEXUS] [WARN] ${projectName}: delivery.release.enabled: ${value} is not true or false - ${fallback}${place ? ' from ' + place : ''} is used instead"
+        }
+        return fallback
+    }
+
+    private List<Map> releaseDefaultPlaces() {
+        Map own = mapOf(mapOf(mapOf(state.cfgDefaults).delivery).release)
+        Map bundled = mapOf(mapOf(mapOf(state.bundledDefaults()).delivery).release)
+        List<Map> places = [[place: state.defaultsPlace(), values: own]]
+        if (bundled != own) places << [place: 'the library defaults', values: bundled]
+        return places
+    }
+
+    private Map releaseFallback(String key, String given, boolean url, String avoid) {
+        List<Map> places = releaseDefaultPlaces()
+        for (int i = 0; i < places.size(); i++) {
+            Map place = places[i] as Map
+            String value = trimmed(mapOf(place.values)[key])
+            boolean valid = url ? validUrl(value) : validId(value)
+            if (value && value != given && valid && !(avoid && sameUrl(value, avoid))) return [value: value, place: place.place]
+        }
+        return [value: '', place: '']
+    }
+
+    @NonCPS
+    private static Boolean switchOf(def value) {
+        if (value instanceof Boolean) return value as Boolean
+        String text = value == null ? '' : value.toString().trim().toLowerCase()
+        if (text in ['true', 'yes', 'y', 'on', '1']) return true
+        if (text in ['false', 'no', 'n', 'off', '0']) return false
+        return null
+    }
+
+    private Map releaseRepository(String projectName, Map record) {
+        Map own = mapOf(deliveryCfg().release)
+        String snapshotUrl = trimmed(record.repositoryUrl)
+        String url = releaseValue(projectName, 'repositoryUrl', own.repositoryUrl, true, snapshotUrl)
+        if (url && snapshotUrl && sameUrl(url, snapshotUrl)) {
+            Map backup = releaseFallback('repositoryUrl', url, true, snapshotUrl)
+            script.echo "[NEXUS] [WARN] ${projectName}: delivery.release.repositoryUrl ${url} is the snapshot repository of '${snapshotStage()}' - " +
+                    (backup.value ? "${backup.value} from ${backup.place} is used instead".toString() : 'a release needs a release repository')
+            url = backup.value as String
+        }
+        String id = releaseValue(projectName, 'repositoryId', own.repositoryId, false, '')
+        if (url && !id && record.upload != 'gradle' && trimmed(record.repositoryId)) {
+            id = trimmed(record.repositoryId)
+            script.echo "[NEXUS] ${projectName}: delivery.release.repositoryId is not set - Maven logs in to ${url} with the server ${id} of the snapshot upload"
+        }
+        String credentialsId = trimmed(own.credentialsId)
+        List<Map> places = releaseDefaultPlaces()
+        for (int i = 0; i < places.size() && !credentialsId; i++) {
+            credentialsId = trimmed(mapOf((places[i] as Map).values).credentialsId)
+        }
+        return [url: url, id: id, credentialsId: credentialsId, allowInsecureProtocol: record.allowInsecureProtocol == true]
+    }
+
+    private String releaseValue(String projectName, String key, def given, boolean url, String avoid) {
+        String value = trimmed(given)
+        if (value && (url ? validUrl(value) : validId(value))) return value
+        Map backup = releaseFallback(key, value, url, value ? avoid : '')
+        if (!value) return backup.value as String
+        String kind = url ? 'an http or https address' : 'a repository id of letters, digits and . _ - only'
+        String outcome = backup.value ? "${backup.value} from ${backup.place} is used instead".toString() : (url ? 'no release repository is left, so nothing is released' : 'it is not used')
+        script.echo "[NEXUS] [WARN] ${projectName}: delivery.release.${key} '${value}' is not ${kind} - ${outcome}"
+        return backup.value as String
+    }
+
+    private List releaseFiles(String projectName, Map record, String variant, String localRepository) {
+        List files = listOf(record.files)
+        String folder = variant == 'extended' ? ((mapOf(deliveryCfg().pull).outputDirectory ?: 'downloaded-artifacts') as String) : ''
+        Map found = [:]
+        List missing = []
+        for (int i = 0; i < files.size(); i++) {
+            Map file = files[i] as Map
+            if (!file.sha256) {
+                script.error "[NEXUS] ${projectName}: ${recordFile()} holds no SHA-256 of ${file.fileName}, so the release cannot prove that it holds the file that passed the gate"
+            }
+            String candidate = folder ? "${folder}/${file.fileName}".toString() : (file.path as String)
+            if (script.fileExists(candidate)) {
+                if (checksum(candidate) == file.sha256) {
+                    found[file.fileName] = candidate
+                    continue
+                }
+                script.echo "[NEXUS] [WARN] ${projectName}: ${candidate} is not the ${file.fileName} that passed the gate - it is downloaded from ${record.repositoryUrl}"
+            }
+            missing << file
+        }
+        if (missing) found.putAll(fetchSnapshot(projectName, record, missing, localRepository))
+        List out = []
+        for (int i = 0; i < files.size(); i++) {
+            Map file = files[i] as Map
+            out << ([:] + file + [local: found[file.fileName]])
+        }
+        return out
+    }
+
+    private Map fetchSnapshot(String projectName, Map record, List files, String localRepository) {
+        String coordinates = "${record.group}:${record.artifact}:${record.version}".toString()
+        Map out = [:]
+        if (record.upload == 'gradle') {
+            String folder = "${releaseFolder(projectName)}/snapshot".toString()
+            runGradle(gradlePullConfig(), [group: record.group, artifact: record.artifact, version: record.version, repositoryUrl: record.repositoryUrl,
+                                           allowInsecureProtocol: record.allowInsecureProtocol == true, artifacts: manifestArtifacts(files, false),
+                                           outputDirectory: folder], 'pull', '', "Nexus release: download ${coordinates}".toString())
+            for (int i = 0; i < files.size(); i++) {
+                Map file = files[i] as Map
+                out[file.fileName] = "${folder}/${file.fileName}".toString()
+            }
+        } else {
+            Map mavenCfg = fetchMavenConfig(record)
+            for (int i = 0; i < files.size(); i++) {
+                Map file = files[i] as Map
+                out[file.fileName] = fetchMaven(mavenCfg, record, record.version, trimmed(record.repositoryId), trimmed(record.repositoryUrl), file, localRepository,
+                        "Nexus release: download ${file.fileName} of ${coordinates}".toString())
+            }
+        }
+        for (int i = 0; i < files.size(); i++) {
+            Map file = files[i] as Map
+            String path = (out[file.fileName] ?: '') as String
+            if (!path || !script.fileExists(path) || checksum(path) != file.sha256) {
+                script.error "[NEXUS] ${projectName}: ${file.fileName} of ${coordinates} in ${record.repositoryUrl} is not the file that passed the gate - nothing is released"
+            }
+        }
+        script.echo "[NEXUS] ${projectName}: downloaded ${files.size()} file(s) of ${coordinates} that passed the gate"
+        return out
+    }
+
+    private String releasedChecksum(String projectName, Map record, Map release, String tag, Map first, String localRepository) {
+        String coordinates = "${record.group}:${record.artifact}:${tag}".toString()
+        String label = "Nexus release: look for ${coordinates} in the release repository".toString()
+        String path = ''
+        try {
+            if (record.upload == 'gradle') {
+                String folder = "${releaseFolder(projectName)}/released".toString()
+                runGradle(gradlePullConfig(), [group: record.group, artifact: record.artifact, version: tag, repositoryUrl: release.url,
+                                               allowInsecureProtocol: release.allowInsecureProtocol == true, credentials: release.credentialsId as boolean,
+                                               artifacts: manifestArtifacts([first], false), outputDirectory: folder], 'pull', release.credentialsId as String, label)
+                path = "${folder}/${first.fileName}".toString()
+            } else {
+                path = fetchMaven(fetchMavenConfig(record), record, tag, release.id as String, release.url as String, first, localRepository, label)
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+            path = ''
+        }
+        if (!path || !script.fileExists(path)) {
+            script.echo "[NEXUS] ${projectName}: ${coordinates} is not in ${release.url} yet"
+            return ''
+        }
+        return checksum(path)
+    }
+
+    private String fetchMaven(Map mavenCfg, Map record, String version, String repositoryId, String repositoryUrl, Map file, String localRepository, String label) {
+        String classifier = trimmed(file.classifier)
+        String coordinates = "${record.group}:${record.artifact}:${version}:${file.extension}${classifier ? ':' + classifier : ''}".toString()
+        Map getCfg = [:] + mavenCfg
+        getCfg.goals = [dependencyGetGoal()]
+        getCfg.label = label
+        runMaven(getCfg, ['-U', mavenProperty('artifact', coordinates), mavenProperty('maven.repo.local', localRepository), mavenProperty('transitive', 'false'),
+                          mavenProperty('remoteRepositories', "${repositoryId ?: 'nexus'}::default::${repositoryUrl}".toString())])
+        return "${localRepository}/${(record.group as String).replace('.', '/')}/${record.artifact}/${version}/${record.artifact}-${version}${classifier ? '-' + classifier : ''}.${file.extension}".toString()
+    }
+
+    private void uploadMaven(String projectName, Map record, Map release, String tag, List files) {
+        Map mavenCfg = uploadMavenConfig(record)
+        if (!mavenCfg.goals) {
+            script.error "[NEXUS] ${projectName}: ${record.upload == 'maven-legacy' ? 'delivery.maven' : 'delivery.push.maven'}.goals must be set in ${state.settingsPlace()} to release the Maven artifacts"
+        }
+        mavenCfg.label = "Nexus release: publish ${record.group}:${record.artifact}:${tag}".toString()
+        Map first = files[0] as Map
+        List flags = []
+        if (release.id) flags << mavenProperty('repositoryId', release.id)
+        flags << mavenProperty('url', release.url)
+        flags << mavenProperty('groupId', record.group)
+        flags << mavenProperty('artifactId', record.artifact)
+        flags << mavenProperty('version', tag)
+        flags << mavenProperty('file', first.local)
+        flags << mavenProperty('packaging', first.extension)
+        flags << mavenProperty('generatePom', 'true')
+        if (first.classifier) flags << mavenProperty('classifier', first.classifier)
+        if (files.size() > 1) {
+            List rest = []
+            for (int i = 1; i < files.size(); i++) rest << files[i]
+            flags << mavenProperty('files', joined(rest, 'local'))
+            flags << mavenProperty('types', joined(rest, 'extension'))
+            flags << mavenProperty('classifiers', joined(rest, 'classifier'))
+        }
+        runMaven(mavenCfg, flags)
+    }
+
+    private void uploadGradle(Map record, Map release, String tag, List files, String label) {
+        Map cfg = mapOf(mapOf(deliveryCfg().push).gradle)
+        runGradle(cfg, [group: record.group, artifact: record.artifact, version: tag, repositoryUrl: release.url,
+                        allowInsecureProtocol: release.allowInsecureProtocol == true, credentials: release.credentialsId as boolean,
+                        artifacts: manifestArtifacts(files, true)], 'push', release.credentialsId as String, label)
+    }
+
+    private List manifestArtifacts(List files, boolean withPath) {
+        List out = []
+        for (int i = 0; i < files.size(); i++) {
+            Map file = files[i] as Map
+            Map artifact = [fileName: file.fileName, extension: file.extension, classifier: file.classifier]
+            if (withPath) artifact.path = absolutePath(file.local as String)
+            out << artifact
+        }
+        return out
+    }
+
+    private Map gradlePullConfig() {
+        Map cfg = [:] + mapOf(mapOf(deliveryCfg().push).gradle)
+        cfg.remove('tasks')
+        List flags = BuildUtils.normalizeTokens(cfg.flags)
+        if (!flags.contains('--refresh-dependencies')) flags << '--refresh-dependencies'
+        cfg.flags = flags
+        return cfg
+    }
+
+    private Map fetchMavenConfig(Map record) {
+        Map cfg = [:] + mavenUploadSettings(record)
+        cfg.flags = withoutDeployFlags(BuildUtils.normalizeTokens(cfg.flags))
+        return cfg
+    }
+
+    private Map uploadMavenConfig(Map record) {
+        Map cfg = [:] + mavenUploadSettings(record)
+        cfg.flags = withoutDeployFlags(BuildUtils.normalizeTokens(cfg.flags))
+        return cfg
+    }
+
+    private Map mavenUploadSettings(Map record) {
+        if (record.upload == 'maven-legacy') return mapOf(deliveryCfg().maven)
+        return mapOf(mapOf(deliveryCfg().push).maven)
+    }
+
+    private String releaseFolder(String projectName) {
+        return "${script.pwd(tmp: true)}/nexus-release/${projectName}".toString()
+    }
+
+    private String relativePath(String path) {
+        String root = "${script.pwd()}/".toString()
+        return path && path.startsWith(root) ? path.substring(root.length()) : path
+    }
+
+    private String absolutePath(String path) {
+        if (isAbsolute(path)) return path
+        return "${script.pwd()}/${path}".toString()
+    }
+
+    private String checksum(String path) {
+        if (sha256Step) {
+            try {
+                return trimmed(script.sha256(file: path)).toLowerCase()
+            } catch (Throwable t) {
+                if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+                sha256Step = false
+                script.echo "[NEXUS] The sha256 step of the Pipeline Utility Steps plugin cannot be used (${t.getClass().getSimpleName()}) - " +
+                        "the SHA-256 of the delivered files is computed with ${os.isWindows() ? 'Get-FileHash' : 'sha256sum'} instead"
+            }
+        }
+        String hash = ''
+        String label = "Nexus delivery: SHA-256 of ${BuildUtils.fileNameOf(path)}".toString()
+        try {
+            if (os.isWindows()) {
+                hash = script.powershell(script: "(Get-FileHash -Algorithm SHA256 -LiteralPath '${path.replace("'", "''")}').Hash", returnStdout: true, label: label) as String
+            } else {
+                String quoted = BuildUtils.escapeForSingleQuotes(path)
+                hash = script.sh(script: "(sha256sum -- '${quoted}' 2>/dev/null || shasum -a 256 -- '${quoted}') | cut -d ' ' -f 1", returnStdout: true, label: label) as String
+            }
+        } catch (Exception e) {
+            if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
+        }
+        hash = trimmed(hash).toLowerCase()
+        if (hash ==~ /[0-9a-f]{64}/) return hash
+        script.echo "[NEXUS] [WARN] The SHA-256 of ${path} cannot be computed - the file cannot be proven to be the one that passed the gate, so it is not released"
+        return ''
+    }
+
+    private String buildTool() {
+        return ((state.cfg.buildTool ?: '') as String).trim()
     }
 
     private void notRequired(String reason) {
@@ -442,6 +885,76 @@ class NexusDeliveryService implements Serializable {
     @NonCPS
     static String buildTagFile() {
         return 'build.tag'
+    }
+
+    @NonCPS
+    static String recordFile() {
+        return 'nexus-delivery.json'
+    }
+
+    @NonCPS
+    static String snapshotStage() {
+        return 'Nexus delivery (Static analysis passed)'
+    }
+
+    @NonCPS
+    static String dependencyGetGoal() {
+        return 'org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get'
+    }
+
+    @NonCPS
+    static String trimmed(def value) {
+        return value == null ? '' : value.toString().trim()
+    }
+
+    @NonCPS
+    static boolean validUrl(String value) {
+        return (value ==~ /https?:\/\/[^\s'"`]+/) as boolean
+    }
+
+    @NonCPS
+    static boolean validId(String value) {
+        return (value ==~ /[A-Za-z0-9_.-]+/) as boolean
+    }
+
+    @NonCPS
+    static boolean sameUrl(String one, String other) {
+        return one.replaceAll('/+$', '').toLowerCase() == other.replaceAll('/+$', '').toLowerCase()
+    }
+
+    @NonCPS
+    static boolean isAbsolute(String path) {
+        return path != null && (path.startsWith('/') || path.startsWith('\\') || (path ==~ /[A-Za-z]:[\\\/].*/))
+    }
+
+    @NonCPS
+    static Map mavenCoordinates(Map mavenCfg) {
+        Map out = [:]
+        Map names = [groupId: 'group', artifactId: 'artifact', repositoryId: 'repositoryId', url: 'repositoryUrl']
+        for (def flag : BuildUtils.normalizeTokens(mavenCfg?.flags)) {
+            String value = flag as String
+            for (def entry : names.entrySet()) {
+                String prefix = "-D${entry.key}=".toString()
+                if (value.startsWith(prefix)) out[entry.value] = value.substring(prefix.length())
+            }
+        }
+        return out
+    }
+
+    @NonCPS
+    static List withoutDeployFlags(List flags) {
+        List reserved = ['repositoryId', 'url', 'groupId', 'artifactId', 'version', 'file', 'packaging', 'classifier', 'files', 'types',
+                         'classifiers', 'pomFile', 'generatePom', 'artifact', 'maven.repo.local', 'transitive', 'remoteRepositories']
+        List out = []
+        for (def flag : flags) {
+            String value = flag as String
+            boolean drop = false
+            for (def name : reserved) {
+                if (value.startsWith("-D${name}=".toString())) drop = true
+            }
+            if (!drop) out << value
+        }
+        return out
     }
 
     @NonCPS

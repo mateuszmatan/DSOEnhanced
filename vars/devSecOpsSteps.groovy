@@ -8,7 +8,7 @@ def monitorSources(def api, Map options = [:]) {
         }
         String upstream = (options.copyArtifactsFrom ?: '') as String
         if (upstream) {
-            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json,build.tag', selector: lastSuccessful())
+            copyArtifacts(projectName: upstream, filter: 'pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json', selector: lastSuccessful())
         }
         api.initialize()
         api.checkoutAdditionalRepositories()
@@ -266,9 +266,6 @@ def nexusReleaseDelivery(def api, Map options = [:]) {
             if (api.databaseBlock()) {
                 api.databaseDelivery('release')
             } else {
-                if (options.nodeBuild && api.nodeBuildEnabled() && api.releaseDeliveryAvailable()) {
-                    api.nodeBuild()
-                }
                 api.publishArtifactQC()
             }
         }

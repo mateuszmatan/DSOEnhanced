@@ -179,6 +179,16 @@ class PipelineState implements Serializable {
     }
 
     @NonCPS
+    String defaultsPlace() {
+        return configFile ? 'the library defaults' : 'the Global Settings'
+    }
+
+    @NonCPS
+    Map bundledDefaults() {
+        return libraryDefaults ?: cfgDefaults
+    }
+
+    @NonCPS
     Map appScanKeyDefaults() {
         return libraryDefaults ?: cfgDefaults
     }

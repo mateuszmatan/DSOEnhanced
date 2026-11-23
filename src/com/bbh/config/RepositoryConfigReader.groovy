@@ -62,12 +62,14 @@ class RepositoryConfigReader implements Serializable {
         try {
             def bundled = script.readYaml(text: script.libraryResource(name))
             Map defaults = ((bundled instanceof Map ? (bundled as Map).defaults : null) ?: [:]) as Map
+            Map delivery = (defaults.delivery instanceof Map ? defaults.delivery : [:]) as Map
             return [asoc: ((defaults.asoc instanceof Map ? defaults.asoc : [:]) as Map), report: ((defaults.report instanceof Map ? defaults.report : [:]) as Map),
-                    pluginRepositories: ((defaults.pluginRepositories instanceof Map ? defaults.pluginRepositories : [:]) as Map)]
+                    pluginRepositories: ((defaults.pluginRepositories instanceof Map ? defaults.pluginRepositories : [:]) as Map),
+                    delivery: [release: ((delivery.release instanceof Map ? delivery.release : [:]) as Map)]]
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            script.echo "[WARN] The library resource ${name} cannot be read (${e.message}): SAST and DAST take the AppScan on Cloud API key of the functional user from it, the report the minutes of the manual steps, and Gradle and Maven the plugin repositories of the BBH Nexus"
-            return [asoc: [:], report: [:], pluginRepositories: [:]]
+            script.echo "[WARN] The library resource ${name} cannot be read (${e.message}): SAST and DAST take the AppScan on Cloud API key of the functional user from it, the report the minutes of the manual steps, Gradle and Maven the plugin repositories of the BBH Nexus, and the release of the safe artifact its release repository"
+            return [asoc: [:], report: [:], pluginRepositories: [:], delivery: [release: [:]]]
         }
     }
 

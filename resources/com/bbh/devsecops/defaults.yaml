@@ -82,6 +82,13 @@ defaults:
       dast:             360        # ticket to CyberTrack for a DAST
       higherDeployment: 0          # ticket to SRM for the deployment to the higher test region
 
+  delivery:
+    release:                       # stage 12: the files stage 6 published as <tag>-SNAPSHOT are published once more as <tag>, after the release gate
+      enabled:       true
+      repositoryUrl: ""            # Nexus release repository, e.g. https://tools.bbh.com/nexus/repository/maven-releases/; empty = no release, the snapshot stays the delivered artifact
+      repositoryId:  ""            # Maven: server id of the release repository in the settings.xml of the agents [default: the server id of the snapshot upload]
+      credentialsId: ""            # Gradle: Jenkins Username with password for the release repository; empty = no login is sent, as for the snapshot
+
   releaseGate:                     # a stage that breaks the policy above turns orange and blocks these two stages
     scanners:        [sast, sca, niq, dast]
     requireCoverage: true          # line coverage must reach coverage.minLine of this file

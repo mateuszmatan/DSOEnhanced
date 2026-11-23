@@ -31,6 +31,9 @@ publishing {
             name = 'nexus'
             url = uri(manifest.repositoryUrl)
             allowInsecureProtocol = manifest.allowInsecureProtocol
+            if (manifest.credentials) {
+                credentials(PasswordCredentials)
+            }
         }
     }
 }
@@ -39,8 +42,12 @@ tasks.withType(GenerateModuleMetadata).configureEach { enabled = false }
 
 repositories {
     maven {
+        name = 'nexus'
         url = uri(manifest.repositoryUrl)
         allowInsecureProtocol = manifest.allowInsecureProtocol
+        if (manifest.credentials) {
+            credentials(PasswordCredentials)
+        }
         metadataSources {
             mavenPom()
             artifact()

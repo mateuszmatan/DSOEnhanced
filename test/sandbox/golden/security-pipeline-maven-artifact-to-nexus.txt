@@ -645,6 +645,7 @@ sh [Maven: deploy:deploy-file]
             set -euo pipefail
             'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots' '-Durl=https://tools.bbh.com/nexus/repository/snapshots' '-DgroupId=com.bbh.certscanner' '-DartifactId=certscanner-api' '-DgeneratePom=true' '-Dversion=214-<stamp>-SNAPSHOT' '-Dpackaging=jar' '-Dfile=target/certscanner-api.jar'
         
+sha256 target/certscanner-api.jar
 sh mkdir -p /ws/report
 withEnv [INFLUX_URL=http://qcwsecopsmon1.testbbh.com:8086/api/v2/write?org=DevSecOps&bucket=DORA-metrics&precision=s, INFLUX_FILE=influx_payload_<ms>.txt, INFLUX_RESPONSE=influx_response_<ms>.txt, INFLUX_TOKEN=3m5H2lOEyUiUQLrDi1DT2Ws2GatOW9lhVPez9kbWqDoWJP8o07meyl3XXbeI-GWZayZrw93h_DPfjNu_CrLBiQ==]
 sh set +x
@@ -679,7 +680,7 @@ if [ "$code" -ge 300 ]; then
 fi
 
 sh rm -f 'oneview_report_<ms>.json' 'oneview_response_<ms>.json'
-archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag
+archiveArtifacts report/pipeline-report.html,appscan-report*.html,pipeline-config.yaml,release-gate.json,build.tag,nexus-delivery.json
 publishHTML pipeline-report.html
 cleanWs
 == log
@@ -812,6 +813,7 @@ Report files found: 0
 Found a file: target/certscanner-api.jar.
 Maven is installed on this agent
 Execute Maven Command: 'mvn' 'deploy:deploy-file' '-DrepositoryId=bbh-snapshots' '-Durl=https://tools.bbh.com/nexus/repository/snapshots' '-DgroupId=com.bbh.certscanner' '-DartifactId=certscanner-api' '-DgeneratePom=true' '-Dversion=214-<stamp>-SNAPSHOT' '-Dpackaging=jar' '-Dfile=target/certscanner-api.jar'
+[NEXUS] backend-api: nexus-delivery.json records the SHA-256 of the 1 uploaded file(s) for the release
 ------------------------------------------------------------
 [STAGE]  Nexus delivery (Static analysis passed)
 [RESULT] PASS
