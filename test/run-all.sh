@@ -62,6 +62,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== the static analysis switch, the restored order and the staging removal ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/StaticAnalysisScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== the static analysis in parallel on Windows agents: the SAST copy, the workspace turns and the fallbacks ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/WindowsStaticScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1

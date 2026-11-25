@@ -32,7 +32,7 @@ projects:
       doCompile:   true              # compile the project before the IRX is generated
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
       useAppScanConfig: false        # true: use appscan-config.xml from the repository
-      # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another on Linux/macOS
+      # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another when the workspace cannot be copied for SAST
       # maven:  {goals: ['compile']}                   # optional SAST compile instead of build.maven; never 'clean', which deletes target/ before the Nexus delivery
       # dotnet: {solution: '', configuration: 'Release'}   # optional SAST compile override for C#/.NET instead of build.dotnet
 
@@ -41,7 +41,7 @@ projects:
 
     staticAnalysis:
       parallel: true                 # unit tests, Nexus IQ, SAST and SonarQube at the same time; false in any service of the run: one after another
-                                     # (SAST compiles in a copy of the workspace; a Windows agent runs them one after another)
+                                     # (SAST compiles in a copy of the workspace; on a Windows agent the other three take turns on the workspace)
                                      # [default: true, so the key can be left out; the environment variable DSO_STATIC_ANALYSIS_PARALLEL decides first]
 
     dynamicAnalysis:

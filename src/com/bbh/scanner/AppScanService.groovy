@@ -125,23 +125,25 @@ _OPTS="$APPSCAN_OPTS -Dhttp.proxyPassword=$_PP -Dhttps.proxyPassword=$_PP"'''
                     def modules = hasIncluded ? modulesRaw.split(',').collect { "'${it.trim()}'" }.join(',') : ''
                     String xdList = isDotnet
                             ? 'sast_directory .git obj packages TestResults .appscan-tools .appscan-logs .appscan-home .appscan-bin .scannerwork .sonar node_modules DevSecOpsJenkinsLibrary'
-                            : 'test test_utils Tests'
+                            : 'test test_utils Tests sast_directory .appscan-tools .appscan-logs .appscan-home .appscan-bin'
                     String copyBlock = hasIncluded ? """
 foreach (\$folder in ${modules}){
     \$srcPath = "\$env:APPSCAN_SOURCE_DIR_RUNTIME\\\$folder"
     \$targetPath = "\$sastDirectory\\\$folder"
     if (Test-Path \$srcPath){
-        robocopy "\$srcPath" "\$targetPath" /E /XD ${xdList} /MT:16 /NFL /NDL /NJH /NP /NS
+        robocopy "\$srcPath" "\$targetPath" /E /XD ${xdList} /R:2 /W:2 /MT:16 /NFL /NDL /NJH /NP /NS
+        if (\$LASTEXITCODE -ge 8) { Write-Error "[ERROR] robocopy could not stage \$srcPath for the IRX (exit code \$LASTEXITCODE)"; exit 1 }
     }
 }""" : """
-robocopy "\$env:APPSCAN_SOURCE_DIR_RUNTIME" "\$sastDirectory" /E /XD ${xdList} /MT:16 /NFL /NDL /NJH /NP /NS
+robocopy "\$env:APPSCAN_SOURCE_DIR_RUNTIME" "\$sastDirectory" /E /XD ${xdList} /R:2 /W:2 /MT:16 /NFL /NDL /NJH /NP /NS
+if (\$LASTEXITCODE -ge 8) { Write-Error "[ERROR] robocopy could not stage \$env:APPSCAN_SOURCE_DIR_RUNTIME for the IRX (exit code \$LASTEXITCODE)"; exit 1 }
 """
                     String libOption = isDotnet
                             ? (scoOption ? "${scoOption} " : '')
                             : "${scoOption ? scoOption + ' ' : ''}-l \"\$env:APPSCAN_SOURCE_DIR_RUNTIME\\lib;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\modules;\$env:APPSCAN_SOURCE_DIR_RUNTIME\\plugins\""
                     script.powershell """
 \$ErrorActionPreference = 'Stop'
-\$env:HOME        = \$env:APPSCAN_HOME_DIR
+${BuildUtils.windowsFolderRemoval()}\$env:HOME        = \$env:APPSCAN_HOME_DIR
 \$env:USERPROFILE = \$env:APPSCAN_HOME_DIR
 Remove-Item -Force "\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx" -ErrorAction SilentlyContinue
 
@@ -154,9 +156,12 @@ Write-Host "[IRX] .NET C# source files staged: \$csCount"
 Set-Location -Path \$sastDirectory
 & ${appscanPath} prepare -s thorough -n "\$env:APPSCAN_SCAN_NAME" -d "\$env:WORKSPACE" ${libOption} 2>&1 |
     Out-File -FilePath "\$env:APPSCAN_LOG_DIR/prepare.log" -Encoding UTF8
+\$prepareCode = \$LASTEXITCODE
 if (-not (Test-Path "\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx")) { Write-Error "[ERROR] IRX not found after prepare"; exit 1 }
 Write-Host "[INFO] IRX size: \$((Get-Item \"\$env:WORKSPACE/\$env:APPSCAN_SCAN_NAME.irx\").Length) bytes"
 Set-Location -Path "\$env:WORKSPACE"
+if (-not (Remove-DsoFolder \$sastDirectory)) { Write-Host "[WARN] [SAST] \$sastDirectory could not be removed completely - the next SAST staging removes it first" }
+exit \$prepareCode
 """
                 } else {
                     if (doCompile) {
@@ -454,7 +459,9 @@ echo "[INFO] IRX size: \$(wc -c < "\$WORKSPACE/\$APPSCAN_SCAN_NAME.irx" | tr -d 
 
     void removeStagedSources() {
         if (os.isWindows()) {
-            script.powershell 'Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'
+            int code = script.powershell(label: 'Remove the SAST staging folder', returnStatus: true,
+                    script: BuildUtils.windowsFolderRemovalScript('(Join-Path $env:WORKSPACE \'sast_directory\')')) as int
+            if (code != 0) script.echo "[WARN] [SAST] The SAST staging folder sast_directory could not be removed completely from the workspace - the next SAST staging removes it first"
         } else {
             script.sh 'rm -rf "$WORKSPACE/appscan-source-staged"'
         }

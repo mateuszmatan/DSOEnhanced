@@ -89,7 +89,7 @@ class ScenarioRunner {
             if (spec.fail && project() == 'backend-api' && label.startsWith('Maven: test')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakSast && text.contains('Account/ApiKeyLogin')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakSastWait && text.contains('/api/v4/Scans/Sast/')) throw new FakeAbort('script returned exit code 1')
-            if (spec.breakSastCopy && label == 'Copy the workspace for the SAST compile and scan') throw new FakeAbort('tar: write error: No space left on device')
+            if (spec.breakSastCopy && label == 'Copy the workspace for the SAST compile and scan') throw new FakeAbort('script returned exit code 2')
             if (spec.breakBuild && label.startsWith('Gradle: ')) throw new FakeAbort('script returned exit code 1')
             if (spec.breakNode && label.startsWith('Node.js: ')) throw new FakeAbort('script returned exit code 1')
             if (a.returnStatus) return 0

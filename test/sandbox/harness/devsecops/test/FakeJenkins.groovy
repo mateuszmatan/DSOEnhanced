@@ -141,6 +141,7 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     List<Object> timeouts = []
 
     String agentWorkspace = ''
+    String agentTmp = '/ws@tmp'
 
     private String norm(Object path) {
         String p = String.valueOf(path)
@@ -319,7 +320,8 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     def onAgent(Object label, Closure body) {
         Map<String, String> saved = [NODE_NAME: env.vars.get('NODE_NAME'), WORKSPACE: env.vars.get('WORKSPACE'), WORKSPACE_TMP: env.vars.get('WORKSPACE_TMP')]
-        env.vars.putAll([NODE_NAME: String.valueOf(label), WORKSPACE: '/ws', WORKSPACE_TMP: '/ws@tmp'])
+        env.vars.putAll([NODE_NAME: String.valueOf(label), WORKSPACE: '/ws'])
+        if (agentTmp) env.vars.put('WORKSPACE_TMP', agentTmp) else env.vars.remove('WORKSPACE_TMP')
         String savedAgentWorkspace = agentWorkspace
         agentWorkspace = '/ws'
         try {
@@ -371,15 +373,50 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
     }
     List<Map> stepArgs = []
     def step(Map args) { stepArgs << args; calls << "step ${args.get('$class')}".toString() }
+
+    /**
+     * interleave lets the branches of a parallel step take turns as on an agent with free executors:
+     * a branch whose waitUntil is false lets the next branch that has not started run before it checks
+     * again, after waitSleepMs. The branch it lets run, and every branch that one lets run in turn, ends
+     * before the waiting branch checks again: the waiting branch sees one branch ended while another has
+     * not ended only when the other one has not started yet, as Nexus IQ with parallelOrder
+     * [SCA (SonarQube), Unit tests], or is a branch that let it run, directly or through others. Such a
+     * branch cannot end before the waiting one, so a parallelOrder in which a branch is let in by a
+     * branch it waits for, for example [Dependencies scan (Nexus IQ), SCA (SonarQube)], fails with
+     * waitUntil never became true. parallelOrder names the branches that start first. Off by default,
+     * so the branches run one after another in the order of the map.
+     */
+    boolean interleave = false
+    List<String> parallelOrder = []
+    long waitSleepMs = 0L
+    List<Map> parallelRuns = []
+    List<String> waitChecks = []
+
     def waitUntil(Closure body) {
         int attempts = 0
         while (!(body.call() as boolean)) {
+            Map group = interleave && parallelRuns ? parallelRuns[-1] : null
+            if (group != null && !(group.queue as List).isEmpty()) {
+                if (waitSleepMs > 0L) Thread.sleep(waitSleepMs)
+                Map next = (group.queue as List).remove(0) as Map
+                waitChecks << "${env.vars.get('DSO_PARALLEL_BRANCH') ?: ''} lets ${next.name} run".toString()
+                runBranch(group, next)
+                continue
+            }
             if (++attempts > 20) throw new FakeAbort('waitUntil never became true')
         }
     }
     def waitUntil(Map args, Closure body) { waitUntil(body) }
     def lastSuccessful() { [:] }
+    private void runBranch(Map group, Map branch) {
+        try {
+            (branch.body as Closure).call()
+        } catch (Throwable t) {
+            (group.errors as List) << t
+        }
+    }
     def parallel(Map branches) {
+        if (interleave) return interleaved(branches)
         calls << "parallel ${branches.keySet().findAll { it != 'failFast' }.size()}".toString()
         boolean failFast = branches.failFast == true
         Throwable first = null
@@ -392,6 +429,22 @@ class FakeScript extends GroovyObjectSupport implements Serializable {
             }
         }
         if (first != null) throw first
+    }
+    private Object interleaved(Map branches) {
+        calls << "parallel ${branches.keySet().findAll { it != 'failFast' }.size()}".toString()
+        List<String> names = branches.keySet().findAll { it != 'failFast' && branches[it] instanceof Closure }.collect { it as String }
+        List<String> order = parallelOrder.findAll { names.contains(it) } + names.findAll { !parallelOrder.contains(it) }
+        Map group = [queue: order.collect { String name -> [name: name, body: branches[name]] }, errors: []]
+        parallelRuns << group
+        try {
+            while (!(group.queue as List).isEmpty()) {
+                runBranch(group, (group.queue as List).remove(0) as Map)
+            }
+        } finally {
+            parallelRuns.remove(parallelRuns.size() - 1)
+        }
+        if (group.errors) throw (group.errors as List)[0] as Throwable
+        return null
     }
 
     Object methodMissing(String name, Object args) {
