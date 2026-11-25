@@ -5,7 +5,7 @@
 # compares the shared files of three source folders.
 # Usage: bash test/ci/ci-scenarios.sh
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-T="$(mktemp -d)"
+T="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 failures=0
 check() {
@@ -195,7 +195,7 @@ G="$T/repository"
 mkdir -p "$G/examples/reports" "$G/src" "$G/test/sandbox/golden"
 (cd "$G" && git init -q && git config user.email ci@example.invalid && git config user.name ci \
   && echo one > examples/reports/full-pipeline-pass.html && echo code > src/Main.groovy && echo build/ > .gitignore \
-  && git add . && git commit -q -m initial) > /dev/null 2>&1
+  && git add . && git -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q -m initial) > /dev/null 2>&1
 echo two > "$G/examples/reports/full-pipeline-pass.html"
 echo diff > "$G/test/sandbox/golden/full-pipeline-orange.actual.txt"
 mkdir -p "$G/build/ci" && echo log > "$G/build/ci/run-all.log"

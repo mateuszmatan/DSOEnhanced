@@ -373,7 +373,7 @@ Verified with `test/run-all.sh` of both branches. Not verified on the BBH Jenkin
 
 ## 32. Release of the safe artifact (2026-11-23)
 
-Changed first in `DSOEnhancedWithoutPortal`, then in `main`. The design was chosen on 2026-11-23: the build tag as the release version, npm and pip through Maven, a new `delivery.release` block. Every `Jenkinsfile`, `devsecops_config.yaml`, `config.yaml` and every set of OneView settings works as before; without a release repository, which neither the bundled defaults nor the Global Settings of OneView set, stage 12 is `NOT_REQUIRED` as before.
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`. The design was chosen on 2026-11-23: the build tag as the release version, npm and pip through Maven, a new `delivery.release` block. Every `Jenkinsfile`, `devsecops_config.yaml`, `config.yaml` and every set of OneView settings works as before; for a Maven, Gradle, npm or pip service without a release repository, which neither the bundled defaults nor the Global Settings of OneView set, stage 12 is `NOT_REQUIRED` as before.
 
 | Topic | Result |
 |---|---|
@@ -381,8 +381,8 @@ Changed first in `DSOEnhancedWithoutPortal`, then in `main`. The design was chos
 | **Proof** | A file is released only when its SHA-256 is the recorded one: from the workspace, from `delivery.pull.outputDirectory` or downloaded again from the snapshot repository. A file whose SHA-256 cannot be computed is not released. |
 | **Running again** | The release is looked up first: with the same file the stage passes without an upload, with another file it fails and the release is not replaced. |
 | **Settings** | `delivery.release` (`enabled`, `repositoryUrl`, `repositoryId`, `credentialsId`) in the Global Settings of OneView and in the library defaults, which apply to a value the Global Settings leave empty, as for `pluginRepositories`; overridable per service, with `[WARN]` and the value of the Global Settings or the library defaults for a wrong value. `delivery.nuget.releaseSource` and `releaseCredentialsId` for .NET. |
-| **Build tools** | Maven and Gradle as in stage 6; npm and pip upload their package file with `delivery.push.maven`; .NET pushes to the release feed with `--skip-duplicate`; OpenShift and Flutter keep the artifacts of stage 6 and say so. |
-| **Tests** | `test/sandbox/ReleaseScenarios.groovy`: 8 pipeline runs and 25 runs of `NexusDeliveryService`; twelve golden files recorded again (`test/README.md`). |
+| **Build tools** | Maven and Gradle as in stage 6; npm and pip upload their package file with `delivery.push.maven`; .NET pushes to the release feed with `--skip-duplicate` in the full pipeline only; without a release feed, stage 12 no longer pushes on a VM with Nexus delivery on, and the extended pipeline pushes none; OpenShift and Flutter keep the artifacts of stage 6 and say so. |
+| **Tests** | `test/sandbox/ReleaseScenarios.groovy`: 8 pipeline runs and 30 runs of `NexusDeliveryService`; twelve golden files recorded again (`test/README.md`). |
 
 Verified with `test/run-all.sh` of both branches. Not verified against the BBH Nexus: the release repository and its id are not known yet, and the version of the Pipeline Utility Steps plugin at BBH (the `sha256` step) was not checked, so the shell fallback is in place.
 
