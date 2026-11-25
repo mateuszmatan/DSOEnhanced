@@ -241,7 +241,9 @@ def runInParallel(String group, List names, Map bodies, List scanners = []) {
                     body()
                 }
             } finally {
-                timings[name] = [stage: name, ms: System.currentTimeMillis() - start, waitMs: (kit.waitMs ?: 0L) as long]
+                Map timing = [stage: name, ms: System.currentTimeMillis() - start, waitMs: (kit.waitMs ?: 0L) as long]
+                if (kit.waitFor) timing.waitFor = kit.waitFor as String
+                timings[name] = timing
                 _branchesEnded << name
             }
         }
@@ -290,6 +292,33 @@ def awaitUnitTests(String unitBranch) {
     echo "[STATIC] ${name}: SonarQube starts after waiting ${BuildUtils.formatDuration(waited)} for the unit tests"
 }
 
+def awaitWorkspaceTurn(String stage) {
+    _setup()
+    if (!_branches) return
+    List order = [PolicyEngine.stageNameFor('unit'), PolicyEngine.stageNameFor('niq'), PolicyEngine.stageNameFor('sca')]
+    List turn = BuildUtils.workspaceTurn(stage, order, _os.isWindows())
+    List pending = _branchesRunning(turn)
+    if (!pending) return
+    Map kit = _kit()
+    String names = BuildUtils.namesText(pending)
+    echo "[STATIC] Windows agent: ${stage} waits until ${names} ${pending.size() == 1 ? 'has' : 'have'} ended - one build at a time in the workspace"
+    long start = System.currentTimeMillis()
+    waitUntil(quiet: true) { _branchesRunning(turn).isEmpty() }
+    long waited = System.currentTimeMillis() - start
+    kit.waitMs = ((kit.waitMs ?: 0L) as long) + waited
+    kit.waitFor = names
+    echo "[STATIC] Windows agent: ${stage} starts after waiting ${BuildUtils.formatDuration(waited)}"
+}
+
+private List _branchesRunning(List names) {
+    List running = []
+    for (int i = 0; i < names.size(); i++) {
+        String name = names[i] as String
+        if (_branches.containsKey(name) && !_branchesEnded.contains(name)) running << name
+    }
+    return running
+}
+
 private boolean _unitTestsReady(String unitBranch, List peers) {
     if (_branchesEnded.contains(unitBranch)) return true
     for (int i = 0; i < peers.size(); i++) {
@@ -301,6 +330,7 @@ private boolean _unitTestsReady(String unitBranch, List peers) {
 def prepareSastWorkspace() {
     _setup()
     _sastWorkspace = ''
+    if (_os.isWindows()) return _prepareWindowsSastWorkspace()
     String base = (env.WORKSPACE_TMP ?: "${env.WORKSPACE}@tmp") as String
     String copy = "${base}/dso-sast-workspace".toString()
     try {
@@ -317,9 +347,34 @@ tar -C "$WORKSPACE" --exclude=./.appscan-tools --exclude=./.appscan-logs --exclu
         return true
     } catch (Throwable t) {
         if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
-        echo "[WARN] [STATIC] The workspace could not be copied for SAST (${t.message ?: t.getClass().getSimpleName()}) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans"
+        _sastCopyFailed((t.message ?: t.getClass().getSimpleName()) as String)
         return false
     }
+}
+
+private boolean _prepareWindowsSastWorkspace() {
+    String base = ((env.WORKSPACE_TMP ?: "${env.WORKSPACE}@tmp") as String).replace('/', '\\')
+    String copy = "${base}\\dso-sast".toString()
+    try {
+        int code = withEnv(["DSO_SAST_WORKSPACE=${copy}"]) {
+            powershell(label: 'Copy the workspace for the SAST compile and scan', returnStatus: true, script: BuildUtils.windowsSastCopyScript())
+        } as int
+        if (code != 0) {
+            _sastCopyFailed(BuildUtils.windowsCopyFailure(code))
+            return false
+        }
+        _sastWorkspace = copy
+        echo "[STATIC] SAST compiles and prepares its scans in a copy of the workspace (${copy}) at the same time as the other stages; on this Windows agent Unit tests, Nexus IQ and SonarQube take turns on the workspace, as a build there locks and rewrites the files Nexus IQ scans"
+        return true
+    } catch (Throwable t) {
+        if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+        _sastCopyFailed((t.message ?: t.getClass().getSimpleName()) as String)
+        return false
+    }
+}
+
+private void _sastCopyFailed(String reason) {
+    echo "[WARN] [STATIC] The workspace could not be copied for SAST (${reason}) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans"
 }
 
 def inSastWorkspace(Closure body) {
@@ -327,6 +382,10 @@ def inSastWorkspace(Closure body) {
     String copy = _sastWorkspace
     if (!copy || !_branches) {
         body()
+        return
+    }
+    if (_os.isWindows()) {
+        _inWindowsSastWorkspace(copy, body)
         return
     }
     try {
@@ -340,6 +399,28 @@ def inSastWorkspace(Closure body) {
         withEnv(["DSO_SAST_WORKSPACE=${copy}"]) {
             sh(label: 'Remove the SAST copy of the workspace', script: 'rm -rf "$DSO_SAST_WORKSPACE"')
         }
+    }
+}
+
+private void _inWindowsSastWorkspace(String copy, Closure body) {
+    String workspace = (env.WORKSPACE ?: '') as String
+    try {
+        dir(copy) {
+            withEnv(["WORKSPACE=${copy}", "DSO_WORKSPACE=${workspace}", 'MSBUILDDISABLENODEREUSE=1', 'UseSharedCompilation=false']) {
+                body()
+            }
+        }
+    } finally {
+        _sastWorkspace = ''
+        int code = 1
+        try {
+            code = withEnv(["DSO_SAST_WORKSPACE=${copy}"]) {
+                powershell(label: 'Remove the SAST copy of the workspace', returnStatus: true, script: BuildUtils.windowsCopyRemovalScript())
+            } as int
+        } catch (Throwable t) {
+            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+        }
+        if (code != 0) echo "[WARN] [STATIC] The SAST copy of the workspace (${copy}) could not be removed completely - the next build removes it before it copies the workspace"
     }
 }
 
@@ -384,13 +465,8 @@ def checkoutAdditionalRepositories() {
 def parallelScans() {
     _setup()
     if (_parallelScans == null) {
-        boolean wanted = _parallelSwitch('staticAnalysis', env.DSO_STATIC_ANALYSIS_PARALLEL, 'DSO_STATIC_ANALYSIS_PARALLEL',
+        _parallelScans = _parallelSwitch('staticAnalysis', env.DSO_STATIC_ANALYSIS_PARALLEL, 'DSO_STATIC_ANALYSIS_PARALLEL',
                 'Unit tests, Nexus IQ, SAST and SonarQube run at the same time', 'Unit tests, Nexus IQ, SAST and SonarQube run one after another')
-        if (wanted && _os.isWindows()) {
-            echo '[STATIC] Windows agent: Unit tests, Nexus IQ, SAST and SonarQube run one after another, as the SAST staging of Windows uses the workspace'
-            wanted = false
-        }
-        _parallelScans = wanted
     }
     return _parallelScans
 }

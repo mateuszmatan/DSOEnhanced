@@ -67,6 +67,7 @@ def buildArtifacts(def api) {
 
 def dependenciesScan(def api) {
     api.runStage('Dependencies scan (Nexus IQ)') {
+        api.awaitWorkspaceTurn('Dependencies scan (Nexus IQ)')
         api.eachProject {
             api.depVulnScan()
         }
@@ -166,6 +167,7 @@ def sastResults(def api) {
 
 def sonarQube(def api) {
     api.runStage('SCA (SonarQube)') {
+        api.awaitWorkspaceTurn('SCA (SonarQube)')
         api.eachProject {
             api.awaitUnitTests('Unit tests')
             api.codeQualityScan()

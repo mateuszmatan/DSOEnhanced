@@ -240,6 +240,121 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static List workspaceTurn(String stage, List order, boolean windows) {
+        List before = []
+        if (!windows) return before
+        List stages = (order ?: []) as List
+        int at = stages.indexOf(stage)
+        for (int i = 0; i < at; i++) before << (stages[i] as String)
+        return before
+    }
+
+    @NonCPS
+    static String namesText(List names) {
+        List all = (names ?: []) as List
+        if (all.size() < 2) return all ? (all[0] as String) : ''
+        return "${all.subList(0, all.size() - 1).join(', ')} and ${all[-1]}".toString()
+    }
+
+    @NonCPS
+    static List<String> windowsSastCopyExcludes() {
+        return ['.appscan-tools', '.appscan-logs', '.appscan-home', '.appscan-bin', 'appscan-source-staged', 'sast_directory', '.sonarqube', '.scannerwork']
+    }
+
+    @NonCPS
+    static String windowsFolderRemoval() {
+        return '''function Remove-DsoFolder([string]$dsoFolder) {
+    if (-not (Test-Path -LiteralPath $dsoFolder)) { return $true }
+    $dsoEmpty = $dsoFolder + '.empty'
+    New-Item -ItemType Directory -Force -Path $dsoEmpty | Out-Null
+    robocopy $dsoEmpty $dsoFolder /MIR /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+    Remove-Item -LiteralPath $dsoFolder -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $dsoEmpty -Recurse -Force -ErrorAction SilentlyContinue
+    return (-not (Test-Path -LiteralPath $dsoFolder))
+}
+'''
+    }
+
+    @NonCPS
+    static String windowsSastCopyScript() {
+        List<String> excludes = windowsSastCopyExcludes()
+        String quoted = excludes.collect { String name -> "'${name}'".toString() }.join(', ')
+        return "\$ErrorActionPreference = 'Stop'\n" + windowsFolderRemoval() + '''try {
+    $source = $env:WORKSPACE.Replace('/', '\\').TrimEnd('\\')
+    $target = $env:DSO_SAST_WORKSPACE.TrimEnd('\\')
+    $excluded = @(''' + quoted + ''')
+    if (-not (Remove-DsoFolder $target)) {
+        Write-Host "[STATIC] The copy of an earlier build is still in $target"
+        exit 4
+    }
+    $null = Remove-DsoFolder (Join-Path $source 'sast_directory')
+    $root = '\\\\?\\' + $source
+    if ($source.StartsWith('\\\\')) { $root = '\\\\?\\UNC\\' + $source.Substring(2) }
+    $longest = 0
+    $longestPath = ''
+    $pending = New-Object System.Collections.Stack
+    $pending.Push((New-Object System.IO.DirectoryInfo -ArgumentList $root))
+    while ($pending.Count -gt 0) {
+        $folder = $pending.Pop()
+        foreach ($entry in $folder.EnumerateFileSystemInfos()) {
+            $isFolder = ($entry.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+            if ($isFolder -and ($excluded -contains $entry.Name)) { continue }
+            $path = $source + $entry.FullName.Substring($root.Length)
+            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                Write-Host "[STATIC] $path is a junction or symbolic link"
+                exit 3
+            }
+            $length = $target.Length + $entry.FullName.Length - $root.Length
+            if ($length -gt $longest) { $longest = $length; $longestPath = $path }
+            if ($isFolder) { $pending.Push($entry) }
+        }
+    }
+    if ($longest -gt 259) {
+        Write-Host "[STATIC] $longestPath would be $longest characters long in the copy, and Windows allows 259"
+        exit 2
+    }
+    robocopy $source $target /E /XJ /A-:R /R:2 /W:2 /MT:16 /NFL /NDL /NJH /NP /NS /XD ''' + excludes.join(' ') + '''
+    $copied = $LASTEXITCODE
+    if ($copied -ge 8) {
+        Write-Host "[STATIC] robocopy ended with exit code $copied"
+        exit 1
+    }
+    exit 0
+} catch {
+    Write-Host "[STATIC] $($_.Exception.Message)"
+    exit 5
+}
+'''
+    }
+
+    @NonCPS
+    static String windowsFolderRemovalScript(String folder) {
+        return "\$ErrorActionPreference = 'Stop'\n" + windowsFolderRemoval() + '''try {
+    if (Remove-DsoFolder ''' + folder + ''') { exit 0 }
+    exit 1
+} catch {
+    Write-Host "$($_.Exception.Message)"
+    exit 1
+}
+'''
+    }
+
+    @NonCPS
+    static String windowsCopyRemovalScript() {
+        return windowsFolderRemovalScript('$env:DSO_SAST_WORKSPACE')
+    }
+
+    @NonCPS
+    static String windowsCopyFailure(int code) {
+        Map reasons = [1: 'robocopy could not copy every file',
+                       2: 'a path would be longer in the copy than the 259 characters Windows allows',
+                       3: 'the workspace holds a junction or symbolic link',
+                       4: 'the copy of an earlier build could not be removed',
+                       5: 'PowerShell failed']
+        return (reasons[code] ?: "the copy ended with exit code ${code}") as String
+    }
+
+    @NonCPS
     static String formatDuration(long ms) {
         long s = Math.max(0L, ms).intdiv(1000L) as long
         if (s < 60L) return "${s}s".toString()

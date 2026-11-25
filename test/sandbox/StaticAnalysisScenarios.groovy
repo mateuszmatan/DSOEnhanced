@@ -307,7 +307,7 @@ check('ReleaseGate reads the release-gate.json of the previous pipeline once: af
 Closure removal = { boolean unix ->
     FakeScript sc = new FakeScript(unix: unix)
     sc.env.vars.putAll([WORKSPACE: '/ws'])
-    sc.shHandler = { Map a -> a.returnStdout ? 'Linux' : null }
+    sc.shHandler = { Map a -> a.returnStatus ? 0 : (a.returnStdout ? 'Linux' : null) }
     harness.run {
         def state = harness.type('com.bbh.core.PipelineState').newInstance()
         def os = harness.type('com.bbh.core.OsHelper').newInstance(sc)
@@ -319,10 +319,16 @@ Closure removal = { boolean unix ->
     }
     return sc.calls
 }
-check('AppScanService.removeStagedSources: one step removes the SAST staging copy, appscan-source-staged on Linux and sast_directory on Windows',
+List<String> removedOnWindows = removal(false) as List<String>
+check('AppScanService.removeStagedSources: one step removes the SAST staging copy, appscan-source-staged on Linux and sast_directory on Windows, there with robocopy /MIR from an empty folder and Remove-Item',
         removal(true) == ['sh rm -rf "$WORKSPACE/appscan-source-staged"']
-                && removal(false) == ['powershell Remove-Item -Path "$env:WORKSPACE\\sast_directory" -Recurse -Force -ErrorAction SilentlyContinue'],
-        removal(true) + removal(false))
+                && removedOnWindows == ["powershell [Remove the SAST staging folder] ${harness.run { utils().windowsFolderRemovalScript("(Join-Path \$env:WORKSPACE 'sast_directory')") }}".toString()]
+                && removedOnWindows[0].contains('    robocopy $dsoEmpty $dsoFolder /MIR /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null\n' +
+                                                '    Remove-Item -LiteralPath $dsoFolder -Recurse -Force -ErrorAction SilentlyContinue\n' +
+                                                '    Remove-Item -LiteralPath $dsoEmpty -Recurse -Force -ErrorAction SilentlyContinue\n' +
+                                                '    return (-not (Test-Path -LiteralPath $dsoFolder))\n')
+                && removedOnWindows[0].contains("    if (Remove-DsoFolder (Join-Path \$env:WORKSPACE 'sast_directory')) { exit 0 }\n"),
+        removal(true) + removedOnWindows)
 
 Closure sonarRun = { Map cfg, Map files, Closure shHandler = null ->
     FakeScript sc = new FakeScript()

@@ -161,12 +161,14 @@ class ReportViewModel implements Serializable {
     @NonCPS
     static Map manualComparison(Map stageTimes, Map stageResults, List parallelGroups, Map minutes, List services = [], Map serviceTimes = [:]) {
         Map waits = [:]
+        Map waitFors = [:]
         Map groupOf = [:]
         for (def g : (parallelGroups ?: [])) {
             Map group = g as Map
             for (def b : ((group.branches ?: []) as List)) {
                 Map branch = b as Map
                 waits[branch.stage as String] = (branch.waitMs ?: 0L) as long
+                if (branch.waitFor) waitFors[branch.stage as String] = branch.waitFor as String
                 groupOf[branch.stage as String] = group.name as String
             }
         }
@@ -224,7 +226,7 @@ class ReportViewModel implements Serializable {
                 boolean isLongest = (member.stage as String) == (longest.stage as String)
                 member.automated = isLongest ? member.elapsedMs : null
                 member.automatedNote = isLongest
-                        ? ("the longest of the ${members.size()} in parallel" + (((member.waitMs as long) > 0L) ? ", with ${ReportViewModel.formatDuration(member.waitMs as long)} of waiting for the unit tests" : '')).toString()
+                        ? ("the longest of the ${members.size()} in parallel" + (((member.waitMs as long) > 0L) ? ", with ${ReportViewModel.formatDuration(member.waitMs as long)} of waiting for ${waitFors[member.stage as String] ?: 'the unit tests'}" : '')).toString()
                         : "in parallel, within the time of ${longest.step}".toString()
                 member.span = i == 0 ? members.size() : 0
                 member.gainManual = manualSum

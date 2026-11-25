@@ -900,7 +900,7 @@ Map noCopy = focused([name: 'full pipeline, parallel stages, the SAST copy canno
 FakeScript noCopyJenkins = noCopy.j as FakeScript
 check('full pipeline, parallel stages, the SAST copy cannot be made: the [WARN] names the reason and the fallback, and SAST queues first while Unit tests, Nexus IQ and SonarQube run one after another as before',
         stagesOf(noCopy)[0].contains(STATIC) && !noCopyJenkins.calls.contains("withEnv [DSO_PARALLEL_BRANCH=${UNIT}]".toString()) && noCopyJenkins.log.contains(orderLine)
-                && noCopyJenkins.log.contains('[WARN] [STATIC] The workspace could not be copied for SAST (tar: write error: No space left on device) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans'),
+                && noCopyJenkins.log.contains('[WARN] [STATIC] The workspace could not be copied for SAST (script returned exit code 2) - falling back: SAST queues its scans first and Unit tests, Nexus IQ and SonarQube run one after another while AppScan scans'),
         staticLog(noCopy) + noCopyJenkins.log.findAll { it.startsWith('[WARN] [STATIC]') })
 Map noCopyOther = focused([name: 'full pipeline, parallel stages, no SAST copy and a SAST compile with other Gradle tasks', buildNumber: 369, parallel: true, breakSastCopy: true,
                            configure: { Map p -> ((p.gui as Map).asoc as Map).gradle = [tasks: ['compileJava']] }])

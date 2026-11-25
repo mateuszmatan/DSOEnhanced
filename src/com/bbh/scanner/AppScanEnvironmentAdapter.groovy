@@ -304,7 +304,7 @@ ${zipBase64}
         String configured = ((state.cfg?.appscanPath ?: '') as String).trim()
         if (configured) {
             if (configured.contains(':') || configured.startsWith('\\\\')) return configured
-            String base = ((script.env.WORKSPACE ?: script.pwd()) as String).replace('\\', '/')
+            String base = ((script.env.DSO_WORKSPACE ?: script.env.WORKSPACE ?: script.pwd()) as String).replace('\\', '/')
             return "${base}${configured.startsWith('/') ? configured : '/' + configured}"
         }
         return (script.env.APPSCAN_CMD_RUNTIME ?: appscanCmd() ?: 'appscan.bat') as String
