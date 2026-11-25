@@ -484,7 +484,10 @@ class NexusDeliveryService implements Serializable {
             return
         }
         if (variant == 'extended') {
-            notRequired("[NEXUS] ${projectName}: the extended pipeline builds no NuGet package - the package that the security pipeline pushed to ${releaseSource ?: source} stays the delivered package")
+            boolean pushed = source && BuildUtils.nexusDeliveryEnabled(state.cfg) && (state.cfg.deployTarget ?: 'vm') != 'openshift'
+            notRequired(pushed
+                    ? "[NEXUS] ${projectName}: the extended pipeline builds no NuGet package - the package that the security pipeline pushed to ${source} stays the delivered package"
+                    : "[NEXUS] ${projectName}: the extended pipeline builds no NuGet package and the security pipeline pushed none - the full pipeline pushes the package in this stage")
             return
         }
         if (!BuildUtils.nexusDeliveryEnabled(state.cfg) || (state.cfg.deployTarget ?: 'vm') == 'openshift') {

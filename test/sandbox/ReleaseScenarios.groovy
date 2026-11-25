@@ -491,9 +491,17 @@ Map dotnetExtended = unit([cfg: [buildTool: 'dotnet', delivery: [nuget: [source:
 Map dotnetNothing = unit([cfg: [buildTool: 'dotnet'], files: nugetFiles])
 check('.NET, extended pipeline or no feed: NOT_REQUIRED and named, nothing is pushed',
         dotnetExtended.notRequired && dotnetNothing.notRequired && !nugetCalls(dotnetExtended) && !nugetCalls(dotnetNothing)
-                && logOf(dotnetExtended) == ["[NEXUS] svc: the extended pipeline builds no NuGet package - the package that the security pipeline pushed to ${releaseFeed} stays the delivered package".toString()]
+                && logOf(dotnetExtended) == ["[NEXUS] svc: the extended pipeline builds no NuGet package - the package that the security pipeline pushed to ${feed} stays the delivered package".toString()]
                 && logOf(dotnetNothing) == ['[NEXUS] svc: delivery.nuget.source is not set in devsecops_config.yaml - no NuGet package is released'],
         logOf(dotnetExtended) + logOf(dotnetNothing))
+String pushedNone = '[NEXUS] svc: the extended pipeline builds no NuGet package and the security pipeline pushed none - the full pipeline pushes the package in this stage'
+Map dotnetExtendedOpenShift = unit([cfg: [buildTool: 'dotnet', deployTarget: 'openshift', delivery: [nuget: [source: feed, releaseSource: releaseFeed]]], variant: 'extended', files: nugetFiles])
+Map dotnetExtendedNoDelivery = unit([cfg: [buildTool: 'dotnet', deployTarget: 'vm', deploy: [vm: [rd: [nexusDeliveryEnabled: false]]], delivery: [nuget: [source: feed]]],
+                                     variant: 'extended', files: nugetFiles])
+Map dotnetExtendedReleaseOnly = unit([cfg: [buildTool: 'dotnet', delivery: [nuget: [releaseSource: releaseFeed]]], variant: 'extended', files: nugetFiles])
+check('.NET, extended pipeline after a security pipeline that pushed no package (OpenShift, Nexus delivery off, no delivery.nuget.source): NOT_REQUIRED, says so',
+        [dotnetExtendedOpenShift, dotnetExtendedNoDelivery, dotnetExtendedReleaseOnly].every { Map r -> r.notRequired && !nugetCalls(r) && logOf(r) == [pushedNone] },
+        logOf(dotnetExtendedOpenShift) + logOf(dotnetExtendedNoDelivery) + logOf(dotnetExtendedReleaseOnly))
 Map dotnetWindows = unit([cfg  : [buildTool: 'dotnet', delivery: [nuget: [source: feed, credentialsId: 'nuget-key', releaseSource: releaseFeed]]], windows: true,
                           files: ['dist\\Orders.1.0.0.nupkg': 'nupkg']])
 check('.NET on Windows with nuget.exe: -SkipDuplicate on the push to the release feed, with the key of delivery.nuget.credentialsId',

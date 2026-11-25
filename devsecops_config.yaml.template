@@ -194,7 +194,7 @@ projects:
       #   source:         ""         # Nexus NuGet hosted repository URL
       #   credentialsId:  ""         # Jenkins Secret text credential holding NuGet API key
       #   packagePattern: "**/*.nupkg"
-      #   releaseSource:        ""   # NuGet release feed of stage 12, pushed with --skip-duplicate; empty: the package of stage 6 is the delivered package
+      #   releaseSource:        ""   # NuGet release feed of stage 12 of the full pipeline, pushed with --skip-duplicate; empty: on a VM with delivery on the package of stage 6 is the delivered package, else stage 12 pushes to source
       #   releaseCredentialsId: ""   # Secret text with the API key of the release feed [default: credentialsId]
       # group:    ""                 # Flutter only: groupId of the APK and IPA upload
       # artifact: ""                 # Flutter only: artifactId, -android or -ios is appended
