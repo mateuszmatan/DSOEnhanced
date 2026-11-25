@@ -728,7 +728,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 </ul>
 <hr />
 <h2 id="5-supported-languages-build-tools-and-frameworks">5. Supported Languages, Build Tools, and Frameworks</h2>
-<p>The pipeline supports all standard BBH languages and build tools. In the Portal the <strong>Build tool</strong> of a service is Gradle, Maven, Flutter, C# / .NET, Liquibase (SQL / PL/SQL), SQL / PL/SQL files (no changelog), npm (Angular, Node.js), pip (Python), Android (Gradle) or iOS (Xcode):</p>
+<p>The pipeline supports all standard BBH languages and build tools. In the Portal the <strong>Build tool</strong> of a service is Gradle, Maven, Flutter, C# / .NET, C# / .NET Framework (MSBuild), Liquibase (SQL / PL/SQL), SQL / PL/SQL files (no changelog), npm (Angular, Node.js), pip (Python), Android (Gradle) or iOS (Xcode):</p>
 <div class="table-wrapper"><table>
 <thead>
 <tr>
@@ -801,9 +801,15 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 </tr>
 <tr>
 <td><strong>C# / F# / VB.NET</strong></td>
-<td><em>C# / .NET</em>: <code>dotnet</code> CLI or classic <code>MSBuild.exe</code> + <code>NuGet.exe</code></td>
-<td>detected: <code>dotnet build</code>, or <code>NuGet.exe restore</code> + <code>MSBuild.exe /t:Build</code> on Windows</td>
+<td><em>C# / .NET</em> (<code>buildTool: dotnet</code>): the library picks the <code>dotnet</code> CLI, classic <code>MSBuild.exe</code> + <code>NuGet.exe</code> or both</td>
+<td>detected: <code>dotnet build</code> for SDK-style projects and on Linux agents, <code>NuGet.exe restore</code> + <code>MSBuild.exe /t:Build</code> for .NET Framework 4.x projects on Windows, both for a mixed solution</td>
 <td>.NET Framework 4.x, .NET Core and .NET 6–9+ services on Windows or Linux agents</td>
+</tr>
+<tr>
+<td><strong>C# / F# / VB.NET (.NET Framework)</strong></td>
+<td><em>C# / .NET Framework (MSBuild)</em> (<code>buildTool: msbuild</code>): always <code>MSBuild.exe</code> + <code>NuGet.exe</code></td>
+<td><code>NuGet.exe restore</code> + <code>MSBuild.exe /t:Build</code>, tests with <code>vstest.console.exe</code> once a unit test setting such as <em>Test results</em> is set (without one the unit tests are skipped)</td>
+<td>Classic .NET Framework 4.x services (<code>packages.config</code>, projects without an <code>Sdk</code> attribute) on Windows agents</td>
 </tr>
 </tbody>
 </table></div>
@@ -857,7 +863,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <h3 id="key-capabilities">Key Capabilities:</h3>
 <ul>
 <li><strong>Stages at the same time (default):</strong></li>
-<li>Unit tests, Nexus IQ, SAST and SonarQube run <strong>in parallel</strong> in the stage <em>Static analysis</em>; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage.</li>
+<li>Unit tests, Nexus IQ, SAST and SonarQube run <strong>in parallel</strong> in the stage <em>Static analysis</em>; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage. On a Windows agent the unit tests, Nexus IQ and SonarQube also take turns on the workspace, because a .NET build there locks the files Nexus IQ scans; <code>DSO_STATIC_ANALYSIS_PARALLEL=false</code> in the node properties of an agent keeps that agent one after another.</li>
 <li>The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (<em>Dynamic analysis</em>).</li>
 <li>The report ends with the table <strong>Manual Actions vs DevSecOps</strong>: every step of the run with its own time, the time by hand, the time with DevSecOps (of the steps that run in parallel only the longest), the time gained in percent and a summary in seconds, minutes and percent; with more than one service, every step lists all configured services with their times.</li>
 <li>Both are on by default. Unticking <strong>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</strong> or <strong>Run the regression, smoke and performance tests and DAST at the same time</strong> in the Global Settings (<code>staticAnalysis.parallel</code>, <code>dynamicAnalysis.parallel</code>) runs the stages one after another again; without a key, <code>false</code> in <code>devsecops_config.yaml</code> does the same.</li>
@@ -924,7 +930,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (unticking <em>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</em> in the Global Settings runs them one after another).</li>
 <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
 <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
-<li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
+<li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>, on a Windows agent <code>&lt;WORKSPACE_TMP&gt;\dso-sast</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
 <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.</li>
 <li><strong>Stage 3: Results:</strong> A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.</li>
 <li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <em>Run the regression, smoke and performance tests and DAST at the same time</em> in the Global Settings).</li>
@@ -1016,7 +1022,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <tr>
 <td><strong>Build Tool</strong></td>
 <td>Technology build system</td>
-<td>Gradle, Maven, Flutter, C# / .NET, Liquibase (SQL / PL/SQL), SQL / PL/SQL files (no changelog), npm, pip, Android or iOS</td>
+<td>Gradle, Maven, Flutter, C# / .NET, C# / .NET Framework (MSBuild), Liquibase (SQL / PL/SQL), SQL / PL/SQL files (no changelog), npm, pip, Android or iOS</td>
 <td>Application runtime</td>
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
@@ -1201,7 +1207,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <li>The Portal executes an inspection (<code>/api/catalog/inspect-repo</code>) that reads only the root folder of the branch through the Bitbucket REST API, and fills in the build tool, the build and unit test commands, the Node.js build switch, the deployment target and an empty SonarQube project key; every other field keeps its value. A marker in a subfolder, such as <code>frontend/package.json</code> or <code>gradle/wrapper/gradle-wrapper.properties</code>, is never found through Bitbucket. A Liquibase service with database changes (one whose Changelog file is set; see chapter 7, "SQL and PL/SQL changes with Liquibase", of the OneView guide <code>docs/documentation.md</code>) keeps its build tool, its commands and its deployment settings; the scan fills in only an empty SonarQube project key.</li>
 <li>Developers review the suggestions, make any project-specific adjustments, and click <strong>Save</strong>.</li>
 </ol>
-<p>Below the result the form lists every setting the scan filled in, with its value and why (for example <code>buildTool</code> = <code>DOTNET</code>, <em>App.sln found (C# / .NET)</em>). The pipeline report of every run shows the settings the library auto-resolved in its <em>Auto-resolved settings</em> card, and the report upload stores the same list (service, setting, value, why) with the run, returned as <code>autoResolved</code> by <code>GET /api/pipelines/{id}/report</code>.</p>
+<p>Below the result the form lists every setting the scan filled in, with its value and why (for example <code>buildTool</code> = <code>DOTNET</code>, <em>App.sln found (C# / .NET)</em>). A service that keeps its build tool (a Liquibase service with database changes, or an MSBuild service in a repository of C# / .NET code) still lists the build tool the scan found, and the message above the list says why it was kept. The pipeline report of every run shows the settings the library auto-resolved in its <em>Auto-resolved settings</em> card, and the report upload stores the same list (service, setting, value, why) with the run, returned as <code>autoResolved</code> by <code>GET /api/pipelines/{id}/report</code>.</p>
 <h3 id="stack-detection-matrix">Stack Detection Matrix:</h3>
 <p>The build tool is detected in this order, in the library and in <strong>Scan &amp; Auto-fill</strong> of the Portal alike: <code>pubspec.yaml</code> (Flutter), the iOS files, <code>pom.xml</code> (Maven), the Gradle files (Android with an <code>AndroidManifest.xml</code>), the .NET files, a Liquibase changelog, the Python files, <code>package.json</code> or <code>angular.json</code> at the root (npm), and at last a repository of only SQL and PL/SQL files (<code>sql</code>).</p>
 <ul>
@@ -1212,7 +1218,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <li><strong>Node.js Stage 0 (<code>package.json</code>)</strong>: Ticks the Stage 0 pre-build (<code>build.node.enabled: true</code>) of a service with another build tool when the root of the branch holds a <code>package.json</code>; a <code>package.json</code> in <code>frontend/</code>, <code>web/</code>, <code>client/</code> or <code>ui/</code> is never found through Bitbucket. It names Cypress or Jest in the scan message, and sets no Node.js version, no folder of the <code>package.json</code> and no test runner.</li>
 <li><strong>Liquibase (<code>changelog.xml</code>, <code>liquibase.properties</code>)</strong>: Selects Liquibase when the repository has a changelog and no <code>pubspec.yaml</code>, iOS files, <code>pom.xml</code>, Gradle build or .NET files, with the build command <code>validate</code> and the unit test commands <code>updateSQL validate</code>. A service with database changes keeps its build tool, its commands and its deployment settings, also when the scan finds Gradle or Maven at the root of the repository.</li>
 <li><strong>Flutter / Dart (<code>pubspec.yaml</code>)</strong>: Selects the Flutter build tool. It fills in no commands and no Flutter field, such as the platform.</li>
-<li><strong>C# / .NET (<code>*.sln</code>, <code>*.csproj</code>, <code>*.fsproj</code>, <code>*.vbproj</code>, <code>global.json</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, <code>packages.config</code>, <code>build.cake</code>)</strong>: Selects the C# / .NET build tool after Maven and Gradle and before Liquibase. It fills in no commands: the library detects the mode (<code>dotnet</code> SDK CLI, classic MSBuild + NuGet, hybrid, Cake or NUKE) on the agent, and SonarQube uses <code>.</code> as sources.</li>
+<li><strong>C# / .NET (<code>*.sln</code>, <code>*.csproj</code>, <code>*.fsproj</code>, <code>*.vbproj</code>, <code>global.json</code>, <code>Directory.Packages.props</code>, <code>Directory.Build.props</code>, <code>packages.config</code>, <code>build.cake</code>)</strong>: Selects the C# / .NET build tool after Maven and Gradle and before Liquibase. A service with the build tool C# / .NET Framework (MSBuild) keeps it, and the scan result says so, because the scan cannot tell classic .NET Framework code from SDK-style code. It fills in no commands: for C# / .NET the library detects the mode (<code>dotnet</code> SDK CLI, classic MSBuild + NuGet, hybrid, Cake or NUKE) on the agent, and SonarQube uses <code>.</code> as sources.</li>
 <li><strong>Python / pip (<code>requirements.txt</code>, <code>pyproject.toml</code>, <code>setup.py</code>, <code>Pipfile</code>)</strong>: Selects the pip build tool with the build command <code>pip install -r requirements.txt</code>, or <code>pip install .</code> for a <code>pyproject.toml</code>. The test command stays empty: the library runs <code>pytest --junitxml=junit.xml</code>.</li>
 <li><strong>iOS (<code>Podfile</code>, <code>Package.swift</code>, <code>*.xcodeproj</code>, <code>*.xcworkspace</code>)</strong>: Selects the iOS build tool right after Flutter. It fills in no commands.</li>
 <li><strong>OpenShift Target</strong>: Detects <code>Dockerfile</code>, <code>Containerfile</code>, or an <code>openshift/</code>, <code>k8s/</code> or <code>helm/</code> folder at the root by its name, and sets the target to OpenShift, else to Virtual machine. It fills in no OpenShift target, and a service with database changes keeps its deployment settings.</li>
@@ -1278,7 +1284,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <tr>
 <td>.NET mode</td>
 <td><code>build.dotnet.mode</code></td>
-<td>Empty or invalid (logged as <code>[WARN]</code>): SDK-style projects or a Linux agent -&gt; <code>dotnet</code>; <code>packages.config</code> or .NET Framework 4.x projects on Windows -&gt; <code>msbuild</code>; both -&gt; <code>hybrid</code>; <code>build.cake</code> / <code>.nuke</code> -&gt; <code>cake</code> / <code>nuke</code></td>
+<td>Empty or invalid (logged as <code>[WARN]</code>): <code>buildTool: msbuild</code> -&gt; always <code>msbuild</code>; otherwise SDK-style projects or a Linux agent -&gt; <code>dotnet</code>; <code>packages.config</code> or .NET Framework 4.x projects on Windows -&gt; <code>msbuild</code>; both -&gt; <code>hybrid</code>; <code>build.cake</code> / <code>.nuke</code> -&gt; <code>cake</code> / <code>nuke</code></td>
 <td><code>auto</code></td>
 </tr>
 <tr>
