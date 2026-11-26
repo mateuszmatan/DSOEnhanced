@@ -1,6 +1,8 @@
 package com.bbh.remediation
 
 import com.bbh.core.PipelineState
+import com.bbh.remediation.model.PullRequestDecoration
+import com.bbh.remediation.port.DecorationRecorder
 import com.bbh.remediation.port.PullRequestPublisher
 import com.bbh.remediation.port.SourceRepository
 import com.bbh.utils.BuildUtils
@@ -15,14 +17,16 @@ class SecurityPullRequestService implements Serializable {
     private final SourceRepository repository
     private final RestClient rest
     private final SecurityFindingsParser findingsParser
+    private final DecorationRecorder recorder
 
-    SecurityPullRequestService(def script, PipelineState state, PullRequestPublisher publisher, SourceRepository repository) {
+    SecurityPullRequestService(def script, PipelineState state, PullRequestPublisher publisher, SourceRepository repository, DecorationRecorder recorder = null) {
         this.script = script
         this.state = state
         this.publisher = publisher
         this.repository = repository
         this.rest = new RestClient(script)
         this.findingsParser = new SecurityFindingsParser(script, state, rest)
+        this.recorder = recorder
     }
 
     void publishStaticSecurityPullRequest() {
@@ -72,6 +76,7 @@ class SecurityPullRequestService implements Serializable {
 
             if (!pr.url && !gfChanges && sastFindings.isEmpty() && sonarIssues.isEmpty()) return
 
+            boolean opened = false
             if (!pr.url) {
                 String branch = "security-static-${projectName}".toString()
                 Map existingPr = publisher.findOpenPullRequest(scmCfg, branch, targetBranch)
@@ -99,6 +104,7 @@ class SecurityPullRequestService implements Serializable {
                                 targetBranch: targetBranch
                         ])
                         pr = [id: created.id, url: created.url, title: title, branch: branch, targetBranch: targetBranch]
+                        opened = created.existing != true
                     } finally {
                         repository.cleanup(dir)
                     }
@@ -110,8 +116,10 @@ class SecurityPullRequestService implements Serializable {
                 def idM = (pr.url as String) =~ /\/pull-requests\/(\d+)/
                 if (idM.find()) pr = [:] + pr + [id: idM.group(1)]
             }
-            decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, limits.maxComments as int)
+            Map added = decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, limits.maxComments as int)
             recordProjectPullRequestComments(projectName, pr, sastFindings)
+            recordDecoration([kind: 'STATIC', service: projectName, scm: scmCfg, pullRequest: pr, created: opened, added: added,
+                              sast: sastFindings, sonar: sonarIssues, maxComments: limits.maxComments])
         } catch (Throwable t) {
             if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
             script.echo "[SECURITY-PR] Static security pull request skipped: ${t.message}"
@@ -192,19 +200,26 @@ class SecurityPullRequestService implements Serializable {
 
             String targetBranch = (scmCfg.targetBranch ?: repository.resolveCurrentBranch()) as String
             String branch = "security-dast-${projectName}".toString()
+            String title = "[Security] DAST findings - ${projectName}".toString()
             List<Map> dastFindings = findingsParser.extractDastFindings(projectName, cfg)
+            Map decoration = [kind: 'DAST', service: projectName, scm: scmCfg, dast: dastFindings, maxComments: decorationLimits(prCfg).maxComments]
 
             Map existingPr = publisher.findOpenPullRequest(scmCfg, branch, targetBranch)
             if (existingPr && existingPr.id) {
-                publisher.addComment(scmCfg, existingPr, SecurityPullRequestView.generateDastReport(dastFindings, counts))
+                String report = SecurityPullRequestView.generateDastReport(dastFindings, counts)
+                publisher.addComment(scmCfg, existingPr, report)
+                recordDecoration(decoration + [pullRequest: existingPr + [title: existingPr.title ?: title, branch: branch, targetBranch: targetBranch],
+                                               added: [generalComments: 1], summary: report])
                 return
             }
 
             String dir = repository.prepareWorkingCopy(branch)
+            String md = ''
+            Map created = [:]
             try {
                 String reportPath = "${dir}/security/dast-findings.md"
                 ensureSecurityDir(dir)
-                String md = SecurityPullRequestView.generateDastReport(dastFindings, counts)
+                md = SecurityPullRequestView.generateDastReport(dastFindings, counts)
                 script.writeFile file: reportPath, text: md
                 repository.commit(dir, ['security/dast-findings.md'], '[Security] DAST dynamic security scan findings', [name: 'DevSecOps Bot', email: 'devsecops@bbh.com'])
                 Map repoInfo = publisher.repositoryInfo(scmCfg)
@@ -214,14 +229,18 @@ class SecurityPullRequestService implements Serializable {
                         authType     : scmCfg.authType,
                         cloud        : repoInfo.cloud
                 ])
-                publisher.createPullRequest(scmCfg, [
-                        title       : "[Security] DAST findings - ${projectName}".toString(),
+                created = (publisher.createPullRequest(scmCfg, [
+                        title       : title,
                         description : md,
                         sourceBranch: branch,
                         targetBranch: targetBranch
-                ])
+                ]) ?: [:]) as Map
             } finally {
                 repository.cleanup(dir)
+            }
+            if (created.existing != true && (created.id || created.url)) {
+                recordDecoration(decoration + [pullRequest: [id: created.id, url: created.url, title: title, branch: branch, targetBranch: targetBranch],
+                                               created: true, summary: md])
             }
         } catch (Throwable t) {
             if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
@@ -229,7 +248,7 @@ class SecurityPullRequestService implements Serializable {
         }
     }
 
-    private void decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments, List<Map> dependencies = []) {
+    private Map decoratePullRequestWithFindings(Map scmCfg, Map pr, List<Map> sastFindings, List<Map> sonarIssues, int maxComments, List<Map> dependencies = []) {
         List<String> posted = publisher.existingComments(scmCfg, pr) ?: []
         List<String> changed = publisher.changedFiles(scmCfg, pr)
         List<Map> comments = []
@@ -282,6 +301,20 @@ class SecurityPullRequestService implements Serializable {
         if (limited) script.echo "[SECURITY-PR] Further findings are listed in the report only (pullRequestDecoration.maxComments: ${maxComments})"
         if (added > 0) {
             script.echo "[SECURITY-PR] Pull request ${where}: ${inline} comment(s) under the line of a changed file, ${general} pull request comment(s) for the files it does not change"
+        }
+        return [lineComments: inline, generalComments: general, limited: limited]
+    }
+
+    private void recordDecoration(Map facts) {
+        if (recorder == null) return
+        Map added = (facts.added ?: [:]) as Map
+        if (facts.created != true && !added.lineComments && !added.generalComments) return
+        Map pr = (facts.pullRequest ?: [:]) as Map
+        try {
+            recorder.recorded(PullRequestDecoration.create(facts))
+        } catch (Throwable t) {
+            if (t.getClass().getName().endsWith('FlowInterruptedException')) throw t
+            script.echo "[SECURITY-PR] The decoration of pull request ${pr.url ?: pr.id} was not recorded: ${t.message ?: t.getClass().getName()}"
         }
     }
 
@@ -374,17 +407,23 @@ class SecurityPullRequestService implements Serializable {
     private void decorateDeveloperPullRequest(Map scmCfg, String projectName, List<Map> gfChanges, List<Map> sastFindings, List<Map> sonarIssues, int maxComments) {
         Map pr = developerPullRequest(scmCfg)
         if (!pr?.id) return
-        decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments, dependencyFindings(projectName))
+        List<Map> dependencies = dependencyFindings(projectName)
+        Map added = decoratePullRequestWithFindings(scmCfg, pr, sastFindings, sonarIssues, maxComments, dependencies)
         String summary = SecurityPullRequestView.staticSummary(projectName, gfChanges, sastFindings, sonarIssues)
+        int summaries = 0
         if (!alreadyPosted(publisher.existingComments(scmCfg, pr) ?: [], summary)) {
             try {
                 publisher.addComment(scmCfg, pr, summary)
+                summaries = 1
             } catch (Exception e) {
                 if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
                 script.echo "[SECURITY-PR] Comment on pull request ${pr.url ?: pr.id} not added: ${e.message}"
             }
         }
         script.echo "[SECURITY-PR] ${projectName}: pull request ${pr.url ?: pr.id} of the analysed branch decorated with ${sastFindings.size()} SAST and ${sonarIssues.size()} SonarQube finding(s)"
+        recordDecoration([kind: 'BRANCH', service: projectName, scm: scmCfg, pullRequest: developerBranches() + pr, created: false,
+                          added: added + [generalComments: (added.generalComments as int) + summaries],
+                          sast: sastFindings, dependencies: dependencies, sonar: sonarIssues, summary: summary, maxComments: maxComments])
     }
 
     private Map developerPullRequest(Map scmCfg) {
@@ -393,6 +432,15 @@ class SecurityPullRequestService implements Serializable {
         String branch = BuildUtils.normalizeBranch((script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String)
         if (!branch || branch == 'HEAD' || branch.startsWith('GoldenFix-') || branch.startsWith('security-')) return null
         return publisher.findOpenPullRequest(scmCfg, branch, '')
+    }
+
+    private Map developerBranches() {
+        if ((script.env.CHANGE_ID ?: '') as String) {
+            return [title       : (script.env.CHANGE_TITLE ?: '') as String,
+                    branch      : (script.env.CHANGE_BRANCH ?: '') as String,
+                    targetBranch: (script.env.CHANGE_TARGET ?: '') as String]
+        }
+        return [title: '', branch: BuildUtils.normalizeBranch((script.env.BRANCH_NAME ?: script.env.GIT_BRANCH ?: '') as String), targetBranch: '']
     }
 
     @NonCPS

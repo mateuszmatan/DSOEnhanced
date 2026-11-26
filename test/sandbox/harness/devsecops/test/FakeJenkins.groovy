@@ -10,6 +10,10 @@ class FakeAbort extends RuntimeException {
     FakeAbort(String message) { super(message) }
 }
 
+class FakeFlowInterruptedException extends RuntimeException {
+    FakeFlowInterruptedException(String message) { super(message) }
+}
+
 class FakeEnv extends GroovyObjectSupport implements Serializable {
     Map<String, String> vars = [:]
 

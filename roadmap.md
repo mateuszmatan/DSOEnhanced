@@ -183,7 +183,7 @@ Library pull request #6 and portal pull request #4.
 |--------|-------------|
 | **Consolidated Static Security PR** | Static analysis (Nexus IQ GoldenFix, AppScan SAST, SonarQube) consolidates all findings and remediation changes into a single Bitbucket Pull Request. GoldenFix supplies safe manifest upgrades on branch `GoldenFix-YYYYMMDDHHMM`. AppScan SAST findings (skipping `Noise`) and SonarQube quality and security findings are added as inline line comments on the exact source file and line. |
 | **Dedicated DAST Pull Request** | Dynamic application security testing (DAST) in enhanced pipelines creates a separate, dedicated Pull Request (`security-dast-<project>`) when vulnerabilities violate policy or PR creation is configured, isolating operational and infrastructure defects from source code fixes. |
-| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). Decoration events are synchronized with ITSS COE OneView via `/api/dso/bitbucket/pull-requests/decorate`. |
+| **Bitbucket Server and Cloud support** | Full compatibility with Bitbucket Server (anchored diff comments) and Bitbucket Cloud (inline comments). |
 
 ## 20. SonarQube Default Properties, Heuristic Module Discovery, and Branch Pinning (2026-11-04)
 
@@ -449,6 +449,18 @@ Changed first in `DSOEnhancedWithoutPortal`, then in `main`, item 2.9 of `TODO.m
 
 Verified with `test/run-all.sh` of both branches.
 
+## 36. Pull request decorations and ITSS COE OneView (2026-11-26)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`, item 2.10 of `TODO.md`. No setting changed: every `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` works as before, and every run decorates its pull requests as before, with the same comments and the same console lines.
+
+| Topic | Result |
+|---|---|
+| **The roadmap** | Section 19 said that the decoration events are synchronized with ITSS COE OneView through `/api/dso/bitbucket/pull-requests/decorate`. This branch has no OneView and never called that path, so the sentence is gone, and so is the known limitation that named it. |
+| **The hook** | `SecurityPullRequestService` takes a `DecorationRecorder` of `com.bbh.remediation.port` as an optional fifth argument and hands it one record for each pull request it decorated: the pull request of the analysed branch (`BRANCH`), the GoldenFix pull request or `security-static-<service>` (`STATIC`) and `security-dast-<service>` (`DAST`), with the service, the repository address without user name and password, the pull request, whether the decoration created it (`security-static-<service>` or `security-dast-<service>`, never the GoldenFix pull request), the comments it added, the limit of `pullRequestDecoration.maxComments`, the first 200 findings and the summary (`PullRequestDecoration` of `com.bbh.remediation.model`). A decoration is handed over when it added a comment or created its pull request, so a run whose comments are on the pull request already hands over nothing. A recorder that fails gives one line, "[SECURITY-PR] The decoration of pull request <address> was not recorded: <reason>", and the decoration goes on; an abort of the build stops it. This branch passes no recorder: it records nothing and prints no new line. `main` passes one that reports each decoration to OneView. |
+| **Tests** | New `test/sandbox/PullRequestDecorationScenarios.groovy` (`test/run-all.sh` runs it), the same file on both branches: the record of each kind, when a decoration is handed over, also when `devSecOpsSteps.decorateStaticPullRequests` and `devSecOpsSteps.dast` go over two services and in a second run, the cuts of the texts, the first 200 findings, the repository address, a recorder that fails, an abort and a service without a recorder. 17 of its 24 checks fail when the hook hands over nothing, and on the code before the change the file does not compile. `test/checks/undefined-calls.sh` no longer takes a method that a port interface declares for a call. No golden file changed. |
+
+Verified with `test/run-all.sh` of both branches.
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
@@ -465,4 +477,3 @@ Verified with `test/run-all.sh` of both branches.
 - When the copy of the workspace for SAST cannot be made, on Linux and on Windows agents, the *Static analysis* stage keeps the earlier order: SAST queues its scans, then Nexus IQ and SonarQube run one after another while AppScan scans. A SAST failure before the scans are queued then skips Nexus IQ and GoldenFix for that build.
 - The static analysis in parallel on Windows agents (section 33) was not run on a real Windows agent. The sandbox checks the PowerShell scripts as text and, with the fake Jenkins, the order of the steps and of the `withEnv` blocks around them, and the current folder and the environment variables of the `dotnet.exe` steps of a .NET service (the SAST compile in the copy with `MSBUILDDISABLENODEREUSE=1` and `UseSharedCompilation=false`, the other .NET steps in the workspace without them), the fallbacks and how the waits are counted. Only a real agent shows the rest: the robocopy copy and its removal, the AppScan prepare, whether the switched-off MSBuild nodes and compiler server keep no file of the copy open, two .NET builds at the same time, long paths, Defender locks and the stage times. The pilot on a Windows agent with a .NET service is item 1.1 of `TODO.md`. Until it ran, `DSO_STATIC_ANALYSIS_PARALLEL=false` in the node properties of the Windows agents keeps them one after another.
 - Nothing of sections 22 to 27 was run against the real BBH systems (Oracle, Nexus, SonarQube, AppScan on Cloud, OpenShift, UrbanCode Deploy); the suites simulate them and run the real Liquibase command line only. The pilot is item 1.1 of `TODO.md`.
-- The library does not call `POST /api/dso/bitbucket/pull-requests/decorate` of OneView: it decorates pull requests through Bitbucket itself, although the section *Bitbucket PR Decoration and Shift-Left Feedback* says that the decoration events are synchronized with OneView through that path. Item 2.10 of `TODO.md`.
