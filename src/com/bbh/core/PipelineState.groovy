@@ -180,7 +180,7 @@ class PipelineState implements Serializable {
 
     @NonCPS
     String defaultsPlace() {
-        return configFile ? 'the library defaults' : 'the Global Settings'
+        return configFile ? 'the library defaults' : 'the Library defaults of OneView'
     }
 
     @NonCPS

@@ -459,7 +459,7 @@ focused('D13 the database service after the Java service', security + [layout: '
 focused('D14 a Liquibase home that is not on the agent', plsql + [failedStage: BUILD, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.30.0'] }],
         '[DB] defaults.tools.liquibase.home is /opt/liquibase/4.30.0, which does not exist on agent linux-agent: install it there or correct the setting')
 focused('D14 no Liquibase CLI', plsql + [failedStage: BUILD, missingTool: 'liquibase', defaults: { Map d -> (d.tools as Map).liquibase = [:] }],
-        '[DB] No Liquibase CLI on agent linux-agent: set tools.liquibase.home, or tools.liquibase.url with its sha256, in the Global Settings of OneView, or put liquibase on the PATH of the agent')
+        '[DB] No Liquibase CLI on agent linux-agent: set tools.liquibase.home, or tools.liquibase.url with its sha256, in OneView under Admin, Library defaults, or put liquibase on the PATH of the agent')
 focused('D14 no utPLSQL-cli', security + [layout: 'a', failedStage: UNIT, missingTool: 'utplsql', defaults: { Map d -> (d.tools as Map).utplsql = [:] }],
         '[DB] No utPLSQL-cli on agent linux-agent, and orders-db runs utPLSQL (database.test.utplsql.enabled): set tools.utplsql.home, or tools.utplsql.url with its sha256, or put utplsql on the PATH of the agent')
 String sha = 'a' * 64
@@ -485,7 +485,7 @@ focused('D15 Liquibase 4.32.0', plsql + [failedStage: BUILD, prepare: { FakeScri
 focused('D15 Liquibase 4.34.0', plsql + [result: 'SUCCESS', prepare: { FakeScript j -> j.files['/opt/liquibase/4.34.0'] = '' }, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/4.34.0'] }],
         '[DB] orders-db: Liquibase 4.34.0 has not been tested with the library (tested: 4.33.0 and 5.0.4)')
 focused('D16 Liquibase 5.0.4 without a driver', security + [layout: 'a', failedStage: UNIT, defaults: { Map d -> (d.tools as Map).liquibase = [home: '/opt/liquibase/5.0.4']; (d.tools as Map).oracleJdbc = [:] }],
-        '[DB] orders-db test: Liquibase 5.0.4 has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in the Global Settings of OneView')
+        '[DB] orders-db test: Liquibase 5.0.4 has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in OneView under Admin, Library defaults')
 [E1: "Unexpected formatting in formatted changelog 'db/tables/002-create-order-items.sql' at line 3.",
  E2: 'Validation Failed: 1 changesets had duplicate identifiers db/tables/002-create-order-items.sql::002-create-order-items::orders-team',
  E3: 'Validation Failed: 1 changes have validation failures The file code/pkg_orderz.pkb was not found in the configured search path: - /ws - /opt/liquibase/4.33.0/lib - the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog',
@@ -886,7 +886,7 @@ merged = { Map base, Map over ->
         List keys = ['appId', 'buildTool', 'sourceDir', 'javaPath', 'buildToolAutoSetup', 'asoc', 'database']
         Map expected = copyOf(layoutService).subMap(keys)
         ['snapshotRepository', 'releaseRepository'].each { expected.database.package.remove(it) }
-        check("Chapter 14: OneView writes the database settings of ${name} of layout (${layout}), without the Nexus repositories of the Global Settings",
+        check("Chapter 14: OneView writes the database settings of ${name} of layout (${layout}), without the Nexus repositories of the Library defaults",
                 cfg.subMap(keys) == expected, keys.findAll { cfg[it] != expected[it] })
         List problems = ['full', 'security'].collectMany { String variant ->
             harness.run { harness.type('com.bbh.utils.DatabaseSettings').problems(name, merged(globalDefaults, cfg), globalDefaults, variant) } as List
@@ -922,7 +922,7 @@ List<String> settingKeys = ['buildTool', 'sourceDir', 'javaPath', 'buildToolAuto
 List<String> undocumented = settingKeys.findAll { String key ->
     !chapter.contains("{{${key}}}") && !chapter.contains("{{${key.replaceFirst(/^database\.(test|rd|qc)\./, 'database.<target>.')}}}")
 }
-check('Chapter 14: every setting of a Liquibase service, of its database block and of the Global Settings is in chapter 14 with its full key', !undocumented, undocumented)
+check('Chapter 14: every setting of a Liquibase service, of its database block and of the Library defaults is in chapter 14 with its full key', !undocumented, undocumented)
 
 String library = ['src', 'vars'].collectMany { String dir ->
     List<String> texts = []

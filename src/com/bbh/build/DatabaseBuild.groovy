@@ -39,7 +39,7 @@ class DatabaseBuild implements Serializable {
         if (databases) {
             List global = DatabaseSettings.globalProblems(state.cfgDefaults)
             for (String problem : global) {
-                script.echo "[DB] Global Settings: ${problem}"
+                script.echo "[DB] Library defaults: ${problem}"
             }
             count += global.size()
         }
@@ -64,7 +64,7 @@ class DatabaseBuild implements Serializable {
             List problems = DatabaseSettings.problems(name, cfg, state.cfgDefaults, variant)
             def ownTargets = DatabaseSettings.map(cfg.database).allowedTargets
             if (ownTargets != null && ownTargets != DatabaseSettings.map(state.cfgDefaults?.database).allowedTargets) {
-                script.echo "[DB] ${name}: database.allowedTargets is a Global Setting (defaults.database.allowedTargets in OneView); the value set for the service is ignored"
+                script.echo "[DB] ${name}: database.allowedTargets is a Library default (defaults.database.allowedTargets in OneView); the value set for the service is ignored"
             }
             if (!problems && variant in ['full', 'security']) {
                 Map s = DatabaseSettings.resolve(name, cfg)
@@ -229,7 +229,7 @@ class DatabaseBuild implements Serializable {
     private void prepare(Map c, Map target) {
         String version = ((state.projectsDatabase[c.name] ?: [:]) as Map).liquibase as String
         if ((version ?: '').startsWith('5.') && !c.jar) {
-            script.error "[DB] ${c.name} ${target.name}: Liquibase ${version} has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in the Global Settings of OneView"
+            script.error "[DB] ${c.name} ${target.name}: Liquibase ${version} has no Oracle driver: set tools.oracleJdbc.path, or tools.oracleJdbc.url with its sha256, in OneView under Admin, Library defaults"
         }
         Map values = ['liquibase.command.url': target.url] + DatabaseSettings.parameterValues(target.parameters as Map)
         script.writeFile(file: "${c.dir}/${target.name}.properties", text: DatabaseSettings.propertiesText(values))

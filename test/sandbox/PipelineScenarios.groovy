@@ -297,7 +297,7 @@ Closure verify = { Map spec ->
                 j.calls.findAll { it.contains('Coverage: ') })
     }
     if (spec.coverageMinLine) {
-        check("${name}: the report shows and checks the coverage required by the global settings of OneView (${spec.coverageMinLine}%)",
+        check("${name}: the report shows and checks the coverage required by the Library defaults of OneView (${spec.coverageMinLine}%)",
                 html.contains("required&nbsp;<b>${spec.coverageMinLine}%</b>".toString()) && !html.contains('required&nbsp;<b>60%</b>'),
                 'the report does not use the required coverage from the OneView defaults')
     }
@@ -478,7 +478,7 @@ Closure verify = { Map spec ->
         List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
         check("${name}: OneView is not read and the console says which file was read${files.size() > 1 ? ' and which was not' : ''}",
                 !j.calls.any { it.contains('/api/dso/config/') || it.contains('ONEVIEW_KEYS') }
-                        && log.contains("[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
+                        && log.contains("[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the library defaults from the library release (resources/com/bbh/devsecops/defaults.yaml)".toString())
                         && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
                         && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()]),
                 log.findAll { it.startsWith('[INIT] No pipeline key') || it.contains('are both in the repository') } + probed)

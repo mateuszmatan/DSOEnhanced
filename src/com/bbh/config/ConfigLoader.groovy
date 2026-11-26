@@ -121,7 +121,7 @@ class ConfigLoader implements Serializable {
         state.cfgDefaults = (primary.defaults ?: [:]) as Map
         state.libraryDefaults = state.configFile ? state.cfgDefaults : repositoryReader.libraryOnlyDefaults()
         if (!state.cfgDefaults && !state.configFile) {
-            script.error "[INIT] OneView sent no global defaults for key ${(state.oneViewDocuments[0] as Map).hint}: ask the DevSecOps team to save the Global Settings in OneView"
+            script.error "[INIT] OneView sent no Library defaults for key ${(state.oneViewDocuments[0] as Map).hint}: ask the DevSecOps team to save them in OneView under Admin, Library defaults"
         }
         Map projects = loadedProjects()
         if (state.configFile) checkRequestedNames(projects)
@@ -197,7 +197,7 @@ class ConfigLoader implements Serializable {
         List<Map> invalid = SettingsAdvisor.invalidValues(raw, state.cfgDefaults)
         if (!invalid) return raw
         List<String> fields = []
-        String origin = state.configFile ? 'library default' : 'Global Settings'
+        String origin = state.configFile ? 'library default' : 'Library default of OneView'
         for (Map f : invalid) {
             fields << (f.field as String)
             script.echo "[INIT] [WARN] ${projectName}: ${f.field}: ${f.value} in ${state.settingsPlace()} is not ${f.kind} - the ${origin} ${f.field}: ${f.fallback} is used instead"
@@ -454,7 +454,7 @@ class ConfigLoader implements Serializable {
     }
 
     private void logPolicy() {
-        script.echo(state.configFile ? "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:" : '[POLICY] Global settings from OneView, projects cannot change them:')
+        script.echo(state.configFile ? "[POLICY] Library security policy (resources/${BuildUtils.defaultsResource()}), projects cannot change it:" : '[POLICY] Library defaults from OneView, projects cannot change them:')
         ['sast', 'sca', 'niq', 'dast'].each { key ->
             def limit = state.policyLimits[key] ?: [:]
             script.echo "[POLICY]   ${key.toUpperCase()}: critical<=${limit.maxCritical} high<=${limit.maxHigh} medium<=${limit.maxMedium}"

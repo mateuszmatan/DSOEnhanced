@@ -493,17 +493,17 @@ if (withOneView) {
     List<String> tickedCalls = ticked.calls as List<String>
     int readAt = indexOf(tickedCalls) { String c -> c.startsWith('sh [Read the configuration from OneView] ') }
     int tickedCopyAt = indexOf(tickedCalls) { String c -> c.startsWith("powershell [${copyLabel}] ".toString()) }
-    check('Windows agent, a run with a pipeline key: OneView is read on the Linux agent of ONEVIEW_AGENT, and with the Global Settings checkbox ticked, the default, the static analysis runs in parallel with the SAST copy and the turns, as without a key',
+    check('Windows agent, a run with a pipeline key: OneView is read on the Linux agent of ONEVIEW_AGENT, and with the Library defaults checkbox ticked, the default, the static analysis runs in parallel with the SAST copy and the turns, as without a key',
             ticked.crash == '' && ticked.stageFailures == [] && (ticked.executed as List).contains(STATIC)
                     && tickedCalls.indexOf('node oneview-agent') >= 0 && tickedCalls.indexOf('node oneview-agent') < readAt && readAt < tickedCopyAt
                     && (ticked.staticLog as List)[0] == defaultLine && (ticked.staticLog as List).contains(copyLine) && (ticked.staticLog as List).contains(groupLine),
             [ticked.crash, ticked.stageFailures, ticked.executed, ticked.staticLog, readAt, tickedCopyAt])
     Map unticked = runWindows(keyed + [buildNumber: 481, parallel: false])
     List<String> untickedCalls = unticked.calls as List<String>
-    check('Windows agent, a run with a pipeline key and the Global Settings checkbox unticked: Unit tests, Nexus IQ, SAST and SonarQube run one after another, without the SAST copy and without turns',
+    check('Windows agent, a run with a pipeline key and the Library defaults checkbox unticked: Unit tests, Nexus IQ, SAST and SonarQube run one after another, without the SAST copy and without turns',
             unticked.crash == '' && unticked.stageFailures == [] && !(unticked.executed as List).contains(STATIC)
                     && (unticked.executed as List).containsAll([UNIT, NIQ, SAST, SONAR])
-                    && unticked.staticLog == ['[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another']
+                    && unticked.staticLog == ['[STATIC] The Library defaults of OneView set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another']
                     && !untickedCalls.any { it.startsWith("powershell [${copyLabel}] ".toString()) }
                     && !(unticked.log as List<String>).any { it.contains('Windows agent:') },
             [unticked.crash, unticked.stageFailures, unticked.executed, unticked.staticLog])

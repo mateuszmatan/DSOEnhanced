@@ -169,7 +169,7 @@ check('several keys: the first key is the primary project and the order is kept 
                 && ((runState.projects ?: [:]) as Map).keySet().toList() == ['backend-api', 'gui']
                 && j.env.vars.get('ONEVIEW_KEYS') == null && querySh(j) != null && r.state.oneViewKeys == keys,
         "${r.error} ${initError} ${j.env.PROJECT_NAMES} ${r.state.currentProjectName} ${r.state.oneViewKeys}")
-check('several keys: the merged configuration is the global defaults under each service, as defaults.yaml under config.yaml was',
+check('several keys: the merged configuration is the Library defaults of OneView under each service, as defaults.yaml under config.yaml was',
         (r.state.projectsAllCfg.gui as Map).sast?.pollTimeoutMin == 50 && (r.state.projectsAllCfg.gui as Map).sast?.scanName == 'cert-scanner-gui-sast'
                 && (r.state.cfgDefaults as Map).coverage?.minLine == 60 && r.state.platform?.iosBuildAgent == 'mac002.bbh.com',
         r.state.projectsAllCfg.gui)
@@ -500,7 +500,7 @@ String noKeyError = "[ONEVIEW] No pipeline key: OneView issues one per service o
         "Write devSecOpsPipeline(pipelineKey: '<key from OneView>') in the Jenkinsfile, " +
         "or call devSecOpsApi.configure('full', [pipelineKey: '<key from OneView>']) in a custom Jenkinsfile"
 String notLoaded = "[INIT] No configuration from OneView is loaded: call devSecOpsApi.configure('<variant>', [pipelineKey: '<key from OneView>']) before devSecOpsApi.initialize()"
-Closure readFrom = { String file -> "[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString() }
+Closure readFrom = { String file -> "[INIT] No pipeline key in the Jenkinsfile: the services come from ${file} in the repository, the library defaults from the library release (resources/com/bbh/devsecops/defaults.yaml)".toString() }
 Closure touchesFile = { FakeScript s -> s.probes.any { it.tokenize(' ').last() in ['devsecops_config.yaml', 'config.yaml'] } }
 Closure configWith = { Closure change ->
     Map config = yaml.load(configText) as Map
@@ -580,7 +580,7 @@ initError = initialize(r)
 check('configure() twice, without and then with a key: the key wins, the file is not looked at',
         !initError && !j.log.any { it.startsWith('[INIT] No pipeline key in the Jenkinsfile') } && r.state.configFile == ''
                 && (r.state.projectsAllCfg as Map).keySet().toList() == ['gui'] && (r.state.projectsAllCfg.gui as Map).appId == '209f44ac-dd06-4ca0-884e-d944904f8020'
-                && j.log.contains('[POLICY] Global settings from OneView, projects cannot change them:')
+                && j.log.contains('[POLICY] Library defaults from OneView, projects cannot change them:')
                 && r.state.platform?.iosBuildAgent == 'mac002.bbh.com' && !touchesFile(j),
         "${initError} | ${r.state.configFile} | ${j.probes}")
 j = jenkins([:])
@@ -1308,7 +1308,7 @@ Closure keysOfTheJenkinsfile = { ->
     Map sentBlock = changed(gui, [:])
     ((sentBlock.projects as Map).gui as Map).portal = [url: 'https://five.bbh.com']
     Map fromDocument = keyedUpload([:], [sentBlock], [beforeUpload: { FakeScript s -> s.env.vars.remove('ONEVIEW_URL') }])
-    check('a portal: block in the configuration that OneView sent is still read, and its line names that configuration as its place, never the Global Settings',
+    check('a portal: block in the configuration that OneView sent is still read, and its line names that configuration as its place, never the Library defaults of OneView',
             !fromDocument.error && fromDocument.posts*.address == ['https://five.bbh.com']
                     && fromDocument.notices == [renameBlockLine('portal.url', 'oneview.url', 'in the configuration that OneView sent for this run')],
             "${fromDocument.error} | ${fromDocument.posts*.address} | ${fromDocument.notices}")
@@ -1370,8 +1370,8 @@ Closure oncePerBuild = { ->
 oncePerBuild()
 
 List<String> settingNotices = (everyNotice + keyedNotices).findAll { it.contains('oneview.') || it.contains('portal.') }
-check('the lines about the block oneview: or portal: name a place where the block can be edited - the file the run read, the defaults file of the library or the configuration that OneView sent - and never the Global Settings, where OneView has no field for it',
-        settingNotices.size() > 20 && !(everyNotice + keyedNotices).any { it.contains('Global Settings') || it.contains('settings of the service') }
+check('the lines about the block oneview: or portal: name a place where the block can be edited - the file the run read, the defaults file of the library or the configuration that OneView sent - and never the Library defaults of OneView, where OneView has no field for it',
+        settingNotices.size() > 20 && !(everyNotice + keyedNotices).any { it.contains('Library defaults') || it.contains('settings of the service') }
                 && settingNotices.findAll { it.contains(' correct it ') || it.contains(' rename the block ') || it.contains(' can be removed ') || it.contains(' it must be written as ') }.every {
             it.endsWith(inFile) || it.endsWith('in config.yaml') || it.endsWith(inLibrary) || it.endsWith('in the configuration that OneView sent for this run') || it.endsWith(variablePlace)
         },

@@ -178,7 +178,7 @@ Closure autoResolve = {
     Map first = resolved([:], [buildTool: 'liquibase'] + shared, 'orders-db')
     Map second = resolved([:], [buildTool: 'gradle'] + shared, 'orders-app')
     Map third = resolved([:], [buildTool: 'flutter'] + shared, 'orders-mobile')
-    check('RepoStackAutoResolver: the keys it resolves for one service are written into copies, never into the Global Settings maps the services share, so the next service gets its own SonarQube project and no Liquibase steps',
+    check('RepoStackAutoResolver: the keys it resolves for one service are written into copies, never into the Library defaults maps the services share, so the next service gets its own SonarQube project and no Liquibase steps',
             shared == sharedCopy && first.tools == [sonar: [serverUrl: 'https://tools.bbh.com/sonar', projectKey: 'com.bbh:orders-db']]
                     && second.tools == [sonar: [serverUrl: 'https://tools.bbh.com/sonar', projectKey: 'com.bbh:orders-app']]
                     && second.build == [gradle: [tasks: ['build']]] && second.tests == [maxParallel: 20] && third.flutter == [platform: 'apk'] && second.flutter == [:],
@@ -188,7 +188,7 @@ autoResolve()
 
 Closure validation = {
     String V6 = 'must be an Oracle thin URL: jdbc:oracle:thin:@//host:1521/SERVICE, @host:1521:SID, @tcps://host:2484/SERVICE?ssl_server_dn_match=true or @(DESCRIPTION=...)'
-    String V45 = 'is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Global Settings'
+    String V45 = 'is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Library defaults'
     String V37 = 'which must start with a lower-case letter and hold only lower-case letters, digits, "_" and "." (at most 64), and at most 50 names'
     String V38 = 'which looks like a secret or a variable of the agent: a name must not hold password, passwd, pwd, secret, token, credential, key or user, nor start with liquibase_, dso_ or jenkins; changelog parameters are written into the package, so keep secrets in Jenkins credentials'
     String V39 = 'must be printable ASCII of at most 500 characters, without a leading or trailing blank and without "${"'
@@ -218,7 +218,7 @@ Closure validation = {
             ['V10 production', { Map cfg, Map db -> db.prod = [url: 'jdbc:oracle:thin:@//prod-db.bbh.com:1521/ORDERS']; db.live = [:] }, 'full', allowAll,
              ['database.prod is not supported: the library never deploys to production', 'database.live is not supported: the library never deploys to production']],
             ['V11 a host that is not allowed', { Map cfg, Map db -> db.rd.url = 'jdbc:oracle:thin:@//rd-db.bbh.com:1521,prod-db.bbh.com:1521/ORDERS_RD' }, 'full', allowAll,
-             ['database.rd.url names host prod-db.bbh.com, which defaults.database.allowedTargets does not allow: ask the DevSecOps team to add the RD, QC or test database to the Global Settings']],
+             ['database.rd.url names host prod-db.bbh.com, which defaults.database.allowedTargets does not allow: ask the DevSecOps team to add the RD, QC or test database to the Library defaults']],
             ['V12 RD is the test database', { Map cfg, Map db -> db.rd.url = 'jdbc:oracle:thin:@//DEV-DB.bbh.com:1521/ORDERS_CI' }, 'full', allowAll,
              ['database.test.url is also the URL of database.rd: the test database receives the test packages and must be a database of its own']],
             ['V13 QC contexts', { Map cfg, Map db -> db.qc.contexts = 'test, rd' }, 'full', allowAll,
@@ -268,7 +268,7 @@ Closure validation = {
              ['tools.oracleJdbc.url must be an https URL of a .tar.gz, .tgz, .zip or .jar file, without a user or a password']],
             ['V34 relative tools', { Map cfg, Map db -> cfg.tools = [utplsql: [home: 'opt/utplsql'], oracleJdbc: [path: '/opt/ojdbc11']] }, 'full', allowAll,
              ['tools.oracleJdbc.path /opt/ojdbc11 must be an absolute path ending with .jar', 'tools.utplsql.home opt/utplsql must be an absolute path']],
-            ['V34 tools equal to the Global Settings are checked there', { Map cfg, Map db -> cfg.tools = [liquibase: [home: 'opt/lb']] }, 'full',
+            ['V34 tools equal to the Library defaults are checked there', { Map cfg, Map db -> cfg.tools = [liquibase: [home: 'opt/lb']] }, 'full',
              allowAll + [tools: [liquibase: [home: 'opt/lb']]], []],
             ['V35 a changelog without a folder', { Map cfg, Map db -> db.changelogFile = 'changelog-master.xml' }, 'full', allowAll,
              ['database.changelogFile changelog-master.xml has no folder and the search root is the repository root: put the changelog in a folder, or set database.searchPath or sourceDir to the folder of the changelog']],
@@ -318,7 +318,7 @@ Closure validation = {
     check('DatabaseSettings.problems: each of V1-V41 and V44-V46 with its text, the variant of 4.4, and the cases that are fine', wrong.isEmpty(), wrong)
 
     List<List> globalCases = [
-            ['no Global Settings', [:], []],
+            ['no Library defaults', [:], []],
             ['good tools and targets', [tools: [liquibase: [home: '/opt/liquibase/4.33.0', url: '', sha256: '', javaVersion: 17], oracleJdbc: [path: '/opt/ojdbc/ojdbc11.jar', url: '', sha256: ''],
                                                 utplsql: [home: '', url: 'https://tools.bbh.com/nexus/utPLSQL-cli.zip', sha256: sha]],
                                         database: [allowedTargets: ['rd-db*.bbh.com', 'qc-db.bbh.com/ORDERS_QC']]], []],
@@ -548,7 +548,7 @@ Liquibase command 'validate' was executed successfully.
     List hintCases = [
             ['H1', 'Validation Failed: 1 changesets check sum', 'an applied changeset was edited: undo the edit and add a new changeset, or mark the changeset runOnChange="true" when it holds a CREATE OR REPLACE object'],
             ['H2', lock, 'another deployment holds the Liquibase lock of this schema: wait for it to end; if none runs, ask the DBA to check DATABASECHANGELOGLOCK before anyone runs liquibase release-locks'],
-            ['H3', 'Cannot find database driver: oracle.jdbc.OracleDriver', 'set tools.oracleJdbc in the Global Settings of OneView'],
+            ['H3', 'Cannot find database driver: oracle.jdbc.OracleDriver', 'set tools.oracleJdbc in OneView under Admin, Library defaults'],
             ['H4', connect, 'check the JDBC URL of the target, the network route from the agent to the database and the Jenkins credentials of the target'],
             ['H5', 'The file code/pkg_orderz.pkb was not found in the configured search path:', 'the changelog or a file it uses is outside the search root: check database.changelogFile, database.searchPath and the path attributes of the changelog'],
             ['H6', pro, 'the changelog uses a Liquibase Pro feature, which the library does not support (for example include inside formatted SQL): remove it'],
@@ -1095,15 +1095,15 @@ Closure services = {
                     '[DB] orders-db: database.test.utplsql.testPath db/test is not a folder under . in this checkout', "[error] ${stop(2)}".toString()], calls: [filesStep], failure: stop(2)]],
             ['one problem and no files step', ['orders-db': noJava], allowAll, 'full', false, present,
              [log: ['[DB] orders-db: javaPath is required unless buildToolAutoSetup is true: Liquibase and utPLSQL need Java 17 or newer', "[error] ${stop(1)}".toString()], calls: [], failure: stop(1)]],
-            ['a Global Settings problem', ['orders-db': baseCfg()], allowAll + [tools: [liquibase: [home: 'opt/lb']]], 'full', false, present,
-             [log: ['[DB] Global Settings: defaults.tools.liquibase.home opt/lb must be an absolute path', "[error] ${stop(1)}".toString()], calls: [filesStep], failure: stop(1)]],
+            ['a Library defaults problem', ['orders-db': baseCfg()], allowAll + [tools: [liquibase: [home: 'opt/lb']]], 'full', false, present,
+             [log: ['[DB] Library defaults: defaults.tools.liquibase.home opt/lb must be an absolute path', "[error] ${stop(1)}".toString()], calls: [filesStep], failure: stop(1)]],
             ['a Windows agent', ['orders-db': baseCfg()], allowAll, 'full', true, present,
              [log: ['[error] [DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME'], calls: [],
               failure: '[DB] orders-db: a Liquibase service with a database block runs on Linux or macOS agents only: choose a Linux agent in AGENT_NAME']],
             ['allowedTargets of the service', ['orders-db': ownTargets], allowAll, 'full', false, present,
-             [log: ['[DB] orders-db: database.allowedTargets is a Global Setting (defaults.database.allowedTargets in OneView); the value set for the service is ignored', summary],
+             [log: ['[DB] orders-db: database.allowedTargets is a Library default (defaults.database.allowedTargets in OneView); the value set for the service is ignored', summary],
               calls: [filesStep], failure: null]],
-            ['allowedTargets merged from the Global Settings', ['orders-db': sameTargets], allowAll, 'full', false, present, [log: [summary], calls: [filesStep], failure: null]]
+            ['allowedTargets merged from the Library defaults', ['orders-db': sameTargets], allowAll, 'full', false, present, [log: [summary], calls: [filesStep], failure: null]]
     ]
     List wrong = mismatches(cases) { List c -> validate(c[1] as Map, c[2] as Map, c[3] as String, c[4] as boolean, c[5] as String) }
     check('DatabaseBuild.validateServices: nothing without a database service or for a Liquibase service without a database block, M-DB-06, V1 for a database block without a changelog, the files step, V42 and V43, M-DB-02 with its count, the global problems, M-DB-01, M-DB-05, M-DB-09 and M-DB-03',

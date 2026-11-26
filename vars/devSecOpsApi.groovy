@@ -501,7 +501,7 @@ private boolean _parallelSwitch(String block, def forced, String envName, String
 }
 
 private String _defaultsOrigin() {
-    return _state.configFile ? 'defaults.' : 'The Global Settings set '
+    return _state.configFile ? 'defaults.' : 'The Library defaults of OneView set '
 }
 
 def sastCompileOverrides() {

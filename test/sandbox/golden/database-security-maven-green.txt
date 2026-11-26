@@ -749,7 +749,7 @@ Execute Maven Command: 'mvn' 'clean' 'verify' '-B' '-U'
 [STAGE]  Build artifact
 [RESULT] PASS
 ------------------------------------------------------------
-[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
+[STATIC] The Library defaults of OneView set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
 [DB] orders-db: no test database (database.test.url) - no unit tests, coverage is not required
 Detected tool from config file is maven
 [TEST] Tool: maven

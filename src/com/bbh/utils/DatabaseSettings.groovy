@@ -299,11 +299,11 @@ class DatabaseSettings implements Serializable {
                 } else if (entries) {
                     String host = (parsed.hosts as List).find { String h -> !DatabaseSettings.allowed([hosts: [h], service: parsed.service], entries) }
                     if (host) {
-                        add(found, 11, "database.${t}.url names host ${host}, which defaults.database.allowedTargets does not allow: ask the DevSecOps team to add the RD, QC or test database to the Global Settings".toString())
+                        add(found, 11, "database.${t}.url names host ${host}, which defaults.database.allowedTargets does not allow: ask the DevSecOps team to add the RD, QC or test database to the Library defaults".toString())
                     }
                 }
                 if (!entries) {
-                    add(found, 45, "database.${t}.url is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Global Settings".toString())
+                    add(found, 45, "database.${t}.url is set, but defaults.database.allowedTargets is empty: the library deploys only to databases the DevSecOps team allows in the Library defaults".toString())
                 }
                 if (!credentials) add(found, 7, "database.${t}.credentialsId is required with database.${t}.url".toString())
             } else if (credentials) {

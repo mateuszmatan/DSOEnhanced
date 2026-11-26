@@ -125,7 +125,7 @@ Closure runRepo = { String variant, Map jenkinsfile, Map files, boolean bundled 
 Map logRules = [
         'the reader logs one [ONEVIEW] line per key (L2)'                       : { List log -> log.findAll { !(it as String).startsWith('[ONEVIEW]') } },
         'the [POLICY] header names OneView (L9, ConfigLoader.logPolicy)': { List log ->
-            log.collect { (it as String).replace('Library security policy (resources/defaults.yaml), projects cannot change it:', 'Global settings from OneView, projects cannot change them:') }
+            log.collect { (it as String).replace('Library security policy (resources/defaults.yaml), projects cannot change it:', 'Library defaults from OneView, projects cannot change them:') }
         }
 ]
 Closure normaliseLog = { Map run -> logRules.values().inject(run.log as List) { List log, Closure rule -> rule(log) } }
@@ -316,7 +316,7 @@ boolean wellFormed = (bundledFile.keySet().toList() == ['defaults'] && bundledDe
         && (bundledDefaults.coverage as Map)?.minLine instanceof Integer)
 Map applied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true)
 Closure limit = { def cfg -> [maxCritical: cfg.maxCritical, maxHigh: cfg.maxHigh, maxMedium: cfg.maxMedium] }
-check('the library bundles global defaults that a run without a key can apply',
+check('the library bundles the library defaults that a run without a key can apply',
         wellFormed && !applied.error && applied.minRequired == (bundledDefaults.coverage as Map).minLine
                 && applied.policyLimits == [sast: limit(bundledDefaults.sast), sca: limit(bundledDefaults.sca), dast: limit(bundledDefaults.dast),
                                             niq : limit((bundledDefaults.tools as Map).nexusIq)],
@@ -348,7 +348,7 @@ List dotnetUndocumented = dotnetKeys.findAll { String kp ->
 }
 check("the example examples/DotNetApp/devsecops_config.yaml loads with the services of examples/DotNetApp/Jenkinsfile (${dotnetNames}) and the bundled defaults",
         !dotnetExample.error && (dotnetExample.order as List) == dotnetNames.tokenize(',') && (dotnetExample.runState as Map).keySet() == dotnetNames.tokenize(',') as Set
-                && (dotnetExample.log as List).contains("[INIT] No pipeline key in the Jenkinsfile: the services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && (dotnetExample.log as List).contains("[INIT] No pipeline key in the Jenkinsfile: the services come from devsecops_config.yaml in the repository, the library defaults from the library release (resources/${bundledName})".toString())
                 && dotnetUndocumented.isEmpty(),
         [dotnetExample.error, dotnetExample.order, (dotnetExample.runState as Map)?.keySet(), dotnetUndocumented, dotnetExample.log])
 
@@ -380,7 +380,7 @@ check('A\' a key wins over a file: with both files in the workspace the run with
 
 Map unbundled = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true, null)
 check('A\' the bundled defaults are missing: the run stops with the resource it could not read and whom to ask',
-        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): a run without a pipeline key takes its global settings from it; ask the DevSecOps team".toString(),
+        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): a run without a pipeline key takes its library defaults from it; ask the DevSecOps team".toString(),
         unbundled.error)
 
 println "\n${failures == 0 ? 'ALL COMPATIBILITY SCENARIOS PASSED' : failures + ' COMPATIBILITY SCENARIO CHECK(S) FAILED'}"

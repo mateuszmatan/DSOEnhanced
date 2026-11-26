@@ -644,7 +644,7 @@ cleanWs
 [STAGE]  Build artifact
 [RESULT] PASS
 ------------------------------------------------------------
-[STATIC] The Global Settings set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
+[STATIC] The Library defaults of OneView set staticAnalysis.parallel: false - Unit tests, Nexus IQ, SAST and SonarQube run one after another
 [DB] orders-db test: 10 changesets pending before the update
 [DB] orders-db test: update for contexts test: run 10, previously run 0, filtered out 0
 [DB] orders-db test: compile check: 0 invalid objects, 0 compile errors
