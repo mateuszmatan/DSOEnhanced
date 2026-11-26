@@ -33,6 +33,8 @@ abstract class FakeCpsScript extends Script {
     // *binding*, and every vars script owns a private binding. A script that reaches for another
     // global therefore gets its own copy of it, never the one the Jenkinsfile holds. Globals that
     // plugins contribute (env, openshift, ...) stay shared, because their getValue() reads the Run.
+    // A name that is neither a property nor a global is read from the environment of the step, as
+    // CpsScript does, so a variable that withCredentials binds reads as script.<variable>.
     Object getProperty(String name) {
         Map<String, Object> vars = this.@globals
         if (vars != null && vars.containsKey(name)) return vars.get(name)
@@ -45,7 +47,13 @@ abstract class FakeCpsScript extends Script {
                 return created
             }
         }
-        return super.getProperty(name)
+        try {
+            return super.getProperty(name)
+        } catch (MissingPropertyException e) {
+            FakeScript fake = this.@jenkins
+            if (e.property == name && fake != null && fake.env.vars.containsKey(name)) return fake.env.vars.get(name)
+            throw e
+        }
     }
 
     Object invokeMethod(String name, Object args) {

@@ -155,6 +155,11 @@ class BuildUtils implements Serializable {
     }
 
     @NonCPS
+    static boolean sastCompiles(String tool) {
+        return !(normalizeToolName(tool) in ['npm', 'pip', 'ios', 'flutter'])
+    }
+
+    @NonCPS
     static boolean booleanValue(def value, boolean defaultValue) {
         if (value == null) {
             return defaultValue

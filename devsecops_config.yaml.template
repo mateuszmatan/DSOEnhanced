@@ -29,10 +29,10 @@ projects:
     asoc:                            # HCL AppScan on Cloud (required)
       url:         "https://bbh.cloud.appscan.com"   # only the link to the DAST scan in the AppScan console [default: APPSCAN_SERVER_URL]
       insecureTls: false             # true adds curl -k to the ASoC REST calls (TLS verification off) - keep false
-      doCompile:   true              # compile the project before the IRX is generated
+      doCompile:   true              # compile the project before the IRX is generated (npm, pip, iOS and Flutter have no compile step)
       sourceCodeOnly: false          # true: -sco, no compiled classes in the IRX
       useAppScanConfig: false        # true: use appscan-config.xml from the repository
-      # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another when the workspace cannot be copied for SAST
+      # gradle: {tasks: ['classes', 'testClasses']}   # optional SAST compile of a Gradle or Android service instead of build.gradle; differing from build keeps Nexus IQ, SAST and SonarQube one after another when the workspace cannot be copied for SAST
       # maven:  {goals: ['compile']}                   # optional SAST compile instead of build.maven; never 'clean', which deletes target/ before the Nexus delivery
       # dotnet: {solution: '', configuration: 'Release'}   # optional SAST compile override for C#/.NET instead of build.dotnet
 

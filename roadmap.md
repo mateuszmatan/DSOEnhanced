@@ -421,6 +421,20 @@ Changed first in `DSOEnhancedWithoutPortal`, then in `main` and the portal, item
 
 Verified with `test/run-all.sh` of both branches. Not run on a real Windows agent; see the known limitations.
 
+## 34. SAST of Android, npm, pip, iOS and Flutter services (2026-11-25)
+
+Changed first in `DSOEnhancedWithoutPortal`, then in `main`, item 2.11 of `TODO.md`. No setting changed: every `Jenkinsfile`, `devsecops_config.yaml` and `config.yaml` works as before, and Gradle, Maven, C# / .NET, MSBuild, Liquibase and SQL services run the same steps with the same lines on every agent.
+
+| Topic | Result |
+|---|---|
+| **The defect** | On a Linux or macOS agent the SAST stage handed the build tool of an Android, npm, pip, iOS or Flutter service unchanged to the Gradle and Maven runner, which knows neither, and stopped with "Build Tool is not specified in configuration" before the IRX, unless `asoc.doCompile` was false. |
+| **Android** | Compiles as Gradle, as its build does: `asoc.gradle` when the service sets it, else `build.gradle`, then the Liquibase SAST step of `asoc.liquibase`, else `build.liquibase`. |
+| **npm, pip, iOS and Flutter** | No compile step, as their build runs no Gradle, Maven or `build.liquibase` step: one line, "[SAST] <service>: build tool <tool> - the scan has no compile step, the IRX is prepared from the sources", and the SAST stage prepares the IRX as with `asoc.doCompile: false`. Aliases such as `angular`, `python`, `xcode` and `dart` count as their tool (`BuildUtils.sastCompiles`). |
+| **The rest of the SAST path** | The SAST copy of the workspace compiles through the same step. Windows agents are unchanged: only .NET compiles there. |
+| **Tests** | New `test/sandbox/SastCompileScenarios.groovy` (`test/run-all.sh` runs it): `generateIrx` for each build tool on Linux and Windows agents, the three helpers, six runs of the SAST scanning pipeline and two of the security pipeline; 11 of its 17 checks fail on the code before the fix. The fake Jenkins reads a variable that `withCredentials` binds as a property of the script, as Jenkins does, so the Flutter build runs in a pipeline scenario. No golden file changed. |
+
+Verified with `test/run-all.sh` of both branches. Not run on a real agent with AppScan on Cloud and an Android, npm, pip, iOS or Flutter service.
+
 ## Known limitations
 
 - The AppScan parser is matched to the standard HCL report layout; a materially different template would need a sample report to support.
@@ -429,7 +443,7 @@ Verified with `test/run-all.sh` of both branches. Not run on a real Windows agen
 - Upgrade candidates are limited to the versions Nexus IQ proposes; the library does not enumerate a component's full version history.
 - Every build with a key depends on OneView at its start, and the portal must sit behind BBH SSO with role-based access and an audit trail before the OneView-integrated library is used outside test.
 - A build without a key applies the library's copy of the Global Settings, which follows them with each library release.
-- The `vulnerabilities` points with `scanner=sast` and `scanner=dast` hold the counts of the last service of the run, while those with `scanner=nexusiq` and `scanner=sonar` add up all services. The `policy_status` points keep the result of the last service and tag Nexus IQ as `iast`. SonarQube writes its counts as `security_findings` with `scanner=sca` and its status with `scanner=sonar`, so each of the two points misses half. Item 2.11 of `TODO.md`.
+- The `vulnerabilities` points with `scanner=sast` and `scanner=dast` hold the counts of the last service of the run, while those with `scanner=nexusiq` and `scanner=sonar` add up all services. The `policy_status` points keep the result of the last service and tag Nexus IQ as `iast`. SonarQube writes its counts as `security_findings` with `scanner=sca` and its status with `scanner=sonar`, so each of the two points misses half. Item 2.12 of `TODO.md`.
 - SonarQube indexes Dart as an unknown language, so a Flutter project's quality gate rests on imported coverage and imported findings rather than on rules SonarQube executes itself.
 - GoldenFix changes only the repository of the service. A catalog published as an artifact, a catalog in another repository, a BOM or parent resolved from Nexus and a version constant in `buildSrc` are named as the reason, not raised.
 - Separate GoldenFix jobs for the services of one repository raise separate pull requests, and two of them that start in the same minute collide on the branch name. One job for the repository with `pipelineKeys` avoids both.
