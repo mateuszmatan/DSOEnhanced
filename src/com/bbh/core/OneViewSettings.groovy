@@ -21,7 +21,7 @@ class OneViewSettings implements Serializable {
         return found.value as String
     }
 
-    Map reportTarget() {
+    Map reportTarget(String refused = 'The pipeline report is not uploaded') {
         List<Map> candidates = [variable('ONEVIEW_URL', script.env.ONEVIEW_URL, '', 'strict'),
                                 variable('DSO_PORTAL_URL', script.env.DSO_PORTAL_URL, 'ONEVIEW_URL', 'any'),
                                 variable('PORTAL_URL', script.env.PORTAL_URL, 'ONEVIEW_URL', 'any'),
@@ -32,13 +32,13 @@ class OneViewSettings implements Serializable {
             announce(found.notices as List)
             return [address: found.value as String, name: found.name as String, strict: found.strict as boolean]
         }
-        List<String> refused = []
+        List<String> names = []
         for (Map c : candidates) {
             if (c.problem == 'unset' || (c.problem == 'blank' && c.quietBlank)) continue
-            refused << (c.name as String)
+            names << (c.name as String)
         }
-        if (refused) {
-            announce([("[ONEVIEW] The pipeline report is not uploaded: ${refused.join(', ')} ${refused.size() > 1 ? 'hold' : 'holds'} no address of OneView; " +
+        if (names) {
+            announce([("[ONEVIEW] ${refused}: ${names.join(', ')} ${names.size() > 1 ? 'hold' : 'holds'} no address of OneView; " +
                     "a Jenkins administrator writes ONEVIEW_URL as ${addressForm()}, ${variablePlace()}").toString()])
         }
         return [address: '', name: '', strict: true]
@@ -53,24 +53,44 @@ class OneViewSettings implements Serializable {
 
     List<Map> reportKeys() {
         List<String> own = ownKeys()
-        String first = trimmed(script.env.DSO_PIPELINE_KEY)
-        String second = trimmed(script.env.PIPELINE_KEY)
-        if (first || second) {
-            String key = first ?: second
-            if (!own.contains(key.toLowerCase())) return [[key: key, hint: '']]
-            announce([sameKeyLine(first ? 'DSO_PIPELINE_KEY' : 'PIPELINE_KEY', key, own.size())])
-            return [[key: key.toLowerCase(), hint: '']]
-        }
+        Map given = givenKey(own)
+        if (given) return [given]
         List<Map> keys = []
         if (own) {
             for (String key : own) keys << [key: key, hint: hint(key)]
             return keys
         }
+        Map configured = configuredKey()
+        if (configured) keys << configured
+        return keys
+    }
+
+    Map decorationKey(String service) {
+        List<String> own = ownKeys()
+        Map given = givenKey(own)
+        if (given) return given
+        if (own) {
+            String key = keyOfService(own, service)
+            return key ? [key: key, hint: hint(key)] : [:]
+        }
+        return configuredKey()
+    }
+
+    private Map givenKey(List<String> own) {
+        String first = trimmed(script.env.DSO_PIPELINE_KEY)
+        String second = trimmed(script.env.PIPELINE_KEY)
+        if (!first && !second) return [:]
+        String key = first ?: second
+        if (!own.contains(key.toLowerCase())) return [key: key, hint: '']
+        announce([sameKeyLine(first ? 'DSO_PIPELINE_KEY' : 'PIPELINE_KEY', key, own.size())])
+        return [key: key.toLowerCase(), hint: '']
+    }
+
+    private Map configuredKey() {
         Map found = pick([setting('oneview.pipelineKey', 'oneview', 'pipelineKey', '', ''),
                           setting('portal.pipelineKey', 'portal', 'pipelineKey', 'oneview.pipelineKey', '')])
         announce(found.notices as List)
-        if (found.value) keys << [key: found.value as String, hint: '']
-        return keys
+        return found.value ? [key: found.value as String, hint: ''] : [:]
     }
 
     @NonCPS
@@ -100,6 +120,17 @@ class OneViewSettings implements Serializable {
         List<String> keys = []
         for (def key : (state.oneViewKeys ?: [])) keys << (key as String)
         return keys
+    }
+
+    @NonCPS
+    private String keyOfService(List<String> own, String service) {
+        List documents = (state.oneViewDocuments ?: []) as List
+        for (int i = 0; i < documents.size() && i < own.size(); i++) {
+            def config = documents[i] instanceof Map ? (documents[i] as Map).config : null
+            def projects = config instanceof Map ? (config as Map).projects : null
+            if (projects instanceof Map && (projects as Map).containsKey(service)) return own[i]
+        }
+        return ''
     }
 
     @NonCPS

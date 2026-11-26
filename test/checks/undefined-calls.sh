@@ -3,6 +3,7 @@
 # Groovy compiles such a call dynamically, so groovyc stays silent, while the
 # Jenkins sandbox rejects it at runtime with
 # "Scripts not permitted to use method groovy.lang.GroovyObject invokeMethod".
+# A method that an interface (a port) declares without a body is not a call.
 cd "$(dirname "$0")/../.." || exit 1
 python3 - <<'PY' || exit 1
 import re, glob, sys
@@ -15,6 +16,8 @@ decl_re = re.compile(
 for f in files:
     for m in decl_re.finditer(open(f).read()):
         declared.add(m.group(1))
+interface_re = re.compile(r'^\s*interface\s+\w+', re.M)
+abstract_re = re.compile(r'^\s*(?:[\w.<>\[\],]+\s+)+\w+\s*\([^)]*\)\s*$', re.M)
 
 builtins = set('''
 if for while switch catch return new this super it echo sh bat powershell error sleep timeout parallel node stage script
@@ -34,6 +37,8 @@ call_re = re.compile(r'(?<![\w.$])([a-z]\w*)\s*\(')
 problems = []
 for f in files:
     src = open(f).read()
+    if interface_re.search(src):
+        src = abstract_re.sub('', src)
     src = re.sub(r'"""(?:.|\n)*?"""', '""', src)
     src = re.sub(r"'''(?:.|\n)*?'''", "''", src)
     src = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', src)

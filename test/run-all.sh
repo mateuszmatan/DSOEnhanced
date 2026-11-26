@@ -74,6 +74,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   echo "=== the SAST compile of each build tool on Linux and macOS agents ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/SastCompileScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== the pull request decorations: the record of each decoration and its recorder ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PullRequestDecorationScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== pipeline vars end to end ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/PipelineScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
@@ -82,6 +85,9 @@ if groovyc -cp "$CP" -d "$BUILD/harness" "$ROOT"/test/sandbox/harness/devsecops/
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== OneView read, failures and extended handoff ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/OneViewScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
+  echo "=== the pull request decorations reported to OneView ==="
+  groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/OneViewDecorationScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"
   [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
   echo "=== compatibility with the b815d55 config.yaml loader ==="
   groovy -cp "$CP:$BUILD/harness" "$ROOT/test/sandbox/CompatibilityScenarios.groovy" "$ROOT" 2>&1 | grep -v "WARNING"

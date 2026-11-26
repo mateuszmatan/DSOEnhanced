@@ -1,5 +1,6 @@
 package com.bbh.report
 
+import com.bbh.core.OneViewPost
 import com.bbh.core.OneViewSettings
 import com.bbh.core.OsHelper
 import com.bbh.core.PipelineState
@@ -8,14 +9,14 @@ import com.cloudbees.groovy.cps.NonCPS
 class OneViewReportService implements Serializable {
     private final def script
     private final PipelineState state
-    private final OsHelper os
     private final OneViewSettings settings
+    private final OneViewPost post
 
     OneViewReportService(def script, PipelineState state, OsHelper os) {
         this.script = script
         this.state = state
-        this.os = os
         this.settings = new OneViewSettings(script, state)
+        this.post = new OneViewPost(script, os)
     }
 
     void send(String pipelineType = '') {
@@ -56,14 +57,14 @@ class OneViewReportService implements Serializable {
             script.writeJSON(file: tmpFile, json: payload)
             script.echo "[ONEVIEW] Uploading pipeline report to ${shown} for job ${payload.job} build ${payload.build}${keyHint ? ' with pipeline key ' + keyHint : ''}"
             List vars = ["ONEVIEW_URL=${address}", "ONEVIEW_FILE=${tmpFile}", "ONEVIEW_RESPONSE=${responseFile}"]
-            sendPayload(vars)
+            post.send(vars, '/api/dso/reports')
         } catch (Throwable e) {
             goOn = !e.getClass().getName().endsWith('FlowInterruptedException')
             String reason = (e.message ?: e.getClass().getName()) as String
             if (!target.strict) reason = reason.replace(address, "the address in ${target.name}".toString())
             script.echo "[ONEVIEW] Failed to upload pipeline report to OneView${keyHint ? ' for pipeline key ' + keyHint : ''}: ${reason}"
         } finally {
-            cleanup(tmpFile, responseFile)
+            post.cleanup(tmpFile, responseFile)
         }
         return goOn
     }
@@ -83,11 +84,7 @@ class OneViewReportService implements Serializable {
         }
         int stagesTotal = (state.stageResults ?: [:]).size()
         long durationSeconds = ((script.currentBuild.duration ?: 0) as long) / 1000L
-        long buildNumber = 0L
-        String bn = (script.env.BUILD_NUMBER ?: '').toString().trim()
-        if (bn ==~ /\d+/) {
-            buildNumber = bn.toLong()
-        }
+        long buildNumber = OneViewPost.buildNumber(script.env.BUILD_NUMBER)
 
         return [
                 pipelineKey    : pipelineKey,
@@ -119,37 +116,5 @@ class OneViewReportService implements Serializable {
             }
         }
         return rows
-    }
-
-    private void sendPayload(List vars) {
-        script.withEnv(vars) {
-            if (os.isWindows()) {
-                script.powershell '''$code = curl.exe -sS -k --connect-timeout 10 --max-time 60 -o "$env:ONEVIEW_RESPONSE" -w '%{http_code}' -X POST "$env:ONEVIEW_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$env:ONEVIEW_FILE"
-if ($LASTEXITCODE) { exit $LASTEXITCODE }
-$answer = (Get-Content -Raw $env:ONEVIEW_RESPONSE -ErrorAction SilentlyContinue) -replace '"pipelineKey" *: *"[^"]*"', '"pipelineKey":"(not shown)"'
-Write-Host "[ONEVIEW] HTTP $code $answer"
-if ([int]$code -ge 300) { exit 1 }
-'''
-            } else {
-                script.sh '''set +x
-code=$(curl -sS -k --connect-timeout 10 --max-time 60 -o "$ONEVIEW_RESPONSE" -w '%{http_code}' -X POST "$ONEVIEW_URL/api/dso/reports" -H "Content-Type: application/json" --data-binary "@$ONEVIEW_FILE")
-rc=$?
-if [ $rc -ne 0 ]; then
-  exit $rc
-fi
-echo "[ONEVIEW] HTTP $code $(sed 's/"pipelineKey" *: *"[^"]*"/"pipelineKey":"(not shown)"/g' "$ONEVIEW_RESPONSE" 2>/dev/null)"
-if [ "$code" -ge 300 ]; then
-  exit 1
-fi
-'''
-            }
-        }
-    }
-
-    private void cleanup(String tmpFile, String responseFile) {
-        try {
-            if (os.isWindows()) script.powershell "Remove-Item -Force '${tmpFile}', '${responseFile}' -ErrorAction SilentlyContinue"
-            else                script.sh "rm -f '${tmpFile}' '${responseFile}'"
-        } catch (Throwable ignored) {}
     }
 }

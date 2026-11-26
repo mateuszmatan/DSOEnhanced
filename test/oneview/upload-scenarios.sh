@@ -8,13 +8,18 @@ check() {
   if [ "$2" = "$3" ]; then echo "PASS  $1"; else echo "FAIL  $1"; echo "      expected [$3], got [$2]"; failures=$((failures + 1)); fi
 }
 
-python3 - "$ROOT/src/com/bbh/report/OneViewReportService.groovy" "$WORK/upload.sh" "$WORK/upload.ps1" <<'PY'
+python3 - "$ROOT/src/com/bbh/core/OneViewPost.groovy" "$ROOT/src/com/bbh/remediation/OneViewDecorationReporter.groovy" "$WORK" <<'PY'
 import re, sys
 source = open(sys.argv[1]).read()
-shell = re.search(r"script\.sh '''(.*?)'''", source, re.S).group(1)
-power = re.search(r"script\.powershell '''(.*?)'''", source, re.S).group(1)
-open(sys.argv[2], 'w').write(shell.replace('\\\\', '\\'))
-open(sys.argv[3], 'w').write(power.replace('\\\\', '\\'))
+reporter = open(sys.argv[2]).read()
+work = sys.argv[3]
+path = re.search(r"String path = '([^']*)'", reporter).group(1)
+for name, method in (('upload.sh', 'unixScript'), ('upload.ps1', 'windowsScript')):
+    body = re.search(r"static String " + method + r"\(String path\) \{\s*String template = '''(.*?)'''\s*return template\.replace\('/api/dso/reports', path\)", source, re.S).group(1)
+    body = body.replace('\\\\', '\\')
+    open(work + '/' + name, 'w').write(body)
+    open(work + '/decorate.' + name.split('.')[1], 'w').write(body.replace('/api/dso/reports', path))
+open(work + '/path', 'w').write(path)
 PY
 
 cat > "$WORK/server.py" <<'PY'
@@ -33,6 +38,21 @@ class OneView(BaseHTTPRequestHandler):
         self.wfile.write(data)
     def do_POST(self):
         text = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode('utf-8')
+        if self.path == '/oneview/api/dso/bitbucket/pull-requests/decorate' and self.headers.get('Content-Type') == 'application/json':
+            decoration = json.loads(text)
+            with open(received + '.decorations', 'a') as out:
+                out.write(json.dumps(decoration, sort_keys=True) + '\n')
+            if decoration.get('job') == 'broken':
+                self.answer(500, json.dumps({'type': 'about:blank', 'title': 'Request failed', 'status': 500,
+                                             'detail': "The portal could not handle the request. The failure is in the portal's log.",
+                                             'instance': '/api/dso/bitbucket/pull-requests/decorate'}, separators=(',', ':')),
+                            'application/problem+json')
+            else:
+                self.answer(200, json.dumps({'pullRequestId': decoration.get('pullRequestId'), 'commentsAdded': decoration.get('generalComments') or 0,
+                                             'lineCommentsAdded': decoration.get('lineComments') or 0, 'status': 'RECORDED',
+                                             'message': 'Recorded the decoration of pull request ' + decoration.get('pullRequestId') + ' for pipeline 3'},
+                                            separators=(',', ':')))
+            return
         if self.path != '/oneview/api/dso/reports' or self.headers.get('Content-Type') != 'application/json':
             self.answer(404, '{"status":404,"error":"Not Found"}')
             return
@@ -89,6 +109,26 @@ check 'both scripts give up after 10 seconds without a connection and after 60 s
   "$(grep -c -- '--connect-timeout 10 --max-time 60' "$WORK/upload.sh") $(grep -c -- '--connect-timeout 10 --max-time 60' "$WORK/upload.ps1")" '1 1'
 check 'the Windows script replaces the pipeline key of the answer before it prints it, and neither script names a former variable' \
   "$(grep -c -- "-replace '\"pipelineKey\" \\*: \\*\"\\[^\"\\]\\*\"', '\"pipelineKey\":\"(not shown)\"'" "$WORK/upload.ps1") $(grep -c 'Get-Content -Raw \$env:ONEVIEW_RESPONSE -ErrorAction SilentlyContinue)\"' "$WORK/upload.ps1") $(cat "$WORK/upload.sh" "$WORK/upload.ps1" | grep -c 'PORTAL')" '1 0 0'
+
+decorate() {
+  printf '{"service":"gui","kind":"BRANCH","pullRequestId":"77","lineComments":3,"findings":[{"tool":"Nexus IQ","line":null}],"pipelineKey":"%s","job":"%s","build":42}' "$KEY" "$1" > "$WORK/decoration.json"
+  ( cd "$WORK" && ONEVIEW_URL="$2" ONEVIEW_FILE=decoration.json ONEVIEW_RESPONSE=response.json sh "$WORK/decorate.sh" > "$WORK/out" 2>&1 )
+}
+
+check 'the scripts of the pull request decorations are the upload scripts with the path that OneViewDecorationReporter gives them' \
+  "$(cat "$WORK/path") $(cat "$WORK/decorate.sh" "$WORK/decorate.ps1" | grep -c '/api/dso/bitbucket/pull-requests/decorate') $(cat "$WORK/decorate.sh" "$WORK/decorate.ps1" | grep -c '/api/dso/reports')" \
+  '/api/dso/bitbucket/pull-requests/decorate 2 0'
+decorate 'CertScanner-build' "http://127.0.0.1:$PORT/oneview"
+check 'a stored decoration: the script ends with status 0 and OneView received the decoration with the pipeline key, a finding without a line included' \
+  "$? $(python3 -c 'import json,sys; d=json.loads(open(sys.argv[1]).readline()); print(d["pipelineKey"], d["kind"], d["pullRequestId"], d["findings"][0]["line"])' "$WORK/received.decorations")" "0 $KEY BRANCH 77 None"
+check 'a stored decoration: the console shows the status and the answer of OneView, which counts the comments and holds no pipeline key, and no part of the output holds the key' \
+  "$(cat "$WORK/out") $(grep -c "$KEY" "$WORK/out")" \
+  '[ONEVIEW] HTTP 200 {"pullRequestId":"77","commentsAdded":0,"lineCommentsAdded":3,"status":"RECORDED","message":"Recorded the decoration of pull request 77 for pipeline 3"} 0'
+decorate 'broken' "http://127.0.0.1:$PORT/oneview"
+check 'OneView answers 500 to a decoration: the script ends with status 1 after the line with the status and the problem' "$? $(cat "$WORK/out")" \
+  '1 [ONEVIEW] HTTP 500 {"type":"about:blank","title":"Request failed","status":500,"detail":"The portal could not handle the request. The failure is in the portal'\''s log.","instance":"/api/dso/bitbucket/pull-requests/decorate"}'
+check 'the Windows script of the decorations posts to the path of the decorations with the same time limits' \
+  "$(grep -c -- '--connect-timeout 10 --max-time 60 .*-X POST "\$env:ONEVIEW_URL/api/dso/bitbucket/pull-requests/decorate"' "$WORK/decorate.ps1")" '1'
 
 echo
 [ "$failures" -eq 0 ] && echo 'ALL UPLOAD SCRIPT SCENARIOS PASSED' || echo "$failures UPLOAD SCRIPT SCENARIO CHECK(S) FAILED"

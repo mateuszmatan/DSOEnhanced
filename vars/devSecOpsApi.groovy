@@ -15,6 +15,7 @@ import com.bbh.deploy.VmDeployService
 import com.bbh.metrics.InfluxDbService
 import com.bbh.metrics.PipelineMetrics
 import com.bbh.remediation.GoldenFixService
+import com.bbh.remediation.OneViewDecorationReporter
 import com.bbh.remediation.SecurityPullRequestService
 import com.bbh.remediation.updater.GradleUpdater
 import com.bbh.remediation.updater.MavenPomUpdater
@@ -45,6 +46,7 @@ import com.bbh.utils.BuildUtils
 @Field OpenshiftService    _openshift
 @Field InfluxDbService     _influx
 @Field OneViewReportService _oneViewReport
+@Field OneViewDecorationReporter _decorations
 @Field DatabaseBuild       _database
 @Field DatabaseDeployService _databaseDeploy
 @Field SecurityPullRequestService _securityPr
@@ -64,6 +66,7 @@ private void _setup() {
     _state     = new PipelineState()
     _os        = new OsHelper(this)
     _config    = new ConfigLoader(this, _state)
+    _decorations = new OneViewDecorationReporter(this, _state, _os)
     _main      = _kitFor(_state)
     _policy    = _main.policy as PolicyEngine
     _build     = _main.build as BuildService
@@ -97,7 +100,7 @@ private Map _kitFor(PipelineState state) {
             databaseDeploy: new DatabaseDeployService(this, state, policy, database),
             appScan   : new AppScanService(this, state, _os, policy, build),
             sonar     : new SonarService(this, state, _os, build),
-            securityPr: new SecurityPullRequestService(this, state, publisher, gitRepo),
+            securityPr: new SecurityPullRequestService(this, state, publisher, gitRepo, _decorations),
             nexusIq   : nexusIq]
 }
 
