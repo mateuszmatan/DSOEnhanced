@@ -602,7 +602,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <td style="text-align: left;"><strong>HCL AppScan SAST</strong> (Stage 4)</td>
 <td style="text-align: left;"><code>appId</code> (the API key is the functional user's one in the library defaults); optional <code>asoc.doCompile</code>, <code>asoc.&lt;tool&gt;</code></td>
 <td style="text-align: left;">HCL AppScan SAClientUtil (<code>SA_LINUX_URL</code> / <code>SA_WIN_URL</code> or <code>appscanPath</code>)</td>
-<td style="text-align: left;">Compiles sources, generates <code>.irx</code>, runs cloud SAST analysis, enforces severity limits, and posts inline PR comments on vulnerable lines</td>
+<td style="text-align: left;">Compiles the sources while <code>asoc.doCompile</code> is on, as by default: on a Linux or macOS agent <code>gradle</code> and <code>android</code> with Gradle and <code>maven</code> with Maven, each followed by the Liquibase step <code>asoc.liquibase</code> (else <code>build.liquibase</code>) when one is set, <code>liquibase</code> and <code>sql</code> with Liquibase, and <code>dotnet</code> and <code>msbuild</code> with their .NET build; on a Windows agent only <code>dotnet</code> and <code>msbuild</code>. <code>npm</code>, <code>pip</code>, <code>ios</code> and <code>flutter</code> have no compile step: their <code>.irx</code> is prepared from the sources. Then generates <code>.irx</code>, runs cloud SAST analysis, enforces severity limits, and posts inline PR comments on vulnerable lines</td>
 </tr>
 <tr>
 <td style="text-align: left;"><strong>SonarQube SCA</strong> (Stage 5)</td>
@@ -702,7 +702,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li>The button is disabled whenever any required field is invalid or missing.</li>
 <li>Displays a real-time counter of missing fields with one-click direct navigation to each unconfigured section.</li>
 <li><strong>Library Defaults Presentation:</strong></li>
-<li>Fields with global defaults defined in <em>Library Defaults</em> (Global Settings) are automatically pre-filled.</li>
+<li>Fields with a default in the Library defaults (Admin, Library defaults) are automatically pre-filled.</li>
 <li>Helper hints display the source value (e.g., <em>Library default: mvn clean package</em>).</li>
 <li><strong>Contextual Tooltips:</strong></li>
 <li>Every field includes an intuitive tooltip explaining its purpose, requirements, and expected input format.</li>
@@ -815,8 +815,8 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 </table></div>
 <h3 id="plugins-from-the-bbh-nexus">Plugins from the BBH Nexus:</h3>
 <ul>
-<li>When a Gradle or Maven step (build, unit tests, SonarQube, SAST compile) fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus: <em>Gradle plugin repository</em> and <em>Maven plugin repository</em> of the Global Settings (<code>pluginRepositories</code>). The console says which plugins came from it and where to add the repository; unticking <em>Retry a Gradle or Maven step with these repositories when a plugin is missing</em> switches the retry off.</li>
-<li>A value of the wrong kind that reaches the library (text for a number, a word for <code>true</code>/<code>false</code>, a map for a list) falls back to the value of the Global Settings with an <code>[INIT] [WARN]</code> line.</li>
+<li>When a Gradle or Maven step (build, unit tests, SonarQube, SAST compile) fails because a plugin is not in the repositories of the build, the step runs once more with the plugin repository of the BBH Nexus: <em>Gradle plugin repository</em> and <em>Maven plugin repository</em> of the Library defaults of OneView (<code>pluginRepositories</code>). The console says which plugins came from it and where to add the repository; unticking <em>Retry a Gradle or Maven step with these repositories when a plugin is missing</em> switches the retry off.</li>
+<li>A value of the wrong kind that reaches the library (text for a number, a word for <code>true</code>/<code>false</code>, a map for a list) falls back to the Library default of OneView with an <code>[INIT] [WARN]</code> line.</li>
 </ul>
 <h3 id="sql-and-plsql-with-a-database-block">SQL and PL/SQL with a database block:</h3>
 <ul>
@@ -866,7 +866,7 @@ Designed for non-technical users, Product Owners, business analysts, and enginee
 <li>Unit tests, Nexus IQ, SAST and SonarQube run <strong>in parallel</strong> in the stage <em>Static analysis</em>; SAST compiles and queues its scans in a copy of the workspace, and SonarQube starts once the unit tests have written the coverage. On a Windows agent the unit tests, Nexus IQ and SonarQube also take turns on the workspace, because a .NET build there locks the files Nexus IQ scans; <code>DSO_STATIC_ANALYSIS_PARALLEL=false</code> in the node properties of an agent keeps that agent one after another.</li>
 <li>The full and extended pipelines also run the regression, smoke and performance tests and DAST in parallel (<em>Dynamic analysis</em>).</li>
 <li>The report ends with the table <strong>Manual Actions vs DevSecOps</strong>: every step of the run with its own time, the time by hand, the time with DevSecOps (of the steps that run in parallel only the longest), the time gained in percent and a summary in seconds, minutes and percent; with more than one service, every step lists all configured services with their times.</li>
-<li>Both are on by default. Unticking <strong>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</strong> or <strong>Run the regression, smoke and performance tests and DAST at the same time</strong> in the Global Settings (<code>staticAnalysis.parallel</code>, <code>dynamicAnalysis.parallel</code>) runs the stages one after another again; without a key, <code>false</code> in <code>devsecops_config.yaml</code> does the same.</li>
+<li>Both are on by default. Unticking <strong>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</strong> or <strong>Run the regression, smoke and performance tests and DAST at the same time</strong> in OneView under Admin, Library defaults (<code>staticAnalysis.parallel</code>, <code>dynamicAnalysis.parallel</code>) runs the stages one after another again; without a key, <code>false</code> in <code>devsecops_config.yaml</code> does the same.</li>
 <li><strong>Streamlined Configuration:</strong></li>
 <li>The <strong>main SAST section</strong> holds only the AppScan application ID (<code>appId</code>) of the service.</li>
 <li><code>sast.scanName</code> is available in <strong>Advanced Settings</strong> for custom scan naming.</li>
@@ -899,7 +899,7 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <h3 id="how-the-analysis-runs">How the Analysis Runs:</h3>
 <ul>
 <li><strong>Gradle, Android and Maven with analysis commands of their own</strong> (<code>tools.sonar.gradle.tasks</code>, for Android as well, or <code>tools.sonar.maven.goals</code>) run them with the plugin of the build.</li>
-<li><strong>Every other Gradle, Android and Maven service, and every npm, pip and iOS service</strong> is analysed with the <code>sonar-scanner</code> CLI: the Jenkins tool <code>sonar-scanner-cli-&lt;version&gt;</code> named in <code>tools.sonar.sonarScannerVersion</code>, otherwise <code>sonar-scanner</code> on the <code>PATH</code> of the agent. It gets <code>tools.sonar.&lt;tool&gt;.flags</code> (of a Gradle, Android or Maven block only the arguments that start with <code>-Dsonar.</code>), the sources of the service and the coverage report of pip (<code>coverage.xml</code>) and npm (<code>coverage/lcov.info</code>). An argument of the service wins over the one the library would add.</li>
+<li><strong>Every other Gradle, Android and Maven service, and every npm, pip and iOS service</strong> is analysed with the <code>sonar-scanner</code> CLI: the Jenkins tool <code>sonar-scanner-cli-&lt;version&gt;</code> named in <code>tools.sonar.sonarScannerVersion</code>, otherwise <code>sonar-scanner</code> on the <code>PATH</code> of the agent. The Portal sets the version in <em>SonarScanner version</em> under the <em>Advanced settings</em> of SonarQube, for every build tool but C# / .NET and MSBuild; Flutter, Liquibase and SQL / PL/SQL services use it as well. It gets <code>tools.sonar.&lt;tool&gt;.flags</code> (of a Gradle, Android or Maven block only the arguments that start with <code>-Dsonar.</code>), the sources of the service and the coverage report of pip (<code>coverage.xml</code>) and npm (<code>coverage/lcov.info</code>). An argument of the service wins over the one the library would add.</li>
 <li><strong>Branch and retry:</strong> the branch of the build is passed as <code>-Dsonar.branch.name</code>. A server that refuses the branch name, as the Community Edition does, fails that attempt; the library logs a <code>[SONAR]</code> line and runs the analysis once more without the branch, and the stage fails only when the second attempt fails as well. <code>tools.sonar.branchAnalysis: false</code> skips the first attempt.</li>
 </ul>
 <hr />
@@ -927,13 +927,13 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <h3 id="decoupled-pipeline-execution-order">Decoupled Pipeline Execution Order:</h3>
 <ol>
 <li><strong>Stage 1: Build Artifact (without tests):</strong> The pipeline builds deployable artifacts without executing unit tests. If the optional Node.js build is enabled (<code>build.node.enabled: true</code>), npm commands run as step 0 at the start of this stage before compiling backend code.</li>
-<li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (unticking <em>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</em> in the Global Settings runs them one after another).</li>
+<li><strong>Stage 2: Static analysis at the same time (Unit Tests + Nexus IQ + SAST + SonarQube):</strong> by default the four run as parallel branches of the Jenkins stage <em>Static analysis</em> (unticking <em>Run unit tests, Nexus IQ, SAST and SonarQube at the same time</em> in the Library defaults of OneView runs them one after another).</li>
 <li><strong>Unit Tests:</strong> Runs automated unit tests (including Node.js &amp; Cypress tests) and aggregates JaCoCo &amp; LCOV code coverage.</li>
 <li><strong>Nexus IQ:</strong> Evaluates open-source dependencies against security policies and prepares GoldenFix remediation.</li>
 <li><strong>SAST (HCL AppScan):</strong> Compiles and queues the scan of every service in a copy of the workspace (<code>&lt;WORKSPACE_TMP&gt;/dso-sast-workspace</code>, on a Windows agent <code>&lt;WORKSPACE_TMP&gt;\dso-sast</code>), so its compile never touches the files the other branches read, then waits for the results and the reports.</li>
 <li><strong>SonarQube:</strong> Starts a service once the unit tests of every service in the same source folder have written their coverage, ingests the test execution results and the JaCoCo/LCOV/Cypress coverage reports and enforces the SonarQube Quality Gate.</li>
 <li><strong>Stage 3: Results:</strong> A failing branch turns its stage red while the other branches finish. The console and the report show how long the four stages would take one after another and how long they took at the same time.</li>
-<li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <em>Run the regression, smoke and performance tests and DAST at the same time</em> in the Global Settings).</li>
+<li>The full and extended pipelines run the regression, smoke and performance tests and DAST at the same time in the same way (<em>Dynamic analysis</em>, <em>Run the regression, smoke and performance tests and DAST at the same time</em> in the Library defaults of OneView).</li>
 </ol>
 <hr />
 <h2 id="11-deployments-delivery-openshift-and-virtual-machines-vm">11. Deployments &amp; Delivery – OpenShift and Virtual Machines (VM)</h2>
@@ -1034,10 +1034,24 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td style="text-align: center;"><span class="badge badge-required">YES</span></td>
 </tr>
 <tr>
+<td><strong>Liquibase Step After the Build</strong></td>
+<td>Gradle, Android, Maven and .NET: <code>liquibase</code> with its flags and commands once the build has passed (<code>build.liquibase</code>, <em>Advanced settings</em> of Build); a failure fails the build</td>
+<td>Commands <code>validate</code>, flags <code>--changelog-file=db/changelog.xml</code> and <code>--url=offline:oracle</code></td>
+<td>Changelog of the module</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
 <td><strong>Unit Test Tasks</strong></td>
 <td>Test execution command</td>
 <td><code>test</code> or <code>test jacocoTestReport</code></td>
 <td>Build tool test task</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
+<td><strong>Liquibase Step After the Unit Tests</strong></td>
+<td>Gradle, Android, Maven and .NET: <code>liquibase</code> after the unit tests (<code>tests.unitTests.liquibase</code>, <em>Advanced settings</em> of Unit tests); a failure makes the build unstable</td>
+<td>Commands <code>status</code>, flags <code>--changelog-file=db/changelog.xml</code> and <code>--url=offline:oracle</code></td>
+<td>Changelog of the module</td>
 <td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
@@ -1083,6 +1097,13 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
+<td><strong>Liquibase Step After the Compile</strong></td>
+<td>Gradle, Android and Maven on a Linux or macOS agent: <code>liquibase</code> after the SAST compile (<code>asoc.liquibase</code>, <em>Advanced settings</em> of AppScan); left empty, the Liquibase step after the build runs there</td>
+<td>Commands <code>validate</code>, flags <code>--changelog-file=db/changelog.xml</code> and <code>--url=offline:oracle</code></td>
+<td>Changelog of the module</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
+</tr>
+<tr>
 <td><strong>Sonar Installation</strong></td>
 <td>SonarQube server in Jenkins</td>
 <td><code>BBH-SonarQube</code></td>
@@ -1109,6 +1130,13 @@ Provide <strong>either</strong> direct badge token OR Jenkins credentials ID. Do
 <td><code>sonar-badge-credentials-id</code></td>
 <td>Jenkins Credentials store</td>
 <td style="text-align: center;"><span class="badge badge-optional">1 OF 2</span></td>
+</tr>
+<tr>
+<td><strong>SonarScanner Version</strong></td>
+<td>Jenkins tool <code>sonar-scanner-cli-&lt;version&gt;</code> of every analysis with the <code>sonar-scanner</code> CLI (<code>tools.sonar.sonarScannerVersion</code>, <em>Advanced settings</em> of SonarQube); every build tool but C# / .NET and MSBuild</td>
+<td><code>5.0.1.3006</code></td>
+<td>Jenkins Global Tool Configuration</td>
+<td style="text-align: center;"><span class="badge badge-optional">OPTIONAL</span></td>
 </tr>
 <tr>
 <td><strong>Nexus IQ Application ID</strong></td>
