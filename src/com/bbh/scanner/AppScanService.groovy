@@ -174,9 +174,12 @@ exit \$prepareCode
                         } else if (BuildUtils.isDotnetTool(tool as String)) {
                             Map dotnetOverride = DotnetBuildRunner.toolCfg(state.cfg.asoc as Map, tool as String)
                             new DotnetBuildRunner(script, os, state.cfg).build(dotnetOverride ?: null, tool as String)
+                        } else if (!BuildUtils.sastCompiles(tool as String)) {
+                            script.echo "[SAST] ${state.currentProjectName}: build tool ${tool} - the scan has no compile step, the IRX is prepared from the sources"
                         } else {
-                            Map compileCfg = (state.cfg.asoc?.get(tool) ? state.cfg.asoc : state.cfg.build) as Map
-                            BuildRunner runner = new BuildRunner(script, compileCfg, tool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults))
+                            String compileTool = tool == 'android' ? 'gradle' : (tool as String)
+                            Map compileCfg = (state.cfg.asoc?.get(compileTool) ? state.cfg.asoc : state.cfg.build) as Map
+                            BuildRunner runner = new BuildRunner(script, compileCfg, compileTool, BuildUtils.pluginRepositories(state.cfg, state.libraryDefaults))
                             if (!runner.ifExist()) {
                                 script.error "[SAST] Build tool is NOT installed on an agent"
                             }
