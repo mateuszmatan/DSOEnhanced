@@ -1,7 +1,7 @@
-# The services of examples/CertScanner/Jenkinsfile, at the root of the CertScanner repository. The global settings
+# The services of examples/CertScanner/Jenkinsfile, at the root of the CertScanner repository. The library defaults
 # (thresholds, coverage minimum, timeouts, GoldenFix policy, the AppScan on Cloud API key of the functional user)
-# come from the library; a service sets only its AppScan appId. influx.credentialsId and
-# tools.sonar.badgeCredentialsId name Jenkins Secret text credentials.
+# come from the library release (resources/com/bbh/devsecops/defaults.yaml); a service sets only its AppScan appId.
+# influx.credentialsId and tools.sonar.badgeCredentialsId name Jenkins Secret text credentials.
 
 projects:
 

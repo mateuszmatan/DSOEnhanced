@@ -94,7 +94,7 @@ Closure attempt = { SandboxHarness h, Closure body ->
     }
 }
 Closure runStateOf = { FakeScript s -> s.files['pipeline-config.yaml'] ? ((yaml.load(s.files['pipeline-config.yaml']) as Map).projects ?: [:]) as Map : [:] }
-Closure readFrom = { String file -> "[INIT] The services come from ${file} in the repository, the global settings from the library (resources/${bundledName})".toString() }
+Closure readFrom = { String file -> "[INIT] The services come from ${file} in the repository, the library defaults from the library release (resources/${bundledName})".toString() }
 Map agents = [agentNames: ['linux-agent']]
 
 Closure runEntryPoint = { String name, Map jenkinsfile, Map env = [:] ->

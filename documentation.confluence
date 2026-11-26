@@ -5,7 +5,7 @@ Jenkins Shared Library engineered and maintained by the *DevSecOps team in ITSS 
 This document is the complete documentation for the library. Part I states the purpose, business case and capabilities of the solution. Part II is the procedure for integrating a new application. Part III is the configuration and behaviour reference. Part IV covers operational monitoring and fault diagnosis. Part V is intended for engineers modifying the library itself.
 
 {info}
-*This is the {{DSOEnhancedWithoutPortal}} branch, DevSecOps version 0.* A pipeline is configured by its {{Jenkinsfile}} and the {{devsecops_config.yaml}} of its repository only, with the global settings that the library bundles. The {{main}} branch of the repository is the release with ITSS COE OneView (OneView), the portal that was called DevSecOps Management Portal before. The features of {{main}} are carried over to this branch.
+*This is the {{DSOEnhancedWithoutPortal}} branch, DevSecOps version 0.* A pipeline is configured by its {{Jenkinsfile}} and the {{devsecops_config.yaml}} of its repository only, with the library defaults that the library bundles. The {{main}} branch of the repository is the release with ITSS COE OneView (OneView), the portal that was called DevSecOps Management Portal before. The features of {{main}} are carried over to this branch.
 {info}
 
 h2. Contents
@@ -59,7 +59,7 @@ h1. 1. High Level Overview
 The library executes the following pipeline automatically when you call {{devSecOpsPipeline()}} from your Jenkinsfile:
 
 ||#||Stage||What it does||
-|1|Monitor source changes|Reads {{devsecops_config.yaml}} (else {{config.yaml}}) of the repository, merges its services with the global defaults that the library bundles and sets the tool environment|
+|1|Monitor source changes|Reads {{devsecops_config.yaml}} (else {{config.yaml}}) of the repository, merges its services with the library defaults ({{resources/com/bbh/devsecops/defaults.yaml}}) and sets the tool environment|
 |0|Node.js build (optional)|Runs the npm commands of each service that sets {{build.node.enabled: true}}, for example to build an Angular frontend, before the Gradle or Maven build; the stage is left out when no service of the run sets it|
 |2|Unit tests|Build tool tests, then the line coverage of every JaCoCo and LCOV report of the service, whose mean is checked against the library minimum; a failed test run or missing coverage turns the stage orange and the pipeline continues|
 |3|Dependencies scan (Nexus IQ)|Dependency scan, an orange stage on a policy violation and an automatic GoldenFix pull request|
@@ -228,7 +228,7 @@ This chapter is the high level answer to "what can it do". Every item is covered
 
 h3. One policy for every application
 
-Severity thresholds and the required line coverage are global settings of the library, held in the defaults it bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which the DevSecOps team owns. A team cannot set its own thresholds in the settings of its services, and every build logs the thresholds it was measured against.
+Severity thresholds and the required line coverage are library defaults, held in the file that the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which the DevSecOps team owns. A team cannot set its own thresholds in the settings of its services, and every build logs the thresholds it was measured against.
 
 h3. Configuration in the repository
 
@@ -405,7 +405,7 @@ DevSecOpsJenkinsLibrary/           <- library repository root
 │   │   ├── ReportViewModel.groovy          <- MVC model: stage layouts, policy calculations, test job summaries and GoldenFix state
 │   │   └── HtmlReportCardsView.groovy      <- MVC view: HTML cards, tables, banners and badges
 │   └── utils/                              <- RestClient (curl JSON client), AppScanReportParser, FlutterSonarReports, BuildUtils, FlutterUtils, RepoStackAutoResolver
-├── resources/com/bbh/devsecops/defaults.yaml <- the global settings: thresholds, coverage minimum, timeouts, GoldenFix policy, tool defaults
+├── resources/com/bbh/devsecops/defaults.yaml <- the library defaults: thresholds, coverage minimum, timeouts, GoldenFix policy, tool defaults
 ├── Jenkinsfile.template           <- the Jenkinsfile of a project: services and agent labels
 ├── devsecops_config.yaml.template <- one commented service with every key the library reads
 ├── tools/build-documentation-html.py       <- renders documentation.confluence into documentation.html and documentation.md
@@ -452,8 +452,8 @@ devSecOpsPipeline(
 # {{projectNames}} names the services to build, the primary project first, as one string separated by commas or as a list. Without it the library builds the services of the {{PROJECT_NAMES}} or {{PROJECT_NAME}} environment variable or, without those, every service of the file in the order of the file. A name that is not a service of the file is left out with a {{[WARN]}} line, and when no name is left the run builds every service of the file, as without the parameter (see *How the library chooses a value* below).
 # {{securityPipeline}} names the security job whose {{pipeline-config.yaml}} and {{release-gate.json}} an extended pipeline copies. In any entry point it also hides the Nexus IQ and SonarQube summary rows of the report.
 # In the Monitor stage, after the checkout, {{ConfigLoader.initialize()}} reads {{devsecops_config.yaml}} at the root of the workspace or, when there is none, {{config.yaml}}, the name the file had in the earlier releases of the library. When both are there it reads {{devsecops_config.yaml}} and says so in the console; when neither is there the stage fails with a message that names both. The names are exact and case-sensitive: a Windows agent also finds {{Config.yaml}}, a Linux agent does not.
-# Only the {{projects:}} section of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} of the library; the console says so: "[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)". A {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses, the OIS host and the iOS build agent are the values of the agent environment, of the optional {{platform:}} section of the bundled defaults, or the library's own.
-# The services of the run are merged with the global defaults, the values of a service winning over the defaults, and written to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags. Every message that says where a setting lives names the file that was read.
+# Only the {{projects:}} section of the file is read. The thresholds, the required coverage, the timeouts, the GoldenFix policy and the tool defaults come from the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} of the library; the console says so: "[INIT] The services come from devsecops_config.yaml in the repository, the library defaults from the library release (resources/com/bbh/devsecops/defaults.yaml)". A {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console. The AppScan, proxy and Nexus addresses, the OIS host and the iOS build agent are the values of the agent environment, of the optional {{platform:}} section of the bundled defaults, or the library's own.
+# The services of the run are merged with the library defaults, the values of a service winning over the defaults, and written to {{pipeline-config.yaml}}, the run-state file in which the snapshot stages record their build tags. Every message that says where a setting lives names the file that was read.
 # An extended pipeline whose Jenkinsfile names a security job copies {{pipeline-config.yaml}}, {{release-gate.json}} and, when the security build published a snapshot, {{build.tag}} and {{nexus-delivery.json}} from the last successful build of that job and takes from the copy only the run-time tags of its own services: {{deploy.openshift.rd.buildTag}}, {{deploy.openshift.rd.internalDockerUrl}}, the delivered version in {{delivery}} of a Liquibase service, {{delivery.buildTagAndroid}} and {{delivery.buildTagIOS}}. Each must be a plain tag of letters, digits and {{. _ : / @ + -}}. A VM service gets the snapshot version from {{build.tag}}, and its {{delivery}} settings are never replaced by the copy. Every other setting comes from the file of its own checkout, so its Jenkinsfile lives in the repository of the service.
 # The report header says "Settings from devsecops_config.yaml in the repository", with the name of the file that was read, and {{build_evidence}} carries {{config_file}}. The settings follow the branch and the commit: a replayed build reads the file of its commit.
 # A custom Jenkinsfile that calls {{devSecOpsApi.initialize()}} without {{configure()}} reads the file too. The Nexus IQ GoldenFix pipeline needs {{tools.nexusIq.application}} and its {{scanPatterns}} for every service of the run.
@@ -588,9 +588,9 @@ h3. Jenkins global configuration
 |{{DSO_DYNAMIC_ANALYSIS_PARALLEL}}|no|{{true}} or {{false}} decides, before {{dynamicAnalysis.parallel}} of the services, whether the full and extended pipelines run the regression, smoke and performance tests and DAST at the same time. Unset, blank or another value, {{dynamicAnalysis.parallel}} of the services decides, by default {{true}}|
 |{{SA_LINUX_URL}}, {{SA_WIN_URL}}, {{PROXY_HOST}}, {{PROXY_PORT}}, {{PROXY_USER}}, {{APPSCAN_HOST}}, {{APPSCAN_SERVER_URL}}|no|The tool environment of AppScan: the download of the AppScan client for Linux and Windows, the BBH proxy and the AppScan host. A value set here wins over {{platform.environment}} of the bundled defaults and over the library's own BBH value, see [Stage 1|#ch17]|
 
-h3. Global settings: the bundled defaults
+h3. Library defaults: the bundled defaults
 
-The global settings of every pipeline are the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} in the library: the security thresholds, the required coverage, the timeouts, the release gate, the GoldenFix policy and the tool defaults. The DevSecOps team owns the file and changes it with a library release; a project neither copies nor overrides the thresholds. A job uses the defaults of the library version it loads: the default version of *Global Pipeline Libraries*, or the version pinned in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}}.
+The library defaults of every pipeline are the {{defaults:}} section of {{resources/com/bbh/devsecops/defaults.yaml}} in the library: the security thresholds, the required coverage, the timeouts, the release gate, the GoldenFix policy and the tool defaults. The DevSecOps team owns the file and changes it with a library release; a project neither copies nor overrides the thresholds. A job uses the defaults of the library version it loads: the default version of *Global Pipeline Libraries*, or the version pinned in {{@Library('DevSecOpsJenkinsLibrary@<version>') _}}.
 
 The optional {{platform:}} section of the same file holds the platform values. The production file has no such section, so the library uses its built-in BBH values, and a value of the agent or Jenkins environment still wins for the tool environment. [The configuration reference|#ch16] lists both sections.
 
@@ -627,7 +627,7 @@ h3. Who does what
 |Nexus repositories and publishing accounts|Nexus administrators|
 |Deployment hosts and accounts|The owners of your test environments|
 |The global environment variables, such as {{DSO_STATIC_ANALYSIS_PARALLEL}}|Jenkins administrators|
-|The global settings and the platform values of the bundled defaults ({{resources/com/bbh/devsecops/defaults.yaml}})|DevSecOps team, with a library release|
+|The library defaults and the platform values of the bundled file ({{resources/com/bbh/devsecops/defaults.yaml}})|DevSecOps team, with a library release|
 |{{devsecops_config.yaml}}, the {{Jenkinsfile}}, the Jenkins job, the test jobs|You|
 
 ----
@@ -736,7 +736,7 @@ h3. Step 1 — Register the library in Jenkins
 |Load implicitly|off — projects declare {{@Library(...)}} themselves|
 |Allow default version to be overridden|on, so a project can pin a version while testing|
 
-Ask them to confirm this is done before you create your job. The global settings come with the library version a job loads, see [Platform Prerequisites|#ch6].
+Ask them to confirm this is done before you create your job. The library defaults come with the library version a job loads, see [Platform Prerequisites|#ch6].
 
 h3. Step 2 — Write devsecops_config.yaml and the Jenkinsfile
 
@@ -744,7 +744,7 @@ h3. Step 2 — Write devsecops_config.yaml and the Jenkinsfile
 
 Both files go in the *root* of the repository, on the branch the pipeline will build.
 
-*{{devsecops_config.yaml}} describes the services.* Copy {{devsecops_config.yaml.template}} from the library, keep one entry under {{projects:}} for each service of the repository and fill in the values you collected in the previous chapter. A repository that already holds a {{config.yaml}} of an earlier release can rename it to {{devsecops_config.yaml}}; until then the library reads {{config.yaml}}. *Do not add thresholds or a coverage minimum*: they are global settings of the library and a project cannot change them, and a {{defaults:}} section in the file is ignored. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch16].
+*{{devsecops_config.yaml}} describes the services.* Copy {{devsecops_config.yaml.template}} from the library, keep one entry under {{projects:}} for each service of the repository and fill in the values you collected in the previous chapter. A repository that already holds a {{config.yaml}} of an earlier release can rename it to {{devsecops_config.yaml}}; until then the library reads {{config.yaml}}. *Do not add thresholds or a coverage minimum*: they are library defaults and a project cannot change them, and a {{defaults:}} section in the file is ignored. The worked example for your pipeline is in your chapter, and every key the library reads is listed in the [configuration reference|#ch16].
 
 {code:yaml}
 projects:
@@ -2744,7 +2744,7 @@ h1. 16. Configuration Reference: devsecops_config.yaml
 
 {{devsecops_config.yaml}} at the root of the repository holds the settings of the services of the repository under {{projects:}}. A repository without it is read from {{config.yaml}}, the name the file had in the earlier releases of the library, with the same content. Only the {{projects:}} section is read: a {{defaults:}}, {{platform:}} or {{pipeline:}} section of the file is ignored and named in the console.
 
-The global settings are the library resource {{resources/com/bbh/devsecops/defaults.yaml}}, which the DevSecOps team owns and changes with a library release. Its {{defaults:}} section is merged under every service, and its optional {{platform:}} section holds the platform values (see *The bundled defaults* below). The thresholds, the required coverage, the scan timeouts and the release gate are read from the bundled defaults only, so a project cannot change them, also not by setting the same keys for a service; the other keys of the defaults are starting values that a service may set for itself.
+The library defaults are the library resource {{resources/com/bbh/devsecops/defaults.yaml}}, which the DevSecOps team owns and changes with a library release. Its {{defaults:}} section is merged under every service, and its optional {{platform:}} section holds the platform values (see *The bundled defaults* below). The thresholds, the required coverage, the scan timeouts and the release gate are read from the bundled defaults only, so a project cannot change them, also not by setting the same keys for a service; the other keys of the defaults are starting values that a service may set for itself.
 
 Below is the {{projects:}} section of {{devsecops_config.yaml}} with every key the library reads and its default; a key shown as a comment has no default and is set only when the service needs it. {{devsecops_config.yaml.template}} at the root of the library holds the same keys as a commented service to copy.
 
@@ -3150,7 +3150,7 @@ projects:
 
 h3. The bundled defaults
 
-{{resources/com/bbh/devsecops/defaults.yaml}} of the library holds the global settings in its {{defaults:}} section. The library reads it with {{libraryResource}} in the Monitor stage of every build, so a job uses the file of the library version it loads. The {{defaults:}} section of the production file:
+{{resources/com/bbh/devsecops/defaults.yaml}} of the library holds the library defaults in its {{defaults:}} section. The library reads it with {{libraryResource}} in the Monitor stage of every build, so a job uses the file of the library version it loads. The {{defaults:}} section of the production file:
 
 {code:yaml}
 defaults:                            # merged under every service of the run
@@ -3793,7 +3793,7 @@ The minutes are {{report.manualEffort}} of the bundled defaults, which only the 
 {anchor:ch18}
 h1. 18. Security Policy Thresholds
 
-All thresholds are global settings in the defaults that the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which only the DevSecOps team changes, with a library release. A project *cannot* change any of them: the library takes them from the bundled defaults only, and the same keys under a service of {{devsecops_config.yaml}} change nothing. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
+All thresholds are library defaults, in the file that the library bundles ({{resources/com/bbh/devsecops/defaults.yaml}}), which only the DevSecOps team changes, with a library release. A project *cannot* change any of them: the library takes them from the bundled defaults only, and the same keys under a service of {{devsecops_config.yaml}} change nothing. Exceeding a threshold colours the stage orange and blocks the Nexus release and the QC deployment, and never fails the build.
 
 ||Scanner||Metric||Library policy||Overridable by a project||
 |SAST|maxCritical / maxHigh / maxMedium|0|no|
@@ -4957,7 +4957,7 @@ A Gradle or Maven step failed because a plugin is not in the repositories of the
 
 h3. "The library resource com/bbh/devsecops/defaults.yaml cannot be read"
 
-"[INIT] The library resource com/bbh/devsecops/defaults.yaml cannot be read (<cause>): the global settings come from it; ask the DevSecOps team". Every run takes its global settings from this file of the library. The library version the job loads lacks the file, or another library loaded in the same build shadows it. Ask the DevSecOps team.
+"[INIT] The library resource com/bbh/devsecops/defaults.yaml cannot be read (<cause>): the library defaults come from it; ask the DevSecOps team". Every run takes its library defaults from this file of the library. The library version the job loads lacks the file, or another library loaded in the same build shadows it. Ask the DevSecOps team.
 
 h3. "The last successful build of ... has no pipeline-config.yaml"
 
@@ -5049,7 +5049,7 @@ The Jenkins sandbox rejected a signature. The library is tested against the real
 
 h3. SAST stage takes very long or times out
 
-* Default {{sast.pollTimeoutMin}} is 50 minutes. This is a global setting of the bundled defaults that only the DevSecOps team can change.
+* Default {{sast.pollTimeoutMin}} is 50 minutes. This is a library default ({{resources/com/bbh/devsecops/defaults.yaml}}) that only the DevSecOps team can change.
 * The IRX generation step (compile via Gradle + AppScan prepare) can take 10–20 minutes on large projects.
 * In the *Static analysis* stage the status poll runs in the SAST branch right after the queue, while the other branches run; in the fallback order, when the workspace could not be copied, it starts after SonarQube and its timeout counts from then.
 
@@ -5209,7 +5209,7 @@ The HTML report *is* required, because the findings of the scan are read from it
 * the report was still not ready when {{dast.reportTimeoutMin}} ran out;
 * AppScan reported the rendering as {{Failed}}.
 
-{{dast.reportTimeoutMin}} (default 30 minutes) and {{dast.reportIntervalSec}} (default 30 seconds) are global settings of the bundled defaults: ask the DevSecOps team to raise them for scans whose reports take longer to render. The stage deliberately fails instead of recording zero findings: a green DAST stage always means a real report was parsed.
+{{dast.reportTimeoutMin}} (default 30 minutes) and {{dast.reportIntervalSec}} (default 30 seconds) are library defaults ({{resources/com/bbh/devsecops/defaults.yaml}}): ask the DevSecOps team to raise them for scans whose reports take longer to render. The stage deliberately fails instead of recording zero findings: a green DAST stage always means a real report was parsed.
 
 h3. Hundreds of smoke jobs
 

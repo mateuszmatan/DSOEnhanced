@@ -410,18 +410,18 @@ check('release settings, repositoryUrl not an http or https address: [WARN] and 
         [invalidUrl.crash] + logOf(invalidUrl))
 Map keyed = unit([cfg: gradleCfg + [delivery: [push: [gradle: guiPush], release: [repositoryUrl: 'nexus/releases']]], cfgDefaults: withRelease, configFile: '',
                   buildTag: '77-20261123-101500', files: unitFiles])
-String defaultsPlace = withOneView ? 'the Global Settings' : 'the library defaults'
+String defaultsPlace = withOneView ? 'the Library defaults of OneView' : 'the library defaults'
 check("release settings, a run ${withOneView ? 'with a pipeline key' : 'without the name of its settings file'}: the [WARN] names ${defaultsPlace} as the place of the default".toString(),
         !keyed.crash && logOf(keyed)[0] == "[NEXUS] [WARN] svc: delivery.release.repositoryUrl 'nexus/releases' is not an http or https address - ${releases} from ${defaultsPlace} is used instead".toString(),
         [keyed.crash] + logOf(keyed))
 if (withOneView) {
     Map bundledOnly = unit([cfg: gradleCfg, cfgDefaults: [:], libraryDefaults: withRelease, configFile: '', buildTag: '77-20261123-101500', files: unitFiles])
-    check('release settings, a run with a pipeline key and no release repository in the Global Settings: the release repository of the library defaults is used',
+    check('release settings, a run with a pipeline key and no release repository in the Library defaults of OneView: the release repository of the library defaults is used',
             !bundledOnly.crash && !bundledOnly.notRequired && (bundledOnly.gradleRuns as List<Map>).collect { it.manifest.repositoryUrl } == [releases, releases],
             [bundledOnly.crash] + logOf(bundledOnly))
     Map wrongGlobal = unit([cfg: gradleCfg, cfgDefaults: [delivery: [release: [repositoryUrl: 'nexus/releases', enabled: 'sometimes']]], libraryDefaults: withRelease, configFile: '',
                             buildTag: '77-20261123-101500', files: unitFiles])
-    check('release settings, a wrong value in the Global Settings: [WARN], and the value of the library defaults is used',
+    check('release settings, a wrong value in the Library defaults of OneView: [WARN], and the value of the library defaults is used',
             !wrongGlobal.crash && !wrongGlobal.notRequired
                     && logOf(wrongGlobal).take(2) == ['[NEXUS] [WARN] svc: delivery.release.enabled: sometimes is not true or false - true from the library defaults is used instead',
                                                       "[NEXUS] [WARN] svc: delivery.release.repositoryUrl 'nexus/releases' is not an http or https address - ${releases} from the library defaults is used instead".toString()],

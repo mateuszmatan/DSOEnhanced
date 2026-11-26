@@ -156,7 +156,7 @@ boolean wellFormed = (bundledFile.containsKey('defaults') && (bundledFile.keySet
         && (bundledDefaults.coverage as Map)?.minLine instanceof Integer)
 Map applied = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true)
 Closure limit = { def cfg -> [maxCritical: cfg.maxCritical, maxHigh: cfg.maxHigh, maxMedium: cfg.maxMedium] }
-check('the library bundles global defaults (and an optional platform: map) that every run applies',
+check('the library bundles the library defaults (and an optional platform: map) that every run applies',
         wellFormed && !applied.error && applied.minRequired == (bundledDefaults.coverage as Map).minLine
                 && applied.policyLimits == [sast: limit(bundledDefaults.sast), sca: limit(bundledDefaults.sca), dast: limit(bundledDefaults.dast),
                                             niq : limit((bundledDefaults.tools as Map).nexusIq)],
@@ -168,7 +168,7 @@ String exampleText = new File(root, 'examples/CertScanner/devsecops_config.yaml'
 Map example = runRepo('full', [projectNames: exampleNames, agentNames: ['linux-agent']], ['devsecops_config.yaml': exampleText], true)
 check("the example examples/CertScanner/devsecops_config.yaml loads with the services of the example Jenkinsfile (${exampleNames}) and the bundled defaults",
         !example.error && (example.order as List) == exampleNames.tokenize(',') && (example.runState as Map).keySet() == exampleNames.tokenize(',') as Set
-                && (example.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && (example.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the library defaults from the library release (resources/${bundledName})".toString())
                 && !(example.log as List).any { (it as String).endsWith(': only its projects: section is read') },
         [example.error, example.order, (example.runState as Map)?.keySet(), example.log])
 
@@ -195,7 +195,7 @@ List dotnetUndocumented = dotnetKeys.findAll { String kp ->
 }
 check("the example examples/DotNetApp/devsecops_config.yaml loads with the services of examples/DotNetApp/Jenkinsfile (${dotnetNames}) and the bundled defaults",
         !dotnetExample.error && (dotnetExample.order as List) == dotnetNames.tokenize(',') && (dotnetExample.runState as Map).keySet() == dotnetNames.tokenize(',') as Set
-                && (dotnetExample.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the global settings from the library (resources/${bundledName})".toString())
+                && (dotnetExample.log as List).contains("[INIT] The services come from devsecops_config.yaml in the repository, the library defaults from the library release (resources/${bundledName})".toString())
                 && dotnetUndocumented.isEmpty(),
         [dotnetExample.error, dotnetExample.order, (dotnetExample.runState as Map)?.keySet(), dotnetUndocumented, dotnetExample.log])
 
@@ -215,7 +215,7 @@ check('A\' other parts of the file: defaults, platform and pipeline are ignored 
 
 Map unbundled = runRepo('full', [projectNames: 'gui,backend-api', agentNames: ['linux-agent']], ['devsecops_config.yaml': configText], true, null)
 check('A\' the bundled defaults are missing: the run stops with the resource it could not read and whom to ask',
-        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): the global settings come from it; ask the DevSecOps team".toString(),
+        unbundled.error == "[INIT] The library resource ${bundledName} cannot be read (No such library resource ${bundledName} could be found.): the library defaults come from it; ask the DevSecOps team".toString(),
         unbundled.error)
 
 println "\n${failures == 0 ? 'ALL COMPATIBILITY SCENARIOS PASSED' : failures + ' COMPATIBILITY SCENARIO CHECK(S) FAILED'}"

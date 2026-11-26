@@ -22,7 +22,7 @@ class RepositoryConfigReader implements Serializable {
                     "for the services of this repository (examples/CertScanner/${candidates[0]} shows one)"
         }
         String file = found[0]
-        script.echo "[INIT] The services come from ${file} in the repository, the global settings from the library (resources/${BuildUtils.defaultsResource()})"
+        script.echo "[INIT] The services come from ${file} in the repository, the library defaults from the library release (resources/${BuildUtils.defaultsResource()})"
         if (found.size() > 1) script.echo "[INIT] ${found.join(' and ')} are both in the repository: ${file} is read, ${found[1]} is not"
         def raw = null
         try {
@@ -46,7 +46,7 @@ class RepositoryConfigReader implements Serializable {
             text = script.libraryResource(name)
         } catch (Exception e) {
             if (e.getClass().getName().endsWith('FlowInterruptedException')) throw e
-            script.error "[INIT] The library resource ${name} cannot be read (${e.message}): the global settings come from it; ask the DevSecOps team"
+            script.error "[INIT] The library resource ${name} cannot be read (${e.message}): the library defaults come from it; ask the DevSecOps team"
         }
         def bundled = script.readYaml(text: text)
         return (bundled instanceof Map ? bundled : [:]) as Map

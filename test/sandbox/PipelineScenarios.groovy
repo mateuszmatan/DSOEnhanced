@@ -632,7 +632,7 @@ Closure verify = { Map spec ->
     String file = files.containsKey(repositoryFiles[0]) ? repositoryFiles[0] : repositoryFiles[1]
     List<String> evidence = influxOf(j).readLines().findAll { it.startsWith('build_evidence,') }
     check("${name}: the console says that the services come from ${file}${files.size() > 1 ? ' and that ' + repositoryFiles[1] + ' is not read' : ''}",
-            log.contains("[INIT] The services come from ${file} in the repository, the global settings from the library (resources/com/bbh/devsecops/defaults.yaml)".toString())
+            log.contains("[INIT] The services come from ${file} in the repository, the library defaults from the library release (resources/com/bbh/devsecops/defaults.yaml)".toString())
                     && (files.size() < 2 || log.contains("[INIT] ${repositoryFiles.join(' and ')} are both in the repository: ${file} is read, ${repositoryFiles[1]} is not".toString()))
                     && probed.containsAll(repositoryFiles.collect { "fileExists ${it}".toString() } + ["readYaml ${file}".toString()])
                     && (files.size() < 2 || !probed.contains("readYaml ${repositoryFiles[1]}".toString())),
